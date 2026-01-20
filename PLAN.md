@@ -212,6 +212,204 @@ asc reviews --app "123456789" --json
 
 ---
 
+### Phase 3.5: Build Uploads + Submission (API 4.1+)
+
+**Goal:** Upload builds and submit them for review without Xcode/Transporter.
+
+#### References (Required Reading)
+
+Use the AI-readable Apple docs via sosumi.ai (replace `developer.apple.com` with `sosumi.ai`):
+
+- App Store Connect API 4.1 release notes (Build Uploads API)
+  - https://sosumi.ai/documentation/appstoreconnectapi/app-store-connect-api-4-1-release-notes
+- App Store Connect API 4.2 release notes
+  - https://sosumi.ai/documentation/appstoreconnectapi/app-store-connect-api-4-2-release-notes
+- App Store Connect API release notes index
+  - https://sosumi.ai/documentation/appstoreconnectapi/app-store-connect-api-release-notes
+- Official OpenAPI spec download (Apple Developer → Releases → App Store Connect API → Download file)
+  - https://developer.apple.com/news/releases/
+- Direct OpenAPI spec zip (Apple generic link used by the spec mirror)
+  - https://developer.apple.com/sample-code/app-store-connect/app-store-connect-openapi-specification.zip
+- OpenAPI mirror for diffing (unofficial, helpful for browsing versions)
+  - https://github.com/EvanBacon/App-Store-Connect-OpenAPI-Spec
+
+#### Target CLI (explicit, non-interactive)
+
+1. **Upload a build**
+   ```bash
+   asc builds upload --app "APP_ID" --ipa "/path/to/app.ipa" --json
+   asc builds upload --app "APP_ID" --ipa "/path/to/app.ipa" --wait --json
+   ```
+
+2. **Submit a build for review**
+   ```bash
+   asc submit --app "APP_ID" --build "BUILD_ID" --confirm --json
+   asc submit status --id "SUBMISSION_ID" --json
+   asc submit cancel --id "SUBMISSION_ID" --confirm --json
+   ```
+
+#### API Discovery Results (OpenAPI Spec 4.1)
+
+**Build Upload Endpoints:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/buildUploads` | Create build upload record |
+| GET | `/v1/buildUploads/{id}` | Get upload status |
+| DELETE | `/v1/buildUploads/{id}` | Cancel/delete upload |
+| POST | `/v1/buildUploadFiles` | Reserve upload slot, get presigned URLs |
+| GET | `/v1/buildUploadFiles/{id}` | Get file upload info |
+| PATCH | `/v1/buildUploadFiles/{id}` | Commit upload (set uploaded=true + checksum) |
+
+**Submission Endpoints (App Store version submissions):**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/appStoreVersionSubmissions` | Create submission for review |
+| GET | `/v1/appStoreVersionSubmissions/{id}` | Get submission status |
+| DELETE | `/v1/appStoreVersionSubmissions/{id}` | Cancel submission |
+
+**Note:** `reviewSubmissions` is for **Game Center content** (introduced in API 4.2) and does **not** replace `appStoreVersionSubmissions` for app version review.
+
+**BuildUploadCreateRequest Schema:**
+```json
+{
+  "data": {
+    "type": "buildUploads",
+    "attributes": {
+      "cfBundleShortVersionString": "1.0.0",  // required
+      "cfBundleVersion": "123",                 // required
+      "platform": "IOS"                         // required: IOS|MAC_OS|TV_OS|VISION_OS
+    },
+    "relationships": {
+      "app": { "data": { "type": "apps", "id": "APP_ID" } }
+    }
+  }
+}
+```
+
+**BuildUploadFileCreateRequest Schema:**
+```json
+{
+  "data": {
+    "type": "buildUploadFiles",
+    "attributes": {
+      "fileName": "app.ipa",          // required
+      "fileSize": 1024000,            // required
+      "uti": "com.apple.ipa",         // required: com.apple.ipa for .ipa
+      "assetType": "ASSET"            // required: ASSET|ASSET_DESCRIPTION|ASSET_SPI
+    },
+    "relationships": {
+      "buildUpload": { "data": { "type": "buildUploads", "id": "UPLOAD_ID" } }
+    }
+  }
+}
+```
+
+**BuildUploadFileUpdateRequest Schema (Commit):**
+```json
+{
+  "data": {
+    "type": "buildUploadFiles",
+    "id": "FILE_ID",
+    "attributes": {
+      "sourceFileChecksums": {
+        "file": { "hash": "SHA256_HASH", "algorithm": "SHA_256" }
+      },
+      "uploaded": true
+    }
+  }
+}
+```
+
+**AppStoreVersionSubmissionCreateRequest Schema:**
+```json
+{
+  "data": {
+    "type": "appStoreVersionSubmissions",
+    "relationships": {
+      "appStoreVersion": { "data": { "type": "appStoreVersions", "id": "APP_STORE_VERSION_ID" } }
+    }
+  }
+}
+```
+
+**BuildUploadState Values (confirm in spec):**
+- Common values include `AWAITING_UPLOAD`, `PROCESSING`, `FAILED`, `COMPLETE`
+
+**DeliveryFileUploadOperation (Presigned URL):**
+```json
+{
+  "method": "PUT",
+  "url": "https://...presigned-url...",
+  "length": 1000000,
+  "offset": 0,
+  "requestHeaders": [{"name": "Content-Length", "value": "1000000"}],
+  "expiration": "2026-01-20T12:00:00Z"
+}
+```
+
+**Checksum Algorithm:** `MD5 | SHA_256`
+
+#### Upload Flow (Verified Sequence)
+
+1. **POST /v1/buildUploads** - Create upload record, get `UPLOAD_ID`
+2. **POST /v1/buildUploadFiles** - Reserve slot, get presigned URLs in `uploadOperations`
+3. **PUT** to each `uploadOperation.url` - Upload file parts in order
+4. **PATCH /v1/buildUploadFiles/{id}** - Set `uploaded: true` + checksums to commit
+5. **GET /v1/buildUploads/{id}** - Poll `state` until `COMPLETE` or `FAILED`
+6. Extract `build.id` from response relationships for submission
+
+#### Submission Flow (Verified Sequence)
+
+1. **Find or create App Store Version** for the app/platform
+   - `GET /v1/apps/{id}/appStoreVersions?filter[platform]=IOS` (and optionally filter by state)
+2. **Attach build to App Store Version**
+   - `PATCH /v1/appStoreVersions/{id}/relationships/build` with `builds/{id}`
+3. **POST /v1/appStoreVersionSubmissions** - Create submission (returns `SUBMISSION_ID`)
+4. **GET /v1/appStoreVersionSubmissions/{id}** - Check `state` until submitted/in review/complete
+5. **DELETE /v1/appStoreVersionSubmissions/{id}`** - Cancel (guarded by `--confirm`)
+
+#### Safety & Guardrails
+
+- Add `--confirm` for submission and cancellation
+- Add `--wait` with bounded timeout (default off)
+- Provide clear errors for “metadata not ready” / “agreements missing”
+- Never attempt submission in tests unless explicitly opted-in
+
+#### TDD Checklist (Implementation)
+
+**Client layer**
+- [ ] HTTP tests for each new endpoint (method, path, body schema)
+- [ ] Upload operations tests: verify headers and payload order
+- [ ] Error parsing for failed upload/submit responses
+
+**CLI layer**
+- [ ] Validation tests (missing `--app`, `--ipa`, `--confirm`)
+- [ ] Output tests (json/table/markdown)
+- [ ] JSON remains minified by default
+
+**Integration tests (opt‑in)**
+- [ ] `ASC_UPLOAD_APP_ID` (required)
+- [ ] `ASC_UPLOAD_IPA_PATH` (required)
+- [ ] `ASC_CONFIRM_SUBMIT=true` (required for submit)
+- [ ] `ASC_SUBMIT_BUILD_ID` (optional if upload returns build ID)
+- [ ] Skip if any env vars are missing
+
+#### Data to Capture with Live Credentials
+
+Non‑destructive calls to record example response shapes:
+- `asc apps --json`
+- `asc builds --app "APP_ID" --json`
+- `asc builds info --build "BUILD_ID" --json`
+- `asc reviews --app "APP_ID" --json`
+
+Use these to verify:
+- Field names (e.g., `uploadedDate`, `processingState`, `expired`)
+- Status strings returned by the API
+
+---
+
 ### Phase 4: Beta Management (v0.3)
 
 **Goal:** Add commands for managing beta testers and groups
@@ -413,7 +611,7 @@ github.com/goreleaser/nfpm/v2     - Packaging via `go run` (optional)
 
 **Phase 1: Foundation - IMPLEMENTED** (validated locally)
 
-Next: Add auto-pagination and beta management commands
+Next: Implement build uploads + submission flows (API 4.1+), then auto-pagination and beta management
 
 ## Known Issues
 
