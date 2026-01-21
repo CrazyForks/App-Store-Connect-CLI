@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/mail"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -79,6 +81,63 @@ func normalizeSandboxTerritoryFilter(value string) (string, error) {
 		return "", nil
 	}
 	return normalizeSandboxTerritory(value)
+}
+
+type optionalBool struct {
+	set   bool
+	value bool
+}
+
+func (b *optionalBool) Set(value string) error {
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fmt.Errorf("must be true or false")
+	}
+	b.value = parsed
+	b.set = true
+	return nil
+}
+
+func (b *optionalBool) String() string {
+	if !b.set {
+		return ""
+	}
+	return strconv.FormatBool(b.value)
+}
+
+func (b *optionalBool) IsBoolFlag() bool {
+	return true
+}
+
+var sandboxRenewalRates = map[string]asc.SandboxTesterSubscriptionRenewalRate{
+	string(asc.SandboxTesterRenewalEveryOneHour):        asc.SandboxTesterRenewalEveryOneHour,
+	string(asc.SandboxTesterRenewalEveryThirtyMinutes):  asc.SandboxTesterRenewalEveryThirtyMinutes,
+	string(asc.SandboxTesterRenewalEveryFifteenMinutes): asc.SandboxTesterRenewalEveryFifteenMinutes,
+	string(asc.SandboxTesterRenewalEveryFiveMinutes):    asc.SandboxTesterRenewalEveryFiveMinutes,
+	string(asc.SandboxTesterRenewalEveryThreeMinutes):   asc.SandboxTesterRenewalEveryThreeMinutes,
+}
+
+func normalizeSandboxRenewalRate(value string) (asc.SandboxTesterSubscriptionRenewalRate, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	normalized := strings.ToUpper(trimmed)
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	normalized = strings.ReplaceAll(normalized, " ", "_")
+	if rate, ok := sandboxRenewalRates[normalized]; ok {
+		return rate, nil
+	}
+	return "", fmt.Errorf("--subscription-renewal-rate must be one of: %s", strings.Join(sandboxRenewalRateValues(), ", "))
+}
+
+func sandboxRenewalRateValues() []string {
+	values := make([]string, 0, len(sandboxRenewalRates))
+	for key := range sandboxRenewalRates {
+		values = append(values, key)
+	}
+	sort.Strings(values)
+	return values
 }
 
 func findSandboxTesterByEmail(ctx context.Context, client *asc.Client, email string) (*asc.SandboxTesterResponse, error) {

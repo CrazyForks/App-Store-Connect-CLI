@@ -66,3 +66,27 @@ func TestNormalizeSandboxTerritoryFilter(t *testing.T) {
 		t.Fatalf("expected empty territory, got %q err %v", got, err)
 	}
 }
+
+func TestNormalizeSandboxRenewalRate(t *testing.T) {
+	if got, err := normalizeSandboxRenewalRate("monthly-renewal-every-one-hour"); err != nil {
+		t.Fatalf("expected valid renewal rate, got %v", err)
+	} else if got == "" {
+		t.Fatalf("expected non-empty renewal rate")
+	}
+	if _, err := normalizeSandboxRenewalRate("invalid"); err == nil {
+		t.Fatalf("expected error for invalid renewal rate")
+	}
+}
+
+func TestOptionalBool(t *testing.T) {
+	var value optionalBool
+	if value.set {
+		t.Fatalf("expected unset optionalBool by default")
+	}
+	if err := value.Set("true"); err != nil {
+		t.Fatalf("expected Set to succeed, got %v", err)
+	}
+	if !value.set || !value.value {
+		t.Fatalf("expected optionalBool to be set to true")
+	}
+}

@@ -14,6 +14,13 @@ type SandboxTesterDeleteResult struct {
 	Deleted bool   `json:"deleted"`
 }
 
+// SandboxTesterClearHistoryResult represents CLI output for clear history requests.
+type SandboxTesterClearHistoryResult struct {
+	RequestID string `json:"requestId"`
+	TesterID  string `json:"testerId"`
+	Cleared   bool   `json:"cleared"`
+}
+
 func formatSandboxTesterName(attr SandboxTesterAttributes) string {
 	return compactWhitespace(strings.TrimSpace(attr.FirstName + " " + attr.LastName))
 }
@@ -64,6 +71,28 @@ func printSandboxTesterDeleteResultMarkdown(result *SandboxTesterDeleteResult) e
 		escapeMarkdown(result.ID),
 		escapeMarkdown(result.Email),
 		result.Deleted,
+	)
+	return nil
+}
+
+func printSandboxTesterClearHistoryResultTable(result *SandboxTesterClearHistoryResult) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "Request ID\tTester ID\tCleared")
+	fmt.Fprintf(w, "%s\t%s\t%t\n",
+		result.RequestID,
+		result.TesterID,
+		result.Cleared,
+	)
+	return w.Flush()
+}
+
+func printSandboxTesterClearHistoryResultMarkdown(result *SandboxTesterClearHistoryResult) error {
+	fmt.Fprintln(os.Stdout, "| Request ID | Tester ID | Cleared |")
+	fmt.Fprintln(os.Stdout, "| --- | --- | --- |")
+	fmt.Fprintf(os.Stdout, "| %s | %s | %t |\n",
+		escapeMarkdown(result.RequestID),
+		escapeMarkdown(result.TesterID),
+		result.Cleared,
 	)
 	return nil
 }

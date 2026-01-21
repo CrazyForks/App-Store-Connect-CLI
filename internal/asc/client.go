@@ -65,6 +65,7 @@ const (
 	ResourceTypeBetaTesters                  ResourceType = "betaTesters"
 	ResourceTypeBetaTesterInvitations        ResourceType = "betaTesterInvitations"
 	ResourceTypeSandboxTesters               ResourceType = "sandboxTesters"
+	ResourceTypeSandboxTestersClearHistory   ResourceType = "sandboxTestersClearPurchaseHistoryRequest"
 	ResourceTypeAppStoreVersionLocalizations ResourceType = "appStoreVersionLocalizations"
 	ResourceTypeAppInfoLocalizations         ResourceType = "appInfoLocalizations"
 	ResourceTypeAppInfos                     ResourceType = "appInfos"
@@ -2421,6 +2422,8 @@ func PrintMarkdown(data interface{}) error {
 		return printBetaTesterInvitationResultMarkdown(v)
 	case *SandboxTesterDeleteResult:
 		return printSandboxTesterDeleteResultMarkdown(v)
+	case *SandboxTesterClearHistoryResult:
+		return printSandboxTesterClearHistoryResultMarkdown(v)
 	default:
 		return PrintJSON(data)
 	}
@@ -2495,6 +2498,8 @@ func PrintTable(data interface{}) error {
 		return printBetaTesterInvitationResultTable(v)
 	case *SandboxTesterDeleteResult:
 		return printSandboxTesterDeleteResultTable(v)
+	case *SandboxTesterClearHistoryResult:
+		return printSandboxTesterClearHistoryResultTable(v)
 	default:
 		return PrintJSON(data)
 	}

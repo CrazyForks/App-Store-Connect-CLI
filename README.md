@@ -180,6 +180,14 @@ asc sandbox get --email "tester@example.com"
 
 # Delete a sandbox tester
 asc sandbox delete --id "SANDBOX_TESTER_ID" --confirm
+
+# Update a sandbox tester
+asc sandbox update --id "SANDBOX_TESTER_ID" --territory "USA"
+asc sandbox update --email "tester@example.com" --interrupt-purchases
+asc sandbox update --id "SANDBOX_TESTER_ID" --subscription-renewal-rate "MONTHLY_RENEWAL_EVERY_ONE_HOUR"
+
+# Clear purchase history
+asc sandbox clear-history --id "SANDBOX_TESTER_ID" --confirm
 ```
 
 Notes:
@@ -188,6 +196,7 @@ Notes:
 - Secret question/answer require 6+ characters
 - Territory uses 3-letter App Store territory codes (e.g., `USA`, `JPN`)
 - Sandbox list/get use the v2 API; create/delete use v1 endpoints (may be unavailable on some accounts)
+- Update/clear-history use the v2 API
 
 ### Apps & Builds
 

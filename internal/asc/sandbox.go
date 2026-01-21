@@ -56,6 +56,55 @@ type SandboxTesterCreateRequest struct {
 	Data SandboxTesterCreateData `json:"data"`
 }
 
+// SandboxTesterSubscriptionRenewalRate represents renewal rate settings.
+type SandboxTesterSubscriptionRenewalRate string
+
+const (
+	SandboxTesterRenewalEveryOneHour        SandboxTesterSubscriptionRenewalRate = "MONTHLY_RENEWAL_EVERY_ONE_HOUR"
+	SandboxTesterRenewalEveryThirtyMinutes  SandboxTesterSubscriptionRenewalRate = "MONTHLY_RENEWAL_EVERY_THIRTY_MINUTES"
+	SandboxTesterRenewalEveryFifteenMinutes SandboxTesterSubscriptionRenewalRate = "MONTHLY_RENEWAL_EVERY_FIFTEEN_MINUTES"
+	SandboxTesterRenewalEveryFiveMinutes    SandboxTesterSubscriptionRenewalRate = "MONTHLY_RENEWAL_EVERY_FIVE_MINUTES"
+	SandboxTesterRenewalEveryThreeMinutes   SandboxTesterSubscriptionRenewalRate = "MONTHLY_RENEWAL_EVERY_THREE_MINUTES"
+)
+
+// SandboxTesterUpdateAttributes describes attributes for updating a sandbox tester.
+type SandboxTesterUpdateAttributes struct {
+	Territory               *string                               `json:"territory,omitempty"`
+	InterruptPurchases      *bool                                 `json:"interruptPurchases,omitempty"`
+	SubscriptionRenewalRate *SandboxTesterSubscriptionRenewalRate `json:"subscriptionRenewalRate,omitempty"`
+}
+
+// SandboxTesterUpdateData is the data portion of a sandbox tester update request.
+type SandboxTesterUpdateData struct {
+	Type       ResourceType                  `json:"type"`
+	ID         string                        `json:"id"`
+	Attributes SandboxTesterUpdateAttributes `json:"attributes"`
+}
+
+// SandboxTesterUpdateRequest is a request to update a sandbox tester.
+type SandboxTesterUpdateRequest struct {
+	Data SandboxTesterUpdateData `json:"data"`
+}
+
+// SandboxTesterClearHistoryRelationships describes relationships for clear history requests.
+type SandboxTesterClearHistoryRelationships struct {
+	SandboxTesters RelationshipList `json:"sandboxTesters"`
+}
+
+// SandboxTesterClearHistoryData is the data portion of a clear history request.
+type SandboxTesterClearHistoryData struct {
+	Type          ResourceType                           `json:"type"`
+	Relationships SandboxTesterClearHistoryRelationships `json:"relationships"`
+}
+
+// SandboxTesterClearHistoryRequest is a request to clear purchase history.
+type SandboxTesterClearHistoryRequest struct {
+	Data SandboxTesterClearHistoryData `json:"data"`
+}
+
+// SandboxTesterClearHistoryResponse is the response from clear history requests.
+type SandboxTesterClearHistoryResponse = SingleResponse[struct{}]
+
 type sandboxTestersQuery struct {
 	listQuery
 	email     string
@@ -198,6 +247,33 @@ func (c *Client) GetSandboxTester(ctx context.Context, testerID string) (*Sandbo
 	return nil, fmt.Errorf("sandbox tester not found: %s", testerID)
 }
 
+// UpdateSandboxTester updates a sandbox tester by ID.
+func (c *Client) UpdateSandboxTester(ctx context.Context, testerID string, attributes SandboxTesterUpdateAttributes) (*SandboxTesterResponse, error) {
+	payload := SandboxTesterUpdateRequest{
+		Data: SandboxTesterUpdateData{
+			Type:       ResourceTypeSandboxTesters,
+			ID:         testerID,
+			Attributes: attributes,
+		},
+	}
+	body, err := BuildRequestBody(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := c.do(ctx, "PATCH", fmt.Sprintf("/v2/sandboxTesters/%s", testerID), body)
+	if err != nil {
+		return nil, err
+	}
+
+	var response SandboxTesterResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse sandbox tester response: %w", err)
+	}
+
+	return &response, nil
+}
+
 // CreateSandboxTester creates a sandbox tester.
 func (c *Client) CreateSandboxTester(ctx context.Context, attributes SandboxTesterCreateAttributes) (*SandboxTesterResponse, error) {
 	payload := SandboxTesterCreateRequest{
@@ -219,6 +295,38 @@ func (c *Client) CreateSandboxTester(ctx context.Context, attributes SandboxTest
 	var response SandboxTesterResponse
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse sandbox tester response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// ClearSandboxTesterPurchaseHistory clears purchase history for a sandbox tester.
+func (c *Client) ClearSandboxTesterPurchaseHistory(ctx context.Context, testerID string) (*SandboxTesterClearHistoryResponse, error) {
+	payload := SandboxTesterClearHistoryRequest{
+		Data: SandboxTesterClearHistoryData{
+			Type: ResourceTypeSandboxTestersClearHistory,
+			Relationships: SandboxTesterClearHistoryRelationships{
+				SandboxTesters: RelationshipList{
+					Data: []ResourceData{
+						{Type: ResourceTypeSandboxTesters, ID: testerID},
+					},
+				},
+			},
+		},
+	}
+	body, err := BuildRequestBody(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := c.do(ctx, "POST", "/v2/sandboxTestersClearPurchaseHistoryRequest", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var response SandboxTesterClearHistoryResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse sandbox clear history response: %w", err)
 	}
 
 	return &response, nil

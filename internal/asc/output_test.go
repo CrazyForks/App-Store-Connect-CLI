@@ -1055,3 +1055,41 @@ func TestPrintMarkdown_SandboxTesterDeleteResult(t *testing.T) {
 		t.Fatalf("expected tester email in output, got: %s", output)
 	}
 }
+
+func TestPrintTable_SandboxTesterClearHistoryResult(t *testing.T) {
+	result := &SandboxTesterClearHistoryResult{
+		RequestID: "request-1",
+		TesterID:  "tester-1",
+		Cleared:   true,
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(result)
+	})
+
+	if !strings.Contains(output, "Request ID") {
+		t.Fatalf("expected request header, got: %s", output)
+	}
+	if !strings.Contains(output, "tester-1") {
+		t.Fatalf("expected tester ID in output, got: %s", output)
+	}
+}
+
+func TestPrintMarkdown_SandboxTesterClearHistoryResult(t *testing.T) {
+	result := &SandboxTesterClearHistoryResult{
+		RequestID: "request-1",
+		TesterID:  "tester-1",
+		Cleared:   true,
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintMarkdown(result)
+	})
+
+	if !strings.Contains(output, "| Request ID | Tester ID | Cleared |") {
+		t.Fatalf("expected markdown header, got: %s", output)
+	}
+	if !strings.Contains(output, "request-1") {
+		t.Fatalf("expected request ID in output, got: %s", output)
+	}
+}

@@ -95,6 +95,59 @@ func TestGetSandboxTester_ByID(t *testing.T) {
 	}
 }
 
+func TestUpdateSandboxTester_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"sandboxTesters","id":"tester-1","attributes":{"acAccountName":"tester@example.com","territory":"USA"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		if req.URL.Path != "/v2/sandboxTesters/tester-1" {
+			t.Fatalf("expected path /v2/sandboxTesters/tester-1, got %s", req.URL.Path)
+		}
+
+		var body map[string]map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+		data, ok := body["data"]
+		if !ok {
+			t.Fatalf("expected data in request body")
+		}
+		if data["type"] != "sandboxTesters" {
+			t.Fatalf("expected type sandboxTesters, got %v", data["type"])
+		}
+		if data["id"] != "tester-1" {
+			t.Fatalf("expected id tester-1, got %v", data["id"])
+		}
+		attributes, ok := data["attributes"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected attributes in request body")
+		}
+		if attributes["territory"] != "USA" {
+			t.Fatalf("expected territory USA, got %v", attributes["territory"])
+		}
+		if attributes["interruptPurchases"] != true {
+			t.Fatalf("expected interruptPurchases true, got %v", attributes["interruptPurchases"])
+		}
+		if attributes["subscriptionRenewalRate"] != string(SandboxTesterRenewalEveryOneHour) {
+			t.Fatalf("expected subscriptionRenewalRate %s, got %v", SandboxTesterRenewalEveryOneHour, attributes["subscriptionRenewalRate"])
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	territory := "USA"
+	interrupt := true
+	rate := SandboxTesterRenewalEveryOneHour
+	attrs := SandboxTesterUpdateAttributes{
+		Territory:               &territory,
+		InterruptPurchases:      &interrupt,
+		SubscriptionRenewalRate: &rate,
+	}
+	if _, err := client.UpdateSandboxTester(context.Background(), "tester-1", attrs); err != nil {
+		t.Fatalf("UpdateSandboxTester() error: %v", err)
+	}
+}
+
 func TestCreateSandboxTester_SendsRequest(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"sandboxTesters","id":"tester-1","attributes":{"email":"tester@example.com","firstName":"Test","lastName":"User","appStoreTerritory":"USA"}}}`)
 	client := newTestClient(t, func(req *http.Request) {
@@ -146,6 +199,54 @@ func TestCreateSandboxTester_SendsRequest(t *testing.T) {
 	}
 	if _, err := client.CreateSandboxTester(context.Background(), attrs); err != nil {
 		t.Fatalf("CreateSandboxTester() error: %v", err)
+	}
+}
+
+func TestClearSandboxTesterPurchaseHistory(t *testing.T) {
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"sandboxTestersClearPurchaseHistoryRequest","id":"request-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v2/sandboxTestersClearPurchaseHistoryRequest" {
+			t.Fatalf("expected path /v2/sandboxTestersClearPurchaseHistoryRequest, got %s", req.URL.Path)
+		}
+
+		var body map[string]map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+		data, ok := body["data"]
+		if !ok {
+			t.Fatalf("expected data in request body")
+		}
+		if data["type"] != "sandboxTestersClearPurchaseHistoryRequest" {
+			t.Fatalf("expected type sandboxTestersClearPurchaseHistoryRequest, got %v", data["type"])
+		}
+		relationships, ok := data["relationships"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected relationships in request body")
+		}
+		sandboxTesters, ok := relationships["sandboxTesters"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected sandboxTesters relationship in request body")
+		}
+		dataList, ok := sandboxTesters["data"].([]any)
+		if !ok || len(dataList) != 1 {
+			t.Fatalf("expected sandboxTesters data array with one element")
+		}
+		item, ok := dataList[0].(map[string]any)
+		if !ok {
+			t.Fatalf("expected sandboxTesters data item to be object")
+		}
+		if item["id"] != "tester-1" || item["type"] != "sandboxTesters" {
+			t.Fatalf("expected sandbox tester id/type, got %v", item)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.ClearSandboxTesterPurchaseHistory(context.Background(), "tester-1"); err != nil {
+		t.Fatalf("ClearSandboxTesterPurchaseHistory() error: %v", err)
 	}
 }
 

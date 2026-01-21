@@ -80,6 +80,8 @@ asc builds expire --build "BUILD_ID"
 # Sandbox testers
 asc sandbox list
 asc sandbox create --email "tester@example.com" --first-name "Test" --last-name "User" --password "Passwordtest1" --confirm-password "Passwordtest1" --secret-question "Question" --secret-answer "Answer" --birth-date "1980-03-01" --territory "USA"
+asc sandbox update --id "SANDBOX_TESTER_ID" --territory "USA"
+asc sandbox clear-history --id "SANDBOX_TESTER_ID" --confirm
 
 # Utilities
 asc version
@@ -124,6 +126,7 @@ Analytics & sales env:
 - Password must include uppercase, lowercase, and a number (8+ chars)
 - Territory uses 3-letter App Store territory codes (e.g., `USA`, `JPN`)
 - List/get use the v2 API; create/delete use v1 endpoints (may be unavailable on some accounts)
+- Update/clear-history use the v2 API
 
 ## Code Style
 
