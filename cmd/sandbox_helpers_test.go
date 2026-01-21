@@ -17,6 +17,7 @@ func TestValidateSandboxPassword(t *testing.T) {
 		wantErr bool
 	}{
 		{value: "Passwordtest1", wantErr: false},
+		{value: "  Passwordtest1  ", wantErr: false},
 		{value: "short1A", wantErr: true},
 		{value: "alllowercase1", wantErr: true},
 		{value: "ALLUPPERCASE1", wantErr: true},
