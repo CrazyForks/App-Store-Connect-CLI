@@ -3719,6 +3719,10 @@ func PrintMarkdown(data interface{}) error {
 		return printCiWorkflowsMarkdown(v)
 	case *CiBuildRunsResponse:
 		return printCiBuildRunsMarkdown(v)
+	case *CustomerReviewResponseResponse:
+		return printCustomerReviewResponseMarkdown(v)
+	case *CustomerReviewResponseDeleteResult:
+		return printCustomerReviewResponseDeleteResultMarkdown(v)
 	default:
 		return PrintJSON(data)
 	}
@@ -3823,6 +3827,10 @@ func PrintTable(data interface{}) error {
 		return printCiWorkflowsTable(v)
 	case *CiBuildRunsResponse:
 		return printCiBuildRunsTable(v)
+	case *CustomerReviewResponseResponse:
+		return printCustomerReviewResponseTable(v)
+	case *CustomerReviewResponseDeleteResult:
+		return printCustomerReviewResponseDeleteResultTable(v)
 	default:
 		return PrintJSON(data)
 	}
