@@ -112,6 +112,9 @@ func executeReviewsList(ctx context.Context, appID, output string, pretty bool, 
 	if limit != 0 && (limit < 1 || limit > 200) {
 		return fmt.Errorf("reviews: --limit must be between 1 and 200")
 	}
+	if stars != 0 && (stars < 1 || stars > 5) {
+		return fmt.Errorf("reviews: --stars must be between 1 and 5")
+	}
 	if err := validateNextURL(next); err != nil {
 		return fmt.Errorf("reviews: %w", err)
 	}
