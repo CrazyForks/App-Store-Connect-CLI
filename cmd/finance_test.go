@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -109,5 +110,44 @@ func TestFinanceReportsInvalidFlags(t *testing.T) {
 			_ = stdout
 			_ = stderr
 		})
+	}
+}
+
+func TestFinanceRegionsCommandOutputsJSON(t *testing.T) {
+	root := RootCommand("1.2.3")
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"finance", "regions"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	var payload struct {
+		Regions []struct {
+			RegionCode string `json:"regionCode"`
+		} `json:"regions"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("failed to unmarshal JSON output: %v", err)
+	}
+	if len(payload.Regions) == 0 {
+		t.Fatal("expected regions in output")
+	}
+	found := false
+	for _, region := range payload.Regions {
+		if region.RegionCode == "Z1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected region Z1 in output")
 	}
 }
