@@ -931,6 +931,7 @@ func RootCommand(version string) *ffcli.Command {
 			CrashesCommand(),
 			ReviewsCommand(),
 			AnalyticsCommand(),
+			FinanceCommand(),
 			AppsCommand(),
 			TestFlightCommand(),
 			BuildsCommand(),

@@ -1,0 +1,33 @@
+package cmd
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+)
+
+func normalizeFinanceReportType(value string) (asc.FinanceReportType, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	switch normalized {
+	case string(asc.FinanceReportTypeFinancial):
+		return asc.FinanceReportTypeFinancial, nil
+	case string(asc.FinanceReportTypeFinanceDetail):
+		return asc.FinanceReportTypeFinanceDetail, nil
+	default:
+		return "", fmt.Errorf("--report-type must be FINANCIAL or FINANCE_DETAIL")
+	}
+}
+
+func normalizeFinanceReportDate(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", fmt.Errorf("--date is required")
+	}
+	parsed, err := time.Parse("2006-01", trimmed)
+	if err != nil {
+		return "", fmt.Errorf("--date must be in YYYY-MM format")
+	}
+	return parsed.Format("2006-01"), nil
+}

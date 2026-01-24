@@ -3669,6 +3669,8 @@ func PrintMarkdown(data interface{}) error {
 		return printBuildUploadResultMarkdown(v)
 	case *SalesReportResult:
 		return printSalesReportResultMarkdown(v)
+	case *FinanceReportResult:
+		return printFinanceReportResultMarkdown(v)
 	case *AnalyticsReportRequestResult:
 		return printAnalyticsReportRequestResultMarkdown(v)
 	case *AnalyticsReportRequestsResponse:
@@ -3769,6 +3771,8 @@ func PrintTable(data interface{}) error {
 		return printBuildUploadResultTable(v)
 	case *SalesReportResult:
 		return printSalesReportResultTable(v)
+	case *FinanceReportResult:
+		return printFinanceReportResultTable(v)
 	case *AnalyticsReportRequestResult:
 		return printAnalyticsReportRequestResultTable(v)
 	case *AnalyticsReportRequestsResponse:
