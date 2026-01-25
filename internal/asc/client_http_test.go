@@ -2372,8 +2372,8 @@ func TestGetInAppPurchasesV2_WithLimit(t *testing.T) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
 		}
-		if req.URL.Path != "/v2/apps/123/inAppPurchases" {
-			t.Fatalf("expected path /v2/apps/123/inAppPurchases, got %s", req.URL.Path)
+		if req.URL.Path != "/v1/apps/123/inAppPurchasesV2" {
+			t.Fatalf("expected path /v1/apps/123/inAppPurchasesV2, got %s", req.URL.Path)
 		}
 		if req.URL.Query().Get("limit") != "10" {
 			t.Fatalf("expected limit=10, got %q", req.URL.Query().Get("limit"))
@@ -2387,7 +2387,7 @@ func TestGetInAppPurchasesV2_WithLimit(t *testing.T) {
 }
 
 func TestGetInAppPurchasesV2_UsesNextURL(t *testing.T) {
-	next := "https://api.appstoreconnect.apple.com/v2/apps/123/inAppPurchases?cursor=abc"
+	next := "https://api.appstoreconnect.apple.com/v1/apps/123/inAppPurchasesV2?cursor=abc"
 	response := jsonResponse(http.StatusOK, `{"data":[]}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.URL.String() != next {

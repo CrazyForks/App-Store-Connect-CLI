@@ -15,7 +15,7 @@ func (c *Client) GetInAppPurchasesV2(ctx context.Context, appID string, opts ...
 		opt(query)
 	}
 
-	path := fmt.Sprintf("/v2/apps/%s/inAppPurchases", strings.TrimSpace(appID))
+	path := fmt.Sprintf("/v1/apps/%s/inAppPurchasesV2", strings.TrimSpace(appID))
 	if query.nextURL != "" {
 		if err := validateNextURL(query.nextURL); err != nil {
 			return nil, fmt.Errorf("in-app-purchases: %w", err)
