@@ -556,6 +556,200 @@ func TestTestFlightAppsValidationErrors(t *testing.T) {
 	}
 }
 
+func TestTestFlightReviewValidationErrors(t *testing.T) {
+	t.Setenv("ASC_APP_ID", "")
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "review get missing app",
+			args:    []string{"testflight", "review", "get"},
+			wantErr: "--app is required",
+		},
+		{
+			name:    "review update missing id",
+			args:    []string{"testflight", "review", "update"},
+			wantErr: "--id is required",
+		},
+		{
+			name:    "review update missing updates",
+			args:    []string{"testflight", "review", "update", "--id", "DETAIL_ID"},
+			wantErr: "at least one update flag is required",
+		},
+		{
+			name:    "review submit missing build",
+			args:    []string{"testflight", "review", "submit", "--confirm"},
+			wantErr: "--build is required",
+		},
+		{
+			name:    "review submit missing confirm",
+			args:    []string{"testflight", "review", "submit", "--build", "BUILD_ID"},
+			wantErr: "--confirm is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected error %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}
+
+func TestTestFlightBetaDetailsValidationErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "beta-details get missing build",
+			args:    []string{"testflight", "beta-details", "get"},
+			wantErr: "--build is required",
+		},
+		{
+			name:    "beta-details update missing id",
+			args:    []string{"testflight", "beta-details", "update"},
+			wantErr: "--id is required",
+		},
+		{
+			name:    "beta-details update missing updates",
+			args:    []string{"testflight", "beta-details", "update", "--id", "DETAIL_ID"},
+			wantErr: "at least one update flag is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected error %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}
+
+func TestTestFlightRecruitmentValidationErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "recruitment set missing group",
+			args:    []string{"testflight", "recruitment", "set", "--criteria-id", "OPTION_ID"},
+			wantErr: "--group is required",
+		},
+		{
+			name:    "recruitment set missing criteria",
+			args:    []string{"testflight", "recruitment", "set", "--group", "GROUP_ID"},
+			wantErr: "--criteria-id is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected error %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}
+
+func TestTestFlightMetricsValidationErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "metrics public-link missing group",
+			args:    []string{"testflight", "metrics", "public-link"},
+			wantErr: "--group is required",
+		},
+		{
+			name:    "metrics testers missing group",
+			args:    []string{"testflight", "metrics", "testers"},
+			wantErr: "--group is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected error %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}
+
 func TestTestFlightSyncValidationErrors(t *testing.T) {
 	t.Setenv("ASC_APP_ID", "")
 

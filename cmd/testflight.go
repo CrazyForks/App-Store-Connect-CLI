@@ -29,6 +29,10 @@ Examples:
 		UsageFunc: DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			TestFlightAppsCommand(),
+			TestFlightReviewCommand(),
+			TestFlightBetaDetailsCommand(),
+			TestFlightRecruitmentCommand(),
+			TestFlightMetricsCommand(),
 			TestFlightSyncCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {

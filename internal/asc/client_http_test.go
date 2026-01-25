@@ -2738,3 +2738,368 @@ func TestSetUserVisibleApps_SendsRequest(t *testing.T) {
 		t.Fatalf("SetUserVisibleApps() error: %v", err)
 	}
 }
+func TestGetBetaAppReviewDetails_WithAppFilter(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaAppReviewDetails","id":"detail-1","attributes":{"contactEmail":"dev@example.com"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaAppReviewDetails" {
+			t.Fatalf("expected path /v1/betaAppReviewDetails, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[app]") != "app-1" {
+			t.Fatalf("expected filter[app]=app-1, got %q", values.Get("filter[app]"))
+		}
+		if values.Get("limit") != "10" {
+			t.Fatalf("expected limit=10, got %q", values.Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBetaAppReviewDetails(context.Background(), "app-1", WithBetaAppReviewDetailsLimit(10)); err != nil {
+		t.Fatalf("GetBetaAppReviewDetails() error: %v", err)
+	}
+}
+
+func TestGetBetaAppReviewDetails_UsesNextURL(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/betaAppReviewDetails?cursor=abc"
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.String() != next {
+			t.Fatalf("expected next URL %q, got %q", next, req.URL.String())
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBetaAppReviewDetails(context.Background(), "app-1", WithBetaAppReviewDetailsNextURL(next)); err != nil {
+		t.Fatalf("GetBetaAppReviewDetails() error: %v", err)
+	}
+}
+
+func TestGetBetaAppReviewDetail(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaAppReviewDetails","id":"detail-1","attributes":{"contactEmail":"dev@example.com"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaAppReviewDetails/detail-1" {
+			t.Fatalf("expected path /v1/betaAppReviewDetails/detail-1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBetaAppReviewDetail(context.Background(), "detail-1"); err != nil {
+		t.Fatalf("GetBetaAppReviewDetail() error: %v", err)
+	}
+}
+
+func TestUpdateBetaAppReviewDetail_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaAppReviewDetails","id":"detail-1","attributes":{"contactEmail":"dev@example.com"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaAppReviewDetails/detail-1" {
+			t.Fatalf("expected path /v1/betaAppReviewDetails/detail-1, got %s", req.URL.Path)
+		}
+		var payload BetaAppReviewDetailUpdateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeBetaAppReviewDetails {
+			t.Fatalf("expected type betaAppReviewDetails, got %q", payload.Data.Type)
+		}
+		if payload.Data.ID != "detail-1" {
+			t.Fatalf("expected id detail-1, got %q", payload.Data.ID)
+		}
+		if payload.Data.Attributes == nil || payload.Data.Attributes.ContactEmail == nil {
+			t.Fatalf("expected contact email attribute")
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	email := "dev@example.com"
+	if _, err := client.UpdateBetaAppReviewDetail(context.Background(), "detail-1", BetaAppReviewDetailUpdateAttributes{
+		ContactEmail: &email,
+	}); err != nil {
+		t.Fatalf("UpdateBetaAppReviewDetail() error: %v", err)
+	}
+}
+
+func TestGetBetaAppReviewSubmissions_WithBuildFilter(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaAppReviewSubmissions","id":"submission-1","attributes":{"betaReviewState":"IN_REVIEW"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaAppReviewSubmissions" {
+			t.Fatalf("expected path /v1/betaAppReviewSubmissions, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[build]") != "build-1" {
+			t.Fatalf("expected filter[build]=build-1, got %q", values.Get("filter[build]"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBetaAppReviewSubmissions(context.Background(), WithBetaAppReviewSubmissionsBuildIDs([]string{"build-1"})); err != nil {
+		t.Fatalf("GetBetaAppReviewSubmissions() error: %v", err)
+	}
+}
+
+func TestCreateBetaAppReviewSubmission_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"betaAppReviewSubmissions","id":"submission-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaAppReviewSubmissions" {
+			t.Fatalf("expected path /v1/betaAppReviewSubmissions, got %s", req.URL.Path)
+		}
+		var payload BetaAppReviewSubmissionCreateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeBetaAppReviewSubmissions {
+			t.Fatalf("expected type betaAppReviewSubmissions, got %q", payload.Data.Type)
+		}
+		if payload.Data.Relationships == nil || payload.Data.Relationships.Build == nil {
+			t.Fatalf("expected build relationship")
+		}
+		if payload.Data.Relationships.Build.Data.ID != "build-1" {
+			t.Fatalf("expected build id build-1, got %q", payload.Data.Relationships.Build.Data.ID)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.CreateBetaAppReviewSubmission(context.Background(), "build-1"); err != nil {
+		t.Fatalf("CreateBetaAppReviewSubmission() error: %v", err)
+	}
+}
+
+func TestGetBetaAppReviewSubmission(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaAppReviewSubmissions","id":"submission-1","attributes":{"betaReviewState":"IN_REVIEW"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaAppReviewSubmissions/submission-1" {
+			t.Fatalf("expected path /v1/betaAppReviewSubmissions/submission-1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBetaAppReviewSubmission(context.Background(), "submission-1"); err != nil {
+		t.Fatalf("GetBetaAppReviewSubmission() error: %v", err)
+	}
+}
+
+func TestGetBuildBetaDetails_WithBuildFilter(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"buildBetaDetails","id":"detail-1","attributes":{"autoNotifyEnabled":true}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/buildBetaDetails" {
+			t.Fatalf("expected path /v1/buildBetaDetails, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[build]") != "build-1" {
+			t.Fatalf("expected filter[build]=build-1, got %q", values.Get("filter[build]"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBuildBetaDetails(context.Background(), WithBuildBetaDetailsBuildIDs([]string{"build-1"})); err != nil {
+		t.Fatalf("GetBuildBetaDetails() error: %v", err)
+	}
+}
+
+func TestGetBuildBetaDetail(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"buildBetaDetails","id":"detail-1","attributes":{"autoNotifyEnabled":true}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/buildBetaDetails/detail-1" {
+			t.Fatalf("expected path /v1/buildBetaDetails/detail-1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBuildBetaDetail(context.Background(), "detail-1"); err != nil {
+		t.Fatalf("GetBuildBetaDetail() error: %v", err)
+	}
+}
+
+func TestUpdateBuildBetaDetail_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"buildBetaDetails","id":"detail-1","attributes":{"autoNotifyEnabled":true}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/buildBetaDetails/detail-1" {
+			t.Fatalf("expected path /v1/buildBetaDetails/detail-1, got %s", req.URL.Path)
+		}
+		var payload BuildBetaDetailUpdateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeBuildBetaDetails {
+			t.Fatalf("expected type buildBetaDetails, got %q", payload.Data.Type)
+		}
+		if payload.Data.ID != "detail-1" {
+			t.Fatalf("expected id detail-1, got %q", payload.Data.ID)
+		}
+		if payload.Data.Attributes == nil || payload.Data.Attributes.AutoNotifyEnabled == nil {
+			t.Fatalf("expected autoNotifyEnabled attribute")
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	enabled := true
+	if _, err := client.UpdateBuildBetaDetail(context.Background(), "detail-1", BuildBetaDetailUpdateAttributes{
+		AutoNotifyEnabled: &enabled,
+	}); err != nil {
+		t.Fatalf("UpdateBuildBetaDetail() error: %v", err)
+	}
+}
+
+func TestGetBetaRecruitmentCriterionOptions_WithLimit(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaRecruitmentCriterionOptions","id":"opt-1","attributes":{"identifier":"OPTION_1","name":"Option 1"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaRecruitmentCriterionOptions" {
+			t.Fatalf("expected path /v1/betaRecruitmentCriterionOptions, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("limit") != "5" {
+			t.Fatalf("expected limit=5, got %q", values.Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBetaRecruitmentCriterionOptions(context.Background(), WithBetaRecruitmentCriterionOptionsLimit(5)); err != nil {
+		t.Fatalf("GetBetaRecruitmentCriterionOptions() error: %v", err)
+	}
+}
+
+func TestCreateBetaRecruitmentCriteria_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"betaRecruitmentCriteria","id":"criteria-1","attributes":{"lastModifiedDate":"2026-01-21T00:00:00Z"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaRecruitmentCriteria" {
+			t.Fatalf("expected path /v1/betaRecruitmentCriteria, got %s", req.URL.Path)
+		}
+		var payload BetaRecruitmentCriteriaCreateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeBetaRecruitmentCriteria {
+			t.Fatalf("expected type betaRecruitmentCriteria, got %q", payload.Data.Type)
+		}
+		if payload.Data.Relationships == nil || payload.Data.Relationships.BetaGroup == nil {
+			t.Fatalf("expected betaGroup relationship")
+		}
+		if payload.Data.Relationships.BetaGroup.Data.ID != "group-1" {
+			t.Fatalf("expected group id group-1, got %q", payload.Data.Relationships.BetaGroup.Data.ID)
+		}
+		if payload.Data.Relationships.BetaRecruitmentCriterionOptions == nil || len(payload.Data.Relationships.BetaRecruitmentCriterionOptions.Data) != 2 {
+			t.Fatalf("expected 2 option relationships")
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.CreateBetaRecruitmentCriteria(context.Background(), "group-1", []string{"opt-1", "opt-2"}); err != nil {
+		t.Fatalf("CreateBetaRecruitmentCriteria() error: %v", err)
+	}
+}
+
+func TestUpdateBetaRecruitmentCriteria_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaRecruitmentCriteria","id":"criteria-1","attributes":{"lastModifiedDate":"2026-01-21T00:00:00Z"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaRecruitmentCriteria/criteria-1" {
+			t.Fatalf("expected path /v1/betaRecruitmentCriteria/criteria-1, got %s", req.URL.Path)
+		}
+		var payload BetaRecruitmentCriteriaUpdateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeBetaRecruitmentCriteria {
+			t.Fatalf("expected type betaRecruitmentCriteria, got %q", payload.Data.Type)
+		}
+		if payload.Data.ID != "criteria-1" {
+			t.Fatalf("expected id criteria-1, got %q", payload.Data.ID)
+		}
+		if payload.Data.Relationships == nil || payload.Data.Relationships.BetaRecruitmentCriterionOptions == nil {
+			t.Fatalf("expected option relationships")
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.UpdateBetaRecruitmentCriteria(context.Background(), "criteria-1", []string{"opt-1"}); err != nil {
+		t.Fatalf("UpdateBetaRecruitmentCriteria() error: %v", err)
+	}
+}
+
+func TestDeleteBetaRecruitmentCriteria_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusNoContent, "")
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodDelete {
+			t.Fatalf("expected DELETE, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaRecruitmentCriteria/criteria-1" {
+			t.Fatalf("expected path /v1/betaRecruitmentCriteria/criteria-1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if err := client.DeleteBetaRecruitmentCriteria(context.Background(), "criteria-1"); err != nil {
+		t.Fatalf("DeleteBetaRecruitmentCriteria() error: %v", err)
+	}
+}
+
+func TestGetBetaGroupPublicLinkUsages(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaGroupMetrics","id":"metric-1","attributes":{"installCount":5}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaGroups/group-1/metrics/publicLinkUsages" {
+			t.Fatalf("expected path /v1/betaGroups/group-1/metrics/publicLinkUsages, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBetaGroupPublicLinkUsages(context.Background(), "group-1"); err != nil {
+		t.Fatalf("GetBetaGroupPublicLinkUsages() error: %v", err)
+	}
+}
+
+func TestGetBetaGroupTesterUsages(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaGroupMetrics","id":"metric-1","attributes":{"testerCount":12}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaGroups/group-1/metrics/betaTesterUsages" {
+			t.Fatalf("expected path /v1/betaGroups/group-1/metrics/betaTesterUsages, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("groupBy") != "betaTesters" {
+			t.Fatalf("expected groupBy=betaTesters, got %q", req.URL.Query().Get("groupBy"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBetaGroupTesterUsages(context.Background(), "group-1"); err != nil {
+		t.Fatalf("GetBetaGroupTesterUsages() error: %v", err)
+	}
+}

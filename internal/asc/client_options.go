@@ -41,6 +41,18 @@ type UsersOption func(*usersQuery)
 // UserInvitationsOption is a functional option for GetUserInvitations.
 type UserInvitationsOption func(*userInvitationsQuery)
 
+// BetaAppReviewDetailsOption is a functional option for beta app review details.
+type BetaAppReviewDetailsOption func(*betaAppReviewDetailsQuery)
+
+// BetaAppReviewSubmissionsOption is a functional option for beta app review submissions.
+type BetaAppReviewSubmissionsOption func(*betaAppReviewSubmissionsQuery)
+
+// BuildBetaDetailsOption is a functional option for build beta details.
+type BuildBetaDetailsOption func(*buildBetaDetailsQuery)
+
+// BetaRecruitmentCriterionOptionsOption is a functional option for recruitment options.
+type BetaRecruitmentCriterionOptionsOption func(*betaRecruitmentCriterionOptionsQuery)
+
 // AppStoreVersionLocalizationsOption is a functional option for version localizations.
 type AppStoreVersionLocalizationsOption func(*appStoreVersionLocalizationsQuery)
 
@@ -555,6 +567,92 @@ func WithUserInvitationsLimit(limit int) UserInvitationsOption {
 // WithUserInvitationsNextURL uses a next page URL directly.
 func WithUserInvitationsNextURL(next string) UserInvitationsOption {
 	return func(q *userInvitationsQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
+// WithBetaAppReviewDetailsLimit sets the max number of review detail records to return.
+func WithBetaAppReviewDetailsLimit(limit int) BetaAppReviewDetailsOption {
+	return func(q *betaAppReviewDetailsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithBetaAppReviewDetailsNextURL uses a next page URL directly.
+func WithBetaAppReviewDetailsNextURL(next string) BetaAppReviewDetailsOption {
+	return func(q *betaAppReviewDetailsQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
+// WithBetaAppReviewSubmissionsLimit sets the max number of submissions to return.
+func WithBetaAppReviewSubmissionsLimit(limit int) BetaAppReviewSubmissionsOption {
+	return func(q *betaAppReviewSubmissionsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithBetaAppReviewSubmissionsNextURL uses a next page URL directly.
+func WithBetaAppReviewSubmissionsNextURL(next string) BetaAppReviewSubmissionsOption {
+	return func(q *betaAppReviewSubmissionsQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
+// WithBetaAppReviewSubmissionsBuildIDs filters submissions by build ID(s).
+func WithBetaAppReviewSubmissionsBuildIDs(ids []string) BetaAppReviewSubmissionsOption {
+	return func(q *betaAppReviewSubmissionsQuery) {
+		q.buildIDs = normalizeList(ids)
+	}
+}
+
+// WithBuildBetaDetailsLimit sets the max number of build beta details to return.
+func WithBuildBetaDetailsLimit(limit int) BuildBetaDetailsOption {
+	return func(q *buildBetaDetailsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithBuildBetaDetailsNextURL uses a next page URL directly.
+func WithBuildBetaDetailsNextURL(next string) BuildBetaDetailsOption {
+	return func(q *buildBetaDetailsQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
+// WithBuildBetaDetailsBuildIDs filters build beta details by build ID(s).
+func WithBuildBetaDetailsBuildIDs(ids []string) BuildBetaDetailsOption {
+	return func(q *buildBetaDetailsQuery) {
+		q.buildIDs = normalizeList(ids)
+	}
+}
+
+// WithBetaRecruitmentCriterionOptionsLimit sets the max number of criterion options to return.
+func WithBetaRecruitmentCriterionOptionsLimit(limit int) BetaRecruitmentCriterionOptionsOption {
+	return func(q *betaRecruitmentCriterionOptionsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithBetaRecruitmentCriterionOptionsNextURL uses a next page URL directly.
+func WithBetaRecruitmentCriterionOptionsNextURL(next string) BetaRecruitmentCriterionOptionsOption {
+	return func(q *betaRecruitmentCriterionOptionsQuery) {
 		if strings.TrimSpace(next) != "" {
 			q.nextURL = strings.TrimSpace(next)
 		}
