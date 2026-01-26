@@ -108,6 +108,7 @@ Examples:
 				requestCtx,
 				client,
 				bundleIDResp.Data.ID,
+				bundle,
 				profType,
 				result.CertificateIDs,
 				splitCSV(*deviceIDs),
@@ -210,11 +211,10 @@ func findCertificates(ctx context.Context, client *asc.Client, profileType, cert
 	return &asc.CertificatesResponse{Data: all, Links: links}, nil
 }
 
-func findOrCreateProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, profileType string, certIDs, deviceIDs []string, createMissing bool) (*asc.ProfileResponse, bool, error) {
+func findOrCreateProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, bundleIdentifier, profileType string, certIDs, deviceIDs []string, createMissing bool) (*asc.ProfileResponse, bool, error) {
 	next := ""
 	for {
 		profiles, err := client.GetProfiles(ctx,
-			asc.WithProfilesFilterBundleID(bundleIDResourceID),
 			asc.WithProfilesFilterType(profileType),
 			asc.WithProfilesNextURL(next),
 		)
@@ -223,7 +223,18 @@ func findOrCreateProfile(ctx context.Context, client *asc.Client, bundleIDResour
 		}
 
 		for _, profile := range profiles.Data {
-			if profile.Attributes.ProfileState == asc.ProfileStateActive {
+			if profile.Attributes.ProfileState != asc.ProfileStateActive {
+				continue
+			}
+			content := strings.TrimSpace(profile.Attributes.ProfileContent)
+			if content == "" {
+				continue
+			}
+			decoded, err := decodeBase64Content("profile", content)
+			if err != nil {
+				return nil, false, err
+			}
+			if strings.Contains(string(decoded), bundleIdentifier) {
 				return &asc.ProfileResponse{Data: profile}, false, nil
 			}
 		}
@@ -235,7 +246,7 @@ func findOrCreateProfile(ctx context.Context, client *asc.Client, bundleIDResour
 	}
 
 	if !createMissing {
-		return nil, false, fmt.Errorf("no active profile found; use --create-missing to create one")
+		return nil, false, fmt.Errorf("no active profile found for bundle ID; use --create-missing to create one")
 	}
 	if len(certIDs) == 0 {
 		return nil, false, fmt.Errorf("no certificates available to create profile")
