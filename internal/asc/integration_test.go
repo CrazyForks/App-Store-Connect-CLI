@@ -6,6 +6,8 @@ import (
 	"context"
 	"net/url"
 	"os"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,6 +26,40 @@ func TestIntegrationEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %v", err)
 	}
+
+	t.Run("app_store_version_localizations", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		versions, err := client.GetAppStoreVersions(ctx, appID, WithAppStoreVersionsLimit(50))
+		if err != nil {
+			t.Fatalf("failed to fetch app store versions: %v", err)
+		}
+		if versions == nil {
+			t.Fatal("expected app store versions response")
+		}
+		if len(versions.Data) == 0 {
+			t.Skip("no app store versions available")
+		}
+
+		selected := selectLatestAppStoreVersionForTest(versions.Data)
+		if strings.TrimSpace(selected.ID) == "" {
+			t.Skip("no app store version id available")
+		}
+
+		localizations, err := client.GetAppStoreVersionLocalizations(ctx, selected.ID, WithAppStoreVersionLocalizationsLimit(1))
+		if err != nil {
+			t.Fatalf("failed to fetch app store version localizations: %v", err)
+		}
+		if localizations == nil {
+			t.Fatal("expected localizations response")
+		}
+		if len(localizations.Data) == 0 {
+			t.Skip("no app store version localizations available")
+		}
+		assertASCLink(t, localizations.Links.Self)
+		assertASCLink(t, localizations.Links.Next)
+	})
 
 	t.Run("feedback", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -519,6 +555,103 @@ func TestIntegrationEndpoints(t *testing.T) {
 	})
 }
 
+func TestIntegrationDevicesReadOnly(t *testing.T) {
+	keyID := os.Getenv("ASC_KEY_ID")
+	issuerID := os.Getenv("ASC_ISSUER_ID")
+	keyPath := os.Getenv("ASC_PRIVATE_KEY_PATH")
+
+	if keyID == "" || issuerID == "" || keyPath == "" {
+		t.Skip("integration tests require ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH")
+	}
+
+	client, err := NewClient(keyID, issuerID, keyPath)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	t.Run("devices", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		devices, err := client.GetDevices(ctx, WithDevicesLimit(5))
+		if err != nil {
+			t.Fatalf("failed to fetch devices: %v", err)
+		}
+		if devices == nil {
+			t.Fatal("expected devices response")
+		}
+		assertLimit(t, len(devices.Data), 5)
+		assertASCLink(t, devices.Links.Self)
+		assertASCLink(t, devices.Links.Next)
+
+		if devices.Links.Next != "" {
+			nextCtx, nextCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer nextCancel()
+			nextDevices, err := client.GetDevices(nextCtx, WithDevicesNextURL(devices.Links.Next))
+			if err != nil {
+				t.Fatalf("failed to fetch devices next page: %v", err)
+			}
+			if nextDevices == nil {
+				t.Fatal("expected devices next page response")
+			}
+			assertASCLink(t, nextDevices.Links.Self)
+			assertASCLink(t, nextDevices.Links.Next)
+		}
+
+		if len(devices.Data) == 0 {
+			t.Skip("no devices available to validate filters")
+		}
+
+		first := devices.Data[0]
+		if first.ID == "" {
+			t.Fatal("expected device ID to be set")
+		}
+		if first.Attributes.UDID == "" {
+			t.Skip("device UDID is missing; cannot validate UDID filter")
+		}
+
+		filteredCtx, filteredCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer filteredCancel()
+		filtered, err := client.GetDevices(
+			filteredCtx,
+			WithDevicesUDIDs([]string{first.Attributes.UDID}),
+			WithDevicesLimit(5),
+		)
+		if err != nil {
+			t.Fatalf("failed to fetch filtered devices by UDID: %v", err)
+		}
+		assertLimit(t, len(filtered.Data), 5)
+		if len(filtered.Data) == 0 {
+			t.Skip("no devices returned for UDID filter")
+		}
+		for _, item := range filtered.Data {
+			if item.Attributes.UDID != first.Attributes.UDID {
+				t.Fatalf("expected UDID %q, got %q", first.Attributes.UDID, item.Attributes.UDID)
+			}
+		}
+
+		fieldsCtx, fieldsCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer fieldsCancel()
+		_, err = client.GetDevices(fieldsCtx, WithDevicesFields([]string{"name", "udid", "platform", "status"}), WithDevicesLimit(1))
+		if err != nil {
+			t.Fatalf("failed to fetch devices with fields: %v", err)
+		}
+
+		getCtx, getCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer getCancel()
+		device, err := client.GetDevice(getCtx, first.ID, []string{"name", "udid", "platform", "status"})
+		if err != nil {
+			t.Fatalf("failed to fetch device: %v", err)
+		}
+		if device == nil {
+			t.Fatal("expected device response")
+		}
+		if device.Data.ID != first.ID {
+			t.Fatalf("expected device ID %q, got %q", first.ID, device.Data.ID)
+		}
+	})
+}
+
 // TestIntegrationErrorHandling tests API error responses for invalid inputs.
 func TestIntegrationErrorHandling(t *testing.T) {
 	keyID := os.Getenv("ASC_KEY_ID")
@@ -615,6 +748,27 @@ func assertASCLink(t *testing.T, link string) {
 	if parsed.Scheme != "" && parsed.Scheme != "https" {
 		t.Fatalf("expected https scheme, got %q", parsed.Scheme)
 	}
+}
+
+func selectLatestAppStoreVersionForTest(versions []Resource[AppStoreVersionAttributes]) Resource[AppStoreVersionAttributes] {
+	sort.SliceStable(versions, func(i, j int) bool {
+		return parseAppStoreVersionCreatedDateForTest(versions[i]).After(parseAppStoreVersionCreatedDateForTest(versions[j]))
+	})
+	return versions[0]
+}
+
+func parseAppStoreVersionCreatedDateForTest(version Resource[AppStoreVersionAttributes]) time.Time {
+	created := strings.TrimSpace(version.Attributes.CreatedDate)
+	if created == "" {
+		return time.Time{}
+	}
+	if parsed, err := time.Parse(time.RFC3339, created); err == nil {
+		return parsed
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {
+		return parsed
+	}
+	return time.Time{}
 }
 
 // assertSortedByDateDesc verifies dates are in descending order.

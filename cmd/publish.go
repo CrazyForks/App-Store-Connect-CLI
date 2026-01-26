@@ -56,6 +56,8 @@ func PublishTestFlightCommand() *ffcli.Command {
 	wait := fs.Bool("wait", false, "Wait for build processing to complete")
 	pollInterval := fs.Duration("poll-interval", publishDefaultPollInterval, "Polling interval for --wait and build discovery")
 	timeout := fs.Duration("timeout", 0, "Override upload + processing timeout (e.g., 30m)")
+	testNotes := fs.String("test-notes", "", "What to Test notes for the build")
+	locale := fs.String("locale", "", "Locale for --test-notes (e.g., en-US)")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -73,7 +75,8 @@ Steps:
 
 Examples:
   asc publish testflight --app "123" --ipa app.ipa --group "GROUP_ID"
-  asc publish testflight --app "123" --ipa app.ipa --group "G1,G2" --wait --notify`,
+  asc publish testflight --app "123" --ipa app.ipa --group "G1,G2" --wait --notify
+  asc publish testflight --app "123" --ipa app.ipa --group "GROUP_ID" --test-notes "Test instructions" --locale "en-US" --wait`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -91,6 +94,22 @@ Examples:
 			if len(parsedGroupIDs) == 0 {
 				fmt.Fprintf(os.Stderr, "Error: --group is required\n\n")
 				return flag.ErrHelp
+			}
+
+			testNotesValue := strings.TrimSpace(*testNotes)
+			localeValue := strings.TrimSpace(*locale)
+			if testNotesValue != "" && localeValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --locale is required with --test-notes")
+				return flag.ErrHelp
+			}
+			if testNotesValue == "" && localeValue != "" {
+				fmt.Fprintln(os.Stderr, "Error: --test-notes is required with --locale")
+				return flag.ErrHelp
+			}
+			if testNotesValue != "" {
+				if err := validateBuildLocalizationLocale(localeValue); err != nil {
+					return fmt.Errorf("publish testflight: %w", err)
+				}
 			}
 
 			if *pollInterval <= 0 {
@@ -132,9 +151,15 @@ Examples:
 			}
 
 			buildResp := uploadResult.Build
-			if *wait {
+			if *wait || testNotesValue != "" {
 				buildResp, err = client.WaitForBuildProcessing(requestCtx, buildResp.Data.ID, *pollInterval)
 				if err != nil {
+					return fmt.Errorf("publish testflight: %w", err)
+				}
+			}
+
+			if testNotesValue != "" {
+				if _, err := upsertBetaBuildLocalization(requestCtx, client, buildResp.Data.ID, localeValue, testNotesValue); err != nil {
 					return fmt.Errorf("publish testflight: %w", err)
 				}
 			}

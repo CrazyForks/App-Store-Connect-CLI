@@ -156,7 +156,10 @@ func TestIntegrationAuthConfig(t *testing.T) {
 
 		// Check auth status
 		cmd := exec.Command(ascBinary, "auth", "status")
-		cmd.Env = append(os.Environ(), "ASC_CONFIG_PATH="+configPath)
+		cmd.Env = append(os.Environ(),
+			"ASC_CONFIG_PATH="+configPath,
+			"ASC_BYPASS_KEYCHAIN=1",
+		)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("auth status failed: %v\nOutput: %s", err, output)
@@ -167,6 +170,66 @@ func TestIntegrationAuthConfig(t *testing.T) {
 		}
 		if !strings.Contains(string(output), keyID) {
 			t.Fatalf("auth status should show key ID, got: %s", output)
+		}
+	})
+
+	t.Run("auth_switch_sets_default_and_profile_override", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.json")
+
+		cfg := &config.Config{
+			DefaultKeyName: "personal",
+			Keys: []config.Credential{
+				{
+					Name:           "personal",
+					KeyID:          keyID,
+					IssuerID:       issuerID,
+					PrivateKeyPath: keyPath,
+				},
+				{
+					Name:           "client",
+					KeyID:          keyID,
+					IssuerID:       issuerID,
+					PrivateKeyPath: keyPath,
+				},
+			},
+		}
+		if err := config.SaveAt(configPath, cfg); err != nil {
+			t.Fatalf("failed to save config: %v", err)
+		}
+
+		cmd := exec.Command(ascBinary, "auth", "switch", "--name", "client")
+		cmd.Env = append(filterEnv(os.Environ(), "ASC_CONFIG_PATH", "ASC_BYPASS_KEYCHAIN"),
+			"ASC_CONFIG_PATH="+configPath,
+			"ASC_BYPASS_KEYCHAIN=1",
+		)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("auth switch failed: %v\nOutput: %s", err, output)
+		}
+
+		updated, err := config.LoadAt(configPath)
+		if err != nil {
+			t.Fatalf("failed to read config: %v", err)
+		}
+		if updated.DefaultKeyName != "client" {
+			t.Fatalf("expected DefaultKeyName=client, got %q", updated.DefaultKeyName)
+		}
+
+		cmd = exec.Command(ascBinary, "--profile", "client", "apps", "list", "--limit", "1")
+		cmd.Env = append(filterEnv(os.Environ(),
+			"ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_PRIVATE_KEY_PATH",
+			"ASC_CONFIG_PATH", "ASC_BYPASS_KEYCHAIN",
+		),
+			"ASC_CONFIG_PATH="+configPath,
+			"ASC_BYPASS_KEYCHAIN=1",
+		)
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("apps list with --profile failed: %v\nOutput: %s", err, output)
+		}
+		if !strings.Contains(string(output), `"type":"apps"`) {
+			t.Fatalf("expected apps response, got: %s", output)
 		}
 	})
 
@@ -251,7 +314,13 @@ func TestIntegrationAuthConfig(t *testing.T) {
 			DefaultKeyName: "LogoutTestKey",
 			AppID:          "12345",
 			VendorNumber:   "67890",
-			Timeout:        "60s",
+			Timeout: func() config.DurationValue {
+				value, err := config.ParseDurationValue("60s")
+				if err != nil {
+					t.Fatalf("ParseDurationValue(\"60s\") error: %v", err)
+				}
+				return value
+			}(),
 		}
 		if err := config.SaveAt(configPath, cfg); err != nil {
 			t.Fatalf("failed to save config: %v", err)
@@ -289,8 +358,8 @@ func TestIntegrationAuthConfig(t *testing.T) {
 		if loadedCfg.VendorNumber != "67890" {
 			t.Fatalf("VendorNumber should be preserved, got %q", loadedCfg.VendorNumber)
 		}
-		if loadedCfg.Timeout != "60s" {
-			t.Fatalf("Timeout should be preserved, got %q", loadedCfg.Timeout)
+		if loadedCfg.Timeout.String() != "60s" {
+			t.Fatalf("Timeout should be preserved, got %q", loadedCfg.Timeout.String())
 		}
 	})
 }

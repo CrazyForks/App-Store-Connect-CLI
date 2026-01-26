@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
+	"golang.org/x/term"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/auth"
@@ -22,9 +24,33 @@ var (
 	reset = "\033[22m"
 )
 
+const (
+	privateKeyEnvVar       = "ASC_PRIVATE_KEY"
+	privateKeyBase64EnvVar = "ASC_PRIVATE_KEY_B64"
+	profileEnvVar          = "ASC_PROFILE"
+)
+
+var (
+	privateKeyTempPath string
+	selectedProfile    string
+)
+
 // Bold returns the string wrapped in ANSI bold codes
 func Bold(s string) string {
+	if !supportsANSI() {
+		return s
+	}
 	return bold + s + reset
+}
+
+func supportsANSI() bool {
+	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+		return false
+	}
+	if strings.EqualFold(os.Getenv("TERM"), "dumb") {
+		return false
+	}
+	return term.IsTerminal(int(os.Stderr.Fd()))
 }
 
 // DefaultUsageFunc returns a usage string with bold section headers
@@ -109,26 +135,86 @@ func DefaultUsageFunc(c *ffcli.Command) string {
 	return b.String()
 }
 
+type envCredentials struct {
+	keyID    string
+	issuerID string
+	keyPath  string
+	complete bool
+}
+
+func resolveEnvCredentials() (envCredentials, error) {
+	keyID := strings.TrimSpace(os.Getenv("ASC_KEY_ID"))
+	issuerID := strings.TrimSpace(os.Getenv("ASC_ISSUER_ID"))
+	hasKeyPathEnv := strings.TrimSpace(os.Getenv("ASC_PRIVATE_KEY_PATH")) != "" ||
+		strings.TrimSpace(os.Getenv(privateKeyEnvVar)) != "" ||
+		strings.TrimSpace(os.Getenv(privateKeyBase64EnvVar)) != ""
+
+	if keyID == "" && issuerID == "" && !hasKeyPathEnv {
+		return envCredentials{}, nil
+	}
+
+	keyPath, err := resolvePrivateKeyPath()
+	if err != nil {
+		return envCredentials{}, err
+	}
+
+	creds := envCredentials{
+		keyID:    keyID,
+		issuerID: issuerID,
+		keyPath:  keyPath,
+	}
+	creds.complete = keyID != "" && issuerID != "" && keyPath != ""
+	return creds, nil
+}
+
 func getASCClient() (*asc.Client, error) {
 	var actualKeyID, actualIssuerID, actualKeyPath string
+	profile := resolveProfileName()
+	var envCreds envCredentials
+	envResolved := false
 
-	// Priority 1: Keychain credentials (explicit user setup via 'asc auth login')
-	cfg, err := auth.GetDefaultCredentials()
-	if err == nil && cfg != nil {
+	if profile == "" && auth.ShouldBypassKeychain() {
+		resolved, err := resolveEnvCredentials()
+		if err != nil {
+			return nil, fmt.Errorf("invalid private key environment: %w", err)
+		}
+		envCreds = resolved
+		envResolved = true
+		if envCreds.complete {
+			return asc.NewClient(envCreds.keyID, envCreds.issuerID, envCreds.keyPath)
+		}
+	}
+
+	// Priority 1: Stored credentials (keychain/config)
+	cfg, err := auth.GetCredentials(profile)
+	if err != nil {
+		if profile != "" {
+			return nil, err
+		}
+	} else if cfg != nil {
 		actualKeyID = cfg.KeyID
 		actualIssuerID = cfg.IssuerID
 		actualKeyPath = cfg.PrivateKeyPath
 	}
 
 	// Priority 2: Environment variables (fallback for CI/CD or when keychain unavailable)
-	if actualKeyID == "" {
-		actualKeyID = os.Getenv("ASC_KEY_ID")
-	}
-	if actualIssuerID == "" {
-		actualIssuerID = os.Getenv("ASC_ISSUER_ID")
-	}
-	if actualKeyPath == "" {
-		actualKeyPath = os.Getenv("ASC_PRIVATE_KEY_PATH")
+	if actualKeyID == "" || actualIssuerID == "" || actualKeyPath == "" {
+		if !envResolved {
+			resolved, err := resolveEnvCredentials()
+			if err != nil {
+				return nil, fmt.Errorf("invalid private key environment: %w", err)
+			}
+			envCreds = resolved
+		}
+		if actualKeyID == "" {
+			actualKeyID = envCreds.keyID
+		}
+		if actualIssuerID == "" {
+			actualIssuerID = envCreds.issuerID
+		}
+		if actualKeyPath == "" {
+			actualKeyPath = envCreds.keyPath
+		}
 	}
 
 	if actualKeyID == "" || actualIssuerID == "" || actualKeyPath == "" {
@@ -141,6 +227,76 @@ func getASCClient() (*asc.Client, error) {
 	return asc.NewClient(actualKeyID, actualIssuerID, actualKeyPath)
 }
 
+func resolvePrivateKeyPath() (string, error) {
+	if path := strings.TrimSpace(os.Getenv("ASC_PRIVATE_KEY_PATH")); path != "" {
+		return path, nil
+	}
+	if privateKeyTempPath != "" {
+		return privateKeyTempPath, nil
+	}
+	if value := strings.TrimSpace(os.Getenv(privateKeyBase64EnvVar)); value != "" {
+		decoded, err := decodeBase64Secret(value)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", privateKeyBase64EnvVar, err)
+		}
+		return writeTempPrivateKey(decoded)
+	}
+	if value := strings.TrimSpace(os.Getenv(privateKeyEnvVar)); value != "" {
+		return writeTempPrivateKey([]byte(normalizePrivateKeyValue(value)))
+	}
+	return "", nil
+}
+
+func decodeBase64Secret(value string) ([]byte, error) {
+	compact := strings.Join(strings.Fields(value), "")
+	if compact == "" {
+		return nil, fmt.Errorf("empty value")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(compact)
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) == 0 {
+		return nil, fmt.Errorf("decoded to empty value")
+	}
+	return decoded, nil
+}
+
+func normalizePrivateKeyValue(value string) string {
+	if strings.Contains(value, "\\n") && !strings.Contains(value, "\n") {
+		return strings.ReplaceAll(value, "\\n", "\n")
+	}
+	return value
+}
+
+func writeTempPrivateKey(data []byte) (string, error) {
+	file, err := os.CreateTemp("", "asc-key-*.p8")
+	if err != nil {
+		return "", err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return "", err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	privateKeyTempPath = file.Name()
+	return privateKeyTempPath, nil
+}
+func resolveProfileName() string {
+	if strings.TrimSpace(selectedProfile) != "" {
+		return strings.TrimSpace(selectedProfile)
+	}
+	if value := strings.TrimSpace(os.Getenv(profileEnvVar)); value != "" {
+		return value
+	}
+	return ""
+}
 func printOutput(data interface{}, format string, pretty bool) error {
 	format = strings.ToLower(format)
 	switch format {
@@ -172,7 +328,7 @@ func resolveAppID(appID string) string {
 		return strings.TrimSpace(env)
 	}
 	cfg, err := config.Load()
-	if err != nil {
+	if err != nil || cfg == nil {
 		return ""
 	}
 	return strings.TrimSpace(cfg.AppID)

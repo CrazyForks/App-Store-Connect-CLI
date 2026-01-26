@@ -297,6 +297,28 @@ func TestBuildAppStoreVersionLocalizationsQuery(t *testing.T) {
 	}
 }
 
+func TestBuildBetaBuildLocalizationsQuery(t *testing.T) {
+	query := &betaBuildLocalizationsQuery{}
+	opts := []BetaBuildLocalizationsOption{
+		WithBetaBuildLocalizationsLimit(25),
+		WithBetaBuildLocalizationLocales([]string{"en-US", "fr-FR"}),
+	}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	values, err := url.ParseQuery(buildBetaBuildLocalizationsQuery(query))
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("filter[locale]"); got != "en-US,fr-FR" {
+		t.Fatalf("expected filter[locale]=en-US,fr-FR, got %q", got)
+	}
+	if got := values.Get("limit"); got != "25" {
+		t.Fatalf("expected limit=25, got %q", got)
+	}
+}
+
 func TestBuildAppInfoLocalizationsQuery(t *testing.T) {
 	query := &appInfoLocalizationsQuery{}
 	opts := []AppInfoLocalizationsOption{
@@ -406,6 +428,32 @@ func TestBuildBuildsQuery(t *testing.T) {
 	}
 }
 
+func TestBuildSubscriptionOfferCodeOneTimeUseCodesQuery(t *testing.T) {
+	query := &subscriptionOfferCodeOneTimeUseCodesQuery{}
+	opts := []SubscriptionOfferCodeOneTimeUseCodesOption{
+		WithSubscriptionOfferCodeOneTimeUseCodesLimit(10),
+		WithSubscriptionOfferCodeOneTimeUseCodesNextURL("https://api.appstoreconnect.apple.com/v1/subscriptionOfferCodes/123/oneTimeUseCodes?cursor=abc"),
+	}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	if query.limit != 10 {
+		t.Fatalf("expected limit=10, got %d", query.limit)
+	}
+	if query.nextURL != "https://api.appstoreconnect.apple.com/v1/subscriptionOfferCodes/123/oneTimeUseCodes?cursor=abc" {
+		t.Fatalf("expected nextURL to be set, got %q", query.nextURL)
+	}
+
+	values, err := url.ParseQuery(buildSubscriptionOfferCodeOneTimeUseCodesQuery(query))
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("limit"); got != "10" {
+		t.Fatalf("expected limit=10, got %q", got)
+	}
+}
+
 func TestBuildUploadCreateRequest_JSON(t *testing.T) {
 	req := BuildUploadCreateRequest{
 		Data: BuildUploadCreateData{
@@ -476,6 +524,73 @@ func TestBuildUploadCreateRequest_JSON(t *testing.T) {
 	}
 	if parsed.Data.Relationships.App.Data.ID != "APP_ID_123" {
 		t.Fatalf("expected app id=APP_ID_123, got %q", parsed.Data.Relationships.App.Data.ID)
+	}
+}
+
+func TestSubscriptionOfferCodeOneTimeUseCodeCreateRequest_JSON(t *testing.T) {
+	req := SubscriptionOfferCodeOneTimeUseCodeCreateRequest{
+		Data: SubscriptionOfferCodeOneTimeUseCodeCreateData{
+			Type: ResourceTypeSubscriptionOfferCodeOneTimeUseCodes,
+			Attributes: SubscriptionOfferCodeOneTimeUseCodeCreateAttributes{
+				NumberOfCodes:  3,
+				ExpirationDate: "2026-02-01",
+			},
+			Relationships: SubscriptionOfferCodeOneTimeUseCodeCreateRelationships{
+				OfferCode: Relationship{
+					Data: ResourceData{
+						Type: ResourceTypeSubscriptionOfferCodes,
+						ID:   "OFFER_CODE_ID",
+					},
+				},
+			},
+		},
+	}
+
+	body, err := BuildRequestBody(req)
+	if err != nil {
+		t.Fatalf("BuildRequestBody() error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(body); err != nil {
+		t.Fatalf("read body error: %v", err)
+	}
+
+	var parsed struct {
+		Data struct {
+			Type       string `json:"type"`
+			Attributes struct {
+				NumberOfCodes  int    `json:"numberOfCodes"`
+				ExpirationDate string `json:"expirationDate"`
+			} `json:"attributes"`
+			Relationships struct {
+				OfferCode struct {
+					Data struct {
+						Type string `json:"type"`
+						ID   string `json:"id"`
+					} `json:"data"`
+				} `json:"offerCode"`
+			} `json:"relationships"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal body: %v", err)
+	}
+
+	if parsed.Data.Type != "subscriptionOfferCodeOneTimeUseCodes" {
+		t.Fatalf("expected type=subscriptionOfferCodeOneTimeUseCodes, got %q", parsed.Data.Type)
+	}
+	if parsed.Data.Attributes.NumberOfCodes != 3 {
+		t.Fatalf("expected numberOfCodes=3, got %d", parsed.Data.Attributes.NumberOfCodes)
+	}
+	if parsed.Data.Attributes.ExpirationDate != "2026-02-01" {
+		t.Fatalf("expected expirationDate=2026-02-01, got %q", parsed.Data.Attributes.ExpirationDate)
+	}
+	if parsed.Data.Relationships.OfferCode.Data.Type != "subscriptionOfferCodes" {
+		t.Fatalf("expected offerCode type=subscriptionOfferCodes, got %q", parsed.Data.Relationships.OfferCode.Data.Type)
+	}
+	if parsed.Data.Relationships.OfferCode.Data.ID != "OFFER_CODE_ID" {
+		t.Fatalf("expected offerCode id=OFFER_CODE_ID, got %q", parsed.Data.Relationships.OfferCode.Data.ID)
 	}
 }
 

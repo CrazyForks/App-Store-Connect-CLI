@@ -26,6 +26,35 @@ type BuildBetaGroupsUpdateResult struct {
 	Action   string   `json:"action"`
 }
 
+// BuildExpireAllItem represents a build selected for expiration.
+type BuildExpireAllItem struct {
+	ID           string `json:"id"`
+	Version      string `json:"version"`
+	UploadedDate string `json:"uploadedDate"`
+	AgeDays      int    `json:"ageDays"`
+	Expired      *bool  `json:"expired,omitempty"`
+}
+
+// BuildExpireAllFailure represents a failed expiration attempt.
+type BuildExpireAllFailure struct {
+	ID    string `json:"id"`
+	Error string `json:"error"`
+}
+
+// BuildExpireAllResult represents CLI output for batch build expiration.
+type BuildExpireAllResult struct {
+	DryRun              bool                    `json:"dryRun"`
+	AppID               string                  `json:"appId"`
+	OlderThan           *string                 `json:"olderThan,omitempty"`
+	KeepLatest          *int                    `json:"keepLatest,omitempty"`
+	SelectedCount       int                     `json:"selectedCount"`
+	ExpiredCount        int                     `json:"expiredCount"`
+	SkippedExpiredCount *int                    `json:"skippedExpiredCount,omitempty"`
+	SkippedInvalidCount *int                    `json:"skippedInvalidCount,omitempty"`
+	Builds              []BuildExpireAllItem    `json:"builds"`
+	Failures            []BuildExpireAllFailure `json:"failures,omitempty"`
+}
+
 func printBuildsTable(resp *BuildsResponse) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "Version\tUploaded\tProcessing\tExpired")
@@ -127,6 +156,71 @@ func printBuildUploadResultMarkdown(result *BuildUploadResult) error {
 			escapeMarkdown(op.URL),
 			op.Length,
 			op.Offset,
+		)
+	}
+	return nil
+}
+
+func printBuildExpireAllResultTable(result *BuildExpireAllResult) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	status := "expired"
+	if result.DryRun {
+		status = "would-expire"
+	}
+	fmt.Fprintln(w, "ID\tVersion\tUploaded\tAge Days\tStatus")
+	for _, item := range result.Builds {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
+			item.ID,
+			item.Version,
+			item.UploadedDate,
+			item.AgeDays,
+			status,
+		)
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if len(result.Failures) == 0 {
+		return nil
+	}
+	fmt.Fprintln(os.Stdout, "\nFailures")
+	failuresWriter := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(failuresWriter, "ID\tError")
+	for _, failure := range result.Failures {
+		fmt.Fprintf(failuresWriter, "%s\t%s\n",
+			failure.ID,
+			compactWhitespace(failure.Error),
+		)
+	}
+	return failuresWriter.Flush()
+}
+
+func printBuildExpireAllResultMarkdown(result *BuildExpireAllResult) error {
+	status := "expired"
+	if result.DryRun {
+		status = "would-expire"
+	}
+	fmt.Fprintln(os.Stdout, "| ID | Version | Uploaded | Age Days | Status |")
+	fmt.Fprintln(os.Stdout, "| --- | --- | --- | --- | --- |")
+	for _, item := range result.Builds {
+		fmt.Fprintf(os.Stdout, "| %s | %s | %s | %d | %s |\n",
+			escapeMarkdown(item.ID),
+			escapeMarkdown(item.Version),
+			escapeMarkdown(item.UploadedDate),
+			item.AgeDays,
+			status,
+		)
+	}
+	if len(result.Failures) == 0 {
+		return nil
+	}
+	fmt.Fprintln(os.Stdout, "\nFailures")
+	fmt.Fprintln(os.Stdout, "| ID | Error |")
+	fmt.Fprintln(os.Stdout, "| --- | --- |")
+	for _, failure := range result.Failures {
+		fmt.Fprintf(os.Stdout, "| %s | %s |\n",
+			escapeMarkdown(failure.ID),
+			escapeMarkdown(compactWhitespace(failure.Error)),
 		)
 	}
 	return nil

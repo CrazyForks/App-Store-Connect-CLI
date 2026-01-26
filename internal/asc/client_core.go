@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"os"
@@ -16,11 +17,6 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/config"
 )
 
-func init() {
-	// Seed the random number generator for jitter
-	rand.Seed(time.Now().UnixNano())
-}
-
 const (
 	// BaseURL is the App Store Connect API base URL
 	BaseURL = "https://api.appstoreconnect.apple.com"
@@ -28,13 +24,25 @@ const (
 	DefaultTimeout = 30 * time.Second
 	// DefaultUploadTimeout is the default timeout for upload operations.
 	DefaultUploadTimeout = 60 * time.Second
-	tokenLifetime        = 20 * time.Minute
+	// tokenLifetime is the JWT token lifetime for App Store Connect API authentication.
+	// 10 minutes is a good balance between security (shorter-lived tokens) and usability.
+	tokenLifetime = 10 * time.Minute
 
 	// Retry defaults
 	DefaultMaxRetries = 3
 	DefaultBaseDelay  = 1 * time.Second
 	DefaultMaxDelay   = 30 * time.Second
 )
+
+var retryLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+	Level: slog.LevelInfo,
+	ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
+		if attr.Key == slog.TimeKey {
+			return slog.Attr{}
+		}
+		return attr
+	},
+}))
 
 func loadConfig() *config.Config {
 	cfg, err := config.Load()
@@ -201,7 +209,7 @@ func WithRetry[T any](ctx context.Context, fn func() (T, error), opts RetryOptio
 		}
 
 		if shouldLogRetries() {
-			fmt.Fprintf(os.Stderr, "retrying in %s (attempt %d/%d): %v\n", delay, retryCount+1, opts.MaxRetries, err)
+			logRetry(delay, retryCount+1, opts.MaxRetries, err)
 		}
 
 		retryCount++
@@ -227,6 +235,10 @@ func shouldLogRetries() bool {
 	return strings.TrimSpace(cfg.RetryLog) != ""
 }
 
+func logRetry(delay time.Duration, attempt, maxRetries int, err error) {
+	retryLogger.Info("retrying request", "delay", delay.String(), "attempt", attempt, "maxRetries", maxRetries, "error", err)
+}
+
 // ResolveTimeout returns the request timeout, optionally overridden by config/env.
 func ResolveTimeout() time.Duration {
 	return ResolveTimeoutWithDefault(DefaultTimeout)
@@ -235,8 +247,8 @@ func ResolveTimeout() time.Duration {
 // ResolveUploadTimeout returns the upload timeout, optionally overridden by config/env.
 func ResolveUploadTimeout() time.Duration {
 	cfg := loadConfig()
-	uploadTimeout := ""
-	uploadTimeoutSeconds := ""
+	var uploadTimeout config.DurationValue
+	var uploadTimeoutSeconds config.DurationValue
 	if cfg != nil {
 		uploadTimeout = cfg.UploadTimeout
 		uploadTimeoutSeconds = cfg.UploadTimeoutSeconds
@@ -248,8 +260,8 @@ func ResolveUploadTimeout() time.Duration {
 // ASC_TIMEOUT and ASC_TIMEOUT_SECONDS override the default when set.
 func ResolveTimeoutWithDefault(defaultTimeout time.Duration) time.Duration {
 	cfg := loadConfig()
-	timeout := ""
-	timeoutSeconds := ""
+	var timeout config.DurationValue
+	var timeoutSeconds config.DurationValue
 	if cfg != nil {
 		timeout = cfg.Timeout
 		timeoutSeconds = cfg.TimeoutSeconds
@@ -257,7 +269,7 @@ func ResolveTimeoutWithDefault(defaultTimeout time.Duration) time.Duration {
 	return resolveTimeoutWithDefaultAndEnv(defaultTimeout, "ASC_TIMEOUT", "ASC_TIMEOUT_SECONDS", timeout, timeoutSeconds)
 }
 
-func resolveTimeoutWithDefaultAndEnv(defaultTimeout time.Duration, durationEnv, secondsEnv, durationConfig, secondsConfig string) time.Duration {
+func resolveTimeoutWithDefaultAndEnv(defaultTimeout time.Duration, durationEnv, secondsEnv string, durationConfig, secondsConfig config.DurationValue) time.Duration {
 	timeout := defaultTimeout
 	if override, ok := envValue(durationEnv); ok {
 		if override != "" {
@@ -275,14 +287,10 @@ func resolveTimeoutWithDefaultAndEnv(defaultTimeout time.Duration, durationEnv, 
 		}
 		return timeout
 	}
-	if override := strings.TrimSpace(durationConfig); override != "" {
-		if parsed, err := time.ParseDuration(override); err == nil && parsed > 0 {
-			timeout = parsed
-		}
-	} else if override := strings.TrimSpace(secondsConfig); override != "" {
-		if parsed, err := strconv.Atoi(override); err == nil && parsed > 0 {
-			timeout = time.Duration(parsed) * time.Second
-		}
+	if override, ok := durationConfig.Value(); ok {
+		timeout = override
+	} else if override, ok := secondsConfig.Value(); ok {
+		timeout = override
 	}
 	return timeout
 }

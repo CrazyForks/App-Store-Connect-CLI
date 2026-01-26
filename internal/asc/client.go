@@ -64,6 +64,12 @@ type AppStoreVersionLocalizationsResponse = Response[AppStoreVersionLocalization
 // AppStoreVersionLocalizationResponse is the response from app store version localization detail/creates.
 type AppStoreVersionLocalizationResponse = SingleResponse[AppStoreVersionLocalizationAttributes]
 
+// BetaBuildLocalizationsResponse is the response from beta build localization endpoints.
+type BetaBuildLocalizationsResponse = Response[BetaBuildLocalizationAttributes]
+
+// BetaBuildLocalizationResponse is the response from beta build localization detail/creates.
+type BetaBuildLocalizationResponse = SingleResponse[BetaBuildLocalizationAttributes]
+
 // AppInfoLocalizationsResponse is the response from app info localizations endpoints.
 type AppInfoLocalizationsResponse = Response[AppInfoLocalizationAttributes]
 
@@ -97,6 +103,12 @@ type AppStoreVersionLocalizationAttributes struct {
 	PromotionalText string `json:"promotionalText,omitempty"`
 	SupportURL      string `json:"supportUrl,omitempty"`
 	WhatsNew        string `json:"whatsNew,omitempty"`
+}
+
+// BetaBuildLocalizationAttributes describes TestFlight build localization notes.
+type BetaBuildLocalizationAttributes struct {
+	Locale   string `json:"locale,omitempty"`
+	WhatsNew string `json:"whatsNew,omitempty"`
 }
 
 // AppInfoLocalizationAttributes describes app info localization metadata.
@@ -180,6 +192,35 @@ type AppStoreVersionLocalizationUpdateRequest struct {
 // AppStoreVersionLocalizationRelationships describes relationships for version localizations.
 type AppStoreVersionLocalizationRelationships struct {
 	AppStoreVersion *Relationship `json:"appStoreVersion"`
+}
+
+// BetaBuildLocalizationCreateData is the data portion of a beta build localization create request.
+type BetaBuildLocalizationCreateData struct {
+	Type          ResourceType                        `json:"type"`
+	Attributes    BetaBuildLocalizationAttributes     `json:"attributes"`
+	Relationships *BetaBuildLocalizationRelationships `json:"relationships"`
+}
+
+// BetaBuildLocalizationCreateRequest is a request to create a beta build localization.
+type BetaBuildLocalizationCreateRequest struct {
+	Data BetaBuildLocalizationCreateData `json:"data"`
+}
+
+// BetaBuildLocalizationUpdateData is the data portion of a beta build localization update request.
+type BetaBuildLocalizationUpdateData struct {
+	Type       ResourceType                    `json:"type"`
+	ID         string                          `json:"id"`
+	Attributes BetaBuildLocalizationAttributes `json:"attributes"`
+}
+
+// BetaBuildLocalizationUpdateRequest is a request to update a beta build localization.
+type BetaBuildLocalizationUpdateRequest struct {
+	Data BetaBuildLocalizationUpdateData `json:"data"`
+}
+
+// BetaBuildLocalizationRelationships describes relationships for beta build localizations.
+type BetaBuildLocalizationRelationships struct {
+	Build *Relationship `json:"build"`
 }
 
 // AppInfoLocalizationCreateData is the data portion of an app info localization create request.
@@ -921,6 +962,125 @@ func (c *Client) UpdateAppStoreVersionLocalization(ctx context.Context, localiza
 // DeleteAppStoreVersionLocalization deletes a localization by ID.
 func (c *Client) DeleteAppStoreVersionLocalization(ctx context.Context, localizationID string) error {
 	path := fmt.Sprintf("/v1/appStoreVersionLocalizations/%s", localizationID)
+	if _, err := c.do(ctx, "DELETE", path, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetBetaBuildLocalizations retrieves beta build localizations for a build.
+func (c *Client) GetBetaBuildLocalizations(ctx context.Context, buildID string, opts ...BetaBuildLocalizationsOption) (*BetaBuildLocalizationsResponse, error) {
+	query := &betaBuildLocalizationsQuery{}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	path := fmt.Sprintf("/v1/builds/%s/betaBuildLocalizations", buildID)
+	if query.nextURL != "" {
+		if err := validateNextURL(query.nextURL); err != nil {
+			return nil, fmt.Errorf("betaBuildLocalizations: %w", err)
+		}
+		path = query.nextURL
+	} else if queryString := buildBetaBuildLocalizationsQuery(query); queryString != "" {
+		path += "?" + queryString
+	}
+
+	data, err := c.do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response BetaBuildLocalizationsResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetBetaBuildLocalization retrieves a single beta build localization by ID.
+func (c *Client) GetBetaBuildLocalization(ctx context.Context, localizationID string) (*BetaBuildLocalizationResponse, error) {
+	path := fmt.Sprintf("/v1/betaBuildLocalizations/%s", localizationID)
+	data, err := c.do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response BetaBuildLocalizationResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// CreateBetaBuildLocalization creates a beta build localization for a build.
+func (c *Client) CreateBetaBuildLocalization(ctx context.Context, buildID string, attributes BetaBuildLocalizationAttributes) (*BetaBuildLocalizationResponse, error) {
+	payload := BetaBuildLocalizationCreateRequest{
+		Data: BetaBuildLocalizationCreateData{
+			Type:       ResourceTypeBetaBuildLocalizations,
+			Attributes: attributes,
+			Relationships: &BetaBuildLocalizationRelationships{
+				Build: &Relationship{
+					Data: ResourceData{
+						Type: ResourceTypeBuilds,
+						ID:   buildID,
+					},
+				},
+			},
+		},
+	}
+
+	body, err := BuildRequestBody(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := c.do(ctx, "POST", "/v1/betaBuildLocalizations", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var response BetaBuildLocalizationResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// UpdateBetaBuildLocalization updates a beta build localization by ID.
+func (c *Client) UpdateBetaBuildLocalization(ctx context.Context, localizationID string, attributes BetaBuildLocalizationAttributes) (*BetaBuildLocalizationResponse, error) {
+	payload := BetaBuildLocalizationUpdateRequest{
+		Data: BetaBuildLocalizationUpdateData{
+			Type:       ResourceTypeBetaBuildLocalizations,
+			ID:         localizationID,
+			Attributes: attributes,
+		},
+	}
+
+	body, err := BuildRequestBody(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	path := fmt.Sprintf("/v1/betaBuildLocalizations/%s", localizationID)
+	data, err := c.do(ctx, "PATCH", path, body)
+	if err != nil {
+		return nil, err
+	}
+
+	var response BetaBuildLocalizationResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// DeleteBetaBuildLocalization deletes a beta build localization by ID.
+func (c *Client) DeleteBetaBuildLocalization(ctx context.Context, localizationID string) error {
+	path := fmt.Sprintf("/v1/betaBuildLocalizations/%s", localizationID)
 	if _, err := c.do(ctx, "DELETE", path, nil); err != nil {
 		return err
 	}

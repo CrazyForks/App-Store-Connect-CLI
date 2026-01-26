@@ -6,6 +6,9 @@ require (
 	github.com/99designs/keyring v1.2.2
 	github.com/golang-jwt/jwt/v5 v5.2.0
 	github.com/peterbourgon/ff/v3 v3.4.0
+	golang.org/x/sys v0.3.0
+	golang.org/x/term v0.3.0
+	gopkg.in/yaml.v3 v3.0.1
 	howett.net/plist v1.0.1
 )
 
@@ -16,7 +19,4 @@ require (
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
 	github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c // indirect
 	github.com/mtibben/percent v0.2.1 // indirect
-	golang.org/x/sys v0.3.0 // indirect
-	golang.org/x/term v0.3.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

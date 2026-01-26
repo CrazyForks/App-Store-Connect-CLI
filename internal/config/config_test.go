@@ -6,6 +6,15 @@ import (
 	"testing"
 )
 
+func mustDurationValue(t *testing.T, raw string) DurationValue {
+	t.Helper()
+	value, err := ParseDurationValue(raw)
+	if err != nil {
+		t.Fatalf("ParseDurationValue(%q) error: %v", raw, err)
+	}
+	return value
+}
+
 func TestConfigSaveLoadRemove(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
@@ -19,10 +28,10 @@ func TestConfigSaveLoadRemove(t *testing.T) {
 		AppID:                 "APP123",
 		VendorNumber:          "VENDOR123",
 		AnalyticsVendorNumber: "ANALYTICS456",
-		Timeout:               "90s",
-		TimeoutSeconds:        "120",
-		UploadTimeout:         "60s",
-		UploadTimeoutSeconds:  "180",
+		Timeout:               mustDurationValue(t, "90s"),
+		TimeoutSeconds:        mustDurationValue(t, "120"),
+		UploadTimeout:         mustDurationValue(t, "60s"),
+		UploadTimeoutSeconds:  mustDurationValue(t, "180"),
 		MaxRetries:            "5",
 		BaseDelay:             "2s",
 		MaxDelay:              "45s",
@@ -59,17 +68,17 @@ func TestConfigSaveLoadRemove(t *testing.T) {
 	if loaded.AnalyticsVendorNumber != cfg.AnalyticsVendorNumber {
 		t.Fatalf("AnalyticsVendorNumber mismatch: got %q want %q", loaded.AnalyticsVendorNumber, cfg.AnalyticsVendorNumber)
 	}
-	if loaded.Timeout != cfg.Timeout {
-		t.Fatalf("Timeout mismatch: got %q want %q", loaded.Timeout, cfg.Timeout)
+	if loaded.Timeout.String() != cfg.Timeout.String() {
+		t.Fatalf("Timeout mismatch: got %q want %q", loaded.Timeout.String(), cfg.Timeout.String())
 	}
-	if loaded.TimeoutSeconds != cfg.TimeoutSeconds {
-		t.Fatalf("TimeoutSeconds mismatch: got %q want %q", loaded.TimeoutSeconds, cfg.TimeoutSeconds)
+	if loaded.TimeoutSeconds.String() != cfg.TimeoutSeconds.String() {
+		t.Fatalf("TimeoutSeconds mismatch: got %q want %q", loaded.TimeoutSeconds.String(), cfg.TimeoutSeconds.String())
 	}
-	if loaded.UploadTimeout != cfg.UploadTimeout {
-		t.Fatalf("UploadTimeout mismatch: got %q want %q", loaded.UploadTimeout, cfg.UploadTimeout)
+	if loaded.UploadTimeout.String() != cfg.UploadTimeout.String() {
+		t.Fatalf("UploadTimeout mismatch: got %q want %q", loaded.UploadTimeout.String(), cfg.UploadTimeout.String())
 	}
-	if loaded.UploadTimeoutSeconds != cfg.UploadTimeoutSeconds {
-		t.Fatalf("UploadTimeoutSeconds mismatch: got %q want %q", loaded.UploadTimeoutSeconds, cfg.UploadTimeoutSeconds)
+	if loaded.UploadTimeoutSeconds.String() != cfg.UploadTimeoutSeconds.String() {
+		t.Fatalf("UploadTimeoutSeconds mismatch: got %q want %q", loaded.UploadTimeoutSeconds.String(), cfg.UploadTimeoutSeconds.String())
 	}
 	if loaded.MaxRetries != cfg.MaxRetries {
 		t.Fatalf("MaxRetries mismatch: got %q want %q", loaded.MaxRetries, cfg.MaxRetries)

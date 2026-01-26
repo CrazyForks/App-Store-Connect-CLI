@@ -21,6 +21,11 @@ asc builds list --help        # Show all flags for a command
 
 Do not memorize commands. Always check `--help` for the current interface.
 
+## Documentation
+
+When looking up App Store Connect API docs, prefer the `sosumi.ai` mirror instead of `developer.apple.com`.
+Replace `https://developer.apple.com/documentation/appstoreconnectapi/...` with `https://sosumi.ai/documentation/appstoreconnectapi/...`.
+
 ## Build & Test
 
 ```bash
@@ -38,7 +43,8 @@ API keys are generated at https://appstoreconnect.apple.com/access/integrations/
 
 | Variable | Purpose |
 |----------|---------|
-| `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY_PATH` | Auth fallback |
+| `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY_PATH`, `ASC_PRIVATE_KEY`, `ASC_PRIVATE_KEY_B64` | Auth fallback |
+| `ASC_BYPASS_KEYCHAIN` | Ignore keychain and use config/env auth |
 | `ASC_APP_ID` | Default app ID |
 | `ASC_VENDOR_NUMBER` | Sales/finance reports |
 | `ASC_TIMEOUT` | Request timeout (e.g., `90s`, `2m`) |
@@ -46,7 +52,7 @@ API keys are generated at https://appstoreconnect.apple.com/access/integrations/
 | `ASC_UPLOAD_TIMEOUT` | Upload timeout (e.g., `60s`, `2m`) |
 | `ASC_UPLOAD_TIMEOUT_SECONDS` | Upload timeout in seconds (alternative) |
 
-## Further Reading
+## References
 
 Detailed guidance on specific topics (only read when needed):
 

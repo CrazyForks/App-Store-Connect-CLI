@@ -11,10 +11,442 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/99designs/keyring"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/config"
 )
+
+func TestConfigProfileSelection(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+
+	cfg := &config.Config{
+		DefaultKeyName: "personal",
+		Keys: []config.Credential{
+			{
+				Name:           "personal",
+				KeyID:          "KEY1",
+				IssuerID:       "ISSUER1",
+				PrivateKeyPath: "/tmp/AuthKey1.p8",
+			},
+			{
+				Name:           "client",
+				KeyID:          "KEY2",
+				IssuerID:       "ISSUER2",
+				PrivateKeyPath: "/tmp/AuthKey2.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	defaultCreds, err := GetCredentials("")
+	if err != nil {
+		t.Fatalf("GetCredentials(default) error: %v", err)
+	}
+	if defaultCreds.KeyID != "KEY1" {
+		t.Fatalf("expected default KeyID KEY1, got %q", defaultCreds.KeyID)
+	}
+
+	clientCreds, err := GetCredentials("client")
+	if err != nil {
+		t.Fatalf("GetCredentials(client) error: %v", err)
+	}
+	if clientCreds.KeyID != "KEY2" {
+		t.Fatalf("expected client KeyID KEY2, got %q", clientCreds.KeyID)
+	}
+}
+
+func TestConfigProfileListAndSwitch(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+
+	cfg := &config.Config{
+		DefaultKeyName: "personal",
+		Keys: []config.Credential{
+			{
+				Name:           "personal",
+				KeyID:          "KEY1",
+				IssuerID:       "ISSUER1",
+				PrivateKeyPath: "/tmp/AuthKey1.p8",
+			},
+			{
+				Name:           "client",
+				KeyID:          "KEY2",
+				IssuerID:       "ISSUER2",
+				PrivateKeyPath: "/tmp/AuthKey2.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	credentials, err := ListCredentials()
+	if err != nil {
+		t.Fatalf("ListCredentials() error: %v", err)
+	}
+	if len(credentials) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(credentials))
+	}
+
+	defaultFound := false
+	for _, cred := range credentials {
+		if cred.Name == "personal" && cred.IsDefault {
+			defaultFound = true
+		}
+	}
+	if !defaultFound {
+		t.Fatal("expected personal credential to be default")
+	}
+
+	if err := SetDefaultCredentials("client"); err != nil {
+		t.Fatalf("SetDefaultCredentials() error: %v", err)
+	}
+	updated, err := config.LoadAt(configPath)
+	if err != nil {
+		t.Fatalf("LoadAt() error: %v", err)
+	}
+	if updated.DefaultKeyName != "client" {
+		t.Fatalf("expected DefaultKeyName to be client, got %q", updated.DefaultKeyName)
+	}
+}
+
+func TestSaveDefaultNameAlignsLegacyFields(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+
+	cfg := &config.Config{
+		DefaultKeyName: "personal",
+		KeyID:          "OLDKEY",
+		IssuerID:       "OLDISSUER",
+		PrivateKeyPath: "/tmp/old.p8",
+		Keys: []config.Credential{
+			{
+				Name:           "personal",
+				KeyID:          "KEY1",
+				IssuerID:       "ISSUER1",
+				PrivateKeyPath: "/tmp/personal.p8",
+			},
+			{
+				Name:           "client",
+				KeyID:          "KEY2",
+				IssuerID:       "ISSUER2",
+				PrivateKeyPath: "/tmp/client.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	if err := saveDefaultName("client"); err != nil {
+		t.Fatalf("saveDefaultName() error: %v", err)
+	}
+
+	updated, err := config.LoadAt(configPath)
+	if err != nil {
+		t.Fatalf("LoadAt() error: %v", err)
+	}
+	if updated.DefaultKeyName != "client" {
+		t.Fatalf("expected DefaultKeyName to be client, got %q", updated.DefaultKeyName)
+	}
+	if updated.KeyID != "KEY2" {
+		t.Fatalf("expected legacy KeyID KEY2, got %q", updated.KeyID)
+	}
+	if updated.IssuerID != "ISSUER2" {
+		t.Fatalf("expected legacy IssuerID ISSUER2, got %q", updated.IssuerID)
+	}
+	if updated.PrivateKeyPath != "/tmp/client.p8" {
+		t.Fatalf("expected legacy PrivateKeyPath /tmp/client.p8, got %q", updated.PrivateKeyPath)
+	}
+}
+
+func TestSaveDefaultNameClearsLegacyFieldsOnMismatch(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+
+	cfg := &config.Config{
+		DefaultKeyName: "personal",
+		KeyID:          "KEY1",
+		IssuerID:       "ISSUER1",
+		PrivateKeyPath: "/tmp/personal.p8",
+		Keys: []config.Credential{
+			{
+				Name:           "personal",
+				KeyID:          "KEY1",
+				IssuerID:       "ISSUER1",
+				PrivateKeyPath: "/tmp/personal.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	if err := saveDefaultName("other"); err != nil {
+		t.Fatalf("saveDefaultName() error: %v", err)
+	}
+
+	updated, err := config.LoadAt(configPath)
+	if err != nil {
+		t.Fatalf("LoadAt() error: %v", err)
+	}
+	if updated.DefaultKeyName != "other" {
+		t.Fatalf("expected DefaultKeyName to be other, got %q", updated.DefaultKeyName)
+	}
+	if updated.KeyID != "" || updated.IssuerID != "" || updated.PrivateKeyPath != "" {
+		t.Fatal("expected legacy credentials to be cleared when no matching profile")
+	}
+}
+
+func TestGetCredentials_PrefersKeychainOverConfig(t *testing.T) {
+	newKr, _ := withSeparateKeyrings(t)
+	configPath := os.Getenv("ASC_CONFIG_PATH")
+	if configPath == "" {
+		t.Fatal("expected ASC_CONFIG_PATH to be set")
+	}
+
+	storeCredentialInKeyring(t, newKr, "shared", "KEYCHAIN", "ISSUER-KEYCHAIN", "/tmp/keychain.p8")
+
+	cfg := &config.Config{
+		DefaultKeyName: "shared",
+		Keys: []config.Credential{
+			{
+				Name:           "shared",
+				KeyID:          "CONFIG",
+				IssuerID:       "ISSUER-CONFIG",
+				PrivateKeyPath: "/tmp/config.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	creds, err := GetCredentials("shared")
+	if err != nil {
+		t.Fatalf("GetCredentials(shared) error: %v", err)
+	}
+	if creds.KeyID != "KEYCHAIN" {
+		t.Fatalf("expected keychain KeyID, got %q", creds.KeyID)
+	}
+	if creds.PrivateKeyPath != "/tmp/keychain.p8" {
+		t.Fatalf("expected keychain path, got %q", creds.PrivateKeyPath)
+	}
+}
+
+func TestGetCredentials_DefaultNameMissingReturnsError(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+
+	cfg := &config.Config{
+		DefaultKeyName: "missing",
+		Keys: []config.Credential{
+			{
+				Name:           "personal",
+				KeyID:          "KEY1",
+				IssuerID:       "ISSUER1",
+				PrivateKeyPath: "/tmp/personal.p8",
+			},
+			{
+				Name:           "client",
+				KeyID:          "KEY2",
+				IssuerID:       "ISSUER2",
+				PrivateKeyPath: "/tmp/client.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	if _, err := GetCredentials(""); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	creds, err := ListCredentials()
+	if err != nil {
+		t.Fatalf("ListCredentials() error: %v", err)
+	}
+	for _, cred := range creds {
+		if cred.IsDefault {
+			t.Fatalf("expected no default credential, got %q", cred.Name)
+		}
+	}
+}
+
+func TestListCredentials_DedupesKeychainAndConfig(t *testing.T) {
+	newKr, _ := withSeparateKeyrings(t)
+	configPath := os.Getenv("ASC_CONFIG_PATH")
+	if configPath == "" {
+		t.Fatal("expected ASC_CONFIG_PATH to be set")
+	}
+
+	storeCredentialInKeyring(t, newKr, "shared", "KEYCHAIN", "ISSUER-KEYCHAIN", "/tmp/keychain.p8")
+
+	cfg := &config.Config{
+		DefaultKeyName: "shared",
+		Keys: []config.Credential{
+			{
+				Name:           "shared",
+				KeyID:          "CONFIG",
+				IssuerID:       "ISSUER-CONFIG",
+				PrivateKeyPath: "/tmp/config.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	creds, err := ListCredentials()
+	if err != nil {
+		t.Fatalf("ListCredentials() error: %v", err)
+	}
+	if len(creds) != 1 {
+		t.Fatalf("expected 1 credential, got %d", len(creds))
+	}
+	if creds[0].KeyID != "KEYCHAIN" {
+		t.Fatalf("expected keychain KeyID, got %q", creds[0].KeyID)
+	}
+}
+
+func TestGetCredentials_PrefersKeysOverLegacy(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+
+	cfg := &config.Config{
+		DefaultKeyName: "personal",
+		KeyID:          "LEGACY",
+		IssuerID:       "LEGACYISS",
+		PrivateKeyPath: "/tmp/legacy.p8",
+		Keys: []config.Credential{
+			{
+				Name:           "personal",
+				KeyID:          "KEY1",
+				IssuerID:       "ISSUER1",
+				PrivateKeyPath: "/tmp/personal.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	creds, err := GetCredentials("")
+	if err != nil {
+		t.Fatalf("GetCredentials(default) error: %v", err)
+	}
+	if creds.KeyID != "KEY1" {
+		t.Fatalf("expected KeyID KEY1, got %q", creds.KeyID)
+	}
+}
+
+func TestListCredentials_NoDefaultWhenMultipleAndNoDefaultName(t *testing.T) {
+	newKr, _ := withSeparateKeyrings(t)
+
+	storeCredentialInKeyring(t, newKr, "alpha", "KEYA", "ISSA", "/tmp/a.p8")
+	storeCredentialInKeyring(t, newKr, "beta", "KEYB", "ISSB", "/tmp/b.p8")
+
+	creds, err := ListCredentials()
+	if err != nil {
+		t.Fatalf("ListCredentials() error: %v", err)
+	}
+	if len(creds) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(creds))
+	}
+	for _, cred := range creds {
+		if cred.IsDefault {
+			t.Fatalf("expected no default credential, got %q", cred.Name)
+		}
+	}
+}
+
+func TestGetCredentials_TrimsAndIsCaseSensitive(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+
+	cfg := &config.Config{
+		DefaultKeyName: "personal",
+		Keys: []config.Credential{
+			{
+				Name:           "personal",
+				KeyID:          "KEY1",
+				IssuerID:       "ISSUER1",
+				PrivateKeyPath: "/tmp/personal.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	trimmed, err := GetCredentials("  personal  ")
+	if err != nil {
+		t.Fatalf("GetCredentials(trimmed) error: %v", err)
+	}
+	if trimmed.KeyID != "KEY1" {
+		t.Fatalf("expected KeyID KEY1, got %q", trimmed.KeyID)
+	}
+
+	_, err = GetCredentials("Personal")
+	if err == nil {
+		t.Fatal("expected error for case mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), `credentials not found for profile "Personal"`) {
+		t.Fatalf("expected case-sensitive error, got %v", err)
+	}
+}
+
+func TestGetCredentials_IncompleteConfigWhenKeychainUnavailable(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "0")
+
+	cfg := &config.Config{
+		KeyID: "ONLYKEY",
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	previous := keyringOpener
+	previousLegacy := legacyKeyringOpener
+	keyringOpener = func() (keyring.Keyring, error) {
+		return nil, keyring.ErrNoAvailImpl
+	}
+	legacyKeyringOpener = func() (keyring.Keyring, error) {
+		return nil, keyring.ErrNoAvailImpl
+	}
+	t.Cleanup(func() {
+		keyringOpener = previous
+		legacyKeyringOpener = previousLegacy
+	})
+
+	if _, err := GetCredentials(""); err == nil {
+		t.Fatal("expected error for incomplete config, got nil")
+	}
+}
 
 func TestValidateKeyFilePermissions(t *testing.T) {
 	tempDir := t.TempDir()
@@ -203,6 +635,59 @@ func TestRemoveCredentials_FallsBackToLegacy(t *testing.T) {
 	}
 }
 
+func TestRemoveCredentials_TrimsName(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	newKr, _ := withSeparateKeyrings(t)
+
+	storeCredentialInKeyring(t, newKr, "trim-key", "KEY123", "ISS456", "/tmp/AuthKey.p8")
+
+	if err := RemoveCredentials("  trim-key  "); err != nil {
+		t.Fatalf("RemoveCredentials() error: %v", err)
+	}
+	if _, err := newKr.Get(keyringKey("trim-key")); !errors.Is(err, keyring.ErrKeyNotFound) {
+		t.Fatalf("expected credential to be removed, got %v", err)
+	}
+}
+
+func TestRemoveCredentials_MissingReturnsErr(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+
+	previous := keyringOpener
+	previousLegacy := legacyKeyringOpener
+	keyringOpener = func() (keyring.Keyring, error) {
+		return nil, keyring.ErrNoAvailImpl
+	}
+	legacyKeyringOpener = func() (keyring.Keyring, error) {
+		return nil, keyring.ErrNoAvailImpl
+	}
+	t.Cleanup(func() {
+		keyringOpener = previous
+		legacyKeyringOpener = previousLegacy
+	})
+
+	cfg := &config.Config{
+		DefaultKeyName: "existing",
+		Keys: []config.Credential{
+			{
+				Name:           "existing",
+				KeyID:          "KEY123",
+				IssuerID:       "ISS456",
+				PrivateKeyPath: "/tmp/AuthKey.p8",
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	err := RemoveCredentials("missing")
+	if !errors.Is(err, keyring.ErrKeyNotFound) {
+		t.Fatalf("expected ErrKeyNotFound, got %v", err)
+	}
+}
+
 func writeECDSAPEM(t *testing.T, path string, mode os.FileMode, pkcs8 bool) {
 	t.Helper()
 
@@ -237,6 +722,8 @@ func writeECDSAPEM(t *testing.T, path string, mode os.FileMode, pkcs8 bool) {
 
 func withArrayKeyring(t *testing.T) {
 	t.Helper()
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "0")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	previous := keyringOpener
 	previousLegacy := legacyKeyringOpener
 	kr := keyring.NewArrayKeyring([]keyring.Item{})
@@ -254,6 +741,8 @@ func withArrayKeyring(t *testing.T) {
 
 func withSeparateKeyrings(t *testing.T) (keyring.Keyring, keyring.Keyring) {
 	t.Helper()
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "0")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	previous := keyringOpener
 	previousLegacy := legacyKeyringOpener
 	kr := keyring.NewArrayKeyring([]keyring.Item{})

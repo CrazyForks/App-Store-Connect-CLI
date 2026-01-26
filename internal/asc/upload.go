@@ -44,6 +44,20 @@ func WithUploadHTTPClient(client *http.Client) UploadOption {
 	}
 }
 
+// newUploadClient creates a dedicated HTTP client for upload operations
+// with appropriate timeouts and a cloned transport when possible to avoid
+// sharing the connection pool with http.DefaultClient.
+func newUploadClient() *http.Client {
+	transport := http.DefaultTransport
+	if base, ok := transport.(*http.Transport); ok {
+		transport = base.Clone()
+	}
+	return &http.Client{
+		Timeout:   ResolveUploadTimeout(),
+		Transport: transport,
+	}
+}
+
 // ExecuteUploadOperations performs the file uploads for the provided operations.
 func ExecuteUploadOperations(ctx context.Context, filePath string, operations []UploadOperation, opts ...UploadOption) error {
 	if ctx == nil {
@@ -55,7 +69,7 @@ func ExecuteUploadOperations(ctx context.Context, filePath string, operations []
 
 	uploadOpts := UploadOptions{
 		Concurrency: 1,
-		Client:      http.DefaultClient,
+		Client:      newUploadClient(),
 		RetryOpts:   ResolveRetryOptions(),
 	}
 	for _, opt := range opts {
@@ -65,7 +79,7 @@ func ExecuteUploadOperations(ctx context.Context, filePath string, operations []
 		return fmt.Errorf("upload concurrency must be at least 1")
 	}
 	if uploadOpts.Client == nil {
-		uploadOpts.Client = http.DefaultClient
+		uploadOpts.Client = newUploadClient()
 	}
 	if uploadOpts.Concurrency > len(operations) {
 		uploadOpts.Concurrency = len(operations)

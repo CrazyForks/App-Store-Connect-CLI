@@ -19,18 +19,19 @@ func DevicesCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "devices",
 		ShortUsage: "asc devices <subcommand> [flags]",
-		ShortHelp:  "Manage registered devices.",
-		LongHelp: `Manage registered devices.
+		ShortHelp:  "Manage App Store Connect devices.",
+		LongHelp: `Manage App Store Connect devices.
 
 Examples:
   asc devices list
-  asc devices list --platform IOS
-  asc devices register --name "Device" --udid "UDID" --platform IOS
+  asc devices get --id "DEVICE_ID"
+  asc devices register --name "iPhone 15" --udid "UDID" --platform IOS
   asc devices update --id "DEVICE_ID" --status DISABLED`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			DevicesListCommand(),
+			DevicesGetCommand(),
 			DevicesRegisterCommand(),
 			DevicesUpdateCommand(),
 		},
@@ -44,22 +45,32 @@ Examples:
 func DevicesListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
-	platform := fs.String("platform", "", "Filter by platform(s), comma-separated")
+	name := fs.String("name", "", "Filter by device name(s), comma-separated")
+	platform := fs.String("platform", "", "Filter by platform(s), comma-separated: "+strings.Join(devicePlatformList(), ", "))
+	status := fs.String("status", "", "Filter by status: ENABLED, DISABLED")
+	udid := fs.String("udid", "", "Filter by UDID(s), comma-separated")
+	ids := fs.String("id", "", "Filter by device ID(s), comma-separated")
+	sort := fs.String("sort", "", "Sort by id, -id, name, -name, platform, -platform, status, -status, udid, -udid")
+	fields := fs.String("fields", "", "Fields to include: addedDate, deviceClass, model, name, platform, status, udid")
+	output := fs.String("output", "json", "Output format: json (default), table, markdown")
+	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
-	output := fs.String("output", "json", "Output format: json (default), table, markdown")
-	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
 	return &ffcli.Command{
 		Name:       "list",
 		ShortUsage: "asc devices list [flags]",
-		ShortHelp:  "List registered devices.",
-		LongHelp: `List registered devices.
+		ShortHelp:  "List App Store Connect devices.",
+		LongHelp: `List App Store Connect devices.
 
 Examples:
   asc devices list
   asc devices list --platform IOS
+  asc devices list --status ENABLED
+  asc devices list --udid "UDID1,UDID2"
+  asc devices list --fields "name,udid,platform,status"
+  asc devices list --limit 50
   asc devices list --paginate`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
@@ -70,8 +81,21 @@ Examples:
 			if err := validateNextURL(*next); err != nil {
 				return fmt.Errorf("devices list: %w", err)
 			}
+			if err := validateSort(*sort, "id", "-id", "name", "-name", "platform", "-platform", "status", "-status", "udid", "-udid"); err != nil {
+				return fmt.Errorf("devices list: %w", err)
+			}
 
-			platforms, err := normalizePlatforms(splitCSVUpper(*platform))
+			platformValues, err := normalizeDevicePlatforms(splitCSV(*platform))
+			if err != nil {
+				return fmt.Errorf("devices list: %w", err)
+			}
+
+			statusValue, err := normalizeDeviceStatus(*status)
+			if err != nil {
+				return fmt.Errorf("devices list: %w", err)
+			}
+
+			fieldsValue, err := normalizeDeviceFields(*fields)
 			if err != nil {
 				return fmt.Errorf("devices list: %w", err)
 			}
@@ -85,11 +109,23 @@ Examples:
 			defer cancel()
 
 			opts := []asc.DevicesOption{
+				asc.WithDevicesNames(splitCSV(*name)),
+				asc.WithDevicesUDIDs(splitCSV(*udid)),
+				asc.WithDevicesIDs(splitCSV(*ids)),
 				asc.WithDevicesLimit(*limit),
 				asc.WithDevicesNextURL(*next),
 			}
-			if len(platforms) > 0 {
-				opts = append(opts, asc.WithDevicesPlatforms(platforms))
+			if len(platformValues) > 0 {
+				opts = append(opts, asc.WithDevicesPlatforms(platformValues))
+			}
+			if statusValue != "" {
+				opts = append(opts, asc.WithDevicesStatus(statusValue))
+			}
+			if strings.TrimSpace(*sort) != "" {
+				opts = append(opts, asc.WithDevicesSort(*sort))
+			}
+			if len(fieldsValue) > 0 {
+				opts = append(opts, asc.WithDevicesFields(fieldsValue))
 			}
 
 			if *paginate {
@@ -99,22 +135,72 @@ Examples:
 					return fmt.Errorf("devices list: failed to fetch: %w", err)
 				}
 
-				paginated, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+				devices, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
 					return client.GetDevices(ctx, asc.WithDevicesNextURL(nextURL))
 				})
 				if err != nil {
 					return fmt.Errorf("devices list: %w", err)
 				}
 
-				return printOutput(paginated, *output, *pretty)
+				return printOutput(devices, *output, *pretty)
 			}
 
-			resp, err := client.GetDevices(requestCtx, opts...)
+			devices, err := client.GetDevices(requestCtx, opts...)
 			if err != nil {
 				return fmt.Errorf("devices list: failed to fetch: %w", err)
 			}
 
-			return printOutput(resp, *output, *pretty)
+			return printOutput(devices, *output, *pretty)
+		},
+	}
+}
+
+// DevicesGetCommand returns the devices get subcommand.
+func DevicesGetCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("get", flag.ExitOnError)
+
+	id := fs.String("id", "", "Device ID")
+	fields := fs.String("fields", "", "Fields to include: addedDate, deviceClass, model, name, platform, status, udid")
+	output := fs.String("output", "json", "Output format: json (default), table, markdown")
+	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
+
+	return &ffcli.Command{
+		Name:       "get",
+		ShortUsage: "asc devices get --id DEVICE_ID",
+		ShortHelp:  "Get a device by ID.",
+		LongHelp: `Get a device by ID.
+
+Examples:
+  asc devices get --id "DEVICE_ID"
+  asc devices get --id "DEVICE_ID" --fields "name,udid,platform,status"`,
+		FlagSet:   fs,
+		UsageFunc: DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			idValue := strings.TrimSpace(*id)
+			if idValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --id is required")
+				return flag.ErrHelp
+			}
+
+			fieldsValue, err := normalizeDeviceFields(*fields)
+			if err != nil {
+				return fmt.Errorf("devices get: %w", err)
+			}
+
+			client, err := getASCClient()
+			if err != nil {
+				return fmt.Errorf("devices get: %w", err)
+			}
+
+			requestCtx, cancel := contextWithTimeout(ctx)
+			defer cancel()
+
+			device, err := client.GetDevice(requestCtx, idValue, fieldsValue)
+			if err != nil {
+				return fmt.Errorf("devices get: failed to fetch: %w", err)
+			}
+
+			return printOutput(device, *output, *pretty)
 		},
 	}
 }
@@ -125,18 +211,18 @@ func DevicesRegisterCommand() *ffcli.Command {
 
 	name := fs.String("name", "", "Device name")
 	udid := fs.String("udid", "", "Device UDID")
-	platform := fs.String("platform", "", "Device platform: "+strings.Join(signingPlatformList(), ", "))
+	platform := fs.String("platform", "", "Device platform: "+strings.Join(devicePlatformList(), ", "))
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
 	return &ffcli.Command{
 		Name:       "register",
-		ShortUsage: "asc devices register --name \"Device\" --udid \"UDID\" --platform IOS",
-		ShortHelp:  "Register a device.",
-		LongHelp: `Register a device.
+		ShortUsage: "asc devices register --name NAME --udid UDID --platform " + strings.Join(devicePlatformList(), "|"),
+		ShortHelp:  "Register a new device.",
+		LongHelp: `Register a new device.
 
 Examples:
-  asc devices register --name "Device" --udid "UDID" --platform IOS`,
+  asc devices register --name "iPhone 15" --udid "UDID" --platform IOS`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -145,16 +231,19 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --name is required")
 				return flag.ErrHelp
 			}
+
 			udidValue := strings.TrimSpace(*udid)
 			if udidValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --udid is required")
 				return flag.ErrHelp
 			}
+
 			if strings.TrimSpace(*platform) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --platform is required")
 				return flag.ErrHelp
 			}
-			platformValue, err := normalizePlatform(*platform)
+
+			platformValue, err := normalizeDevicePlatform(*platform)
 			if err != nil {
 				return fmt.Errorf("devices register: %w", err)
 			}
@@ -170,14 +259,15 @@ Examples:
 			attrs := asc.DeviceCreateAttributes{
 				Name:     nameValue,
 				UDID:     udidValue,
-				Platform: platformValue,
-			}
-			resp, err := client.RegisterDevice(requestCtx, attrs)
-			if err != nil {
-				return fmt.Errorf("devices register: failed to create: %w", err)
+				Platform: asc.DevicePlatform(platformValue),
 			}
 
-			return printOutput(resp, *output, *pretty)
+			device, err := client.CreateDevice(requestCtx, attrs)
+			if err != nil {
+				return fmt.Errorf("devices register: failed to register: %w", err)
+			}
+
+			return printOutput(device, *output, *pretty)
 		},
 	}
 }
@@ -187,17 +277,19 @@ func DevicesUpdateCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 
 	id := fs.String("id", "", "Device ID")
-	status := fs.String("status", "", "Device status: ENABLED or DISABLED")
+	name := fs.String("name", "", "Device name")
+	status := fs.String("status", "", "Device status: ENABLED, DISABLED")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
 	return &ffcli.Command{
 		Name:       "update",
-		ShortUsage: "asc devices update --id \"DEVICE_ID\" --status ENABLED|DISABLED",
-		ShortHelp:  "Update a device's status.",
-		LongHelp: `Update a device's status.
+		ShortUsage: "asc devices update --id DEVICE_ID [--name NAME] [--status ENABLED|DISABLED]",
+		ShortHelp:  "Update a device.",
+		LongHelp: `Update a device by ID.
 
 Examples:
+  asc devices update --id "DEVICE_ID" --name "My iPhone"
   asc devices update --id "DEVICE_ID" --status DISABLED`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
@@ -207,12 +299,15 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
 				return flag.ErrHelp
 			}
-			statusValue := strings.TrimSpace(*status)
-			if statusValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --status is required")
+
+			nameValue := strings.TrimSpace(*name)
+			statusRaw := strings.TrimSpace(*status)
+			if nameValue == "" && statusRaw == "" {
+				fmt.Fprintln(os.Stderr, "Error: at least one update flag is required")
 				return flag.ErrHelp
 			}
-			normalizedStatus, err := normalizeDeviceStatus(statusValue)
+
+			statusValue, err := normalizeDeviceStatus(statusRaw)
 			if err != nil {
 				return fmt.Errorf("devices update: %w", err)
 			}
@@ -225,13 +320,101 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			attrs := asc.DeviceUpdateAttributes{Status: normalizedStatus}
-			resp, err := client.UpdateDevice(requestCtx, idValue, attrs)
+			attrs := asc.DeviceUpdateAttributes{}
+			if nameValue != "" {
+				attrs.Name = &nameValue
+			}
+			if statusValue != "" {
+				statusEnum := asc.DeviceStatus(statusValue)
+				attrs.Status = &statusEnum
+			}
+
+			device, err := client.UpdateDevice(requestCtx, idValue, attrs)
 			if err != nil {
 				return fmt.Errorf("devices update: failed to update: %w", err)
 			}
 
-			return printOutput(resp, *output, *pretty)
+			return printOutput(device, *output, *pretty)
 		},
 	}
+}
+
+func normalizeDevicePlatform(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	normalized := strings.ToUpper(trimmed)
+	for _, platform := range devicePlatformList() {
+		if normalized == platform {
+			return normalized, nil
+		}
+	}
+	return "", fmt.Errorf("--platform must be one of: %s", strings.Join(devicePlatformList(), ", "))
+}
+
+func normalizeDevicePlatforms(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		platform, err := normalizeDevicePlatform(value)
+		if err != nil {
+			return nil, err
+		}
+		if platform != "" {
+			normalized = append(normalized, platform)
+		}
+	}
+	if len(normalized) == 0 {
+		return nil, nil
+	}
+	return normalized, nil
+}
+
+func normalizeDeviceStatus(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	normalized := strings.ToUpper(trimmed)
+	for _, status := range deviceStatusList() {
+		if normalized == status {
+			return normalized, nil
+		}
+	}
+	return "", fmt.Errorf("--status must be one of: %s", strings.Join(deviceStatusList(), ", "))
+}
+
+func normalizeDeviceFields(value string) ([]string, error) {
+	fields := splitCSV(value)
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	allowed := map[string]struct{}{}
+	for _, field := range deviceFieldsList() {
+		allowed[field] = struct{}{}
+	}
+	for _, field := range fields {
+		if _, ok := allowed[field]; !ok {
+			return nil, fmt.Errorf("--fields must be one of: %s", strings.Join(deviceFieldsList(), ", "))
+		}
+	}
+
+	return fields, nil
+}
+
+func devicePlatformList() []string {
+	return []string{"IOS", "MAC_OS", "TV_OS", "VISION_OS"}
+}
+
+func deviceStatusList() []string {
+	return []string{"ENABLED", "DISABLED"}
+}
+
+func deviceFieldsList() []string {
+	return []string{"addedDate", "deviceClass", "model", "name", "platform", "status", "udid"}
 }

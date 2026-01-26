@@ -1,4 +1,4 @@
-# ASC - App Store Connect CLI
+# Unofficial App Store Connect CLI
 
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go" alt="Go Version">
@@ -15,6 +15,47 @@ A **fast**, **lightweight**, and **AI-agent friendly** CLI for App Store Connect
 | Manual App Store Connect work | Automate everything from CLI |
 | Slow, heavy tooling | Go binary, fast startup |
 | Not AI-agent friendly | JSON output, explicit flags, clean exit codes |
+
+## Table of Contents
+
+- [Why ASC?](#why-asc)
+- [Quick Start](#quick-start)
+  - [Install](#install)
+  - [Authenticate](#authenticate)
+- [Commands](#commands)
+  - [Agent Quickstart](#agent-quickstart)
+  - [TestFlight](#testflight)
+  - [Beta Groups](#beta-groups)
+  - [Beta Testers](#beta-testers)
+  - [Devices](#devices)
+  - [App Store](#app-store)
+  - [Analytics & Sales](#analytics--sales)
+  - [Finance Reports](#finance-reports)
+  - [Sandbox Testers](#sandbox-testers)
+  - [Xcode Cloud](#xcode-cloud)
+  - [Apps & Builds](#apps--builds)
+  - [Categories](#categories)
+  - [Versions](#versions)
+  - [App Info](#app-info)
+  - [Pre-Release Versions](#pre-release-versions)
+  - [Localizations](#localizations)
+  - [Build Localizations](#build-localizations)
+  - [Migrate (Fastlane Compatibility)](#migrate-fastlane-compatibility)
+  - [Submit](#submit)
+  - [Utilities](#utilities)
+  - [Output Formats](#output-formats)
+  - [Authentication](#authentication)
+- [Design Philosophy](#design-philosophy)
+  - [Explicit Over Cryptic](#explicit-over-cryptic)
+  - [AI-Agent Friendly](#ai-agent-friendly)
+  - [No Interactive Prompts](#no-interactive-prompts)
+- [Installation](#installation)
+- [Documentation](#documentation)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
+- [Author](#author)
+- [Star History](#star-history)
 
 ## Quick Start
 
@@ -47,6 +88,18 @@ asc auth login \
   --issuer-id "DEF456" \
   --private-key /path/to/AuthKey.p8
 
+# Add another profile and switch defaults
+asc auth login \
+  --name "ClientApp" \
+  --key-id "XYZ789" \
+  --issuer-id "LMN000" \
+  --private-key /path/to/ClientAuthKey.p8
+
+asc auth switch --name "ClientApp"
+
+# Use a profile for a single command
+asc --profile "ClientApp" apps list
+
 # Create a template config.json (global, no secrets)
 asc auth init
 
@@ -73,14 +126,25 @@ asc auth login \
 
 Generate API keys at: https://appstoreconnect.apple.com/access/integrations/api
 
+Open the API keys page in your browser:
+```bash
+asc auth init --open
+```
+
 Credentials are stored in the system keychain when available, with a config fallback
 at `~/.asc/config.json` (restricted permissions). A repo-local `./.asc/config.json`
-takes precedence when present. Override with `ASC_CONFIG_PATH`.
+takes precedence when present. Override with `ASC_CONFIG_PATH`. When
+`ASC_BYPASS_KEYCHAIN` is set and environment credentials are fully provided, the
+environment values take precedence over config.
 Environment variable fallback:
 - `ASC_KEY_ID`
 - `ASC_ISSUER_ID`
 - `ASC_PRIVATE_KEY_PATH`
+- `ASC_PRIVATE_KEY` (raw key content; CLI writes a temp key file)
+- `ASC_PRIVATE_KEY_B64` (base64 key content; CLI writes a temp key file)
 - `ASC_CONFIG_PATH`
+- `ASC_PROFILE`
+- `ASC_BYPASS_KEYCHAIN` (ignore keychain and use config/env auth)
 
 App ID fallback:
 - `ASC_APP_ID`
@@ -117,7 +181,7 @@ Config.json keys (same semantics, snake_case):
 
 - JSON output is default for machine parsing; add `--pretty` when debugging.
 - Use `--paginate` to automatically fetch all pages (recommended for AI agents).
-- `--paginate` works on list commands including apps, builds list, feedback, crashes, reviews, versions list, pre-release versions list, localizations list, build-localizations list, beta-groups list, beta-testers list, sandbox list, analytics requests/get, testflight apps list, and Xcode Cloud workflows/build-runs.
+- `--paginate` works on list commands including apps, builds list, promo codes list, devices list, feedback, crashes, reviews, versions list, pre-release versions list, localizations list, build-localizations list, beta-groups list, beta-testers list, sandbox list, analytics requests/get, testflight apps list, and Xcode Cloud workflows/build-runs.
 - Use `--limit` + `--next "<links.next>"` for manual pagination control.
 - Sort with `--sort` (prefix `-` for descending):
   - Feedback/Crashes: `createdDate` / `-createdDate`
@@ -207,6 +271,29 @@ asc beta-testers invite --app "APP_ID" --email "tester@example.com"
 # Manage group membership
 asc beta-testers add-groups --id "TESTER_ID" --group "GROUP_ID"
 asc beta-testers remove-groups --id "TESTER_ID" --group "GROUP_ID"
+```
+
+### Devices
+
+```bash
+# List devices
+asc devices list
+
+# Filter by platform/status/UDID
+asc devices list --platform IOS --status ENABLED --udid "UDID1,UDID2"
+
+# Fetch all devices (all pages)
+asc devices list --paginate
+
+# Get a device by ID
+asc devices get --id "DEVICE_ID"
+
+# Register a device
+asc devices register --name "My iPhone" --udid "UDID" --platform IOS
+
+# Update device name/status
+asc devices update --id "DEVICE_ID" --name "New Name"
+asc devices update --id "DEVICE_ID" --status DISABLED
 ```
 
 ### App Store
@@ -433,6 +520,10 @@ asc builds info --build "BUILD_ID"
 # Expire a build (irreversible)
 asc builds expire --build "BUILD_ID"
 
+# Expire builds in bulk (use --dry-run to preview)
+asc builds expire-all --app "123456789" --older-than 90d --dry-run
+asc builds expire-all --app "123456789" --older-than 90d --confirm
+
 # Prepare a build upload
 asc builds upload --app "123456789" --ipa "app.ipa"
 
@@ -442,6 +533,22 @@ Notes:
 # Add/remove beta groups from a build
 asc builds add-groups --build "BUILD_ID" --group "GROUP_ID"
 asc builds remove-groups --build "BUILD_ID" --group "GROUP_ID"
+```
+
+### Offer Codes (Subscriptions)
+
+```bash
+# List one-time use offer code batches for a subscription offer
+asc offer-codes list --offer-code "OFFER_CODE_ID"
+
+# Fetch all offer code batches (all pages)
+asc offer-codes list --offer-code "OFFER_CODE_ID" --paginate
+
+# Generate one-time use offer codes
+asc offer-codes generate --offer-code "OFFER_CODE_ID" --quantity 10 --expiration-date "2026-02-01"
+
+# Download one-time use offer codes to a file
+asc offer-codes values --id "ONE_TIME_USE_CODE_ID" --output "./offer-codes.txt"
 ```
 
 ### Categories
@@ -476,6 +583,19 @@ asc versions phased-release get --version-id "VERSION_ID"
 asc versions phased-release create --version-id "VERSION_ID"
 asc versions phased-release update --id "PHASED_ID" --state PAUSED
 asc versions phased-release delete --id "PHASED_ID" --confirm
+```
+
+### App Info
+
+```bash
+# Get App Store metadata for the latest version
+asc app-info get --app "123456789"
+
+# Get metadata for a specific version
+asc app-info get --app "123456789" --version "1.2.3" --platform IOS
+
+# Update metadata for a locale
+asc app-info set --app "123456789" --locale "en-US" --whats-new "Bug fixes"
 ```
 
 ### Pre-Release Versions

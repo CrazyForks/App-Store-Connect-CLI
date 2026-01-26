@@ -3,6 +3,7 @@ package asc
 import (
 	"context"
 	"fmt"
+	"reflect"
 )
 
 // PaginatedResponse represents a response that supports pagination
@@ -59,12 +60,16 @@ func PaginateAll(ctx context.Context, firstPage PaginatedResponse, fetchNext Pag
 		result = &AppPricePointsV3Response{Links: Links{}}
 	case *BuildsResponse:
 		result = &BuildsResponse{Links: Links{}}
+	case *SubscriptionOfferCodeOneTimeUseCodesResponse:
+		result = &SubscriptionOfferCodeOneTimeUseCodesResponse{Links: Links{}}
 	case *AppStoreVersionsResponse:
 		result = &AppStoreVersionsResponse{Links: Links{}}
 	case *PreReleaseVersionsResponse:
 		result = &PreReleaseVersionsResponse{Links: Links{}}
 	case *AppStoreVersionLocalizationsResponse:
 		result = &AppStoreVersionLocalizationsResponse{Links: Links{}}
+	case *BetaBuildLocalizationsResponse:
+		result = &BetaBuildLocalizationsResponse{Links: Links{}}
 	case *AppInfoLocalizationsResponse:
 		result = &AppInfoLocalizationsResponse{Links: Links{}}
 	case *BetaGroupsResponse:
@@ -101,60 +106,10 @@ func PaginateAll(ctx context.Context, firstPage PaginatedResponse, fetchNext Pag
 
 	page := 1
 	for {
-		// Aggregate data from current page
-		switch p := firstPage.(type) {
-		case *FeedbackResponse:
-			result.(*FeedbackResponse).Data = append(result.(*FeedbackResponse).Data, p.Data...)
-		case *CrashesResponse:
-			result.(*CrashesResponse).Data = append(result.(*CrashesResponse).Data, p.Data...)
-		case *ReviewsResponse:
-			result.(*ReviewsResponse).Data = append(result.(*ReviewsResponse).Data, p.Data...)
-		case *AppsResponse:
-			result.(*AppsResponse).Data = append(result.(*AppsResponse).Data, p.Data...)
-		case *BundleIDsResponse:
-			result.(*BundleIDsResponse).Data = append(result.(*BundleIDsResponse).Data, p.Data...)
-		case *TerritoriesResponse:
-			result.(*TerritoriesResponse).Data = append(result.(*TerritoriesResponse).Data, p.Data...)
-		case *AppPricePointsV3Response:
-			result.(*AppPricePointsV3Response).Data = append(result.(*AppPricePointsV3Response).Data, p.Data...)
-		case *BuildsResponse:
-			result.(*BuildsResponse).Data = append(result.(*BuildsResponse).Data, p.Data...)
-		case *AppStoreVersionsResponse:
-			result.(*AppStoreVersionsResponse).Data = append(result.(*AppStoreVersionsResponse).Data, p.Data...)
-		case *PreReleaseVersionsResponse:
-			result.(*PreReleaseVersionsResponse).Data = append(result.(*PreReleaseVersionsResponse).Data, p.Data...)
-		case *AppStoreVersionLocalizationsResponse:
-			result.(*AppStoreVersionLocalizationsResponse).Data = append(result.(*AppStoreVersionLocalizationsResponse).Data, p.Data...)
-		case *AppInfoLocalizationsResponse:
-			result.(*AppInfoLocalizationsResponse).Data = append(result.(*AppInfoLocalizationsResponse).Data, p.Data...)
-		case *BetaGroupsResponse:
-			result.(*BetaGroupsResponse).Data = append(result.(*BetaGroupsResponse).Data, p.Data...)
-		case *BetaTestersResponse:
-			result.(*BetaTestersResponse).Data = append(result.(*BetaTestersResponse).Data, p.Data...)
-		case *BundleIDCapabilitiesResponse:
-			result.(*BundleIDCapabilitiesResponse).Data = append(result.(*BundleIDCapabilitiesResponse).Data, p.Data...)
-		case *CertificatesResponse:
-			result.(*CertificatesResponse).Data = append(result.(*CertificatesResponse).Data, p.Data...)
-		case *DevicesResponse:
-			result.(*DevicesResponse).Data = append(result.(*DevicesResponse).Data, p.Data...)
-		case *ProfilesResponse:
-			result.(*ProfilesResponse).Data = append(result.(*ProfilesResponse).Data, p.Data...)
-		case *UsersResponse:
-			result.(*UsersResponse).Data = append(result.(*UsersResponse).Data, p.Data...)
-		case *UserInvitationsResponse:
-			result.(*UserInvitationsResponse).Data = append(result.(*UserInvitationsResponse).Data, p.Data...)
-		case *SandboxTestersResponse:
-			result.(*SandboxTestersResponse).Data = append(result.(*SandboxTestersResponse).Data, p.Data...)
-		case *AnalyticsReportRequestsResponse:
-			result.(*AnalyticsReportRequestsResponse).Data = append(result.(*AnalyticsReportRequestsResponse).Data, p.Data...)
-		case *CiProductsResponse:
-			result.(*CiProductsResponse).Data = append(result.(*CiProductsResponse).Data, p.Data...)
-		case *CiWorkflowsResponse:
-			result.(*CiWorkflowsResponse).Data = append(result.(*CiWorkflowsResponse).Data, p.Data...)
-		case *ScmGitReferencesResponse:
-			result.(*ScmGitReferencesResponse).Data = append(result.(*ScmGitReferencesResponse).Data, p.Data...)
-		case *CiBuildRunsResponse:
-			result.(*CiBuildRunsResponse).Data = append(result.(*CiBuildRunsResponse).Data, p.Data...)
+		// Aggregate data from current page using reflection over the Data field.
+		// This keeps aggregation generic while still validating type compatibility.
+		if err := aggregatePageData(result, firstPage); err != nil {
+			return nil, fmt.Errorf("page %d: %w", page, err)
 		}
 
 		// Check for next page
@@ -182,6 +137,41 @@ func PaginateAll(ctx context.Context, firstPage PaginatedResponse, fetchNext Pag
 	return result, nil
 }
 
+// aggregatePageData appends page data to result by reflecting on the shared Data field.
+// This keeps pagination aggregation generic while still validating type compatibility.
+func aggregatePageData(result, page PaginatedResponse) error {
+	if result == nil || page == nil {
+		return fmt.Errorf("page aggregation received nil result or page")
+	}
+
+	resultValue := reflect.ValueOf(result)
+	pageValue := reflect.ValueOf(page)
+	if resultValue.Kind() != reflect.Ptr || pageValue.Kind() != reflect.Ptr {
+		return fmt.Errorf("page aggregation expects pointer types (got %T and %T)", result, page)
+	}
+
+	if resultValue.Type() != pageValue.Type() {
+		return fmt.Errorf("type mismatch: page is %T but result is %T", page, result)
+	}
+
+	resultElem := resultValue.Elem()
+	pageElem := pageValue.Elem()
+	resultData := resultElem.FieldByName("Data")
+	pageData := pageElem.FieldByName("Data")
+	if !resultData.IsValid() || !pageData.IsValid() {
+		return fmt.Errorf("missing Data field for %T", page)
+	}
+	if resultData.Kind() != reflect.Slice || pageData.Kind() != reflect.Slice {
+		return fmt.Errorf("Data field is not a slice for %T", page)
+	}
+	if resultData.Type() != pageData.Type() {
+		return fmt.Errorf("Data field type mismatch: %s vs %s", resultData.Type(), pageData.Type())
+	}
+
+	resultData.Set(reflect.AppendSlice(resultData, pageData))
+	return nil
+}
+
 // typeOf returns the runtime type of a PaginatedResponse
 func typeOf(p PaginatedResponse) string {
 	switch p.(type) {
@@ -201,12 +191,16 @@ func typeOf(p PaginatedResponse) string {
 		return "AppPricePointsV3Response"
 	case *BuildsResponse:
 		return "BuildsResponse"
+	case *SubscriptionOfferCodeOneTimeUseCodesResponse:
+		return "SubscriptionOfferCodeOneTimeUseCodesResponse"
 	case *AppStoreVersionsResponse:
 		return "AppStoreVersionsResponse"
 	case *PreReleaseVersionsResponse:
 		return "PreReleaseVersionsResponse"
 	case *AppStoreVersionLocalizationsResponse:
 		return "AppStoreVersionLocalizationsResponse"
+	case *BetaBuildLocalizationsResponse:
+		return "BetaBuildLocalizationsResponse"
 	case *AppInfoLocalizationsResponse:
 		return "AppInfoLocalizationsResponse"
 	case *BetaGroupsResponse:

@@ -57,6 +57,10 @@ type buildsQuery struct {
 	preReleaseVersionID string
 }
 
+type subscriptionOfferCodeOneTimeUseCodesQuery struct {
+	listQuery
+}
+
 type appStoreVersionsQuery struct {
 	listQuery
 	platforms      []string
@@ -71,6 +75,11 @@ type preReleaseVersionsQuery struct {
 }
 
 type appStoreVersionLocalizationsQuery struct {
+	listQuery
+	locales []string
+}
+
+type betaBuildLocalizationsQuery struct {
 	listQuery
 	locales []string
 }
@@ -112,11 +121,6 @@ type certificatesQuery struct {
 	certificateTypes []string
 }
 
-type devicesQuery struct {
-	listQuery
-	platforms []string
-}
-
 type profilesQuery struct {
 	listQuery
 	profileTypes []string
@@ -126,6 +130,17 @@ type usersQuery struct {
 	listQuery
 	email string
 	roles []string
+}
+
+type devicesQuery struct {
+	listQuery
+	names     []string
+	platforms []string
+	status    string
+	udids     []string
+	ids       []string
+	sort      string
+	fields    []string
 }
 
 type userInvitationsQuery struct {
@@ -289,13 +304,6 @@ func buildCertificatesQuery(query *certificatesQuery) string {
 	return values.Encode()
 }
 
-func buildDevicesQuery(query *devicesQuery) string {
-	values := url.Values{}
-	addCSV(values, "filter[platform]", query.platforms)
-	addLimit(values, query.limit)
-	return values.Encode()
-}
-
 func buildProfilesQuery(query *profilesQuery) string {
 	values := url.Values{}
 	addCSV(values, "filter[profileType]", query.profileTypes)
@@ -310,6 +318,29 @@ func buildUsersQuery(query *usersQuery) string {
 	}
 	addCSV(values, "filter[roles]", query.roles)
 	addLimit(values, query.limit)
+	return values.Encode()
+}
+
+func buildDevicesQuery(query *devicesQuery) string {
+	values := url.Values{}
+	addCSV(values, "filter[name]", query.names)
+	addCSV(values, "filter[platform]", query.platforms)
+	if strings.TrimSpace(query.status) != "" {
+		values.Set("filter[status]", strings.TrimSpace(query.status))
+	}
+	addCSV(values, "filter[udid]", query.udids)
+	addCSV(values, "filter[id]", query.ids)
+	if query.sort != "" {
+		values.Set("sort", query.sort)
+	}
+	addCSV(values, "fields[devices]", query.fields)
+	addLimit(values, query.limit)
+	return values.Encode()
+}
+
+func buildDevicesFieldsQuery(fields []string) string {
+	values := url.Values{}
+	addCSV(values, "fields[devices]", fields)
 	return values.Encode()
 }
 
@@ -348,6 +379,12 @@ func buildBetaRecruitmentCriterionOptionsQuery(query *betaRecruitmentCriterionOp
 	return values.Encode()
 }
 
+func buildSubscriptionOfferCodeOneTimeUseCodesQuery(query *subscriptionOfferCodeOneTimeUseCodesQuery) string {
+	values := url.Values{}
+	addLimit(values, query.limit)
+	return values.Encode()
+}
+
 func buildAppStoreVersionsQuery(query *appStoreVersionsQuery) string {
 	values := url.Values{}
 	addCSV(values, "filter[platform]", query.platforms)
@@ -373,6 +410,13 @@ func buildPreReleaseVersionsQuery(appID string, query *preReleaseVersionsQuery) 
 }
 
 func buildAppStoreVersionLocalizationsQuery(query *appStoreVersionLocalizationsQuery) string {
+	values := url.Values{}
+	addCSV(values, "filter[locale]", query.locales)
+	addLimit(values, query.limit)
+	return values.Encode()
+}
+
+func buildBetaBuildLocalizationsQuery(query *betaBuildLocalizationsQuery) string {
 	values := url.Values{}
 	addCSV(values, "filter[locale]", query.locales)
 	addLimit(values, query.limit)

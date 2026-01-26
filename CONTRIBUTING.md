@@ -39,6 +39,11 @@ export ASC_APP_ID="YOUR_APP_ID"
 make test-integration
 ```
 
+Headless alternative (write the key to a temp file at runtime):
+```bash
+export ASC_PRIVATE_KEY_B64="BASE64_KEY"
+```
+
 ## Local API Testing (Optional)
 
 If you have App Store Connect API credentials, you can run real API calls locally:

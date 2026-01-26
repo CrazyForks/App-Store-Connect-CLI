@@ -38,3 +38,10 @@ Finance reports use Apple fiscal months (`YYYY-MM`), not calendar months.
 - Territory uses 3-letter App Store territory codes (e.g., `USA`, `JPN`)
 - List/get use the v2 API; create/delete use v1 endpoints (may be unavailable on some accounts)
 - Update/clear-history use the v2 API
+
+## Devices
+
+- No DELETE endpoint; devices can only be enabled/disabled via PATCH.
+- Registration requires a UDID (iOS) or Hardware UUID (macOS).
+- Device management UI lives in the Apple Developer portal, not App Store Connect.
+- Device reset is limited to once per membership year; disabling does not free slots.

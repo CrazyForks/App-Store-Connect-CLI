@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
+
+const buildWaitDefaultTimeout = 30 * time.Minute
 
 // BuildsUploadCommand returns a command to upload a build
 func BuildsUploadCommand() *ffcli.Command {
@@ -24,6 +27,10 @@ func BuildsUploadCommand() *ffcli.Command {
 	dryRun := fs.Bool("dry-run", false, "Reserve upload operations without uploading the file")
 	concurrency := fs.Int("concurrency", 1, "Upload concurrency (default 1)")
 	verifyChecksum := fs.Bool("checksum", false, "Verify upload checksums if provided by API")
+	testNotes := fs.String("test-notes", "", "What to Test notes (requires build processing)")
+	locale := fs.String("locale", "", "Locale for --test-notes (e.g., en-US)")
+	wait := fs.Bool("wait", false, "Wait for build processing to complete")
+	pollInterval := fs.Duration("poll-interval", publishDefaultPollInterval, "Polling interval for --wait and --test-notes")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -39,7 +46,8 @@ the file. Use --dry-run to only reserve the upload operations.
 Examples:
   asc builds upload --app "123456789" --ipa "path/to/app.ipa"
   asc builds upload --ipa "app.ipa" --version "1.0.0" --build-number "123"
-  asc builds upload --app "123456789" --ipa "app.ipa" --dry-run`,
+  asc builds upload --app "123456789" --ipa "app.ipa" --dry-run
+  asc builds upload --app "123456789" --ipa "app.ipa" --test-notes "Test flow" --locale "en-US" --wait`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -77,8 +85,33 @@ Examples:
 				if *verifyChecksum {
 					return fmt.Errorf("builds upload: --checksum is not supported with --dry-run")
 				}
+				if *wait {
+					return fmt.Errorf("builds upload: --wait is not supported with --dry-run")
+				}
 			} else if *concurrency < 1 {
 				return fmt.Errorf("builds upload: --concurrency must be at least 1")
+			}
+
+			testNotesValue := strings.TrimSpace(*testNotes)
+			localeValue := strings.TrimSpace(*locale)
+			if testNotesValue != "" && localeValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --locale is required with --test-notes")
+				return flag.ErrHelp
+			}
+			if testNotesValue == "" && localeValue != "" {
+				fmt.Fprintln(os.Stderr, "Error: --test-notes is required with --locale")
+				return flag.ErrHelp
+			}
+			if testNotesValue != "" {
+				if *dryRun {
+					return fmt.Errorf("builds upload: --test-notes is not supported with --dry-run")
+				}
+				if err := validateBuildLocalizationLocale(localeValue); err != nil {
+					return fmt.Errorf("builds upload: %w", err)
+				}
+			}
+			if (*wait || testNotesValue != "") && *pollInterval <= 0 {
+				return fmt.Errorf("builds upload: --poll-interval must be greater than 0")
 			}
 
 			versionValue := strings.TrimSpace(*version)
@@ -121,7 +154,11 @@ Examples:
 				return fmt.Errorf("builds upload: %w", err)
 			}
 
-			requestCtx, cancel := contextWithTimeout(ctx)
+			timeoutValue := asc.ResolveTimeout()
+			if *wait || testNotesValue != "" {
+				timeoutValue = asc.ResolveTimeoutWithDefault(buildWaitDefaultTimeout)
+			}
+			requestCtx, cancel := contextWithPublishTimeout(ctx, timeoutValue)
 			defer cancel()
 
 			// Step 1: Create build upload record
@@ -237,6 +274,27 @@ Examples:
 				result.ChecksumVerified = checksumVerified
 				result.SourceFileChecksums = verifiedChecksums
 				result.Operations = nil
+
+				if *wait || testNotesValue != "" {
+					buildResp, err := waitForBuildByNumber(requestCtx, client, resolvedAppID, versionValue, buildNumberValue, string(platformValue), *pollInterval)
+					if err != nil {
+						return fmt.Errorf("builds upload: %w", err)
+					}
+					if buildResp == nil {
+						return fmt.Errorf("builds upload: failed to resolve build for version %q build %q", versionValue, buildNumberValue)
+					}
+
+					buildResp, err = client.WaitForBuildProcessing(requestCtx, buildResp.Data.ID, *pollInterval)
+					if err != nil {
+						return fmt.Errorf("builds upload: %w", err)
+					}
+
+					if testNotesValue != "" {
+						if _, err := upsertBetaBuildLocalization(requestCtx, client, buildResp.Data.ID, localeValue, testNotesValue); err != nil {
+							return fmt.Errorf("builds upload: %w", err)
+						}
+					}
+				}
 			}
 
 			format := *output
@@ -264,7 +322,9 @@ Examples:
   asc builds latest --app "123456789"
   asc builds info --build "BUILD_ID"
   asc builds expire --build "BUILD_ID"
+  asc builds expire-all --app "123456789" --older-than 90d --dry-run
   asc builds upload --app "123456789" --ipa "app.ipa"
+  asc builds test-notes list --build "BUILD_ID"
   asc builds add-groups --build "BUILD_ID" --group "GROUP_ID"
   asc builds remove-groups --build "BUILD_ID" --group "GROUP_ID"`,
 		FlagSet:   fs,
@@ -274,7 +334,9 @@ Examples:
 			BuildsLatestCommand(),
 			BuildsInfoCommand(),
 			BuildsExpireCommand(),
+			BuildsExpireAllCommand(),
 			BuildsUploadCommand(),
+			BuildsTestNotesCommand(),
 			BuildsAddGroupsCommand(),
 			BuildsRemoveGroupsCommand(),
 		},

@@ -442,5 +442,8 @@ func IsNotFound(err error) bool {
 
 // IsUnauthorized checks if the error is an "unauthorized" error
 func IsUnauthorized(err error) bool {
+	if err == nil {
+		return false
+	}
 	return strings.Contains(err.Error(), "UNAUTHORIZED")
 }

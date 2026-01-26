@@ -55,12 +55,16 @@ func PrintMarkdown(data interface{}) error {
 		return printAppPricesMarkdown(v)
 	case *BuildsResponse:
 		return printBuildsMarkdown(v)
+	case *SubscriptionOfferCodeOneTimeUseCodesResponse:
+		return printOfferCodesMarkdown(v)
 	case *AppStoreVersionsResponse:
 		return printAppStoreVersionsMarkdown(v)
 	case *PreReleaseVersionsResponse:
 		return printPreReleaseVersionsMarkdown(v)
 	case *BuildResponse:
 		return printBuildsMarkdown(&BuildsResponse{Data: []Resource[BuildAttributes]{v.Data}})
+	case *SubscriptionOfferCodeOneTimeUseCodeResponse:
+		return printOfferCodesMarkdown(&SubscriptionOfferCodeOneTimeUseCodesResponse{Data: []Resource[SubscriptionOfferCodeOneTimeUseCodeAttributes]{v.Data}})
 	case *AppAvailabilityV2Response:
 		return printAppAvailabilityMarkdown(v)
 	case *TerritoryAvailabilitiesResponse:
@@ -71,6 +75,10 @@ func PrintMarkdown(data interface{}) error {
 		return printAppStoreVersionLocalizationsMarkdown(v)
 	case *AppStoreVersionLocalizationResponse:
 		return printAppStoreVersionLocalizationsMarkdown(&AppStoreVersionLocalizationsResponse{Data: []Resource[AppStoreVersionLocalizationAttributes]{v.Data}})
+	case *BetaBuildLocalizationsResponse:
+		return printBetaBuildLocalizationsMarkdown(v)
+	case *BetaBuildLocalizationResponse:
+		return printBetaBuildLocalizationsMarkdown(&BetaBuildLocalizationsResponse{Data: []Resource[BetaBuildLocalizationAttributes]{v.Data}})
 	case *AppInfoLocalizationsResponse:
 		return printAppInfoLocalizationsMarkdown(v)
 	case *BetaGroupsResponse:
@@ -85,6 +93,10 @@ func PrintMarkdown(data interface{}) error {
 		return printUsersMarkdown(v)
 	case *UserResponse:
 		return printUsersMarkdown(&UsersResponse{Data: []Resource[UserAttributes]{v.Data}})
+	case *DevicesResponse:
+		return printDevicesMarkdown(v)
+	case *DeviceResponse:
+		return printDevicesMarkdown(&DevicesResponse{Data: []Resource[DeviceAttributes]{v.Data}})
 	case *UserInvitationsResponse:
 		return printUserInvitationsMarkdown(v)
 	case *UserInvitationResponse:
@@ -105,6 +117,8 @@ func PrintMarkdown(data interface{}) error {
 		return printBuildBetaDetailsMarkdown(v)
 	case *BuildBetaDetailResponse:
 		return printBuildBetaDetailMarkdown(v)
+	case *AgeRatingDeclarationResponse:
+		return printAgeRatingDeclarationMarkdown(v)
 	case *BetaRecruitmentCriterionOptionsResponse:
 		return printBetaRecruitmentCriterionOptionsMarkdown(v)
 	case *BetaRecruitmentCriteriaResponse:
@@ -129,6 +143,8 @@ func PrintMarkdown(data interface{}) error {
 		return printLocalizationUploadResultMarkdown(v)
 	case *BuildUploadResult:
 		return printBuildUploadResultMarkdown(v)
+	case *BuildExpireAllResult:
+		return printBuildExpireAllResultMarkdown(v)
 	case *TestFlightPublishResult:
 		return printTestFlightPublishResultMarkdown(v)
 	case *AppStorePublishResult:
@@ -173,6 +189,8 @@ func PrintMarkdown(data interface{}) error {
 		return printBetaTesterGroupsUpdateResultMarkdown(v)
 	case *AppStoreVersionLocalizationDeleteResult:
 		return printAppStoreVersionLocalizationDeleteResultMarkdown(v)
+	case *BetaBuildLocalizationDeleteResult:
+		return printBetaBuildLocalizationDeleteResultMarkdown(v)
 	case *BetaTesterInvitationResult:
 		return printBetaTesterInvitationResultMarkdown(v)
 	case *SandboxTesterDeleteResult:
@@ -247,12 +265,16 @@ func PrintTable(data interface{}) error {
 		return printAppPricesTable(v)
 	case *BuildsResponse:
 		return printBuildsTable(v)
+	case *SubscriptionOfferCodeOneTimeUseCodesResponse:
+		return printOfferCodesTable(v)
 	case *AppStoreVersionsResponse:
 		return printAppStoreVersionsTable(v)
 	case *PreReleaseVersionsResponse:
 		return printPreReleaseVersionsTable(v)
 	case *BuildResponse:
 		return printBuildsTable(&BuildsResponse{Data: []Resource[BuildAttributes]{v.Data}})
+	case *SubscriptionOfferCodeOneTimeUseCodeResponse:
+		return printOfferCodesTable(&SubscriptionOfferCodeOneTimeUseCodesResponse{Data: []Resource[SubscriptionOfferCodeOneTimeUseCodeAttributes]{v.Data}})
 	case *AppAvailabilityV2Response:
 		return printAppAvailabilityTable(v)
 	case *TerritoryAvailabilitiesResponse:
@@ -263,6 +285,10 @@ func PrintTable(data interface{}) error {
 		return printAppStoreVersionLocalizationsTable(v)
 	case *AppStoreVersionLocalizationResponse:
 		return printAppStoreVersionLocalizationsTable(&AppStoreVersionLocalizationsResponse{Data: []Resource[AppStoreVersionLocalizationAttributes]{v.Data}})
+	case *BetaBuildLocalizationsResponse:
+		return printBetaBuildLocalizationsTable(v)
+	case *BetaBuildLocalizationResponse:
+		return printBetaBuildLocalizationsTable(&BetaBuildLocalizationsResponse{Data: []Resource[BetaBuildLocalizationAttributes]{v.Data}})
 	case *AppInfoLocalizationsResponse:
 		return printAppInfoLocalizationsTable(v)
 	case *BetaGroupsResponse:
@@ -277,6 +303,10 @@ func PrintTable(data interface{}) error {
 		return printUsersTable(v)
 	case *UserResponse:
 		return printUsersTable(&UsersResponse{Data: []Resource[UserAttributes]{v.Data}})
+	case *DevicesResponse:
+		return printDevicesTable(v)
+	case *DeviceResponse:
+		return printDevicesTable(&DevicesResponse{Data: []Resource[DeviceAttributes]{v.Data}})
 	case *UserInvitationsResponse:
 		return printUserInvitationsTable(v)
 	case *UserInvitationResponse:
@@ -297,6 +327,8 @@ func PrintTable(data interface{}) error {
 		return printBuildBetaDetailsTable(v)
 	case *BuildBetaDetailResponse:
 		return printBuildBetaDetailTable(v)
+	case *AgeRatingDeclarationResponse:
+		return printAgeRatingDeclarationTable(v)
 	case *BetaRecruitmentCriterionOptionsResponse:
 		return printBetaRecruitmentCriterionOptionsTable(v)
 	case *BetaRecruitmentCriteriaResponse:
@@ -321,6 +353,8 @@ func PrintTable(data interface{}) error {
 		return printLocalizationUploadResultTable(v)
 	case *BuildUploadResult:
 		return printBuildUploadResultTable(v)
+	case *BuildExpireAllResult:
+		return printBuildExpireAllResultTable(v)
 	case *TestFlightPublishResult:
 		return printTestFlightPublishResultTable(v)
 	case *AppStorePublishResult:
@@ -365,6 +399,8 @@ func PrintTable(data interface{}) error {
 		return printBetaTesterGroupsUpdateResultTable(v)
 	case *AppStoreVersionLocalizationDeleteResult:
 		return printAppStoreVersionLocalizationDeleteResultTable(v)
+	case *BetaBuildLocalizationDeleteResult:
+		return printBetaBuildLocalizationDeleteResultTable(v)
 	case *BetaTesterInvitationResult:
 		return printBetaTesterInvitationResultTable(v)
 	case *SandboxTesterDeleteResult:

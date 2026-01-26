@@ -12,6 +12,12 @@ type AppStoreVersionLocalizationDeleteResult struct {
 	Deleted bool   `json:"deleted"`
 }
 
+// BetaBuildLocalizationDeleteResult represents CLI output for beta build localization deletions.
+type BetaBuildLocalizationDeleteResult struct {
+	ID      string `json:"id"`
+	Deleted bool   `json:"deleted"`
+}
+
 // LocalizationFileResult represents a localization file written or read.
 type LocalizationFileResult struct {
 	Locale string `json:"locale"`
@@ -58,6 +64,18 @@ func printAppStoreVersionLocalizationsTable(resp *AppStoreVersionLocalizationsRe
 	return w.Flush()
 }
 
+func printBetaBuildLocalizationsTable(resp *BetaBuildLocalizationsResponse) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "Locale\tWhat to Test")
+	for _, item := range resp.Data {
+		fmt.Fprintf(w, "%s\t%s\n",
+			item.Attributes.Locale,
+			compactWhitespace(item.Attributes.WhatsNew),
+		)
+	}
+	return w.Flush()
+}
+
 func printAppInfoLocalizationsTable(resp *AppInfoLocalizationsResponse) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "Locale\tName\tSubtitle\tPrivacy Policy URL")
@@ -80,6 +98,18 @@ func printAppStoreVersionLocalizationsMarkdown(resp *AppStoreVersionLocalization
 			escapeMarkdown(item.Attributes.Locale),
 			escapeMarkdown(item.Attributes.WhatsNew),
 			escapeMarkdown(item.Attributes.Keywords),
+		)
+	}
+	return nil
+}
+
+func printBetaBuildLocalizationsMarkdown(resp *BetaBuildLocalizationsResponse) error {
+	fmt.Fprintln(os.Stdout, "| Locale | What to Test |")
+	fmt.Fprintln(os.Stdout, "| --- | --- |")
+	for _, item := range resp.Data {
+		fmt.Fprintf(os.Stdout, "| %s | %s |\n",
+			escapeMarkdown(item.Attributes.Locale),
+			escapeMarkdown(item.Attributes.WhatsNew),
 		)
 	}
 	return nil
@@ -154,6 +184,23 @@ func printAppStoreVersionLocalizationDeleteResultTable(result *AppStoreVersionLo
 }
 
 func printAppStoreVersionLocalizationDeleteResultMarkdown(result *AppStoreVersionLocalizationDeleteResult) error {
+	fmt.Fprintln(os.Stdout, "| ID | Deleted |")
+	fmt.Fprintln(os.Stdout, "| --- | --- |")
+	fmt.Fprintf(os.Stdout, "| %s | %t |\n",
+		escapeMarkdown(result.ID),
+		result.Deleted,
+	)
+	return nil
+}
+
+func printBetaBuildLocalizationDeleteResultTable(result *BetaBuildLocalizationDeleteResult) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tDeleted")
+	fmt.Fprintf(w, "%s\t%t\n", result.ID, result.Deleted)
+	return w.Flush()
+}
+
+func printBetaBuildLocalizationDeleteResultMarkdown(result *BetaBuildLocalizationDeleteResult) error {
 	fmt.Fprintln(os.Stdout, "| ID | Deleted |")
 	fmt.Fprintln(os.Stdout, "| --- | --- |")
 	fmt.Fprintf(os.Stdout, "| %s | %t |\n",
