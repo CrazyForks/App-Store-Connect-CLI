@@ -759,6 +759,96 @@ func TestPrintMarkdown_AppTags(t *testing.T) {
 	}
 }
 
+func TestPrintTable_Nominations(t *testing.T) {
+	resp := &NominationsResponse{
+		Data: []Resource[NominationAttributes]{
+			{
+				ID: "nom-1",
+				Attributes: NominationAttributes{
+					Name:             "Spring Launch",
+					Type:             NominationTypeAppLaunch,
+					State:            NominationStateDraft,
+					PublishStartDate: "2026-02-01T08:00:00Z",
+				},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(resp)
+	})
+
+	if !strings.Contains(output, "Publish Start") {
+		t.Fatalf("expected publish start header, got: %s", output)
+	}
+	if !strings.Contains(output, "Spring Launch") {
+		t.Fatalf("expected nomination name in output, got: %s", output)
+	}
+}
+
+func TestPrintMarkdown_Nominations(t *testing.T) {
+	resp := &NominationsResponse{
+		Data: []Resource[NominationAttributes]{
+			{
+				ID: "nom-1",
+				Attributes: NominationAttributes{
+					Name:             "Spring Launch",
+					Type:             NominationTypeNewContent,
+					State:            NominationStateSubmitted,
+					PublishStartDate: "2026-02-01T08:00:00Z",
+				},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintMarkdown(resp)
+	})
+
+	if !strings.Contains(output, "| ID | Name | Type | State |") {
+		t.Fatalf("expected nominations header, got: %s", output)
+	}
+	if !strings.Contains(output, "Spring Launch") {
+		t.Fatalf("expected nomination name in output, got: %s", output)
+	}
+}
+
+func TestPrintTable_NominationDeleteResult(t *testing.T) {
+	result := &NominationDeleteResult{
+		ID:      "nom-1",
+		Deleted: true,
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(result)
+	})
+
+	if !strings.Contains(output, "Deleted") {
+		t.Fatalf("expected deleted header, got: %s", output)
+	}
+	if !strings.Contains(output, "nom-1") {
+		t.Fatalf("expected nomination id in output, got: %s", output)
+	}
+}
+
+func TestPrintMarkdown_NominationDeleteResult(t *testing.T) {
+	result := &NominationDeleteResult{
+		ID:      "nom-1",
+		Deleted: true,
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintMarkdown(result)
+	})
+
+	if !strings.Contains(output, "| ID | Deleted |") {
+		t.Fatalf("expected delete markdown header, got: %s", output)
+	}
+	if !strings.Contains(output, "nom-1") {
+		t.Fatalf("expected nomination id in output, got: %s", output)
+	}
+}
+
 func TestPrintTable_Linkages(t *testing.T) {
 	resp := &LinkagesResponse{
 		Data: []ResourceData{

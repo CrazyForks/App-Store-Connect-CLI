@@ -80,6 +80,7 @@ const (
 	ResourceTypeUserInvitations                      ResourceType = "userInvitations"
 	ResourceTypeSubscriptionOfferCodes               ResourceType = "subscriptionOfferCodes"
 	ResourceTypeSubscriptionOfferCodeOneTimeUseCodes ResourceType = "subscriptionOfferCodeOneTimeUseCodes"
+	ResourceTypeNominations                          ResourceType = "nominations"
 )
 
 // Resource is a generic ASC API resource wrapper.

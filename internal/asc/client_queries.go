@@ -62,6 +62,19 @@ type appTagsQuery struct {
 	territoryLimit    int
 }
 
+type nominationsQuery struct {
+	listQuery
+	types                     []string
+	states                    []string
+	relatedApps               []string
+	sort                      string
+	fields                    []string
+	include                   []string
+	inAppEventsLimit          int
+	relatedAppsLimit          int
+	supportedTerritoriesLimit int
+}
+
 type buildsQuery struct {
 	listQuery
 	sort                string
@@ -287,6 +300,45 @@ func buildAppTagsQuery(query *appTagsQuery) string {
 	addLimit(values, query.limit)
 	if query.territoryLimit > 0 {
 		values.Set("limit[territories]", strconv.Itoa(query.territoryLimit))
+	}
+	return values.Encode()
+}
+
+func buildNominationsQuery(query *nominationsQuery) string {
+	values := url.Values{}
+	addCSV(values, "filter[type]", query.types)
+	addCSV(values, "filter[state]", query.states)
+	addCSV(values, "filter[relatedApps]", query.relatedApps)
+	if query.sort != "" {
+		values.Set("sort", query.sort)
+	}
+	addCSV(values, "fields[nominations]", query.fields)
+	addCSV(values, "include", query.include)
+	addLimit(values, query.limit)
+	if query.inAppEventsLimit > 0 {
+		values.Set("limit[inAppEvents]", strconv.Itoa(query.inAppEventsLimit))
+	}
+	if query.relatedAppsLimit > 0 {
+		values.Set("limit[relatedApps]", strconv.Itoa(query.relatedAppsLimit))
+	}
+	if query.supportedTerritoriesLimit > 0 {
+		values.Set("limit[supportedTerritories]", strconv.Itoa(query.supportedTerritoriesLimit))
+	}
+	return values.Encode()
+}
+
+func buildNominationsDetailQuery(query *nominationsQuery) string {
+	values := url.Values{}
+	addCSV(values, "fields[nominations]", query.fields)
+	addCSV(values, "include", query.include)
+	if query.inAppEventsLimit > 0 {
+		values.Set("limit[inAppEvents]", strconv.Itoa(query.inAppEventsLimit))
+	}
+	if query.relatedAppsLimit > 0 {
+		values.Set("limit[relatedApps]", strconv.Itoa(query.relatedAppsLimit))
+	}
+	if query.supportedTerritoriesLimit > 0 {
+		values.Set("limit[supportedTerritories]", strconv.Itoa(query.supportedTerritoriesLimit))
 	}
 	return values.Encode()
 }

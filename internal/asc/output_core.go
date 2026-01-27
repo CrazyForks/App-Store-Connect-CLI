@@ -39,6 +39,10 @@ func PrintMarkdown(data interface{}) error {
 		return printAppTagsMarkdown(v)
 	case *AppTagResponse:
 		return printAppTagsMarkdown(&AppTagsResponse{Data: []Resource[AppTagAttributes]{v.Data}})
+	case *NominationsResponse:
+		return printNominationsMarkdown(v)
+	case *NominationResponse:
+		return printNominationsMarkdown(&NominationsResponse{Data: []Resource[NominationAttributes]{v.Data}})
 	case *LinkagesResponse:
 		return printLinkagesMarkdown(v)
 	case *BundleIDsResponse:
@@ -369,6 +373,8 @@ func PrintMarkdown(data interface{}) error {
 		return printAppStoreReviewAttachmentDeleteResultMarkdown(v)
 	case *RoutingAppCoverageDeleteResult:
 		return printRoutingAppCoverageDeleteResultMarkdown(v)
+	case *NominationDeleteResult:
+		return printNominationDeleteResultMarkdown(v)
 	case *AppEncryptionDeclarationBuildsUpdateResult:
 		return printAppEncryptionDeclarationBuildsUpdateResultMarkdown(v)
 	default:
@@ -397,6 +403,10 @@ func PrintTable(data interface{}) error {
 		return printAppTagsTable(v)
 	case *AppTagResponse:
 		return printAppTagsTable(&AppTagsResponse{Data: []Resource[AppTagAttributes]{v.Data}})
+	case *NominationsResponse:
+		return printNominationsTable(v)
+	case *NominationResponse:
+		return printNominationsTable(&NominationsResponse{Data: []Resource[NominationAttributes]{v.Data}})
 	case *LinkagesResponse:
 		return printLinkagesTable(v)
 	case *BundleIDsResponse:
@@ -727,6 +737,8 @@ func PrintTable(data interface{}) error {
 		return printAppStoreReviewAttachmentDeleteResultTable(v)
 	case *RoutingAppCoverageDeleteResult:
 		return printRoutingAppCoverageDeleteResultTable(v)
+	case *NominationDeleteResult:
+		return printNominationDeleteResultTable(v)
 	case *AppEncryptionDeclarationBuildsUpdateResult:
 		return printAppEncryptionDeclarationBuildsUpdateResultTable(v)
 	default:

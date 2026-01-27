@@ -17,6 +17,9 @@ type AppsOption func(*appsQuery)
 // AppTagsOption is a functional option for GetAppTags.
 type AppTagsOption func(*appTagsQuery)
 
+// NominationsOption is a functional option for nominations endpoints.
+type NominationsOption func(*nominationsQuery)
+
 // BuildsOption is a functional option for GetBuilds.
 type BuildsOption func(*buildsQuery)
 
@@ -582,6 +585,95 @@ func WithAppTagsTerritoryLimit(limit int) AppTagsOption {
 	return func(q *appTagsQuery) {
 		if limit > 0 {
 			q.territoryLimit = limit
+		}
+	}
+}
+
+// WithNominationsLimit sets the max number of nominations to return.
+func WithNominationsLimit(limit int) NominationsOption {
+	return func(q *nominationsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithNominationsNextURL uses a next page URL directly.
+func WithNominationsNextURL(next string) NominationsOption {
+	return func(q *nominationsQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
+// WithNominationsTypes filters nominations by type.
+func WithNominationsTypes(types []string) NominationsOption {
+	return func(q *nominationsQuery) {
+		q.types = normalizeUpperList(types)
+	}
+}
+
+// WithNominationsStates filters nominations by state.
+func WithNominationsStates(states []string) NominationsOption {
+	return func(q *nominationsQuery) {
+		q.states = normalizeUpperList(states)
+	}
+}
+
+// WithNominationsRelatedApps filters nominations by related app ID(s).
+func WithNominationsRelatedApps(appIDs []string) NominationsOption {
+	return func(q *nominationsQuery) {
+		q.relatedApps = normalizeList(appIDs)
+	}
+}
+
+// WithNominationsSort sets the sort order for nominations.
+func WithNominationsSort(sort string) NominationsOption {
+	return func(q *nominationsQuery) {
+		if strings.TrimSpace(sort) != "" {
+			q.sort = strings.TrimSpace(sort)
+		}
+	}
+}
+
+// WithNominationsFields sets fields[nominations] for nominations responses.
+func WithNominationsFields(fields []string) NominationsOption {
+	return func(q *nominationsQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
+// WithNominationsInclude sets include for nominations responses.
+func WithNominationsInclude(include []string) NominationsOption {
+	return func(q *nominationsQuery) {
+		q.include = normalizeList(include)
+	}
+}
+
+// WithNominationsInAppEventsLimit sets limit[inAppEvents] for included in-app events.
+func WithNominationsInAppEventsLimit(limit int) NominationsOption {
+	return func(q *nominationsQuery) {
+		if limit > 0 {
+			q.inAppEventsLimit = limit
+		}
+	}
+}
+
+// WithNominationsRelatedAppsLimit sets limit[relatedApps] for included related apps.
+func WithNominationsRelatedAppsLimit(limit int) NominationsOption {
+	return func(q *nominationsQuery) {
+		if limit > 0 {
+			q.relatedAppsLimit = limit
+		}
+	}
+}
+
+// WithNominationsSupportedTerritoriesLimit sets limit[supportedTerritories] for included territories.
+func WithNominationsSupportedTerritoriesLimit(limit int) NominationsOption {
+	return func(q *nominationsQuery) {
+		if limit > 0 {
+			q.supportedTerritoriesLimit = limit
 		}
 	}
 }

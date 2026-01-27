@@ -230,6 +230,356 @@ func TestBuildAppTagsQuery(t *testing.T) {
 	}
 }
 
+func TestBuildNominationsQuery(t *testing.T) {
+	query := &nominationsQuery{}
+	opts := []NominationsOption{
+		WithNominationsLimit(50),
+		WithNominationsTypes([]string{"app_launch", "NEW_CONTENT"}),
+		WithNominationsStates([]string{"draft", "submitted"}),
+		WithNominationsRelatedApps([]string{"app-1", " app-2 "}),
+		WithNominationsSort("-publishEndDate"),
+		WithNominationsFields([]string{"name", "type"}),
+		WithNominationsInclude([]string{"relatedApps", "supportedTerritories"}),
+		WithNominationsInAppEventsLimit(25),
+		WithNominationsRelatedAppsLimit(10),
+		WithNominationsSupportedTerritoriesLimit(200),
+	}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	values, err := url.ParseQuery(buildNominationsQuery(query))
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("filter[type]"); got != "APP_LAUNCH,NEW_CONTENT" {
+		t.Fatalf("expected filter[type]=APP_LAUNCH,NEW_CONTENT, got %q", got)
+	}
+	if got := values.Get("filter[state]"); got != "DRAFT,SUBMITTED" {
+		t.Fatalf("expected filter[state]=DRAFT,SUBMITTED, got %q", got)
+	}
+	if got := values.Get("filter[relatedApps]"); got != "app-1,app-2" {
+		t.Fatalf("expected filter[relatedApps]=app-1,app-2, got %q", got)
+	}
+	if got := values.Get("sort"); got != "-publishEndDate" {
+		t.Fatalf("expected sort=-publishEndDate, got %q", got)
+	}
+	if got := values.Get("fields[nominations]"); got != "name,type" {
+		t.Fatalf("expected fields[nominations]=name,type, got %q", got)
+	}
+	if got := values.Get("include"); got != "relatedApps,supportedTerritories" {
+		t.Fatalf("expected include=relatedApps,supportedTerritories, got %q", got)
+	}
+	if got := values.Get("limit"); got != "50" {
+		t.Fatalf("expected limit=50, got %q", got)
+	}
+	if got := values.Get("limit[inAppEvents]"); got != "25" {
+		t.Fatalf("expected limit[inAppEvents]=25, got %q", got)
+	}
+	if got := values.Get("limit[relatedApps]"); got != "10" {
+		t.Fatalf("expected limit[relatedApps]=10, got %q", got)
+	}
+	if got := values.Get("limit[supportedTerritories]"); got != "200" {
+		t.Fatalf("expected limit[supportedTerritories]=200, got %q", got)
+	}
+}
+
+func TestNominationCreateRequest_JSON(t *testing.T) {
+	publishEnd := "2026-02-15T08:00:00Z"
+	hasInAppEvents := true
+	launchInSelectMarketsFirst := false
+	notes := "Launch notes"
+	preOrderEnabled := true
+
+	req := NominationCreateRequest{
+		Data: NominationCreateData{
+			Type: ResourceTypeNominations,
+			Attributes: NominationCreateAttributes{
+				Name:                       "Spring Launch",
+				Type:                       NominationTypeAppLaunch,
+				Description:                "Major launch",
+				Submitted:                  true,
+				PublishStartDate:           "2026-02-01T08:00:00Z",
+				PublishEndDate:             &publishEnd,
+				DeviceFamilies:             []DeviceFamily{DeviceFamilyIPhone, DeviceFamilyIPad},
+				Locales:                    []string{"en-US", "fr-FR"},
+				SupplementalMaterialsURIs:  []string{"https://example.com/presskit"},
+				HasInAppEvents:             &hasInAppEvents,
+				LaunchInSelectMarketsFirst: &launchInSelectMarketsFirst,
+				Notes:                      &notes,
+				PreOrderEnabled:            &preOrderEnabled,
+			},
+			Relationships: NominationRelationships{
+				RelatedApps: &RelationshipList{Data: []ResourceData{
+					{Type: ResourceTypeApps, ID: "APP_ID_1"},
+				}},
+				InAppEvents: &RelationshipList{Data: []ResourceData{
+					{Type: ResourceTypeAppEvents, ID: "EVENT_ID_1"},
+				}},
+				SupportedTerritories: &RelationshipList{Data: []ResourceData{
+					{Type: ResourceTypeTerritories, ID: "US"},
+				}},
+			},
+		},
+	}
+
+	body, err := BuildRequestBody(req)
+	if err != nil {
+		t.Fatalf("BuildRequestBody() error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(body); err != nil {
+		t.Fatalf("read body error: %v", err)
+	}
+
+	var parsed struct {
+		Data struct {
+			Type       string `json:"type"`
+			Attributes struct {
+				Name                       string   `json:"name"`
+				Type                       string   `json:"type"`
+				Description                string   `json:"description"`
+				Submitted                  bool     `json:"submitted"`
+				PublishStartDate           string   `json:"publishStartDate"`
+				PublishEndDate             *string  `json:"publishEndDate"`
+				DeviceFamilies             []string `json:"deviceFamilies"`
+				Locales                    []string `json:"locales"`
+				SupplementalMaterialsURIs  []string `json:"supplementalMaterialsUris"`
+				HasInAppEvents             *bool    `json:"hasInAppEvents"`
+				LaunchInSelectMarketsFirst *bool    `json:"launchInSelectMarketsFirst"`
+				Notes                      *string  `json:"notes"`
+				PreOrderEnabled            *bool    `json:"preOrderEnabled"`
+			} `json:"attributes"`
+			Relationships struct {
+				RelatedApps struct {
+					Data []struct {
+						Type string `json:"type"`
+						ID   string `json:"id"`
+					} `json:"data"`
+				} `json:"relatedApps"`
+				InAppEvents struct {
+					Data []struct {
+						Type string `json:"type"`
+						ID   string `json:"id"`
+					} `json:"data"`
+				} `json:"inAppEvents"`
+				SupportedTerritories struct {
+					Data []struct {
+						Type string `json:"type"`
+						ID   string `json:"id"`
+					} `json:"data"`
+				} `json:"supportedTerritories"`
+			} `json:"relationships"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal body: %v", err)
+	}
+
+	if parsed.Data.Type != "nominations" {
+		t.Fatalf("expected type=nominations, got %q", parsed.Data.Type)
+	}
+	if parsed.Data.Attributes.Name != "Spring Launch" {
+		t.Fatalf("expected name=Spring Launch, got %q", parsed.Data.Attributes.Name)
+	}
+	if parsed.Data.Attributes.Type != "APP_LAUNCH" {
+		t.Fatalf("expected type=APP_LAUNCH, got %q", parsed.Data.Attributes.Type)
+	}
+	if parsed.Data.Attributes.Description != "Major launch" {
+		t.Fatalf("expected description=Major launch, got %q", parsed.Data.Attributes.Description)
+	}
+	if !parsed.Data.Attributes.Submitted {
+		t.Fatalf("expected submitted=true, got false")
+	}
+	if parsed.Data.Attributes.PublishStartDate != "2026-02-01T08:00:00Z" {
+		t.Fatalf("expected publishStartDate, got %q", parsed.Data.Attributes.PublishStartDate)
+	}
+	if parsed.Data.Attributes.PublishEndDate == nil || *parsed.Data.Attributes.PublishEndDate != publishEnd {
+		t.Fatalf("expected publishEndDate=%q, got %v", publishEnd, parsed.Data.Attributes.PublishEndDate)
+	}
+	if len(parsed.Data.Attributes.DeviceFamilies) != 2 {
+		t.Fatalf("expected 2 device families, got %v", parsed.Data.Attributes.DeviceFamilies)
+	}
+	if len(parsed.Data.Attributes.Locales) != 2 {
+		t.Fatalf("expected 2 locales, got %v", parsed.Data.Attributes.Locales)
+	}
+	if len(parsed.Data.Attributes.SupplementalMaterialsURIs) != 1 || parsed.Data.Attributes.SupplementalMaterialsURIs[0] != "https://example.com/presskit" {
+		t.Fatalf("expected supplementalMaterialsUris to include presskit, got %v", parsed.Data.Attributes.SupplementalMaterialsURIs)
+	}
+	if parsed.Data.Attributes.HasInAppEvents == nil || !*parsed.Data.Attributes.HasInAppEvents {
+		t.Fatalf("expected hasInAppEvents=true, got %v", parsed.Data.Attributes.HasInAppEvents)
+	}
+	if parsed.Data.Attributes.LaunchInSelectMarketsFirst == nil || *parsed.Data.Attributes.LaunchInSelectMarketsFirst {
+		t.Fatalf("expected launchInSelectMarketsFirst=false, got %v", parsed.Data.Attributes.LaunchInSelectMarketsFirst)
+	}
+	if parsed.Data.Attributes.Notes == nil || *parsed.Data.Attributes.Notes != notes {
+		t.Fatalf("expected notes=%q, got %v", notes, parsed.Data.Attributes.Notes)
+	}
+	if parsed.Data.Attributes.PreOrderEnabled == nil || !*parsed.Data.Attributes.PreOrderEnabled {
+		t.Fatalf("expected preOrderEnabled=true, got %v", parsed.Data.Attributes.PreOrderEnabled)
+	}
+	if len(parsed.Data.Relationships.RelatedApps.Data) != 1 || parsed.Data.Relationships.RelatedApps.Data[0].Type != "apps" {
+		t.Fatalf("expected relatedApps relationship, got %v", parsed.Data.Relationships.RelatedApps.Data)
+	}
+	if parsed.Data.Relationships.RelatedApps.Data[0].ID != "APP_ID_1" {
+		t.Fatalf("expected relatedApps id=APP_ID_1, got %q", parsed.Data.Relationships.RelatedApps.Data[0].ID)
+	}
+	if len(parsed.Data.Relationships.InAppEvents.Data) != 1 || parsed.Data.Relationships.InAppEvents.Data[0].Type != "appEvents" {
+		t.Fatalf("expected inAppEvents relationship, got %v", parsed.Data.Relationships.InAppEvents.Data)
+	}
+	if parsed.Data.Relationships.InAppEvents.Data[0].ID != "EVENT_ID_1" {
+		t.Fatalf("expected inAppEvents id=EVENT_ID_1, got %q", parsed.Data.Relationships.InAppEvents.Data[0].ID)
+	}
+	if len(parsed.Data.Relationships.SupportedTerritories.Data) != 1 || parsed.Data.Relationships.SupportedTerritories.Data[0].Type != "territories" {
+		t.Fatalf("expected supportedTerritories relationship, got %v", parsed.Data.Relationships.SupportedTerritories.Data)
+	}
+	if parsed.Data.Relationships.SupportedTerritories.Data[0].ID != "US" {
+		t.Fatalf("expected supportedTerritories id=US, got %q", parsed.Data.Relationships.SupportedTerritories.Data[0].ID)
+	}
+}
+
+func TestNominationUpdateRequest_JSON(t *testing.T) {
+	submitted := true
+	archived := false
+	hasInAppEvents := false
+	publishStart := "2026-02-05T08:00:00Z"
+	name := "Updated Launch"
+	description := "Updated description"
+	notes := "Updated notes"
+	nomType := NominationTypeAppEnhancements
+
+	attrs := NominationUpdateAttributes{
+		Name:                      &name,
+		Type:                      &nomType,
+		Description:               &description,
+		Submitted:                 &submitted,
+		Archived:                  &archived,
+		PublishStartDate:          &publishStart,
+		DeviceFamilies:            []DeviceFamily{DeviceFamilyMac},
+		Locales:                   []string{"en-US"},
+		SupplementalMaterialsURIs: []string{"https://example.com/update"},
+		HasInAppEvents:            &hasInAppEvents,
+		Notes:                     &notes,
+	}
+
+	req := NominationUpdateRequest{
+		Data: NominationUpdateData{
+			Type:          ResourceTypeNominations,
+			ID:            "NOMINATION_ID",
+			Attributes:    &attrs,
+			Relationships: &NominationRelationships{},
+		},
+	}
+	req.Data.Relationships.RelatedApps = &RelationshipList{Data: []ResourceData{
+		{Type: ResourceTypeApps, ID: "APP_ID_2"},
+	}}
+	req.Data.Relationships.SupportedTerritories = &RelationshipList{Data: []ResourceData{
+		{Type: ResourceTypeTerritories, ID: "CA"},
+	}}
+
+	body, err := BuildRequestBody(req)
+	if err != nil {
+		t.Fatalf("BuildRequestBody() error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(body); err != nil {
+		t.Fatalf("read body error: %v", err)
+	}
+
+	var parsed struct {
+		Data struct {
+			Type       string `json:"type"`
+			ID         string `json:"id"`
+			Attributes struct {
+				Name                      *string  `json:"name"`
+				Type                      *string  `json:"type"`
+				Description               *string  `json:"description"`
+				Submitted                 *bool    `json:"submitted"`
+				Archived                  *bool    `json:"archived"`
+				PublishStartDate          *string  `json:"publishStartDate"`
+				DeviceFamilies            []string `json:"deviceFamilies"`
+				Locales                   []string `json:"locales"`
+				SupplementalMaterialsURIs []string `json:"supplementalMaterialsUris"`
+				HasInAppEvents            *bool    `json:"hasInAppEvents"`
+				Notes                     *string  `json:"notes"`
+			} `json:"attributes"`
+			Relationships struct {
+				RelatedApps struct {
+					Data []struct {
+						Type string `json:"type"`
+						ID   string `json:"id"`
+					} `json:"data"`
+				} `json:"relatedApps"`
+				SupportedTerritories struct {
+					Data []struct {
+						Type string `json:"type"`
+						ID   string `json:"id"`
+					} `json:"data"`
+				} `json:"supportedTerritories"`
+			} `json:"relationships"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal body: %v", err)
+	}
+
+	if parsed.Data.Type != "nominations" {
+		t.Fatalf("expected type=nominations, got %q", parsed.Data.Type)
+	}
+	if parsed.Data.ID != "NOMINATION_ID" {
+		t.Fatalf("expected id=NOMINATION_ID, got %q", parsed.Data.ID)
+	}
+	if parsed.Data.Attributes.Name == nil || *parsed.Data.Attributes.Name != name {
+		t.Fatalf("expected name=%q, got %v", name, parsed.Data.Attributes.Name)
+	}
+	if parsed.Data.Attributes.Type == nil || *parsed.Data.Attributes.Type != "APP_ENHANCEMENTS" {
+		t.Fatalf("expected type=APP_ENHANCEMENTS, got %v", parsed.Data.Attributes.Type)
+	}
+	if parsed.Data.Attributes.Description == nil || *parsed.Data.Attributes.Description != description {
+		t.Fatalf("expected description=%q, got %v", description, parsed.Data.Attributes.Description)
+	}
+	if parsed.Data.Attributes.Submitted == nil || !*parsed.Data.Attributes.Submitted {
+		t.Fatalf("expected submitted=true, got %v", parsed.Data.Attributes.Submitted)
+	}
+	if parsed.Data.Attributes.Archived == nil || *parsed.Data.Attributes.Archived {
+		t.Fatalf("expected archived=false, got %v", parsed.Data.Attributes.Archived)
+	}
+	if parsed.Data.Attributes.PublishStartDate == nil || *parsed.Data.Attributes.PublishStartDate != publishStart {
+		t.Fatalf("expected publishStartDate=%q, got %v", publishStart, parsed.Data.Attributes.PublishStartDate)
+	}
+	if len(parsed.Data.Attributes.DeviceFamilies) != 1 || parsed.Data.Attributes.DeviceFamilies[0] != "MAC" {
+		t.Fatalf("expected deviceFamilies=[MAC], got %v", parsed.Data.Attributes.DeviceFamilies)
+	}
+	if len(parsed.Data.Attributes.Locales) != 1 || parsed.Data.Attributes.Locales[0] != "en-US" {
+		t.Fatalf("expected locales=[en-US], got %v", parsed.Data.Attributes.Locales)
+	}
+	if len(parsed.Data.Attributes.SupplementalMaterialsURIs) != 1 || parsed.Data.Attributes.SupplementalMaterialsURIs[0] != "https://example.com/update" {
+		t.Fatalf("expected supplementalMaterialsUris to include update, got %v", parsed.Data.Attributes.SupplementalMaterialsURIs)
+	}
+	if parsed.Data.Attributes.HasInAppEvents == nil || *parsed.Data.Attributes.HasInAppEvents {
+		t.Fatalf("expected hasInAppEvents=false, got %v", parsed.Data.Attributes.HasInAppEvents)
+	}
+	if parsed.Data.Attributes.Notes == nil || *parsed.Data.Attributes.Notes != notes {
+		t.Fatalf("expected notes=%q, got %v", notes, parsed.Data.Attributes.Notes)
+	}
+	if len(parsed.Data.Relationships.RelatedApps.Data) != 1 || parsed.Data.Relationships.RelatedApps.Data[0].Type != "apps" {
+		t.Fatalf("expected relatedApps relationship, got %v", parsed.Data.Relationships.RelatedApps.Data)
+	}
+	if parsed.Data.Relationships.RelatedApps.Data[0].ID != "APP_ID_2" {
+		t.Fatalf("expected relatedApps id=APP_ID_2, got %q", parsed.Data.Relationships.RelatedApps.Data[0].ID)
+	}
+	if len(parsed.Data.Relationships.SupportedTerritories.Data) != 1 || parsed.Data.Relationships.SupportedTerritories.Data[0].Type != "territories" {
+		t.Fatalf("expected supportedTerritories relationship, got %v", parsed.Data.Relationships.SupportedTerritories.Data)
+	}
+	if parsed.Data.Relationships.SupportedTerritories.Data[0].ID != "CA" {
+		t.Fatalf("expected supportedTerritories id=CA, got %q", parsed.Data.Relationships.SupportedTerritories.Data[0].ID)
+	}
+}
+
 func TestBuildAccessibilityDeclarationsQuery(t *testing.T) {
 	query := &accessibilityDeclarationsQuery{}
 	opts := []AccessibilityDeclarationsOption{
