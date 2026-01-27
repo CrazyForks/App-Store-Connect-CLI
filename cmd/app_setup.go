@@ -253,6 +253,7 @@ func AppSetupCategoriesSetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("app-setup categories set", flag.ExitOnError)
 
 	appID := fs.String("app", os.Getenv("ASC_APP_ID"), "App ID (required)")
+	appInfoID := fs.String("app-info", "", "App Info ID (optional override)")
 	primary := fs.String("primary", "", "Primary category ID (required)")
 	secondary := fs.String("secondary", "", "Secondary category ID (optional)")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
@@ -260,7 +261,7 @@ func AppSetupCategoriesSetCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "set",
-		ShortUsage: "asc app-setup categories set --app APP_ID --primary CATEGORY_ID [--secondary CATEGORY_ID]",
+		ShortUsage: "asc app-setup categories set --app APP_ID --primary CATEGORY_ID [--secondary CATEGORY_ID] [--app-info APP_INFO_ID]",
 		ShortHelp:  "Set primary and secondary categories for an app.",
 		LongHelp: `Set the primary and secondary categories for an app.
 
@@ -273,6 +274,7 @@ Examples:
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
 			appIDValue := strings.TrimSpace(*appID)
+			appInfoIDValue := strings.TrimSpace(*appInfoID)
 			primaryValue := strings.TrimSpace(*primary)
 			secondaryValue := strings.TrimSpace(*secondary)
 
@@ -291,16 +293,12 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			appInfos, err := client.GetAppInfos(requestCtx, appIDValue)
+			resolvedAppInfoID, err := resolveAppInfoID(requestCtx, client, appIDValue, appInfoIDValue)
 			if err != nil {
-				return fmt.Errorf("app-setup categories set: failed to get app info: %w", err)
-			}
-			if len(appInfos.Data) == 0 {
-				return fmt.Errorf("app-setup categories set: no app info found for app %s", appIDValue)
+				return fmt.Errorf("app-setup categories set: %w", err)
 			}
 
-			appInfoID := appInfos.Data[0].ID
-			resp, err := client.UpdateAppInfoCategories(requestCtx, appInfoID, primaryValue, secondaryValue)
+			resp, err := client.UpdateAppInfoCategories(requestCtx, resolvedAppInfoID, primaryValue, secondaryValue)
 			if err != nil {
 				return fmt.Errorf("app-setup categories set: %w", err)
 			}
