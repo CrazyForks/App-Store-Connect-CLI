@@ -584,8 +584,7 @@ asc versions phased-release create --version-id "VERSION_ID"
 asc versions phased-release update --id "PHASED_ID" --state PAUSED
 asc versions phased-release delete --id "PHASED_ID" --confirm
 
-# Create a version promotion (create-only in API spec)
-asc versions promotions create --version-id "VERSION_ID"
+# Create a version promotion (create-only in API spec; treatment required)
 asc versions promotions create --version-id "VERSION_ID" --treatment-id "TREATMENT_ID"
 ```
 

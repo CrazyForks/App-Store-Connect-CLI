@@ -40,6 +40,12 @@ type AppStoreVersionPromotionResponse struct {
 func (c *Client) CreateAppStoreVersionPromotion(ctx context.Context, versionID, treatmentID string) (*AppStoreVersionPromotionResponse, error) {
 	versionID = strings.TrimSpace(versionID)
 	treatmentID = strings.TrimSpace(treatmentID)
+	if versionID == "" {
+		return nil, fmt.Errorf("version ID is required")
+	}
+	if treatmentID == "" {
+		return nil, fmt.Errorf("treatment ID is required")
+	}
 
 	payload := AppStoreVersionPromotionCreateRequest{
 		Data: AppStoreVersionPromotionCreateData{
@@ -51,17 +57,14 @@ func (c *Client) CreateAppStoreVersionPromotion(ctx context.Context, versionID, 
 						ID:   versionID,
 					},
 				},
+				AppStoreVersionExperimentTreatment: &Relationship{
+					Data: ResourceData{
+						Type: ResourceTypeAppStoreVersionExperimentTreatments,
+						ID:   treatmentID,
+					},
+				},
 			},
 		},
-	}
-
-	if treatmentID != "" {
-		payload.Data.Relationships.AppStoreVersionExperimentTreatment = &Relationship{
-			Data: ResourceData{
-				Type: ResourceTypeAppStoreVersionExperimentTreatments,
-				ID:   treatmentID,
-			},
-		}
 	}
 
 	body, err := BuildRequestBody(payload)

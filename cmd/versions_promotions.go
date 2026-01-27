@@ -24,7 +24,6 @@ Note: The App Store Connect API spec currently lists only create support for
 app store version promotions, so this CLI exposes create only.
 
 Examples:
-  asc versions promotions create --version-id "VERSION_ID"
   asc versions promotions create --version-id "VERSION_ID" --treatment-id "TREATMENT_ID"`,
 		UsageFunc: DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -41,7 +40,7 @@ func VersionsPromotionsCreateCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("versions promotions create", flag.ExitOnError)
 
 	versionID := fs.String("version-id", "", "App Store version ID (required)")
-	treatmentID := fs.String("treatment-id", "", "App Store version experiment treatment ID (optional)")
+	treatmentID := fs.String("treatment-id", "", "App Store version experiment treatment ID (required)")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -51,11 +50,7 @@ func VersionsPromotionsCreateCommand() *ffcli.Command {
 		ShortHelp:  "Create an app store version promotion.",
 		LongHelp: `Create an app store version promotion.
 
-Use --treatment-id to promote an experiment treatment, or omit it to promote
-the version on the App Store product page.
-
 Examples:
-  asc versions promotions create --version-id "VERSION_ID"
   asc versions promotions create --version-id "VERSION_ID" --treatment-id "TREATMENT_ID"`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
@@ -63,6 +58,11 @@ Examples:
 			version := strings.TrimSpace(*versionID)
 			if version == "" {
 				fmt.Fprintln(os.Stderr, "Error: --version-id is required")
+				return flag.ErrHelp
+			}
+			treatment := strings.TrimSpace(*treatmentID)
+			if treatment == "" {
+				fmt.Fprintln(os.Stderr, "Error: --treatment-id is required")
 				return flag.ErrHelp
 			}
 
@@ -74,7 +74,7 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.CreateAppStoreVersionPromotion(requestCtx, version, strings.TrimSpace(*treatmentID))
+			resp, err := client.CreateAppStoreVersionPromotion(requestCtx, version, treatment)
 			if err != nil {
 				return fmt.Errorf("versions promotions create: %w", err)
 			}
@@ -82,9 +82,7 @@ Examples:
 			result := &asc.AppStoreVersionPromotionCreateResult{
 				PromotionID: resp.Data.ID,
 				VersionID:   version,
-			}
-			if strings.TrimSpace(*treatmentID) != "" {
-				result.TreatmentID = strings.TrimSpace(*treatmentID)
+				TreatmentID: treatment,
 			}
 
 			return printOutput(result, *output, *pretty)

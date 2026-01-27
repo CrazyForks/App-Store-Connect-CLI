@@ -2263,3 +2263,25 @@ func TestVersionsPromotionsCreateRequiresVersionID(t *testing.T) {
 		t.Fatalf("expected missing version error, got %q", stderr)
 	}
 }
+
+func TestVersionsPromotionsCreateRequiresTreatmentID(t *testing.T) {
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"versions", "promotions", "create", "--version-id", "VERSION_ID"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		err := root.Run(context.Background())
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected ErrHelp, got %v", err)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "Error: --treatment-id is required") {
+		t.Fatalf("expected missing treatment error, got %q", stderr)
+	}
+}
