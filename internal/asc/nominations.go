@@ -259,18 +259,3 @@ func (c *Client) DeleteNomination(ctx context.Context, nominationID string) erro
 	_, err := c.do(ctx, "DELETE", fmt.Sprintf("/v1/nominations/%s", nominationID), nil)
 	return err
 }
-
-func buildNominationRelationshipList(resourceType ResourceType, ids []string) *RelationshipList {
-	normalized := normalizeList(ids)
-	if len(normalized) == 0 {
-		return nil
-	}
-	data := make([]ResourceData, 0, len(normalized))
-	for _, id := range normalized {
-		data = append(data, ResourceData{
-			Type: resourceType,
-			ID:   id,
-		})
-	}
-	return &RelationshipList{Data: data}
-}
