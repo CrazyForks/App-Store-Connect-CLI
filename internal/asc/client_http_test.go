@@ -5243,6 +5243,129 @@ func TestDeleteAppStoreReviewAttachment(t *testing.T) {
 	}
 }
 
+func TestGetRoutingAppCoverage(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"cover-1","attributes":{"fileName":"coverage.geojson"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/routingAppCoverages/cover-1" {
+			t.Fatalf("expected path /v1/routingAppCoverages/cover-1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetRoutingAppCoverage(context.Background(), "cover-1"); err != nil {
+		t.Fatalf("GetRoutingAppCoverage() error: %v", err)
+	}
+}
+
+func TestGetRoutingAppCoverageForVersion(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"cover-1","attributes":{"fileName":"coverage.geojson"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appStoreVersions/version-1/routingAppCoverage" {
+			t.Fatalf("expected path /v1/appStoreVersions/version-1/routingAppCoverage, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetRoutingAppCoverageForVersion(context.Background(), "version-1"); err != nil {
+		t.Fatalf("GetRoutingAppCoverageForVersion() error: %v", err)
+	}
+}
+
+func TestCreateRoutingAppCoverage(t *testing.T) {
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"routingAppCoverages","id":"cover-1","attributes":{"fileName":"coverage.geojson","fileSize":123}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/routingAppCoverages" {
+			t.Fatalf("expected path /v1/routingAppCoverages, got %s", req.URL.Path)
+		}
+		var payload RoutingAppCoverageCreateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeRoutingAppCoverages {
+			t.Fatalf("expected type routingAppCoverages, got %q", payload.Data.Type)
+		}
+		if payload.Data.Attributes.FileName != "coverage.geojson" || payload.Data.Attributes.FileSize != 123 {
+			t.Fatalf("unexpected attributes: %+v", payload.Data.Attributes)
+		}
+		if payload.Data.Relationships == nil || payload.Data.Relationships.AppStoreVersion == nil {
+			t.Fatalf("expected app store version relationship")
+		}
+		if payload.Data.Relationships.AppStoreVersion.Data.Type != ResourceTypeAppStoreVersions {
+			t.Fatalf("expected relationship type appStoreVersions, got %q", payload.Data.Relationships.AppStoreVersion.Data.Type)
+		}
+		if payload.Data.Relationships.AppStoreVersion.Data.ID != "version-1" {
+			t.Fatalf("expected relationship id version-1, got %q", payload.Data.Relationships.AppStoreVersion.Data.ID)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.CreateRoutingAppCoverage(context.Background(), "version-1", "coverage.geojson", 123); err != nil {
+		t.Fatalf("CreateRoutingAppCoverage() error: %v", err)
+	}
+}
+
+func TestUpdateRoutingAppCoverage(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"cover-1","attributes":{"uploaded":true}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/routingAppCoverages/cover-1" {
+			t.Fatalf("expected path /v1/routingAppCoverages/cover-1, got %s", req.URL.Path)
+		}
+		var payload RoutingAppCoverageUpdateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeRoutingAppCoverages || payload.Data.ID != "cover-1" {
+			t.Fatalf("unexpected payload: %+v", payload.Data)
+		}
+		if payload.Data.Attributes == nil || payload.Data.Attributes.Uploaded == nil || !*payload.Data.Attributes.Uploaded {
+			t.Fatalf("expected uploaded true, got %+v", payload.Data.Attributes)
+		}
+		if payload.Data.Attributes.SourceFileChecksum == nil || *payload.Data.Attributes.SourceFileChecksum != "abcd1234" {
+			t.Fatalf("expected checksum abcd1234, got %+v", payload.Data.Attributes.SourceFileChecksum)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	uploaded := true
+	checksum := "abcd1234"
+	attrs := RoutingAppCoverageUpdateAttributes{
+		SourceFileChecksum: &checksum,
+		Uploaded:           &uploaded,
+	}
+	if _, err := client.UpdateRoutingAppCoverage(context.Background(), "cover-1", attrs); err != nil {
+		t.Fatalf("UpdateRoutingAppCoverage() error: %v", err)
+	}
+}
+
+func TestDeleteRoutingAppCoverage(t *testing.T) {
+	response := jsonResponse(http.StatusNoContent, "")
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodDelete {
+			t.Fatalf("expected DELETE, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/routingAppCoverages/cover-1" {
+			t.Fatalf("expected path /v1/routingAppCoverages/cover-1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if err := client.DeleteRoutingAppCoverage(context.Background(), "cover-1"); err != nil {
+		t.Fatalf("DeleteRoutingAppCoverage() error: %v", err)
+	}
+}
+
 func TestGetAppStoreReviewDetail(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"appStoreReviewDetails","id":"detail-1","attributes":{"contactEmail":"dev@example.com"}}}`)
 	client := newTestClient(t, func(req *http.Request) {

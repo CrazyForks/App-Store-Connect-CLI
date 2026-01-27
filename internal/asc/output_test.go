@@ -2239,3 +2239,75 @@ func TestPrintTable_AppStoreReviewAttachmentDeleteResult(t *testing.T) {
 		t.Fatalf("expected id in output, got: %s", output)
 	}
 }
+
+func TestPrintTable_RoutingAppCoverage(t *testing.T) {
+	state := "COMPLETE"
+	resp := &RoutingAppCoverageResponse{
+		Data: Resource[RoutingAppCoverageAttributes]{
+			ID:   "cover-1",
+			Type: ResourceTypeRoutingAppCoverages,
+			Attributes: RoutingAppCoverageAttributes{
+				FileName:           "coverage.geojson",
+				FileSize:           2048,
+				SourceFileChecksum: "abcd1234",
+				AssetDeliveryState: &AppMediaAssetState{State: &state},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(resp)
+	})
+
+	if !strings.Contains(output, "File Name") {
+		t.Fatalf("expected file name header in output, got: %s", output)
+	}
+	if !strings.Contains(output, "coverage.geojson") {
+		t.Fatalf("expected file name in output, got: %s", output)
+	}
+}
+
+func TestPrintMarkdown_RoutingAppCoverage(t *testing.T) {
+	state := "COMPLETE"
+	resp := &RoutingAppCoverageResponse{
+		Data: Resource[RoutingAppCoverageAttributes]{
+			ID:   "cover-1",
+			Type: ResourceTypeRoutingAppCoverages,
+			Attributes: RoutingAppCoverageAttributes{
+				FileName:           "coverage.geojson",
+				FileSize:           2048,
+				SourceFileChecksum: "abcd1234",
+				AssetDeliveryState: &AppMediaAssetState{State: &state},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintMarkdown(resp)
+	})
+
+	if !strings.Contains(output, "| Field | Value |") {
+		t.Fatalf("expected markdown header, got: %s", output)
+	}
+	if !strings.Contains(output, "File Name") {
+		t.Fatalf("expected file name field in output, got: %s", output)
+	}
+}
+
+func TestPrintTable_RoutingAppCoverageDeleteResult(t *testing.T) {
+	result := &RoutingAppCoverageDeleteResult{
+		ID:      "cover-1",
+		Deleted: true,
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(result)
+	})
+
+	if !strings.Contains(output, "Deleted") {
+		t.Fatalf("expected Deleted header in output, got: %s", output)
+	}
+	if !strings.Contains(output, "cover-1") {
+		t.Fatalf("expected id in output, got: %s", output)
+	}
+}
