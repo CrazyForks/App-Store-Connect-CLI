@@ -67,12 +67,15 @@ Examples:
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
 			idValue := strings.TrimSpace(*id)
-			appValue := resolveAppID(*appID)
+			appValue := ""
+			if idValue == "" {
+				appValue = resolveAppID(*appID)
+			}
 			if idValue == "" && appValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id or --app is required (or set ASC_APP_ID)")
 				return flag.ErrHelp
 			}
-			if idValue != "" && appValue != "" {
+			if idValue != "" && strings.TrimSpace(*appID) != "" {
 				fmt.Fprintln(os.Stderr, "Error: --id and --app are mutually exclusive")
 				return flag.ErrHelp
 			}
