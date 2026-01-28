@@ -863,5 +863,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  Primarily Built with Cursor and GPT-5.2 Codex Extra High, with MiniMax M2.1 and Claude Code for Implementation
-</p>
+  Primarily Built with Cursor and GPT-5.2 Codex Extra High
