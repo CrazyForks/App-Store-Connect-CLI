@@ -3,9 +3,11 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -2931,6 +2933,77 @@ func TestAuthStatusProfileOverridesEnvNote(t *testing.T) {
 	}
 }
 
+func TestAuthStatusShowsStorageLocation(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	keyPath := filepath.Join(tempDir, "AuthKey.p8")
+	writeECDSAPEM(t, keyPath)
+
+	cfg := &config.Config{
+		DefaultKeyName: "default",
+		Keys: []config.Credential{
+			{
+				Name:           "default",
+				KeyID:          "KEY123",
+				IssuerID:       "ISS456",
+				PrivateKeyPath: keyPath,
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_PROFILE", "")
+
+	previousProfile := selectedProfile
+	selectedProfile = ""
+	t.Cleanup(func() {
+		selectedProfile = previousProfile
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"auth", "status"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, "Credential storage: Config File") {
+		t.Fatalf("expected config storage output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, fmt.Sprintf("Location: %s", configPath)) {
+		t.Fatalf("expected config path in output, got %q", stdout)
+	}
+}
+
+func TestAuthDoctorFixRequiresConfirm(t *testing.T) {
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	_, _ = captureOutput(t, func() {
+		if err := root.Parse([]string{"auth", "doctor", "--fix"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
 func TestAuthValidateSuccess(t *testing.T) {
 	tempDir := t.TempDir()
 	keyPath := filepath.Join(tempDir, "AuthKey.p8")
@@ -3030,6 +3103,109 @@ func TestAuthValidateMissingAuth(t *testing.T) {
 	}
 	if len(result.Errors) == 0 {
 		t.Fatalf("expected errors to be populated, got %#v", result.Errors)
+	}
+}
+
+func TestAuthLoginValidationFailurePreventsStore(t *testing.T) {
+	tempDir := t.TempDir()
+	keyPath := filepath.Join(tempDir, "AuthKey.p8")
+	writeECDSAPEM(t, keyPath)
+
+	workDir := t.TempDir()
+	previousDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error: %v", err)
+	}
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("Chdir() error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(previousDir)
+	})
+
+	previousGenerator := loginJWTGenerator
+	loginJWTGenerator = func(_, _ string, _ *ecdsa.PrivateKey) (string, error) {
+		return "", errors.New("jwt failure")
+	}
+	t.Cleanup(func() {
+		loginJWTGenerator = previousGenerator
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	_, _ = captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"auth", "login",
+			"--bypass-keychain",
+			"--local",
+			"--name", "TestKey",
+			"--key-id", "KEY123",
+			"--issuer-id", "ISS456",
+			"--private-key", keyPath,
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+
+	configPath := filepath.Join(workDir, ".asc", "config.json")
+	if _, err := os.Stat(configPath); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("expected config not to be written, got %v", err)
+	}
+}
+
+func TestAuthLoginSkipValidationBypassesJWT(t *testing.T) {
+	tempDir := t.TempDir()
+	keyPath := filepath.Join(tempDir, "AuthKey.p8")
+	writeECDSAPEM(t, keyPath)
+
+	workDir := t.TempDir()
+	previousDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error: %v", err)
+	}
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("Chdir() error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(previousDir)
+	})
+
+	previousGenerator := loginJWTGenerator
+	loginJWTGenerator = func(_, _ string, _ *ecdsa.PrivateKey) (string, error) {
+		return "", errors.New("jwt failure")
+	}
+	t.Cleanup(func() {
+		loginJWTGenerator = previousGenerator
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	_, _ = captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"auth", "login",
+			"--bypass-keychain",
+			"--local",
+			"--skip-validation",
+			"--name", "TestKey",
+			"--key-id", "KEY123",
+			"--issuer-id", "ISS456",
+			"--private-key", keyPath,
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	configPath := filepath.Join(workDir, ".asc", "config.json")
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("expected config to be written, got %v", err)
 	}
 }
 

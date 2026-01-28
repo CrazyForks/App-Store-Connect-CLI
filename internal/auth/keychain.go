@@ -30,6 +30,8 @@ type Credential struct {
 	IssuerID       string `json:"issuer_id"`
 	PrivateKeyPath string `json:"private_key_path"`
 	IsDefault      bool   `json:"is_default"`
+	Source         string `json:"source,omitempty"`
+	SourcePath     string `json:"source_path,omitempty"`
 }
 
 // Credentials stores multiple credentials
@@ -84,6 +86,18 @@ func shouldBypassKeychain() bool {
 // ShouldBypassKeychain reports whether keychain usage is disabled via env.
 func ShouldBypassKeychain() bool {
 	return shouldBypassKeychain()
+}
+
+// KeychainAvailable reports whether a system keychain backend is available.
+func KeychainAvailable() (bool, error) {
+	_, err := keyringOpener()
+	if err == nil {
+		return true, nil
+	}
+	if isKeyringUnavailable(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 var keyringOpener = func() (keyring.Keyring, error) {
@@ -342,35 +356,49 @@ func GetDefaultCredentials() (*config.Config, error) {
 	return GetCredentials("")
 }
 
-// GetCredentials returns credentials for a named profile.
-func GetCredentials(profile string) (*config.Config, error) {
+// GetCredentialsWithSource returns credentials for a named profile along with the source.
+func GetCredentialsWithSource(profile string) (*config.Config, string, error) {
 	profile = strings.TrimSpace(profile)
 	if shouldBypassKeychain() {
-		return getCredentialsFromConfig(profile)
+		cfg, err := getCredentialsFromConfig(profile)
+		if err != nil {
+			return nil, "", err
+		}
+		return cfg, "config", nil
 	}
 
 	credentials, err := listFromKeychain()
 	if err == nil {
 		cfg, found, err := selectCredential(profile, credentials)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if found {
-			return cfg, nil
+			return cfg, "keychain", nil
 		}
 		// Keychain available but profile not found - also check config.
 		if cfg, configErr := getCredentialsFromConfig(profile); configErr == nil {
-			return cfg, nil
+			return cfg, "config", nil
 		}
 		if profile != "" {
-			return nil, fmt.Errorf("credentials not found for profile %q", profile)
+			return nil, "", fmt.Errorf("credentials not found for profile %q", profile)
 		}
-		return nil, fmt.Errorf("default credentials not found")
+		return nil, "", fmt.Errorf("default credentials not found")
 	}
 	if !isKeyringUnavailable(err) {
-		return nil, err
+		return nil, "", err
 	}
-	return getCredentialsFromConfig(profile)
+	cfg, err := getCredentialsFromConfig(profile)
+	if err != nil {
+		return nil, "", err
+	}
+	return cfg, "config", nil
+}
+
+// GetCredentials returns credentials for a named profile.
+func GetCredentials(profile string) (*config.Config, error) {
+	cfg, _, err := GetCredentialsWithSource(profile)
+	return cfg, err
 }
 
 func selectCredential(profile string, credentials []Credential) (*config.Config, bool, error) {
@@ -416,7 +444,7 @@ func getCredentialsFromConfig(profile string) (*config.Config, error) {
 		}
 	}
 
-	globalCfg, globalErr := loadGlobalConfigForCredentials()
+	globalCfg, _, globalErr := loadGlobalConfigForCredentials()
 	if globalErr != nil {
 		if globalErr == config.ErrNotFound {
 			if err == config.ErrNotFound {
@@ -533,6 +561,7 @@ func listFromKeyring(kr keyring.Keyring) ([]Credential, error) {
 			IssuerID:       payload.IssuerID,
 			PrivateKeyPath: payload.PrivateKeyPath,
 			IsDefault:      name == defaultName,
+			Source:         "keychain",
 		})
 	}
 
@@ -827,19 +856,27 @@ func selectConfigCredential(cfg *config.Config, profile string) (*config.Config,
 	return nil, config.ErrNotFound
 }
 
-func loadGlobalConfigForCredentials() (*config.Config, error) {
+func loadGlobalConfigForCredentials() (*config.Config, string, error) {
 	if strings.TrimSpace(os.Getenv("ASC_CONFIG_PATH")) != "" {
-		return nil, config.ErrNotFound
+		return nil, "", config.ErrNotFound
 	}
 	path, err := config.GlobalPath()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return config.LoadAt(path)
+	cfg, err := config.LoadAt(path)
+	if err != nil {
+		return nil, "", err
+	}
+	return cfg, path, nil
 }
 
 func listFromConfig() ([]Credential, error) {
-	cfg, err := config.Load()
+	path, err := config.Path()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.LoadAt(path)
 	if err != nil {
 		if err == config.ErrNotFound {
 			return []Credential{}, nil
@@ -850,7 +887,7 @@ func listFromConfig() ([]Credential, error) {
 		if hasAnyCredentials(cfg) {
 			return []Credential{}, nil
 		}
-		globalCfg, err := loadGlobalConfigForCredentials()
+		globalCfg, globalPath, err := loadGlobalConfigForCredentials()
 		if err != nil {
 			if err == config.ErrNotFound {
 				return []Credential{}, nil
@@ -861,6 +898,7 @@ func listFromConfig() ([]Credential, error) {
 			return []Credential{}, nil
 		}
 		cfg = globalCfg
+		path = globalPath
 	}
 	configCreds := configCredentialList(cfg)
 	if len(configCreds) == 0 {
@@ -878,6 +916,8 @@ func listFromConfig() ([]Credential, error) {
 			IssuerID:       cred.IssuerID,
 			PrivateKeyPath: cred.PrivateKeyPath,
 			IsDefault:      cred.Name == defaultName,
+			Source:         "config",
+			SourcePath:     path,
 		})
 	}
 	return credentials, nil

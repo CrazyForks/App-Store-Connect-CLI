@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/config"
@@ -76,6 +77,32 @@ func TestResolvePrivateKeyPathFromRawValue(t *testing.T) {
 	}
 }
 
+func TestCleanupTempPrivateKeysRemovesFile(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	encoded := base64.StdEncoding.EncodeToString([]byte("key-data"))
+	t.Setenv("ASC_PRIVATE_KEY_B64", encoded)
+
+	path, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() error: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected temp key file to exist, got %v", err)
+	}
+
+	CleanupTempPrivateKeys()
+
+	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("expected temp key file to be removed, got %v", err)
+	}
+	if privateKeyTempPath != "" {
+		t.Fatalf("expected temp key path to be cleared, got %q", privateKeyTempPath)
+	}
+}
+
 func TestResolvePrivateKeyPathInvalidBase64(t *testing.T) {
 	resetPrivateKeyTemp(t)
 	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
@@ -84,6 +111,58 @@ func TestResolvePrivateKeyPathInvalidBase64(t *testing.T) {
 
 	if _, err := resolvePrivateKeyPath(); err == nil {
 		t.Fatal("expected error for invalid base64")
+	}
+}
+
+func TestCheckMixedCredentialSourcesWarns(t *testing.T) {
+	previousStrict := strictAuth
+	strictAuth = false
+	t.Cleanup(func() {
+		strictAuth = previousStrict
+	})
+	t.Setenv(strictAuthEnvVar, "")
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := checkMixedCredentialSources(credentialSource{
+			keyID:    "keychain",
+			issuerID: "env",
+			keyPath:  "env",
+		}); err != nil {
+			t.Fatalf("expected warning only, got %v", err)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "Warning: credentials loaded from multiple sources") {
+		t.Fatalf("expected mixed-source warning, got %q", stderr)
+	}
+}
+
+func TestCheckMixedCredentialSourcesStrictErrors(t *testing.T) {
+	previousStrict := strictAuth
+	strictAuth = true
+	t.Cleanup(func() {
+		strictAuth = previousStrict
+	})
+	t.Setenv(strictAuthEnvVar, "")
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := checkMixedCredentialSources(credentialSource{
+			keyID:    "keychain",
+			issuerID: "env",
+			keyPath:  "env",
+		}); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
 }
 
@@ -170,15 +249,9 @@ func TestGetASCClient_BypassKeychainPrefersEnvOverConfig(t *testing.T) {
 
 func resetPrivateKeyTemp(t *testing.T) {
 	t.Helper()
-	if privateKeyTempPath != "" {
-		_ = os.Remove(privateKeyTempPath)
-		privateKeyTempPath = ""
-	}
+	CleanupTempPrivateKeys()
 	t.Cleanup(func() {
-		if privateKeyTempPath != "" {
-			_ = os.Remove(privateKeyTempPath)
-			privateKeyTempPath = ""
-		}
+		CleanupTempPrivateKeys()
 	})
 	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
 	t.Setenv("ASC_PRIVATE_KEY_B64", "")

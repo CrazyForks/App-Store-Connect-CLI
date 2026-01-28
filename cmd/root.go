@@ -85,6 +85,7 @@ func RootCommand(version string) *ffcli.Command {
 
 	versionFlag := root.FlagSet.Bool("version", false, "Print version and exit")
 	root.FlagSet.StringVar(&selectedProfile, "profile", "", "Use named authentication profile")
+	root.FlagSet.BoolVar(&strictAuth, "strict-auth", false, "Fail when credentials are resolved from multiple sources")
 
 	root.Exec = func(ctx context.Context, args []string) error {
 		if *versionFlag {

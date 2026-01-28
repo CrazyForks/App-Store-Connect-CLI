@@ -16,6 +16,11 @@ import (
 
 const authKeysURL = "https://appstoreconnect.apple.com/access/integrations/api"
 
+var (
+	loginJWTGenerator    = asc.GenerateJWT
+	loginNetworkValidate = validateLoginNetwork
+)
+
 // Auth command factory
 func AuthCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("auth", flag.ExitOnError)
@@ -30,7 +35,13 @@ Authentication is handled via App Store Connect API keys. Generate keys at:
 https://appstoreconnect.apple.com/access/integrations/api
 
 Credentials are stored in the system keychain when available, with a config fallback.
-A repo-local ./.asc/config.json (if present) takes precedence.`,
+A repo-local ./.asc/config.json (if present) takes precedence.
+
+Credential resolution order:
+  1) Selected profile (keychain/config)
+  2) Environment variables (fallback for missing fields)
+
+Use --strict-auth or ASC_STRICT_AUTH=1 to fail when sources are mixed.`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -39,6 +50,7 @@ A repo-local ./.asc/config.json (if present) takes precedence.`,
 			AuthSwitchCommand(),
 			AuthLogoutCommand(),
 			AuthValidateCommand(),
+			AuthDoctorCommand(),
 			AuthStatusCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
@@ -188,6 +200,26 @@ Examples:
 				return NewReportedError(fmt.Errorf("auth validate: %w", validationErr))
 			}
 
+			privateKey, err := auth.LoadPrivateKey(resolved.keyPath)
+			if err != nil {
+				validationErr := fmt.Errorf("failed to load private key: %w", err)
+				result.Valid = false
+				result.Errors = []string{validationErr.Error()}
+				if printErr := printOutput(result, normalizedOutput, *pretty); printErr != nil {
+					return printErr
+				}
+				return NewReportedError(fmt.Errorf("auth validate: %w", validationErr))
+			}
+			if _, err := asc.GenerateJWT(resolved.keyID, resolved.issuerID, privateKey); err != nil {
+				validationErr := fmt.Errorf("failed to generate JWT: %w", err)
+				result.Valid = false
+				result.Errors = []string{validationErr.Error()}
+				if printErr := printOutput(result, normalizedOutput, *pretty); printErr != nil {
+					return printErr
+				}
+				return NewReportedError(fmt.Errorf("auth validate: %w", validationErr))
+			}
+
 			var validationErr error
 			if *network {
 				client, err := asc.NewClient(resolved.keyID, resolved.issuerID, resolved.keyPath)
@@ -216,6 +248,154 @@ Examples:
 	}
 }
 
+// AuthDoctor command factory
+func AuthDoctorCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("auth doctor", flag.ExitOnError)
+
+	output := fs.String("output", "text", "Output format: text (default), json")
+	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
+	fix := fs.Bool("fix", false, "Attempt to fix issues where possible")
+	confirm := fs.Bool("confirm", false, "Confirm applying fixes")
+
+	return &ffcli.Command{
+		Name:       "doctor",
+		ShortUsage: "asc auth doctor [flags]",
+		ShortHelp:  "Diagnose authentication configuration issues.",
+		LongHelp: `Diagnose authentication configuration issues.
+
+Runs a comprehensive health check across keychain availability, config files,
+stored profiles, private key files, and environment variables.
+
+Examples:
+  asc auth doctor
+  asc auth doctor --output json
+  asc auth doctor --fix --confirm`,
+		FlagSet:   fs,
+		UsageFunc: DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			normalizedOutput := strings.ToLower(strings.TrimSpace(*output))
+			if normalizedOutput != "text" && normalizedOutput != "json" {
+				return fmt.Errorf("auth doctor: unsupported format: %s", *output)
+			}
+			if normalizedOutput != "json" && *pretty {
+				return fmt.Errorf("--pretty is only valid with JSON output")
+			}
+			if *fix && !*confirm {
+				return fmt.Errorf("auth doctor: --fix requires --confirm")
+			}
+
+			report := auth.Doctor(auth.DoctorOptions{Fix: *fix && *confirm})
+			if normalizedOutput == "json" {
+				if err := printOutput(report, "json", *pretty); err != nil {
+					return err
+				}
+			} else {
+				printDoctorReport(report)
+			}
+
+			if report.Summary.Errors > 0 {
+				return NewReportedError(fmt.Errorf("auth doctor: found %d error(s)", report.Summary.Errors))
+			}
+			return nil
+		},
+	}
+}
+
+func printDoctorReport(report auth.DoctorReport) {
+	fmt.Println("Auth Doctor")
+	for _, section := range report.Sections {
+		if len(section.Checks) == 0 {
+			continue
+		}
+		fmt.Printf("\n%s:\n", section.Title)
+		for _, check := range section.Checks {
+			fmt.Printf("  [%s] %s\n", doctorStatusLabel(check.Status), check.Message)
+		}
+	}
+	if len(report.Recommendations) > 0 {
+		fmt.Println("\nRecommendations:")
+		for i, rec := range report.Recommendations {
+			fmt.Printf("  %d. %s\n", i+1, rec)
+		}
+	}
+
+	if report.Summary.Errors == 0 && report.Summary.Warnings == 0 {
+		fmt.Println("\nNo issues found.")
+	} else {
+		fmt.Printf("\nFound %d warning(s) and %d error(s).\n", report.Summary.Warnings, report.Summary.Errors)
+	}
+}
+
+func doctorStatusLabel(status auth.DoctorStatus) string {
+	switch status {
+	case auth.DoctorOK:
+		return "OK"
+	case auth.DoctorWarn:
+		return "WARN"
+	case auth.DoctorFail:
+		return "FAIL"
+	case auth.DoctorInfo:
+		return "INFO"
+	default:
+		return strings.ToUpper(string(status))
+	}
+}
+
+func validateLoginCredentials(ctx context.Context, keyID, issuerID, keyPath string, network bool) error {
+	privateKey, err := auth.LoadPrivateKey(keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to load private key: %w", err)
+	}
+	if _, err := loginJWTGenerator(keyID, issuerID, privateKey); err != nil {
+		return fmt.Errorf("failed to generate JWT: %w", err)
+	}
+	if network {
+		if err := loginNetworkValidate(ctx, keyID, issuerID, keyPath); err != nil {
+			return fmt.Errorf("network validation failed: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateLoginNetwork(ctx context.Context, keyID, issuerID, keyPath string) error {
+	client, err := asc.NewClient(keyID, issuerID, keyPath)
+	if err != nil {
+		return err
+	}
+	_, err = client.GetApps(ctx, asc.WithAppsLimit(1))
+	return err
+}
+
+func loginStorageMessage(bypassKeychain, local bool) (string, error) {
+	if bypassKeychain {
+		if local {
+			path, err := config.LocalPath()
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Storing credentials in config file at %s", path), nil
+		}
+		path, err := config.GlobalPath()
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Storing credentials in config file at %s", path), nil
+	}
+
+	keychainAvailable, err := auth.KeychainAvailable()
+	if err != nil {
+		return "", err
+	}
+	if keychainAvailable {
+		return "Storing credentials in system keychain", nil
+	}
+	path, err := config.Path()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("System keychain unavailable; storing credentials in config file at %s", path), nil
+}
+
 // AuthLogin command factory
 func AuthLoginCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("auth login", flag.ExitOnError)
@@ -226,6 +406,8 @@ func AuthLoginCommand() *ffcli.Command {
 	keyPath := fs.String("private-key", "", "Path to private key (.p8) file")
 	bypassKeychain := fs.Bool("bypass-keychain", false, "Store credentials in config.json instead of keychain")
 	local := fs.Bool("local", false, "When bypassing keychain, write to ./.asc/config.json")
+	network := fs.Bool("network", false, "Validate credentials with a lightweight API request")
+	skipValidation := fs.Bool("skip-validation", false, "Skip JWT and network validation checks")
 
 	return &ffcli.Command{
 		Name:       "login",
@@ -241,6 +423,8 @@ Add --local to write ./.asc/config.json for the current repo.
 Examples:
   asc auth login --name "MyKey" --key-id "ABC123" --issuer-id "DEF456" --private-key /path/to/AuthKey.p8
   asc auth login --bypass-keychain --local --name "MyKey" --key-id "ABC123" --issuer-id "DEF456" --private-key /path/to/AuthKey.p8
+  asc auth login --network --name "MyKey" --key-id "ABC123" --issuer-id "DEF456" --private-key /path/to/AuthKey.p8
+  asc auth login --skip-validation --name "MyKey" --key-id "ABC123" --issuer-id "DEF456" --private-key /path/to/AuthKey.p8
 
 The private key file path is stored securely. The key content is never saved.`,
 		FlagSet:   fs,
@@ -265,11 +449,26 @@ The private key file path is stored securely. The key content is never saved.`,
 				fmt.Fprintln(os.Stderr, "Error: --private-key is required")
 				return flag.ErrHelp
 			}
+			if *skipValidation && *network {
+				return fmt.Errorf("auth login: --skip-validation and --network are mutually exclusive")
+			}
 
 			// Validate the key file exists and is parseable
 			if err := auth.ValidateKeyFile(*keyPath); err != nil {
 				return fmt.Errorf("auth login: invalid private key: %w", err)
 			}
+
+			if !*skipValidation {
+				if err := validateLoginCredentials(ctx, *keyID, *issuerID, *keyPath, *network); err != nil {
+					return fmt.Errorf("auth login: %w", err)
+				}
+			}
+
+			storageMessage, err := loginStorageMessage(*bypassKeychain, *local)
+			if err != nil {
+				return fmt.Errorf("auth login: %w", err)
+			}
+			fmt.Println(storageMessage)
 
 			// Store credentials securely
 			if *bypassKeychain {
@@ -401,6 +600,7 @@ Examples:
 // AuthStatus command factory
 func AuthStatusCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("auth status", flag.ExitOnError)
+	verbose := fs.Bool("verbose", false, "Show detailed storage information")
 
 	return &ffcli.Command{
 		Name:       "status",
@@ -411,7 +611,8 @@ func AuthStatusCommand() *ffcli.Command {
 Displays information about stored API keys and which one is currently active.
 
 Examples:
-  asc auth status`,
+  asc auth status
+  asc auth status --verbose`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -419,6 +620,60 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("auth status: failed to list credentials: %w", err)
 			}
+
+			bypassKeychain := auth.ShouldBypassKeychain()
+			keychainAvailable, keychainErr := auth.KeychainAvailable()
+			configPath, configErr := config.Path()
+			storageBackend := "System Keychain"
+			storageLocation := "system keychain"
+			var warnings []string
+
+			if bypassKeychain {
+				storageBackend = "Config File"
+				storageLocation = "unknown"
+				if configErr == nil {
+					storageLocation = configPath
+				}
+				warnings = append(warnings, "Keychain bypassed via ASC_BYPASS_KEYCHAIN=1.")
+			} else if !keychainAvailable {
+				storageBackend = "Config File"
+				storageLocation = "unknown"
+				if configErr == nil {
+					storageLocation = configPath
+				}
+				if keychainErr != nil {
+					warnings = append(warnings, fmt.Sprintf("System keychain error: %v", keychainErr))
+				} else {
+					warnings = append(warnings, "System keychain unavailable. Credentials stored in config file.")
+				}
+			}
+
+			hasConfigCreds := false
+			for _, cred := range credentials {
+				if cred.Source == "config" {
+					hasConfigCreds = true
+					break
+				}
+			}
+			if hasConfigCreds && keychainAvailable && !bypassKeychain {
+				warnings = append(warnings, "Some credentials are stored in config file (less secure).")
+			}
+
+			fmt.Printf("Credential storage: %s\n", storageBackend)
+			fmt.Printf("Location: %s\n", storageLocation)
+			for _, warning := range warnings {
+				fmt.Printf("Warning: %s\n", warning)
+			}
+			if *verbose {
+				fmt.Printf("Keychain available: %t\n", keychainAvailable)
+				if keychainErr != nil {
+					fmt.Printf("Keychain error: %v\n", keychainErr)
+				}
+				if configErr == nil {
+					fmt.Printf("Config path: %s\n", configPath)
+				}
+			}
+			fmt.Println()
 
 			if len(credentials) == 0 {
 				fmt.Println("No credentials stored. Run 'asc auth login' to get started.")
@@ -429,12 +684,11 @@ Examples:
 					if cred.IsDefault {
 						active = " (default)"
 					}
-					fmt.Printf("  - %s (Key ID: %s)%s\n", cred.Name, cred.KeyID, active)
+					fmt.Printf("  - %s (Key ID: %s)%s (stored in %s)\n", cred.Name, cred.KeyID, active, credentialStorageLabel(cred))
 				}
 			}
 
 			profile := resolveProfileName()
-			bypassKeychain := auth.ShouldBypassKeychain()
 			envKeyID := strings.TrimSpace(os.Getenv("ASC_KEY_ID"))
 			envIssuerID := strings.TrimSpace(os.Getenv("ASC_ISSUER_ID"))
 			hasKeyEnv := strings.TrimSpace(os.Getenv("ASC_PRIVATE_KEY_PATH")) != "" ||
@@ -453,4 +707,14 @@ Examples:
 			return nil
 		},
 	}
+}
+
+func credentialStorageLabel(cred auth.Credential) string {
+	if strings.TrimSpace(cred.SourcePath) != "" {
+		return fmt.Sprintf("%s: %s", cred.Source, cred.SourcePath)
+	}
+	if strings.TrimSpace(cred.Source) != "" {
+		return cred.Source
+	}
+	return "unknown"
 }
