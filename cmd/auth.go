@@ -597,9 +597,9 @@ Examples:
 					if *validate {
 						if err := statusValidateCredential(ctx, cred); err != nil {
 							validationFailures++
-							fmt.Printf("    Key ID %s: failed (%v)\n", cred.KeyID, err)
+							fmt.Printf("    %s (Key ID: %s): failed (%v)\n", cred.Name, cred.KeyID, err)
 						} else {
-							fmt.Printf("    Key ID %s: works\n", cred.KeyID)
+							fmt.Printf("    %s (Key ID: %s): works\n", cred.Name, cred.KeyID)
 						}
 					}
 				}

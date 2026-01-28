@@ -3058,7 +3058,7 @@ func TestAuthStatusValidateSuccess(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, "Key ID KEY123: works") {
+	if !strings.Contains(stdout, "default (Key ID: KEY123): works") {
 		t.Fatalf("expected validation ok output, got %q", stdout)
 	}
 }
@@ -3122,7 +3122,7 @@ func TestAuthStatusValidateFailureReturnsReportedError(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, "Key ID KEY123: failed") {
+	if !strings.Contains(stdout, "default (Key ID: KEY123): failed") {
 		t.Fatalf("expected validation failed output, got %q", stdout)
 	}
 }
