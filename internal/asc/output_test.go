@@ -2,6 +2,7 @@ package asc
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -2849,5 +2850,107 @@ func TestPrintTable_AppEncryptionDeclarationBuildsUpdateResult(t *testing.T) {
 	}
 	if !strings.Contains(output, "decl-1") {
 		t.Fatalf("expected declaration id in output, got: %s", output)
+	}
+}
+
+func TestPrintTable_PerfPowerMetrics(t *testing.T) {
+	resp := &PerfPowerMetricsResponse{
+		Data: json.RawMessage(`{"version":"1","insights":{"trendingUp":[{"metric":"cpu"}],"regressions":[{}]},"productData":[{},{}]}`),
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(resp)
+	})
+
+	if !strings.Contains(output, "Trending Up") {
+		t.Fatalf("expected trending up header in output, got: %s", output)
+	}
+	if !strings.Contains(output, "2") {
+		t.Fatalf("expected product count in output, got: %s", output)
+	}
+}
+
+func TestPrintMarkdown_PerfPowerMetrics(t *testing.T) {
+	resp := &PerfPowerMetricsResponse{
+		Data: json.RawMessage(`{"version":"1","insights":{"trendingUp":[],"regressions":[{}]},"productData":[{}]}`),
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintMarkdown(resp)
+	})
+
+	if !strings.Contains(output, "| Version | Products |") {
+		t.Fatalf("expected markdown header in output, got: %s", output)
+	}
+	if !strings.Contains(output, "| 1 | 1 |") {
+		t.Fatalf("expected summary values in output, got: %s", output)
+	}
+}
+
+func TestPrintTable_DiagnosticSignatures(t *testing.T) {
+	resp := &DiagnosticSignaturesResponse{
+		Data: []Resource[DiagnosticSignatureAttributes]{
+			{
+				ID:   "diag-1",
+				Type: ResourceTypeDiagnosticSignatures,
+				Attributes: DiagnosticSignatureAttributes{
+					DiagnosticType: DiagnosticSignatureTypeHangs,
+					Signature:      "main",
+					Weight:         0.75,
+					Insight: &DiagnosticInsight{
+						Direction: DiagnosticInsightDirectionUp,
+					},
+				},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(resp)
+	})
+
+	if !strings.Contains(output, "Signature") {
+		t.Fatalf("expected signature header in output, got: %s", output)
+	}
+	if !strings.Contains(output, "HANGS") {
+		t.Fatalf("expected diagnostic type in output, got: %s", output)
+	}
+}
+
+func TestPrintMarkdown_DiagnosticLogs(t *testing.T) {
+	resp := &DiagnosticLogsResponse{
+		Data: json.RawMessage(`{"version":"1","productData":[{"diagnosticLogs":[{},{}],"diagnosticInsights":[{}]},{"diagnosticLogs":[{}]}]}`),
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintMarkdown(resp)
+	})
+
+	if !strings.Contains(output, "| Version | Products | Logs | Insights |") {
+		t.Fatalf("expected markdown header in output, got: %s", output)
+	}
+	if !strings.Contains(output, "| 1 | 2 | 3 | 1 |") {
+		t.Fatalf("expected summary values in output, got: %s", output)
+	}
+}
+
+func TestPrintTable_PerformanceDownloadResult(t *testing.T) {
+	result := &PerformanceDownloadResult{
+		DownloadType: "metrics",
+		AppID:        "app-1",
+		FilePath:     "metrics.json",
+		FileSize:     1024,
+		Decompressed: false,
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(result)
+	})
+
+	if !strings.Contains(output, "Compressed File") {
+		t.Fatalf("expected compressed file header in output, got: %s", output)
+	}
+	if !strings.Contains(output, "metrics.json") {
+		t.Fatalf("expected file path in output, got: %s", output)
 	}
 }

@@ -206,6 +206,22 @@ type territoriesQuery struct {
 	fields []string
 }
 
+type perfPowerMetricsQuery struct {
+	platforms   []string
+	metricTypes []string
+	deviceTypes []string
+}
+
+type diagnosticSignaturesQuery struct {
+	listQuery
+	diagnosticTypes []string
+	fields          []string
+}
+
+type diagnosticLogsQuery struct {
+	listQuery
+}
+
 type territoryAvailabilitiesQuery struct {
 	listQuery
 }
@@ -675,6 +691,28 @@ func buildAppInfoLocalizationsQuery(query *appInfoLocalizationsQuery) string {
 func buildTerritoriesQuery(query *territoriesQuery) string {
 	values := url.Values{}
 	addCSV(values, "fields[territories]", query.fields)
+	addLimit(values, query.limit)
+	return values.Encode()
+}
+
+func buildPerfPowerMetricsQuery(query *perfPowerMetricsQuery) string {
+	values := url.Values{}
+	addCSV(values, "filter[platform]", query.platforms)
+	addCSV(values, "filter[metricType]", query.metricTypes)
+	addCSV(values, "filter[deviceType]", query.deviceTypes)
+	return values.Encode()
+}
+
+func buildDiagnosticSignaturesQuery(query *diagnosticSignaturesQuery) string {
+	values := url.Values{}
+	addCSV(values, "filter[diagnosticType]", query.diagnosticTypes)
+	addCSV(values, "fields[diagnosticSignatures]", query.fields)
+	addLimit(values, query.limit)
+	return values.Encode()
+}
+
+func buildDiagnosticLogsQuery(query *diagnosticLogsQuery) string {
+	values := url.Values{}
 	addLimit(values, query.limit)
 	return values.Encode()
 }

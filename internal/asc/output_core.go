@@ -1,7 +1,9 @@
 package asc
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -13,9 +15,31 @@ func PrintJSON(data interface{}) error {
 
 // PrintPrettyJSON prints data as indented JSON (best for debugging).
 func PrintPrettyJSON(data interface{}) error {
+	switch v := data.(type) {
+	case *PerfPowerMetricsResponse:
+		return printPrettyRawJSON(v.Data)
+	case *DiagnosticLogsResponse:
+		return printPrettyRawJSON(v.Data)
+	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(data)
+}
+
+func printPrettyRawJSON(data json.RawMessage) error {
+	if len(data) == 0 {
+		_, err := os.Stdout.Write([]byte("null\n"))
+		return err
+	}
+
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, data, "", "  "); err != nil {
+		return fmt.Errorf("pretty-print json: %w", err)
+	}
+	buf.WriteByte('\n')
+	_, err := os.Stdout.Write(buf.Bytes())
+	return err
 }
 
 // PrintMarkdown prints data as Markdown table
@@ -381,6 +405,14 @@ func PrintMarkdown(data interface{}) error {
 		return printNominationDeleteResultMarkdown(v)
 	case *AppEncryptionDeclarationBuildsUpdateResult:
 		return printAppEncryptionDeclarationBuildsUpdateResultMarkdown(v)
+	case *PerfPowerMetricsResponse:
+		return printPerfPowerMetricsMarkdown(v)
+	case *DiagnosticSignaturesResponse:
+		return printDiagnosticSignaturesMarkdown(v)
+	case *DiagnosticLogsResponse:
+		return printDiagnosticLogsMarkdown(v)
+	case *PerformanceDownloadResult:
+		return printPerformanceDownloadResultMarkdown(v)
 	default:
 		return PrintJSON(data)
 	}
@@ -749,6 +781,14 @@ func PrintTable(data interface{}) error {
 		return printNominationDeleteResultTable(v)
 	case *AppEncryptionDeclarationBuildsUpdateResult:
 		return printAppEncryptionDeclarationBuildsUpdateResultTable(v)
+	case *PerfPowerMetricsResponse:
+		return printPerfPowerMetricsTable(v)
+	case *DiagnosticSignaturesResponse:
+		return printDiagnosticSignaturesTable(v)
+	case *DiagnosticLogsResponse:
+		return printDiagnosticLogsTable(v)
+	case *PerformanceDownloadResult:
+		return printPerformanceDownloadResultTable(v)
 	default:
 		return PrintJSON(data)
 	}

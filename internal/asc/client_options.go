@@ -107,6 +107,15 @@ type AppInfoLocalizationsOption func(*appInfoLocalizationsQuery)
 // TerritoriesOption is a functional option for GetTerritories.
 type TerritoriesOption func(*territoriesQuery)
 
+// PerfPowerMetricsOption is a functional option for performance/power metrics.
+type PerfPowerMetricsOption func(*perfPowerMetricsQuery)
+
+// DiagnosticSignaturesOption is a functional option for diagnostic signatures.
+type DiagnosticSignaturesOption func(*diagnosticSignaturesQuery)
+
+// DiagnosticLogsOption is a functional option for diagnostic logs.
+type DiagnosticLogsOption func(*diagnosticLogsQuery)
+
 // TerritoryAvailabilitiesOption is a functional option for GetTerritoryAvailabilities.
 type TerritoryAvailabilitiesOption func(*territoryAvailabilitiesQuery)
 
@@ -1481,6 +1490,68 @@ func WithTerritoriesNextURL(next string) TerritoriesOption {
 func WithTerritoriesFields(fields []string) TerritoriesOption {
 	return func(q *territoriesQuery) {
 		q.fields = normalizeList(fields)
+	}
+}
+
+// WithPerfPowerMetricsPlatforms filters metrics by platform(s).
+func WithPerfPowerMetricsPlatforms(platforms []string) PerfPowerMetricsOption {
+	return func(q *perfPowerMetricsQuery) {
+		q.platforms = normalizeUpperList(platforms)
+	}
+}
+
+// WithPerfPowerMetricsMetricTypes filters metrics by metric type(s).
+func WithPerfPowerMetricsMetricTypes(types []string) PerfPowerMetricsOption {
+	return func(q *perfPowerMetricsQuery) {
+		q.metricTypes = normalizeUpperList(types)
+	}
+}
+
+// WithPerfPowerMetricsDeviceTypes filters metrics by device type(s).
+func WithPerfPowerMetricsDeviceTypes(types []string) PerfPowerMetricsOption {
+	return func(q *perfPowerMetricsQuery) {
+		q.deviceTypes = normalizeList(types)
+	}
+}
+
+// WithDiagnosticSignaturesLimit sets the max number of diagnostic signatures to return.
+func WithDiagnosticSignaturesLimit(limit int) DiagnosticSignaturesOption {
+	return func(q *diagnosticSignaturesQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithDiagnosticSignaturesNextURL uses a next page URL directly.
+func WithDiagnosticSignaturesNextURL(next string) DiagnosticSignaturesOption {
+	return func(q *diagnosticSignaturesQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
+// WithDiagnosticSignaturesDiagnosticTypes filters diagnostic signatures by type.
+func WithDiagnosticSignaturesDiagnosticTypes(types []string) DiagnosticSignaturesOption {
+	return func(q *diagnosticSignaturesQuery) {
+		q.diagnosticTypes = normalizeUpperList(types)
+	}
+}
+
+// WithDiagnosticSignaturesFields sets fields[diagnosticSignatures] for diagnostic signatures.
+func WithDiagnosticSignaturesFields(fields []string) DiagnosticSignaturesOption {
+	return func(q *diagnosticSignaturesQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
+// WithDiagnosticLogsLimit sets the max number of diagnostic logs to return.
+func WithDiagnosticLogsLimit(limit int) DiagnosticLogsOption {
+	return func(q *diagnosticLogsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
 	}
 }
 

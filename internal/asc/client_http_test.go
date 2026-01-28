@@ -6326,3 +6326,90 @@ func TestUpdateAppStoreReviewDetail(t *testing.T) {
 		t.Fatalf("UpdateAppStoreReviewDetail() error: %v", err)
 	}
 }
+
+func TestGetPerfPowerMetricsForApp(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"version":"1","productData":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		assertAuthorized(t, req)
+		if req.URL.Path != "/v1/apps/app-1/perfPowerMetrics" {
+			t.Fatalf("expected path /v1/apps/app-1/perfPowerMetrics, got %s", req.URL.Path)
+		}
+		if req.Header.Get("Accept") != perfPowerMetricsAcceptHeader {
+			t.Fatalf("expected Accept %q, got %q", perfPowerMetricsAcceptHeader, req.Header.Get("Accept"))
+		}
+		query := req.URL.Query()
+		if query.Get("filter[platform]") != "IOS" {
+			t.Fatalf("expected platform filter IOS, got %q", query.Get("filter[platform]"))
+		}
+		if query.Get("filter[metricType]") != "DISK,HANG" {
+			t.Fatalf("expected metricType filter, got %q", query.Get("filter[metricType]"))
+		}
+		if query.Get("filter[deviceType]") != "iPhone15,2" {
+			t.Fatalf("expected deviceType filter, got %q", query.Get("filter[deviceType]"))
+		}
+	}, response)
+
+	_, err := client.GetPerfPowerMetricsForApp(
+		context.Background(),
+		"app-1",
+		WithPerfPowerMetricsPlatforms([]string{"IOS"}),
+		WithPerfPowerMetricsMetricTypes([]string{"DISK", "HANG"}),
+		WithPerfPowerMetricsDeviceTypes([]string{"iPhone15,2"}),
+	)
+	if err != nil {
+		t.Fatalf("GetPerfPowerMetricsForApp() error: %v", err)
+	}
+}
+
+func TestGetDiagnosticSignaturesForBuild(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"diagnosticSignatures","id":"diag-1"}],"links":{"self":"https://example.com"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		assertAuthorized(t, req)
+		if req.URL.Path != "/v1/builds/build-1/diagnosticSignatures" {
+			t.Fatalf("expected path /v1/builds/build-1/diagnosticSignatures, got %s", req.URL.Path)
+		}
+		query := req.URL.Query()
+		if query.Get("filter[diagnosticType]") != "HANGS" {
+			t.Fatalf("expected diagnosticType filter HANGS, got %q", query.Get("filter[diagnosticType]"))
+		}
+		if query.Get("fields[diagnosticSignatures]") != "diagnosticType,signature" {
+			t.Fatalf("expected fields filter, got %q", query.Get("fields[diagnosticSignatures]"))
+		}
+		if query.Get("limit") != "50" {
+			t.Fatalf("expected limit 50, got %q", query.Get("limit"))
+		}
+	}, response)
+
+	_, err := client.GetDiagnosticSignaturesForBuild(
+		context.Background(),
+		"build-1",
+		WithDiagnosticSignaturesDiagnosticTypes([]string{"HANGS"}),
+		WithDiagnosticSignaturesFields([]string{"diagnosticType", "signature"}),
+		WithDiagnosticSignaturesLimit(50),
+	)
+	if err != nil {
+		t.Fatalf("GetDiagnosticSignaturesForBuild() error: %v", err)
+	}
+}
+
+func TestGetDiagnosticSignatureLogs(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"version":"1","productData":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		assertAuthorized(t, req)
+		if req.URL.Path != "/v1/diagnosticSignatures/diag-1/logs" {
+			t.Fatalf("expected path /v1/diagnosticSignatures/diag-1/logs, got %s", req.URL.Path)
+		}
+		if req.Header.Get("Accept") != diagnosticLogsAcceptHeader {
+			t.Fatalf("expected Accept %q, got %q", diagnosticLogsAcceptHeader, req.Header.Get("Accept"))
+		}
+		query := req.URL.Query()
+		if query.Get("limit") != "20" {
+			t.Fatalf("expected limit 20, got %q", query.Get("limit"))
+		}
+	}, response)
+
+	_, err := client.GetDiagnosticSignatureLogs(context.Background(), "diag-1", WithDiagnosticLogsLimit(20))
+	if err != nil {
+		t.Fatalf("GetDiagnosticSignatureLogs() error: %v", err)
+	}
+}

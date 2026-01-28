@@ -57,6 +57,7 @@ const (
 	ResourceTypeAppInfos                             ResourceType = "appInfos"
 	ResourceTypeAgeRatingDeclarations                ResourceType = "ageRatingDeclarations"
 	ResourceTypeAccessibilityDeclarations            ResourceType = "accessibilityDeclarations"
+	ResourceTypeDiagnosticSignatures                 ResourceType = "diagnosticSignatures"
 	ResourceTypeAnalyticsReportRequests              ResourceType = "analyticsReportRequests"
 	ResourceTypeAnalyticsReports                     ResourceType = "analyticsReports"
 	ResourceTypeAnalyticsReportInstances             ResourceType = "analyticsReportInstances"

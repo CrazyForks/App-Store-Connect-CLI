@@ -955,6 +955,59 @@ func TestBuildSubscriptionOfferCodeOneTimeUseCodesQuery(t *testing.T) {
 	}
 }
 
+func TestBuildPerfPowerMetricsQuery(t *testing.T) {
+	query := &perfPowerMetricsQuery{
+		platforms:   []string{"IOS"},
+		metricTypes: []string{"DISK", "HANG"},
+		deviceTypes: []string{"iPhone15,2"},
+	}
+	values, err := url.ParseQuery(buildPerfPowerMetricsQuery(query))
+	if err != nil {
+		t.Fatalf("ParseQuery() error: %v", err)
+	}
+	if values.Get("filter[platform]") != "IOS" {
+		t.Fatalf("expected platform filter, got %q", values.Get("filter[platform]"))
+	}
+	if values.Get("filter[metricType]") != "DISK,HANG" {
+		t.Fatalf("expected metricType filter, got %q", values.Get("filter[metricType]"))
+	}
+	if values.Get("filter[deviceType]") != "iPhone15,2" {
+		t.Fatalf("expected deviceType filter, got %q", values.Get("filter[deviceType]"))
+	}
+}
+
+func TestBuildDiagnosticSignaturesQuery(t *testing.T) {
+	query := &diagnosticSignaturesQuery{
+		listQuery:       listQuery{limit: 25},
+		diagnosticTypes: []string{"HANGS"},
+		fields:          []string{"diagnosticType", "signature"},
+	}
+	values, err := url.ParseQuery(buildDiagnosticSignaturesQuery(query))
+	if err != nil {
+		t.Fatalf("ParseQuery() error: %v", err)
+	}
+	if values.Get("filter[diagnosticType]") != "HANGS" {
+		t.Fatalf("expected diagnosticType filter, got %q", values.Get("filter[diagnosticType]"))
+	}
+	if values.Get("fields[diagnosticSignatures]") != "diagnosticType,signature" {
+		t.Fatalf("expected fields, got %q", values.Get("fields[diagnosticSignatures]"))
+	}
+	if values.Get("limit") != "25" {
+		t.Fatalf("expected limit=25, got %q", values.Get("limit"))
+	}
+}
+
+func TestBuildDiagnosticLogsQuery(t *testing.T) {
+	query := &diagnosticLogsQuery{listQuery: listQuery{limit: 50}}
+	values, err := url.ParseQuery(buildDiagnosticLogsQuery(query))
+	if err != nil {
+		t.Fatalf("ParseQuery() error: %v", err)
+	}
+	if values.Get("limit") != "50" {
+		t.Fatalf("expected limit=50, got %q", values.Get("limit"))
+	}
+}
+
 func TestBuildUploadCreateRequest_JSON(t *testing.T) {
 	req := BuildUploadCreateRequest{
 		Data: BuildUploadCreateData{
