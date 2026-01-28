@@ -146,9 +146,6 @@ func formatOptionalInt(value *int) string {
 }
 
 func formatInt(value int) string {
-	if value == 0 {
-		return ""
-	}
 	return strconv.Itoa(value)
 }
 
