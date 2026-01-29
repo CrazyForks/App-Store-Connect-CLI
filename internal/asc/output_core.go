@@ -79,6 +79,8 @@ func PrintMarkdown(data interface{}) error {
 		return printAlternativeDistributionKeysMarkdown(v)
 	case *AlternativeDistributionKeyResponse:
 		return printAlternativeDistributionKeysMarkdown(&AlternativeDistributionKeysResponse{Data: []Resource[AlternativeDistributionKeyAttributes]{v.Data}})
+	case *AlternativeDistributionPackageResponse:
+		return printAlternativeDistributionPackageMarkdown(v)
 	case *AlternativeDistributionPackageVersionsResponse:
 		return printAlternativeDistributionPackageVersionsMarkdown(v)
 	case *AlternativeDistributionPackageVersionResponse:
@@ -601,6 +603,8 @@ func PrintTable(data interface{}) error {
 		return printAlternativeDistributionKeysTable(v)
 	case *AlternativeDistributionKeyResponse:
 		return printAlternativeDistributionKeysTable(&AlternativeDistributionKeysResponse{Data: []Resource[AlternativeDistributionKeyAttributes]{v.Data}})
+	case *AlternativeDistributionPackageResponse:
+		return printAlternativeDistributionPackageTable(v)
 	case *AlternativeDistributionPackageVersionsResponse:
 		return printAlternativeDistributionPackageVersionsTable(v)
 	case *AlternativeDistributionPackageVersionResponse:

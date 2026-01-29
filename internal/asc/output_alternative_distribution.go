@@ -3,6 +3,7 @@ package asc
 import (
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 )
 
@@ -148,6 +149,50 @@ func printAlternativeDistributionPackageDeltasMarkdown(resp *AlternativeDistribu
 		)
 	}
 	return nil
+}
+
+func printAlternativeDistributionPackageTable(resp *AlternativeDistributionPackageResponse) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tSource File Checksum")
+	fmt.Fprintf(w, "%s\t%s\n",
+		resp.Data.ID,
+		compactWhitespace(formatAlternativeDistributionChecksums(resp.Data.Attributes.SourceFileChecksum)),
+	)
+	return w.Flush()
+}
+
+func printAlternativeDistributionPackageMarkdown(resp *AlternativeDistributionPackageResponse) error {
+	fmt.Fprintln(os.Stdout, "| ID | Source File Checksum |")
+	fmt.Fprintln(os.Stdout, "| --- | --- |")
+	fmt.Fprintf(os.Stdout, "| %s | %s |\n",
+		escapeMarkdown(resp.Data.ID),
+		escapeMarkdown(formatAlternativeDistributionChecksums(resp.Data.Attributes.SourceFileChecksum)),
+	)
+	return nil
+}
+
+func formatAlternativeDistributionChecksums(checksums *Checksums) string {
+	if checksums == nil {
+		return ""
+	}
+	parts := []string{}
+	if checksums.File != nil {
+		parts = append(parts, formatAlternativeDistributionChecksum("file", checksums.File))
+	}
+	if checksums.Composite != nil {
+		parts = append(parts, formatAlternativeDistributionChecksum("composite", checksums.Composite))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatAlternativeDistributionChecksum(label string, checksum *Checksum) string {
+	if checksum == nil {
+		return ""
+	}
+	if checksum.Algorithm != "" {
+		return fmt.Sprintf("%s:%s (%s)", label, checksum.Hash, checksum.Algorithm)
+	}
+	return fmt.Sprintf("%s:%s", label, checksum.Hash)
 }
 
 func printAlternativeDistributionDomainDeleteResultTable(result *AlternativeDistributionDomainDeleteResult) error {

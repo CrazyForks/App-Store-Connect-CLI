@@ -105,6 +105,68 @@ func TestPrintMarkdown_AlternativeDistributionKeys(t *testing.T) {
 	}
 }
 
+func TestPrintTable_AlternativeDistributionPackage(t *testing.T) {
+	resp := &AlternativeDistributionPackageResponse{
+		Data: Resource[AlternativeDistributionPackageAttributes]{
+			ID: "package-1",
+			Attributes: AlternativeDistributionPackageAttributes{
+				SourceFileChecksum: &Checksums{
+					File: &Checksum{
+						Hash:      "file-hash",
+						Algorithm: ChecksumAlgorithmSHA256,
+					},
+					Composite: &Checksum{
+						Hash:      "composite-hash",
+						Algorithm: ChecksumAlgorithmMD5,
+					},
+				},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(resp)
+	})
+
+	if !strings.Contains(output, "ID") || !strings.Contains(output, "Source File Checksum") {
+		t.Fatalf("expected package headers, got: %s", output)
+	}
+	if !strings.Contains(output, "package-1") || !strings.Contains(output, "file-hash") || !strings.Contains(output, "composite-hash") {
+		t.Fatalf("expected package values, got: %s", output)
+	}
+}
+
+func TestPrintMarkdown_AlternativeDistributionPackage(t *testing.T) {
+	resp := &AlternativeDistributionPackageResponse{
+		Data: Resource[AlternativeDistributionPackageAttributes]{
+			ID: "package-1",
+			Attributes: AlternativeDistributionPackageAttributes{
+				SourceFileChecksum: &Checksums{
+					File: &Checksum{
+						Hash:      "file-hash",
+						Algorithm: ChecksumAlgorithmSHA256,
+					},
+					Composite: &Checksum{
+						Hash:      "composite-hash",
+						Algorithm: ChecksumAlgorithmMD5,
+					},
+				},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintMarkdown(resp)
+	})
+
+	if !strings.Contains(output, "| ID | Source File Checksum |") {
+		t.Fatalf("expected package header, got: %s", output)
+	}
+	if !strings.Contains(output, "package-1") || !strings.Contains(output, "file-hash") || !strings.Contains(output, "composite-hash") {
+		t.Fatalf("expected package values, got: %s", output)
+	}
+}
+
 func TestPrintTable_AlternativeDistributionPackageVariants(t *testing.T) {
 	resp := &AlternativeDistributionPackageVariantsResponse{
 		Data: []Resource[AlternativeDistributionPackageVariantAttributes]{
