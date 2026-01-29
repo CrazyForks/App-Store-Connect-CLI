@@ -317,6 +317,72 @@ func PrintMarkdown(data interface{}) error {
 		return printBuildBetaGroupsUpdateMarkdown(v)
 	case *InAppPurchaseDeleteResult:
 		return printInAppPurchaseDeleteResultMarkdown(v)
+	case *GameCenterAchievementsResponse:
+		return printGameCenterAchievementsMarkdown(v)
+	case *GameCenterAchievementResponse:
+		return printGameCenterAchievementsMarkdown(&GameCenterAchievementsResponse{Data: []Resource[GameCenterAchievementAttributes]{v.Data}})
+	case *GameCenterAchievementDeleteResult:
+		return printGameCenterAchievementDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardsResponse:
+		return printGameCenterLeaderboardsMarkdown(v)
+	case *GameCenterLeaderboardResponse:
+		return printGameCenterLeaderboardsMarkdown(&GameCenterLeaderboardsResponse{Data: []Resource[GameCenterLeaderboardAttributes]{v.Data}})
+	case *GameCenterLeaderboardDeleteResult:
+		return printGameCenterLeaderboardDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardSetsResponse:
+		return printGameCenterLeaderboardSetsMarkdown(v)
+	case *GameCenterLeaderboardSetResponse:
+		return printGameCenterLeaderboardSetsMarkdown(&GameCenterLeaderboardSetsResponse{Data: []Resource[GameCenterLeaderboardSetAttributes]{v.Data}})
+	case *GameCenterLeaderboardSetDeleteResult:
+		return printGameCenterLeaderboardSetDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardLocalizationsResponse:
+		return printGameCenterLeaderboardLocalizationsMarkdown(v)
+	case *GameCenterLeaderboardLocalizationResponse:
+		return printGameCenterLeaderboardLocalizationsMarkdown(&GameCenterLeaderboardLocalizationsResponse{Data: []Resource[GameCenterLeaderboardLocalizationAttributes]{v.Data}})
+	case *GameCenterLeaderboardLocalizationDeleteResult:
+		return printGameCenterLeaderboardLocalizationDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardReleasesResponse:
+		return printGameCenterLeaderboardReleasesMarkdown(v)
+	case *GameCenterLeaderboardReleaseResponse:
+		return printGameCenterLeaderboardReleasesMarkdown(&GameCenterLeaderboardReleasesResponse{Data: []Resource[GameCenterLeaderboardReleaseAttributes]{v.Data}})
+	case *GameCenterLeaderboardReleaseDeleteResult:
+		return printGameCenterLeaderboardReleaseDeleteResultMarkdown(v)
+	case *GameCenterAchievementReleasesResponse:
+		return printGameCenterAchievementReleasesMarkdown(v)
+	case *GameCenterAchievementReleaseResponse:
+		return printGameCenterAchievementReleasesMarkdown(&GameCenterAchievementReleasesResponse{Data: []Resource[GameCenterAchievementReleaseAttributes]{v.Data}})
+	case *GameCenterAchievementReleaseDeleteResult:
+		return printGameCenterAchievementReleaseDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardSetReleasesResponse:
+		return printGameCenterLeaderboardSetReleasesMarkdown(v)
+	case *GameCenterLeaderboardSetReleaseResponse:
+		return printGameCenterLeaderboardSetReleasesMarkdown(&GameCenterLeaderboardSetReleasesResponse{Data: []Resource[GameCenterLeaderboardSetReleaseAttributes]{v.Data}})
+	case *GameCenterLeaderboardSetReleaseDeleteResult:
+		return printGameCenterLeaderboardSetReleaseDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardSetLocalizationsResponse:
+		return printGameCenterLeaderboardSetLocalizationsMarkdown(v)
+	case *GameCenterLeaderboardSetLocalizationResponse:
+		return printGameCenterLeaderboardSetLocalizationsMarkdown(&GameCenterLeaderboardSetLocalizationsResponse{Data: []Resource[GameCenterLeaderboardSetLocalizationAttributes]{v.Data}})
+	case *GameCenterLeaderboardSetLocalizationDeleteResult:
+		return printGameCenterLeaderboardSetLocalizationDeleteResultMarkdown(v)
+	case *GameCenterAchievementLocalizationsResponse:
+		return printGameCenterAchievementLocalizationsMarkdown(v)
+	case *GameCenterAchievementLocalizationResponse:
+		return printGameCenterAchievementLocalizationsMarkdown(&GameCenterAchievementLocalizationsResponse{Data: []Resource[GameCenterAchievementLocalizationAttributes]{v.Data}})
+	case *GameCenterAchievementLocalizationDeleteResult:
+		return printGameCenterAchievementLocalizationDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardImageUploadResult:
+		return printGameCenterLeaderboardImageUploadResultMarkdown(v)
+	case *GameCenterLeaderboardImageDeleteResult:
+		return printGameCenterLeaderboardImageDeleteResultMarkdown(v)
+	case *GameCenterAchievementImageUploadResult:
+		return printGameCenterAchievementImageUploadResultMarkdown(v)
+	case *GameCenterAchievementImageDeleteResult:
+		return printGameCenterAchievementImageDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardSetImageUploadResult:
+		return printGameCenterLeaderboardSetImageUploadResultMarkdown(v)
+	case *GameCenterLeaderboardSetImageDeleteResult:
+		return printGameCenterLeaderboardSetImageDeleteResultMarkdown(v)
 	case *SubscriptionGroupDeleteResult:
 		return printSubscriptionGroupDeleteResultMarkdown(v)
 	case *SubscriptionDeleteResult:
@@ -331,8 +397,6 @@ func PrintMarkdown(data interface{}) error {
 		return printBetaBuildLocalizationDeleteResultMarkdown(v)
 	case *BetaTesterInvitationResult:
 		return printBetaTesterInvitationResultMarkdown(v)
-	case *SandboxTesterDeleteResult:
-		return printSandboxTesterDeleteResultMarkdown(v)
 	case *SandboxTesterClearHistoryResult:
 		return printSandboxTesterClearHistoryResultMarkdown(v)
 	case *BundleIDDeleteResult:
@@ -705,6 +769,72 @@ func PrintTable(data interface{}) error {
 		return printBuildBetaGroupsUpdateTable(v)
 	case *InAppPurchaseDeleteResult:
 		return printInAppPurchaseDeleteResultTable(v)
+	case *GameCenterAchievementsResponse:
+		return printGameCenterAchievementsTable(v)
+	case *GameCenterAchievementResponse:
+		return printGameCenterAchievementsTable(&GameCenterAchievementsResponse{Data: []Resource[GameCenterAchievementAttributes]{v.Data}})
+	case *GameCenterAchievementDeleteResult:
+		return printGameCenterAchievementDeleteResultTable(v)
+	case *GameCenterLeaderboardsResponse:
+		return printGameCenterLeaderboardsTable(v)
+	case *GameCenterLeaderboardResponse:
+		return printGameCenterLeaderboardsTable(&GameCenterLeaderboardsResponse{Data: []Resource[GameCenterLeaderboardAttributes]{v.Data}})
+	case *GameCenterLeaderboardDeleteResult:
+		return printGameCenterLeaderboardDeleteResultTable(v)
+	case *GameCenterLeaderboardSetsResponse:
+		return printGameCenterLeaderboardSetsTable(v)
+	case *GameCenterLeaderboardSetResponse:
+		return printGameCenterLeaderboardSetsTable(&GameCenterLeaderboardSetsResponse{Data: []Resource[GameCenterLeaderboardSetAttributes]{v.Data}})
+	case *GameCenterLeaderboardSetDeleteResult:
+		return printGameCenterLeaderboardSetDeleteResultTable(v)
+	case *GameCenterLeaderboardLocalizationsResponse:
+		return printGameCenterLeaderboardLocalizationsTable(v)
+	case *GameCenterLeaderboardLocalizationResponse:
+		return printGameCenterLeaderboardLocalizationsTable(&GameCenterLeaderboardLocalizationsResponse{Data: []Resource[GameCenterLeaderboardLocalizationAttributes]{v.Data}})
+	case *GameCenterLeaderboardLocalizationDeleteResult:
+		return printGameCenterLeaderboardLocalizationDeleteResultTable(v)
+	case *GameCenterLeaderboardReleasesResponse:
+		return printGameCenterLeaderboardReleasesTable(v)
+	case *GameCenterLeaderboardReleaseResponse:
+		return printGameCenterLeaderboardReleasesTable(&GameCenterLeaderboardReleasesResponse{Data: []Resource[GameCenterLeaderboardReleaseAttributes]{v.Data}})
+	case *GameCenterLeaderboardReleaseDeleteResult:
+		return printGameCenterLeaderboardReleaseDeleteResultTable(v)
+	case *GameCenterLeaderboardSetReleasesResponse:
+		return printGameCenterLeaderboardSetReleasesTable(v)
+	case *GameCenterLeaderboardSetReleaseResponse:
+		return printGameCenterLeaderboardSetReleasesTable(&GameCenterLeaderboardSetReleasesResponse{Data: []Resource[GameCenterLeaderboardSetReleaseAttributes]{v.Data}})
+	case *GameCenterLeaderboardSetReleaseDeleteResult:
+		return printGameCenterLeaderboardSetReleaseDeleteResultTable(v)
+	case *GameCenterLeaderboardSetLocalizationsResponse:
+		return printGameCenterLeaderboardSetLocalizationsTable(v)
+	case *GameCenterLeaderboardSetLocalizationResponse:
+		return printGameCenterLeaderboardSetLocalizationsTable(&GameCenterLeaderboardSetLocalizationsResponse{Data: []Resource[GameCenterLeaderboardSetLocalizationAttributes]{v.Data}})
+	case *GameCenterLeaderboardSetLocalizationDeleteResult:
+		return printGameCenterLeaderboardSetLocalizationDeleteResultTable(v)
+	case *GameCenterAchievementReleasesResponse:
+		return printGameCenterAchievementReleasesTable(v)
+	case *GameCenterAchievementReleaseResponse:
+		return printGameCenterAchievementReleasesTable(&GameCenterAchievementReleasesResponse{Data: []Resource[GameCenterAchievementReleaseAttributes]{v.Data}})
+	case *GameCenterAchievementReleaseDeleteResult:
+		return printGameCenterAchievementReleaseDeleteResultTable(v)
+	case *GameCenterAchievementLocalizationsResponse:
+		return printGameCenterAchievementLocalizationsTable(v)
+	case *GameCenterAchievementLocalizationResponse:
+		return printGameCenterAchievementLocalizationsTable(&GameCenterAchievementLocalizationsResponse{Data: []Resource[GameCenterAchievementLocalizationAttributes]{v.Data}})
+	case *GameCenterAchievementLocalizationDeleteResult:
+		return printGameCenterAchievementLocalizationDeleteResultTable(v)
+	case *GameCenterLeaderboardImageUploadResult:
+		return printGameCenterLeaderboardImageUploadResultTable(v)
+	case *GameCenterLeaderboardImageDeleteResult:
+		return printGameCenterLeaderboardImageDeleteResultTable(v)
+	case *GameCenterAchievementImageUploadResult:
+		return printGameCenterAchievementImageUploadResultTable(v)
+	case *GameCenterAchievementImageDeleteResult:
+		return printGameCenterAchievementImageDeleteResultTable(v)
+	case *GameCenterLeaderboardSetImageUploadResult:
+		return printGameCenterLeaderboardSetImageUploadResultTable(v)
+	case *GameCenterLeaderboardSetImageDeleteResult:
+		return printGameCenterLeaderboardSetImageDeleteResultTable(v)
 	case *SubscriptionGroupDeleteResult:
 		return printSubscriptionGroupDeleteResultTable(v)
 	case *SubscriptionDeleteResult:
@@ -719,8 +849,6 @@ func PrintTable(data interface{}) error {
 		return printBetaBuildLocalizationDeleteResultTable(v)
 	case *BetaTesterInvitationResult:
 		return printBetaTesterInvitationResultTable(v)
-	case *SandboxTesterDeleteResult:
-		return printSandboxTesterDeleteResultTable(v)
 	case *SandboxTesterClearHistoryResult:
 		return printSandboxTesterClearHistoryResultTable(v)
 	case *BundleIDDeleteResult:

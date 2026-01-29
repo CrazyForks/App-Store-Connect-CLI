@@ -23,12 +23,20 @@ make test       # Run all tests
 git diff        # Review changes before staging
 ```
 
+## CLI Structure
+
+- Command implementations live in `internal/cli/<domain>` packages
+- Each domain exposes a top-level `XCommand() *ffcli.Command`
+- `cmd/` only contains the root entry point; do not add wrapper files
+- Register top-level commands in `internal/cli/registry/registry.go` (order matters)
+- Shared CLI helpers go in `internal/cli/shared` (use `shared_wrappers.go` as needed)
+
 ## Adding a New Command
 
-1. Create a command factory function (e.g., `MyCommand() *ffcli.Command`)
-2. Follow the ffcli pattern from existing commands
-3. Add to `RootCommand` subcommands list in `cmd/commands.go`
-4. Write tests for validation and execution
+1. Add or extend a domain package in `internal/cli/<domain>`
+2. Implement a command factory (e.g., `XCommand() *ffcli.Command`)
+3. Register it in `internal/cli/registry/registry.go`
+4. Write tests in the domain package (or `internal/cli/cmdtest` for root-level tests)
 5. Update README.md with usage examples
 
 ## Adding a New API Endpoint
@@ -36,7 +44,7 @@ git diff        # Review changes before staging
 1. Add method to `internal/asc/client.go`
 2. Add types for request/response structs
 3. Add helper functions for table/markdown output
-4. Create command in `cmd/` to expose the endpoint
+4. Create command in `internal/cli/<domain>` to expose the endpoint
 5. Write HTTP client tests with mocked responses
 
 ## Releases

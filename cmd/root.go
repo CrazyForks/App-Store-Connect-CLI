@@ -7,85 +7,25 @@ import (
 	"os"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
-)
 
-// VersionCommand returns a version subcommand
-func VersionCommand(version string) *ffcli.Command {
-	return &ffcli.Command{
-		Name:       "version",
-		ShortUsage: "asc version",
-		ShortHelp:  "Print version information and exit.",
-		UsageFunc:  DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			fmt.Println(version)
-			return nil
-		},
-	}
-}
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/registry"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+)
 
 // RootCommand returns the root command
 func RootCommand(version string) *ffcli.Command {
 	root := &ffcli.Command{
-		Name:       "asc",
-		ShortUsage: "asc <subcommand> [flags]",
-		ShortHelp:  "A fast, AI-agent friendly CLI for App Store Connect.",
-		LongHelp:   "ASC is a lightweight CLI for App Store Connect. Built for developers and AI agents.",
-		FlagSet:    flag.NewFlagSet("asc", flag.ExitOnError),
-		UsageFunc:  DefaultUsageFunc,
-		Subcommands: []*ffcli.Command{
-			AuthCommand(),
-			FeedbackCommand(),
-			CrashesCommand(),
-			ReviewsCommand(),
-			ReviewCommand(),
-			AnalyticsCommand(),
-			PerformanceCommand(),
-			FinanceCommand(),
-			AppsCommand(),
-			AppSetupCommand(),
-			AppTagsCommand(),
-			MarketplaceCommand(),
-			NominationsCommand(),
-			BundleIDsCommand(),
-			CertificatesCommand(),
-			ProfilesCommand(),
-			OfferCodesCommand(),
-			UsersCommand(),
-			ActorsCommand(),
-			DevicesCommand(),
-			TestFlightCommand(),
-			BuildsCommand(),
-			BuildBundlesCommand(),
-			PublishCommand(),
-			VersionsCommand(),
-			RoutingCoverageCommand(),
-			AppInfoCommand(),
-			EULACommand(),
-			PricingCommand(),
-			PreOrdersCommand(),
-			PreReleaseVersionsCommand(),
-			LocalizationsCommand(),
-			AssetsCommand(),
-			BuildLocalizationsCommand(),
-			BetaGroupsCommand(),
-			BetaTestersCommand(),
-			SandboxCommand(),
-			SigningCommand(),
-			IAPCommand(),
-			SubscriptionsCommand(),
-			SubmitCommand(),
-			XcodeCloudCommand(),
-			CategoriesCommand(),
-			AgeRatingCommand(),
-			AccessibilityCommand(),
-			EncryptionCommand(),
-			MigrateCommand(),
-			VersionCommand(version),
-		},
+		Name:        "asc",
+		ShortUsage:  "asc <subcommand> [flags]",
+		ShortHelp:   "A fast, AI-agent friendly CLI for App Store Connect.",
+		LongHelp:    "ASC is a lightweight CLI for App Store Connect. Built for developers and AI agents.",
+		FlagSet:     flag.NewFlagSet("asc", flag.ExitOnError),
+		UsageFunc:   DefaultUsageFunc,
+		Subcommands: registry.Subcommands(version),
 	}
 
 	versionFlag := root.FlagSet.Bool("version", false, "Print version and exit")
-	root.FlagSet.StringVar(&selectedProfile, "profile", "", "Use named authentication profile")
+	shared.BindRootFlags(root.FlagSet)
 
 	root.Exec = func(ctx context.Context, args []string) error {
 		if *versionFlag {

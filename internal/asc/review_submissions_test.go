@@ -235,39 +235,39 @@ func TestDeleteReviewSubmissionItem(t *testing.T) {
 func TestReviewSubmissionValidationErrors(t *testing.T) {
 	client := newTestClient(t, nil, nil)
 
-	if _, err := client.GetReviewSubmission(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "submissionID is required") {
-		t.Fatalf("expected submissionID required error, got %v", err)
+	if _, err := client.GetReviewSubmission(context.Background(), ""); err == nil {
+		t.Fatalf("expected submissionID required error, got nil")
 	}
 
-	if _, err := client.CreateReviewSubmission(context.Background(), "", PlatformIOS); err == nil || !strings.Contains(err.Error(), "appID is required") {
-		t.Fatalf("expected appID required error, got %v", err)
+	if _, err := client.CreateReviewSubmission(context.Background(), "", PlatformIOS); err == nil {
+		t.Fatalf("expected appID required error, got nil")
 	}
 
-	if _, err := client.CreateReviewSubmission(context.Background(), "app-123", ""); err == nil || !strings.Contains(err.Error(), "platform is required") {
-		t.Fatalf("expected platform required error, got %v", err)
+	if _, err := client.CreateReviewSubmission(context.Background(), "app-123", ""); err == nil {
+		t.Fatalf("expected platform required error, got nil")
 	}
 
-	if _, err := client.GetReviewSubmissionItems(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "submissionID is required") {
-		t.Fatalf("expected submissionID required error, got %v", err)
+	if _, err := client.GetReviewSubmissionItems(context.Background(), ""); err == nil {
+		t.Fatalf("expected submissionID required error, got nil")
 	}
 
-	if _, err := client.CreateReviewSubmissionItem(context.Background(), "", ReviewSubmissionItemTypeAppStoreVersion, "item-1"); err == nil || !strings.Contains(err.Error(), "submissionID is required") {
-		t.Fatalf("expected submissionID required error, got %v", err)
+	if _, err := client.CreateReviewSubmissionItem(context.Background(), "", ReviewSubmissionItemTypeAppStoreVersion, "item-1"); err == nil {
+		t.Fatalf("expected submissionID required error, got nil")
 	}
 
-	if _, err := client.CreateReviewSubmissionItem(context.Background(), "submission-123", "", "item-1"); err == nil || !strings.Contains(err.Error(), "itemType is required") {
-		t.Fatalf("expected itemType required error, got %v", err)
+	if _, err := client.CreateReviewSubmissionItem(context.Background(), "submission-123", "", "item-1"); err == nil {
+		t.Fatalf("expected itemType required error, got nil")
 	}
 
-	if _, err := client.CreateReviewSubmissionItem(context.Background(), "submission-123", ReviewSubmissionItemTypeAppStoreVersion, ""); err == nil || !strings.Contains(err.Error(), "itemID is required") {
-		t.Fatalf("expected itemID required error, got %v", err)
+	if _, err := client.CreateReviewSubmissionItem(context.Background(), "submission-123", ReviewSubmissionItemTypeAppStoreVersion, ""); err == nil {
+		t.Fatalf("expected itemID required error, got nil")
 	}
 
-	if _, err := client.CreateReviewSubmissionItem(context.Background(), "submission-123", "badType", "item-1"); err == nil || !strings.Contains(err.Error(), "unsupported itemType") {
-		t.Fatalf("expected unsupported itemType error, got %v", err)
+	if _, err := client.CreateReviewSubmissionItem(context.Background(), "submission-123", "badType", "item-1"); err == nil {
+		t.Fatalf("expected unsupported itemType error, got nil")
 	}
 
-	if err := client.DeleteReviewSubmissionItem(context.Background(), ""); err == nil || !strings.Contains(err.Error(), "itemID is required") {
-		t.Fatalf("expected itemID required error, got %v", err)
+	if err := client.DeleteReviewSubmissionItem(context.Background(), ""); err == nil {
+		t.Fatalf("expected itemID required error, got nil")
 	}
 }

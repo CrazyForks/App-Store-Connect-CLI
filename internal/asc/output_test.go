@@ -2342,25 +2342,6 @@ func TestPrintMarkdown_BetaTesterGroupsUpdateResult(t *testing.T) {
 	}
 }
 
-func TestPrintMarkdown_SandboxTesterDeleteResult(t *testing.T) {
-	result := &SandboxTesterDeleteResult{
-		ID:      "tester-1",
-		Email:   "tester@example.com",
-		Deleted: true,
-	}
-
-	output := captureStdout(t, func() error {
-		return PrintMarkdown(result)
-	})
-
-	if !strings.Contains(output, "| ID | Email | Deleted |") {
-		t.Fatalf("expected markdown header, got: %s", output)
-	}
-	if !strings.Contains(output, "tester@example.com") {
-		t.Fatalf("expected tester email in output, got: %s", output)
-	}
-}
-
 func TestPrintTable_SandboxTesterClearHistoryResult(t *testing.T) {
 	result := &SandboxTesterClearHistoryResult{
 		RequestID: "request-1",

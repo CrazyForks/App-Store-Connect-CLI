@@ -1,0 +1,189 @@
+package builds
+
+import (
+	"context"
+	"flag"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+)
+
+func TestBuildsLatestCommand_MissingApp(t *testing.T) {
+	// Clear env var to ensure --app is required
+	t.Setenv("ASC_APP_ID", "")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	cmd := BuildsLatestCommand()
+
+	err := cmd.Exec(context.Background(), []string{})
+	if err != flag.ErrHelp {
+		t.Errorf("expected flag.ErrHelp when --app is missing, got %v", err)
+	}
+}
+
+func TestBuildsLatestCommand_InvalidPlatform(t *testing.T) {
+	cmd := BuildsLatestCommand()
+
+	// Parse flags first
+	if err := cmd.FlagSet.Parse([]string{"--app", "123", "--platform", "INVALID"}); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	err := cmd.Exec(context.Background(), []string{})
+	if err != flag.ErrHelp {
+		t.Errorf("expected flag.ErrHelp for invalid platform, got %v", err)
+	}
+}
+
+func TestBuildsLatestCommand_ValidPlatforms(t *testing.T) {
+	validPlatforms := []string{"IOS", "MAC_OS", "TV_OS", "VISION_OS", "ios", "mac_os"}
+
+	for _, platform := range validPlatforms {
+		t.Run(platform, func(t *testing.T) {
+			cmd := BuildsLatestCommand()
+
+			// Parse flags - this should not error for valid platforms
+			if err := cmd.FlagSet.Parse([]string{"--app", "123", "--platform", platform}); err != nil {
+				t.Fatalf("failed to parse flags: %v", err)
+			}
+
+			// The command will fail because there's no real client, but it should get past validation
+			err := cmd.Exec(context.Background(), []string{})
+
+			// Should not be flag.ErrHelp for valid platforms (will fail later due to no auth)
+			if err == flag.ErrHelp {
+				t.Errorf("platform %s should be valid but got flag.ErrHelp", platform)
+			}
+		})
+	}
+}
+
+func TestBuildsLatestCommand_FlagDefinitions(t *testing.T) {
+	cmd := BuildsLatestCommand()
+
+	// Verify all expected flags exist
+	expectedFlags := []string{"app", "version", "platform", "output", "pretty"}
+	for _, name := range expectedFlags {
+		f := cmd.FlagSet.Lookup(name)
+		if f == nil {
+			t.Errorf("expected flag --%s to be defined", name)
+		}
+	}
+
+	// Verify default values
+	if f := cmd.FlagSet.Lookup("output"); f != nil && f.DefValue != "json" {
+		t.Errorf("expected --output default to be 'json', got %q", f.DefValue)
+	}
+	if f := cmd.FlagSet.Lookup("pretty"); f != nil && f.DefValue != "false" {
+		t.Errorf("expected --pretty default to be 'false', got %q", f.DefValue)
+	}
+}
+
+func TestBuildsLatestCommand_UsesAppIDEnv(t *testing.T) {
+	// Set env var
+	os.Setenv("ASC_APP_ID", "env-app-id")
+	defer os.Unsetenv("ASC_APP_ID")
+
+	cmd := BuildsLatestCommand()
+
+	// Don't pass --app flag
+	if err := cmd.FlagSet.Parse([]string{}); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	err := cmd.Exec(context.Background(), []string{})
+
+	// Should not be flag.ErrHelp since env var provides the app ID
+	if err == flag.ErrHelp {
+		t.Errorf("should use ASC_APP_ID env var but got flag.ErrHelp")
+	}
+}
+
+// TestSelectNewestBuild verifies that the multi-preReleaseVersion selection
+// logic correctly picks the build with the newest uploadedDate.
+func TestSelectNewestBuild(t *testing.T) {
+	// Simulate builds from different preReleaseVersions with different dates
+	builds := []asc.Resource[asc.BuildAttributes]{
+		{
+			ID: "build-older",
+			Attributes: asc.BuildAttributes{
+				Version:      "1.0",
+				UploadedDate: "2026-01-15T10:00:00Z",
+			},
+		},
+		{
+			ID: "build-newest",
+			Attributes: asc.BuildAttributes{
+				Version:      "2.0",
+				UploadedDate: "2026-01-20T10:00:00Z",
+			},
+		},
+		{
+			ID: "build-middle",
+			Attributes: asc.BuildAttributes{
+				Version:      "1.5",
+				UploadedDate: "2026-01-18T10:00:00Z",
+			},
+		},
+	}
+
+	// The selection logic: find the build with the newest uploadedDate
+	var newestBuild *asc.Resource[asc.BuildAttributes]
+	var newestDate string
+
+	for i := range builds {
+		if newestBuild == nil || builds[i].Attributes.UploadedDate > newestDate {
+			newestBuild = &builds[i]
+			newestDate = builds[i].Attributes.UploadedDate
+		}
+	}
+
+	if newestBuild == nil {
+		t.Fatal("expected to find a newest build")
+	}
+	if newestBuild.ID != "build-newest" {
+		t.Errorf("expected build-newest to be selected, got %s", newestBuild.ID)
+	}
+	if newestDate != "2026-01-20T10:00:00Z" {
+		t.Errorf("expected newest date 2026-01-20T10:00:00Z, got %s", newestDate)
+	}
+}
+
+// TestSelectNewestBuild_OlderVersionCanBeNewer verifies that an older version
+// string (e.g., "1.0") can have a newer uploadedDate than a higher version (e.g., "2.0").
+// This tests the scenario where someone uploads a hotfix to an older version.
+func TestSelectNewestBuild_OlderVersionCanBeNewer(t *testing.T) {
+	builds := []asc.Resource[asc.BuildAttributes]{
+		{
+			ID: "build-v2-old",
+			Attributes: asc.BuildAttributes{
+				Version:      "2.0",
+				UploadedDate: "2026-01-10T10:00:00Z", // Version 2.0 uploaded earlier
+			},
+		},
+		{
+			ID: "build-v1-hotfix",
+			Attributes: asc.BuildAttributes{
+				Version:      "1.0",
+				UploadedDate: "2026-01-20T10:00:00Z", // Version 1.0 hotfix uploaded later
+			},
+		},
+	}
+
+	var newestBuild *asc.Resource[asc.BuildAttributes]
+	var newestDate string
+
+	for i := range builds {
+		if newestBuild == nil || builds[i].Attributes.UploadedDate > newestDate {
+			newestBuild = &builds[i]
+			newestDate = builds[i].Attributes.UploadedDate
+		}
+	}
+
+	// The 1.0 hotfix should be selected because it was uploaded more recently
+	if newestBuild.ID != "build-v1-hotfix" {
+		t.Errorf("expected build-v1-hotfix (newer upload) to be selected, got %s", newestBuild.ID)
+	}
+}

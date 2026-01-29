@@ -32,30 +32,6 @@ type SandboxTestersResponse = Response[SandboxTesterAttributes]
 // SandboxTesterResponse is the response from sandbox tester detail/creates.
 type SandboxTesterResponse = SingleResponse[SandboxTesterAttributes]
 
-// SandboxTesterCreateAttributes describes attributes for creating a sandbox tester.
-type SandboxTesterCreateAttributes struct {
-	FirstName         string `json:"firstName"`
-	LastName          string `json:"lastName"`
-	Email             string `json:"email"`
-	Password          string `json:"password"`
-	ConfirmPassword   string `json:"confirmPassword"`
-	SecretQuestion    string `json:"secretQuestion"`
-	SecretAnswer      string `json:"secretAnswer"`
-	BirthDate         string `json:"birthDate"`
-	AppStoreTerritory string `json:"appStoreTerritory"`
-}
-
-// SandboxTesterCreateData is the data portion of a sandbox tester create request.
-type SandboxTesterCreateData struct {
-	Type       ResourceType                  `json:"type"`
-	Attributes SandboxTesterCreateAttributes `json:"attributes"`
-}
-
-// SandboxTesterCreateRequest is a request to create a sandbox tester.
-type SandboxTesterCreateRequest struct {
-	Data SandboxTesterCreateData `json:"data"`
-}
-
 // SandboxTesterSubscriptionRenewalRate represents renewal rate settings.
 type SandboxTesterSubscriptionRenewalRate string
 
@@ -278,32 +254,6 @@ func (c *Client) UpdateSandboxTester(ctx context.Context, testerID string, attri
 	return &response, nil
 }
 
-// CreateSandboxTester creates a sandbox tester.
-func (c *Client) CreateSandboxTester(ctx context.Context, attributes SandboxTesterCreateAttributes) (*SandboxTesterResponse, error) {
-	payload := SandboxTesterCreateRequest{
-		Data: SandboxTesterCreateData{
-			Type:       ResourceTypeSandboxTesters,
-			Attributes: attributes,
-		},
-	}
-	body, err := BuildRequestBody(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := c.do(ctx, "POST", "/v1/sandboxTesters", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var response SandboxTesterResponse
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse sandbox tester response: %w", err)
-	}
-
-	return &response, nil
-}
-
 // ClearSandboxTesterPurchaseHistory clears purchase history for a sandbox tester.
 func (c *Client) ClearSandboxTesterPurchaseHistory(ctx context.Context, testerID string) (*SandboxTesterClearHistoryResponse, error) {
 	payload := SandboxTesterClearHistoryRequest{
@@ -334,11 +284,4 @@ func (c *Client) ClearSandboxTesterPurchaseHistory(ctx context.Context, testerID
 	}
 
 	return &response, nil
-}
-
-// DeleteSandboxTester deletes a sandbox tester by ID.
-func (c *Client) DeleteSandboxTester(ctx context.Context, testerID string) error {
-	path := fmt.Sprintf("/v1/sandboxTesters/%s", testerID)
-	_, err := c.do(ctx, "DELETE", path, nil)
-	return err
 }

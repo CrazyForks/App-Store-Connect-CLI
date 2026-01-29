@@ -1851,6 +1851,36 @@ func TestPaginateAll_CiBuildRuns_ManyPages(t *testing.T) {
 	}
 }
 
+func TestPaginateAll_DetectsRepeatedNextURL(t *testing.T) {
+	firstPage := &AppsResponse{
+		Data: []Resource[AppAttributes]{
+			{Type: ResourceTypeApps, ID: "app-1"},
+		},
+		Links: Links{Next: "page=1"},
+	}
+
+	calls := 0
+	_, err := PaginateAll(context.Background(), firstPage, func(ctx context.Context, nextURL string) (PaginatedResponse, error) {
+		calls++
+		return &AppsResponse{
+			Data: []Resource[AppAttributes]{
+				{Type: ResourceTypeApps, ID: fmt.Sprintf("app-%d", calls+1)},
+			},
+			Links: Links{Next: "page=1"},
+		}, nil
+	})
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "repeated pagination URL") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected 1 fetch, got %d", calls)
+	}
+}
+
 func TestPaginateAll_CiArtifacts_ManyPages(t *testing.T) {
 	const totalPages = 4
 	const perPage = 3

@@ -41,6 +41,13 @@ make lint       # Lint code
 make format     # Format code
 ```
 
+## Testing Discipline
+
+- Use TDD for everything: bugs, refactors, and new features.
+- Start with a failing test that captures the expected behavior and edge cases.
+- For new features, begin with CLI-level tests (flags, output, errors) and add unit tests for core logic.
+- Verify the test fails for the right reason before implementing; keep tests green incrementally.
+
 ## Authentication
 
 API keys are generated at https://appstoreconnect.apple.com/access/integrations/api and stored in the system keychain (with local config fallback). Never commit keys to version control.
@@ -51,6 +58,7 @@ API keys are generated at https://appstoreconnect.apple.com/access/integrations/
 |----------|---------|
 | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY_PATH`, `ASC_PRIVATE_KEY`, `ASC_PRIVATE_KEY_B64` | Auth fallback |
 | `ASC_BYPASS_KEYCHAIN` | Ignore keychain and use config/env auth |
+| `ASC_STRICT_AUTH` | Fail when credentials resolve from multiple sources |
 | `ASC_APP_ID` | Default app ID |
 | `ASC_VENDOR_NUMBER` | Sales/finance reports |
 | `ASC_TIMEOUT` | Request timeout (e.g., `90s`, `2m`) |
@@ -64,6 +72,6 @@ Detailed guidance on specific topics (only read when needed):
 
 - **Go coding standards**: `docs/GO_STANDARDS.md`
 - **Testing patterns**: `docs/TESTING.md`
-- **Git workflow, adding features**: `docs/CONTRIBUTING.md`
+- **Git workflow, CLI structure, adding features**: `docs/CONTRIBUTING.md`
 - **API quirks (analytics, finance, sandbox)**: `docs/API_NOTES.md`
 - **Development setup, PRs**: `CONTRIBUTING.md` (root)

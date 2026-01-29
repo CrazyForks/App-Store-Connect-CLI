@@ -1,0 +1,339 @@
+package shared
+
+import (
+	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/config"
+)
+
+func captureOutput(t *testing.T, fn func()) (string, string) {
+	t.Helper()
+
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+
+	rOut, wOut, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stdout pipe: %v", err)
+	}
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stderr pipe: %v", err)
+	}
+
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	outC := make(chan string)
+	errC := make(chan string)
+
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rOut)
+		_ = rOut.Close()
+		outC <- buf.String()
+	}()
+
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rErr)
+		_ = rErr.Close()
+		errC <- buf.String()
+	}()
+
+	defer func() {
+		os.Stdout = oldStdout
+		os.Stderr = oldStderr
+		_ = wOut.Close()
+		_ = wErr.Close()
+	}()
+
+	fn()
+
+	_ = wOut.Close()
+	_ = wErr.Close()
+
+	stdout := <-outC
+	stderr := <-errC
+
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	return stdout, stderr
+}
+
+func TestResolvePrivateKeyPathPrefersPath(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "/tmp/AuthKey.p8")
+	t.Setenv("ASC_PRIVATE_KEY_B64", base64.StdEncoding.EncodeToString([]byte("ignored")))
+	t.Setenv("ASC_PRIVATE_KEY", "ignored")
+
+	path, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() error: %v", err)
+	}
+	if path != "/tmp/AuthKey.p8" {
+		t.Fatalf("expected path /tmp/AuthKey.p8, got %q", path)
+	}
+}
+
+func TestResolvePrivateKeyPathFromBase64(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	encoded := base64.StdEncoding.EncodeToString([]byte("key-data"))
+	t.Setenv("ASC_PRIVATE_KEY_B64", encoded)
+
+	path, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+	if string(data) != "key-data" {
+		t.Fatalf("expected key data %q, got %q", "key-data", string(data))
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error: %v", err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("expected 0600 permissions, got %v", info.Mode().Perm())
+	}
+}
+
+func TestResolvePrivateKeyPathFromRawValue(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+
+	t.Setenv("ASC_PRIVATE_KEY", "line1\\nline2")
+	path, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+	if string(data) != "line1\nline2" {
+		t.Fatalf("expected newline expansion, got %q", string(data))
+	}
+}
+
+func TestCleanupTempPrivateKeysRemovesFile(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	encoded := base64.StdEncoding.EncodeToString([]byte("key-data"))
+	t.Setenv("ASC_PRIVATE_KEY_B64", encoded)
+
+	path, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() error: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected temp key file to exist, got %v", err)
+	}
+
+	CleanupTempPrivateKeys()
+
+	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("expected temp key file to be removed, got %v", err)
+	}
+	if privateKeyTempPath != "" {
+		t.Fatalf("expected temp key path to be cleared, got %q", privateKeyTempPath)
+	}
+}
+
+func TestResolvePrivateKeyPathInvalidBase64(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+	t.Setenv("ASC_PRIVATE_KEY_B64", "not-base64")
+
+	if _, err := resolvePrivateKeyPath(); err == nil {
+		t.Fatal("expected error for invalid base64")
+	}
+}
+
+func TestCheckMixedCredentialSourcesWarns(t *testing.T) {
+	previousStrict := strictAuth
+	strictAuth = false
+	t.Cleanup(func() {
+		strictAuth = previousStrict
+	})
+	t.Setenv(strictAuthEnvVar, "")
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := checkMixedCredentialSources(credentialSource{
+			keyID:    "keychain",
+			issuerID: "env",
+			keyPath:  "env",
+		}); err != nil {
+			t.Fatalf("expected warning only, got %v", err)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "Warning: credentials loaded from multiple sources") {
+		t.Fatalf("expected mixed-source warning, got %q", stderr)
+	}
+}
+
+func TestCheckMixedCredentialSourcesStrictErrors(t *testing.T) {
+	previousStrict := strictAuth
+	strictAuth = true
+	t.Cleanup(func() {
+		strictAuth = previousStrict
+	})
+	t.Setenv(strictAuthEnvVar, "")
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := checkMixedCredentialSources(credentialSource{
+			keyID:    "keychain",
+			issuerID: "env",
+			keyPath:  "env",
+		}); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+}
+
+func TestGetASCClient_ProfileMissingSkipsEnvFallback(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	keyPath := filepath.Join(tempDir, "AuthKey.p8")
+	writeECDSAPEM(t, keyPath)
+
+	cfg := &config.Config{
+		DefaultKeyName: "personal",
+		Keys: []config.Credential{
+			{
+				Name:           "personal",
+				KeyID:          "KEY123",
+				IssuerID:       "ISS456",
+				PrivateKeyPath: keyPath,
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_PROFILE", "missing")
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", keyPath)
+
+	previousProfile := selectedProfile
+	selectedProfile = ""
+	t.Cleanup(func() {
+		selectedProfile = previousProfile
+	})
+
+	_, err := getASCClient()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestGetASCClient_BypassKeychainPrefersEnvOverConfig(t *testing.T) {
+	resetPrivateKeyTemp(t)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	envKeyPath := filepath.Join(tempDir, "AuthKey-Env.p8")
+	writeECDSAPEM(t, envKeyPath)
+
+	cfg := &config.Config{
+		DefaultKeyName: "config",
+		Keys: []config.Credential{
+			{
+				Name:           "config",
+				KeyID:          "CFGKEY",
+				IssuerID:       "CFGISS",
+				PrivateKeyPath: filepath.Join(tempDir, "missing.p8"),
+			},
+		},
+	}
+	if err := config.SaveAt(configPath, cfg); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_PROFILE", "")
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", envKeyPath)
+
+	previousProfile := selectedProfile
+	selectedProfile = ""
+	t.Cleanup(func() {
+		selectedProfile = previousProfile
+	})
+
+	if _, err := getASCClient(); err != nil {
+		t.Fatalf("expected env credentials to override config, got %v", err)
+	}
+}
+
+func resetPrivateKeyTemp(t *testing.T) {
+	t.Helper()
+	CleanupTempPrivateKeys()
+	t.Cleanup(func() {
+		CleanupTempPrivateKeys()
+	})
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+}
+
+func writeECDSAPEM(t *testing.T, path string) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error: %v", err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal key error: %v", err)
+	}
+	data := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	if data == nil {
+		t.Fatal("failed to encode PEM")
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write key file error: %v", err)
+	}
+}

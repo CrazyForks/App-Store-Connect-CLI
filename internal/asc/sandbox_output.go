@@ -7,13 +7,6 @@ import (
 	"text/tabwriter"
 )
 
-// SandboxTesterDeleteResult represents CLI output for sandbox tester deletions.
-type SandboxTesterDeleteResult struct {
-	ID      string `json:"id"`
-	Email   string `json:"email,omitempty"`
-	Deleted bool   `json:"deleted"`
-}
-
 // SandboxTesterClearHistoryResult represents CLI output for clear history requests.
 type SandboxTesterClearHistoryResult struct {
 	RequestID string `json:"requestId"`
@@ -50,28 +43,6 @@ func printSandboxTestersMarkdown(resp *SandboxTestersResponse) error {
 			escapeMarkdown(sandboxTesterTerritory(item.Attributes)),
 		)
 	}
-	return nil
-}
-
-func printSandboxTesterDeleteResultTable(result *SandboxTesterDeleteResult) error {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tEmail\tDeleted")
-	fmt.Fprintf(w, "%s\t%s\t%t\n",
-		result.ID,
-		result.Email,
-		result.Deleted,
-	)
-	return w.Flush()
-}
-
-func printSandboxTesterDeleteResultMarkdown(result *SandboxTesterDeleteResult) error {
-	fmt.Fprintln(os.Stdout, "| ID | Email | Deleted |")
-	fmt.Fprintln(os.Stdout, "| --- | --- | --- |")
-	fmt.Fprintf(os.Stdout, "| %s | %s | %t |\n",
-		escapeMarkdown(result.ID),
-		escapeMarkdown(result.Email),
-		result.Deleted,
-	)
 	return nil
 }
 

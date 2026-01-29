@@ -3,6 +3,7 @@ package asc
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,19 +43,24 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 
 // generateJWT generates a JWT for ASC API authentication
 func (c *Client) generateJWT() (string, error) {
+	return GenerateJWT(c.keyID, c.issuerID, c.privateKey)
+}
+
+// GenerateJWT generates a JWT for ASC API authentication.
+func GenerateJWT(keyID, issuerID string, privateKey *ecdsa.PrivateKey) (string, error) {
 	now := time.Now()
 	claims := jwt.RegisteredClaims{
-		Issuer:    c.issuerID,
+		Issuer:    issuerID,
 		Audience:  jwt.ClaimStrings{"appstoreconnect-v1"},
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(tokenLifetime)),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-	token.Header["kid"] = c.keyID
+	token.Header["kid"] = keyID
 
 	// Sign with the private key
-	signedToken, err := token.SignedString(c.privateKey)
+	signedToken, err := token.SignedString(privateKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %w", err)
 	}

@@ -21,15 +21,18 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
+	title := strings.TrimSpace(sanitizeTerminal(e.Title))
+	detail := strings.TrimSpace(sanitizeTerminal(e.Detail))
+	code := strings.TrimSpace(sanitizeTerminal(e.Code))
 	switch {
-	case e.Title != "" && e.Detail != "":
-		return fmt.Sprintf("%s: %s", e.Title, e.Detail)
-	case e.Title != "":
-		return e.Title
-	case e.Detail != "":
-		return e.Detail
-	case e.Code != "":
-		return e.Code
+	case title != "" && detail != "":
+		return fmt.Sprintf("%s: %s", title, detail)
+	case title != "":
+		return title
+	case detail != "":
+		return detail
+	case code != "":
+		return code
 	default:
 		return "API error"
 	}

@@ -148,60 +148,6 @@ func TestUpdateSandboxTester_SendsRequest(t *testing.T) {
 	}
 }
 
-func TestCreateSandboxTester_SendsRequest(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"sandboxTesters","id":"tester-1","attributes":{"email":"tester@example.com","firstName":"Test","lastName":"User","appStoreTerritory":"USA"}}}`)
-	client := newTestClient(t, func(req *http.Request) {
-		if req.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", req.Method)
-		}
-		if req.URL.Path != "/v1/sandboxTesters" {
-			t.Fatalf("expected path /v1/sandboxTesters, got %s", req.URL.Path)
-		}
-
-		var body map[string]map[string]any
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			t.Fatalf("failed to decode request body: %v", err)
-		}
-		data, ok := body["data"]
-		if !ok {
-			t.Fatalf("expected data in request body")
-		}
-		if data["type"] != "sandboxTesters" {
-			t.Fatalf("expected type sandboxTesters, got %v", data["type"])
-		}
-
-		attributes, ok := data["attributes"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected attributes in request body")
-		}
-		if attributes["email"] != "tester@example.com" {
-			t.Fatalf("expected email tester@example.com, got %v", attributes["email"])
-		}
-		if attributes["firstName"] != "Test" || attributes["lastName"] != "User" {
-			t.Fatalf("expected name Test User, got %v %v", attributes["firstName"], attributes["lastName"])
-		}
-		if attributes["appStoreTerritory"] != "USA" {
-			t.Fatalf("expected appStoreTerritory USA, got %v", attributes["appStoreTerritory"])
-		}
-		assertAuthorized(t, req)
-	}, response)
-
-	attrs := SandboxTesterCreateAttributes{
-		FirstName:         "Test",
-		LastName:          "User",
-		Email:             "tester@example.com",
-		Password:          "Passwordtest1",
-		ConfirmPassword:   "Passwordtest1",
-		SecretQuestion:    "Question",
-		SecretAnswer:      "Answer",
-		BirthDate:         "1980-03-01",
-		AppStoreTerritory: "USA",
-	}
-	if _, err := client.CreateSandboxTester(context.Background(), attrs); err != nil {
-		t.Fatalf("CreateSandboxTester() error: %v", err)
-	}
-}
-
 func TestClearSandboxTesterPurchaseHistory(t *testing.T) {
 	response := jsonResponse(http.StatusCreated, `{"data":{"type":"sandboxTestersClearPurchaseHistoryRequest","id":"request-1"}}`)
 	client := newTestClient(t, func(req *http.Request) {
@@ -247,22 +193,5 @@ func TestClearSandboxTesterPurchaseHistory(t *testing.T) {
 
 	if _, err := client.ClearSandboxTesterPurchaseHistory(context.Background(), "tester-1"); err != nil {
 		t.Fatalf("ClearSandboxTesterPurchaseHistory() error: %v", err)
-	}
-}
-
-func TestDeleteSandboxTester(t *testing.T) {
-	response := jsonResponse(http.StatusNoContent, "")
-	client := newTestClient(t, func(req *http.Request) {
-		if req.Method != http.MethodDelete {
-			t.Fatalf("expected DELETE, got %s", req.Method)
-		}
-		if req.URL.Path != "/v1/sandboxTesters/tester-1" {
-			t.Fatalf("expected path /v1/sandboxTesters/tester-1, got %s", req.URL.Path)
-		}
-		assertAuthorized(t, req)
-	}, response)
-
-	if err := client.DeleteSandboxTester(context.Background(), "tester-1"); err != nil {
-		t.Fatalf("DeleteSandboxTester() error: %v", err)
 	}
 }

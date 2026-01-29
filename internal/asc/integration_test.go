@@ -12,14 +12,17 @@ import (
 	"time"
 )
 
+// Color Match Game: Chroma app ID for integration tests.
+const chromaAppID = "1500196580"
+
 func TestIntegrationEndpoints(t *testing.T) {
 	keyID := os.Getenv("ASC_KEY_ID")
 	issuerID := os.Getenv("ASC_ISSUER_ID")
 	keyPath := os.Getenv("ASC_PRIVATE_KEY_PATH")
-	appID := os.Getenv("ASC_APP_ID")
+	appID := chromaAppID
 
-	if keyID == "" || issuerID == "" || keyPath == "" || appID == "" {
-		t.Skip("integration tests require ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH, ASC_APP_ID")
+	if keyID == "" || issuerID == "" || keyPath == "" {
+		t.Skip("integration tests require ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY_PATH")
 	}
 
 	client, err := NewClient(keyID, issuerID, keyPath)
