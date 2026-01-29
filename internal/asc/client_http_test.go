@@ -4053,6 +4053,21 @@ func TestGetMerchantIDs_WithFilters(t *testing.T) {
 		if values.Get("filter[identifier]") != "merchant.com.example" {
 			t.Fatalf("expected filter[identifier]=merchant.com.example, got %q", values.Get("filter[identifier]"))
 		}
+		if values.Get("sort") != "name" {
+			t.Fatalf("expected sort=name, got %q", values.Get("sort"))
+		}
+		if values.Get("fields[merchantIds]") != "name,identifier" {
+			t.Fatalf("expected fields[merchantIds], got %q", values.Get("fields[merchantIds]"))
+		}
+		if values.Get("fields[certificates]") != "certificateType,serialNumber" {
+			t.Fatalf("expected fields[certificates], got %q", values.Get("fields[certificates]"))
+		}
+		if values.Get("include") != "certificates" {
+			t.Fatalf("expected include=certificates, got %q", values.Get("include"))
+		}
+		if values.Get("limit[certificates]") != "10" {
+			t.Fatalf("expected limit[certificates]=10, got %q", values.Get("limit[certificates]"))
+		}
 		if values.Get("limit") != "5" {
 			t.Fatalf("expected limit=5, got %q", values.Get("limit"))
 		}
@@ -4063,6 +4078,11 @@ func TestGetMerchantIDs_WithFilters(t *testing.T) {
 		context.Background(),
 		WithMerchantIDsFilterName("Example"),
 		WithMerchantIDsFilterIdentifier("merchant.com.example"),
+		WithMerchantIDsSort("name"),
+		WithMerchantIDsFields([]string{"name", "identifier"}),
+		WithMerchantIDsCertificateFields([]string{"certificateType", "serialNumber"}),
+		WithMerchantIDsInclude([]string{"certificates"}),
+		WithMerchantIDsCertificatesLimit(10),
 		WithMerchantIDsLimit(5),
 	); err != nil {
 		t.Fatalf("GetMerchantIDs() error: %v", err)
@@ -4078,10 +4098,30 @@ func TestGetMerchantID_SendsRequest(t *testing.T) {
 		if req.URL.Path != "/v1/merchantIds/m1" {
 			t.Fatalf("expected path /v1/merchantIds/m1, got %s", req.URL.Path)
 		}
+		values := req.URL.Query()
+		if values.Get("fields[merchantIds]") != "name" {
+			t.Fatalf("expected fields[merchantIds]=name, got %q", values.Get("fields[merchantIds]"))
+		}
+		if values.Get("fields[certificates]") != "certificateType" {
+			t.Fatalf("expected fields[certificates]=certificateType, got %q", values.Get("fields[certificates]"))
+		}
+		if values.Get("include") != "certificates" {
+			t.Fatalf("expected include=certificates, got %q", values.Get("include"))
+		}
+		if values.Get("limit[certificates]") != "5" {
+			t.Fatalf("expected limit[certificates]=5, got %q", values.Get("limit[certificates]"))
+		}
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetMerchantID(context.Background(), "m1"); err != nil {
+	if _, err := client.GetMerchantID(
+		context.Background(),
+		"m1",
+		WithMerchantIDsFields([]string{"name"}),
+		WithMerchantIDsCertificateFields([]string{"certificateType"}),
+		WithMerchantIDsInclude([]string{"certificates"}),
+		WithMerchantIDsCertificatesLimit(5),
+	); err != nil {
 		t.Fatalf("GetMerchantID() error: %v", err)
 	}
 }
@@ -4147,13 +4187,14 @@ func TestUpdateMerchantID_SendsRequest(t *testing.T) {
 		if payload.Data.ID != "m1" {
 			t.Fatalf("expected id m1, got %q", payload.Data.ID)
 		}
-		if payload.Data.Attributes == nil || payload.Data.Attributes.Name != "Updated" {
+		if payload.Data.Attributes == nil || payload.Data.Attributes.Name == nil || *payload.Data.Attributes.Name != "Updated" {
 			t.Fatalf("expected name Updated, got %v", payload.Data.Attributes)
 		}
 		assertAuthorized(t, req)
 	}, response)
 
-	attrs := MerchantIDUpdateAttributes{Name: "Updated"}
+	name := "Updated"
+	attrs := MerchantIDUpdateAttributes{Name: &name}
 	if _, err := client.UpdateMerchantID(context.Background(), "m1", attrs); err != nil {
 		t.Fatalf("UpdateMerchantID() error: %v", err)
 	}
@@ -4185,13 +4226,50 @@ func TestGetMerchantIDCertificates_WithLimit(t *testing.T) {
 		if req.URL.Path != "/v1/merchantIds/m1/certificates" {
 			t.Fatalf("expected path /v1/merchantIds/m1/certificates, got %s", req.URL.Path)
 		}
-		if req.URL.Query().Get("limit") != "5" {
-			t.Fatalf("expected limit=5, got %q", req.URL.Query().Get("limit"))
+		values := req.URL.Query()
+		if values.Get("filter[displayName]") != "Cert Name" {
+			t.Fatalf("expected filter[displayName], got %q", values.Get("filter[displayName]"))
+		}
+		if values.Get("filter[certificateType]") != "PASS_TYPE_ID" {
+			t.Fatalf("expected filter[certificateType], got %q", values.Get("filter[certificateType]"))
+		}
+		if values.Get("filter[serialNumber]") != "SN123" {
+			t.Fatalf("expected filter[serialNumber], got %q", values.Get("filter[serialNumber]"))
+		}
+		if values.Get("filter[id]") != "c1" {
+			t.Fatalf("expected filter[id]=c1, got %q", values.Get("filter[id]"))
+		}
+		if values.Get("sort") != "serialNumber" {
+			t.Fatalf("expected sort=serialNumber, got %q", values.Get("sort"))
+		}
+		if values.Get("fields[certificates]") != "serialNumber" {
+			t.Fatalf("expected fields[certificates], got %q", values.Get("fields[certificates]"))
+		}
+		if values.Get("fields[passTypeIds]") != "identifier" {
+			t.Fatalf("expected fields[passTypeIds], got %q", values.Get("fields[passTypeIds]"))
+		}
+		if values.Get("include") != "passTypeId" {
+			t.Fatalf("expected include=passTypeId, got %q", values.Get("include"))
+		}
+		if values.Get("limit") != "5" {
+			t.Fatalf("expected limit=5, got %q", values.Get("limit"))
 		}
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetMerchantIDCertificates(context.Background(), "m1", WithMerchantIDCertificatesLimit(5)); err != nil {
+	if _, err := client.GetMerchantIDCertificates(
+		context.Background(),
+		"m1",
+		WithMerchantIDCertificatesFilterDisplayName("Cert Name"),
+		WithMerchantIDCertificatesFilterCertificateTypes("PASS_TYPE_ID"),
+		WithMerchantIDCertificatesFilterSerialNumbers("SN123"),
+		WithMerchantIDCertificatesFilterIDs("c1"),
+		WithMerchantIDCertificatesSort("serialNumber"),
+		WithMerchantIDCertificatesFields([]string{"serialNumber"}),
+		WithMerchantIDCertificatesPassTypeFields([]string{"identifier"}),
+		WithMerchantIDCertificatesInclude([]string{"passTypeId"}),
+		WithMerchantIDCertificatesLimit(5),
+	); err != nil {
 		t.Fatalf("GetMerchantIDCertificates() error: %v", err)
 	}
 }
@@ -4213,6 +4291,267 @@ func TestGetMerchantIDCertificatesRelationships_WithLimit(t *testing.T) {
 
 	if _, err := client.GetMerchantIDCertificatesRelationships(context.Background(), "m1", WithLinkagesLimit(5)); err != nil {
 		t.Fatalf("GetMerchantIDCertificatesRelationships() error: %v", err)
+	}
+}
+
+func TestGetPassTypeIDs_WithFilters(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"passTypeIds","id":"p1","attributes":{"name":"Example","identifier":"pass.com.example"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/passTypeIds" {
+			t.Fatalf("expected path /v1/passTypeIds, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[name]") != "Example" {
+			t.Fatalf("expected filter[name]=Example, got %q", values.Get("filter[name]"))
+		}
+		if values.Get("filter[identifier]") != "pass.com.example" {
+			t.Fatalf("expected filter[identifier]=pass.com.example, got %q", values.Get("filter[identifier]"))
+		}
+		if values.Get("filter[id]") != "p1" {
+			t.Fatalf("expected filter[id]=p1, got %q", values.Get("filter[id]"))
+		}
+		if values.Get("sort") != "-identifier" {
+			t.Fatalf("expected sort=-identifier, got %q", values.Get("sort"))
+		}
+		if values.Get("fields[passTypeIds]") != "name,identifier" {
+			t.Fatalf("expected fields[passTypeIds], got %q", values.Get("fields[passTypeIds]"))
+		}
+		if values.Get("fields[certificates]") != "certificateType,serialNumber" {
+			t.Fatalf("expected fields[certificates], got %q", values.Get("fields[certificates]"))
+		}
+		if values.Get("include") != "certificates" {
+			t.Fatalf("expected include=certificates, got %q", values.Get("include"))
+		}
+		if values.Get("limit[certificates]") != "10" {
+			t.Fatalf("expected limit[certificates]=10, got %q", values.Get("limit[certificates]"))
+		}
+		if values.Get("limit") != "5" {
+			t.Fatalf("expected limit=5, got %q", values.Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetPassTypeIDs(
+		context.Background(),
+		WithPassTypeIDsFilterName("Example"),
+		WithPassTypeIDsFilterIdentifier("pass.com.example"),
+		WithPassTypeIDsFilterIDs("p1"),
+		WithPassTypeIDsSort("-identifier"),
+		WithPassTypeIDsFields([]string{"name", "identifier"}),
+		WithPassTypeIDsCertificateFields([]string{"certificateType", "serialNumber"}),
+		WithPassTypeIDsInclude([]string{"certificates"}),
+		WithPassTypeIDsCertificatesLimit(10),
+		WithPassTypeIDsLimit(5),
+	); err != nil {
+		t.Fatalf("GetPassTypeIDs() error: %v", err)
+	}
+}
+
+func TestGetPassTypeID_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"passTypeIds","id":"p1","attributes":{"name":"Example","identifier":"pass.com.example"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/passTypeIds/p1" {
+			t.Fatalf("expected path /v1/passTypeIds/p1, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("fields[passTypeIds]") != "identifier" {
+			t.Fatalf("expected fields[passTypeIds]=identifier, got %q", values.Get("fields[passTypeIds]"))
+		}
+		if values.Get("fields[certificates]") != "certificateType" {
+			t.Fatalf("expected fields[certificates]=certificateType, got %q", values.Get("fields[certificates]"))
+		}
+		if values.Get("include") != "certificates" {
+			t.Fatalf("expected include=certificates, got %q", values.Get("include"))
+		}
+		if values.Get("limit[certificates]") != "5" {
+			t.Fatalf("expected limit[certificates]=5, got %q", values.Get("limit[certificates]"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetPassTypeID(
+		context.Background(),
+		"p1",
+		WithPassTypeIDsFields([]string{"identifier"}),
+		WithPassTypeIDsCertificateFields([]string{"certificateType"}),
+		WithPassTypeIDsInclude([]string{"certificates"}),
+		WithPassTypeIDsCertificatesLimit(5),
+	); err != nil {
+		t.Fatalf("GetPassTypeID() error: %v", err)
+	}
+}
+
+func TestCreatePassTypeID_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"passTypeIds","id":"p1","attributes":{"name":"Example","identifier":"pass.com.example"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/passTypeIds" {
+			t.Fatalf("expected path /v1/passTypeIds, got %s", req.URL.Path)
+		}
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body error: %v", err)
+		}
+		var payload PassTypeIDCreateRequest
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode body error: %v", err)
+		}
+		if payload.Data.Type != ResourceTypePassTypeIds {
+			t.Fatalf("expected type passTypeIds, got %q", payload.Data.Type)
+		}
+		if payload.Data.Attributes.Identifier != "pass.com.example" {
+			t.Fatalf("expected identifier pass.com.example, got %q", payload.Data.Attributes.Identifier)
+		}
+		if payload.Data.Attributes.Name != "Example" {
+			t.Fatalf("expected name Example, got %q", payload.Data.Attributes.Name)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	attrs := PassTypeIDCreateAttributes{
+		Name:       "Example",
+		Identifier: "pass.com.example",
+	}
+	if _, err := client.CreatePassTypeID(context.Background(), attrs); err != nil {
+		t.Fatalf("CreatePassTypeID() error: %v", err)
+	}
+}
+
+func TestUpdatePassTypeID_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"passTypeIds","id":"p1","attributes":{"name":"Updated","identifier":"pass.com.example"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/passTypeIds/p1" {
+			t.Fatalf("expected path /v1/passTypeIds/p1, got %s", req.URL.Path)
+		}
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body error: %v", err)
+		}
+		var payload PassTypeIDUpdateRequest
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode body error: %v", err)
+		}
+		if payload.Data.Type != ResourceTypePassTypeIds {
+			t.Fatalf("expected type passTypeIds, got %q", payload.Data.Type)
+		}
+		if payload.Data.ID != "p1" {
+			t.Fatalf("expected id p1, got %q", payload.Data.ID)
+		}
+		if payload.Data.Attributes == nil || payload.Data.Attributes.Name == nil || *payload.Data.Attributes.Name != "Updated" {
+			t.Fatalf("expected name Updated, got %v", payload.Data.Attributes)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	name := "Updated"
+	attrs := PassTypeIDUpdateAttributes{Name: &name}
+	if _, err := client.UpdatePassTypeID(context.Background(), "p1", attrs); err != nil {
+		t.Fatalf("UpdatePassTypeID() error: %v", err)
+	}
+}
+
+func TestDeletePassTypeID_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusNoContent, ``)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodDelete {
+			t.Fatalf("expected DELETE, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/passTypeIds/p1" {
+			t.Fatalf("expected path /v1/passTypeIds/p1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if err := client.DeletePassTypeID(context.Background(), "p1"); err != nil {
+		t.Fatalf("DeletePassTypeID() error: %v", err)
+	}
+}
+
+func TestGetPassTypeIDCertificates_WithLimit(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"certificates","id":"c1","attributes":{"name":"Cert","certificateType":"PASS_TYPE_ID"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/passTypeIds/p1/certificates" {
+			t.Fatalf("expected path /v1/passTypeIds/p1/certificates, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[displayName]") != "Cert Name" {
+			t.Fatalf("expected filter[displayName], got %q", values.Get("filter[displayName]"))
+		}
+		if values.Get("filter[certificateType]") != "PASS_TYPE_ID" {
+			t.Fatalf("expected filter[certificateType], got %q", values.Get("filter[certificateType]"))
+		}
+		if values.Get("filter[serialNumber]") != "SN123" {
+			t.Fatalf("expected filter[serialNumber], got %q", values.Get("filter[serialNumber]"))
+		}
+		if values.Get("filter[id]") != "c1" {
+			t.Fatalf("expected filter[id]=c1, got %q", values.Get("filter[id]"))
+		}
+		if values.Get("sort") != "serialNumber" {
+			t.Fatalf("expected sort=serialNumber, got %q", values.Get("sort"))
+		}
+		if values.Get("fields[certificates]") != "serialNumber" {
+			t.Fatalf("expected fields[certificates], got %q", values.Get("fields[certificates]"))
+		}
+		if values.Get("fields[passTypeIds]") != "identifier" {
+			t.Fatalf("expected fields[passTypeIds], got %q", values.Get("fields[passTypeIds]"))
+		}
+		if values.Get("include") != "passTypeId" {
+			t.Fatalf("expected include=passTypeId, got %q", values.Get("include"))
+		}
+		if values.Get("limit") != "5" {
+			t.Fatalf("expected limit=5, got %q", values.Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetPassTypeIDCertificates(
+		context.Background(),
+		"p1",
+		WithPassTypeIDCertificatesFilterDisplayName("Cert Name"),
+		WithPassTypeIDCertificatesFilterCertificateTypes("PASS_TYPE_ID"),
+		WithPassTypeIDCertificatesFilterSerialNumbers("SN123"),
+		WithPassTypeIDCertificatesFilterIDs("c1"),
+		WithPassTypeIDCertificatesSort("serialNumber"),
+		WithPassTypeIDCertificatesFields([]string{"serialNumber"}),
+		WithPassTypeIDCertificatesPassTypeFields([]string{"identifier"}),
+		WithPassTypeIDCertificatesInclude([]string{"passTypeId"}),
+		WithPassTypeIDCertificatesLimit(5),
+	); err != nil {
+		t.Fatalf("GetPassTypeIDCertificates() error: %v", err)
+	}
+}
+
+func TestGetPassTypeIDCertificatesRelationships_WithLimit(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"certificates","id":"c1"}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/passTypeIds/p1/relationships/certificates" {
+			t.Fatalf("expected path /v1/passTypeIds/p1/relationships/certificates, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("limit") != "5" {
+			t.Fatalf("expected limit=5, got %q", req.URL.Query().Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetPassTypeIDCertificatesRelationships(context.Background(), "p1", WithLinkagesLimit(5)); err != nil {
+		t.Fatalf("GetPassTypeIDCertificatesRelationships() error: %v", err)
 	}
 }
 

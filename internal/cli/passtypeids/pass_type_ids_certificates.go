@@ -1,4 +1,4 @@
-package merchantids
+package passtypeids
 
 import (
 	"context"
@@ -12,24 +12,24 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
-// MerchantIDsCertificatesCommand returns the merchant ID certificates command with subcommands.
-func MerchantIDsCertificatesCommand() *ffcli.Command {
+// PassTypeIDsCertificatesCommand returns the pass type ID certificates command with subcommands.
+func PassTypeIDsCertificatesCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("certificates", flag.ExitOnError)
 
 	return &ffcli.Command{
 		Name:       "certificates",
-		ShortUsage: "asc merchant-ids certificates <subcommand> [flags]",
-		ShortHelp:  "List merchant ID certificates.",
-		LongHelp: `List merchant ID certificates.
+		ShortUsage: "asc pass-type-ids certificates <subcommand> [flags]",
+		ShortHelp:  "List pass type ID certificates.",
+		LongHelp: `List pass type ID certificates.
 
 Examples:
-  asc merchant-ids certificates list --merchant-id "MERCHANT_ID"
-  asc merchant-ids certificates get --merchant-id "MERCHANT_ID"`,
+  asc pass-type-ids certificates list --pass-type-id "PASS_TYPE_ID"
+  asc pass-type-ids certificates get --pass-type-id "PASS_TYPE_ID"`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
-			MerchantIDsCertificatesListCommand(),
-			MerchantIDsCertificatesGetCommand(),
+			PassTypeIDsCertificatesListCommand(),
+			PassTypeIDsCertificatesGetCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
@@ -37,11 +37,11 @@ Examples:
 	}
 }
 
-// MerchantIDsCertificatesListCommand returns the certificates list subcommand.
-func MerchantIDsCertificatesListCommand() *ffcli.Command {
+// PassTypeIDsCertificatesListCommand returns the certificates list subcommand.
+func PassTypeIDsCertificatesListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("certificates list", flag.ExitOnError)
 
-	merchantID := fs.String("merchant-id", "", "Merchant ID")
+	passTypeID := fs.String("pass-type-id", "", "Pass type ID")
 	displayName := fs.String("display-name", "", "Filter by certificate display name(s), comma-separated")
 	certificateType := fs.String("certificate-type", "", "Filter by certificate type(s), comma-separated")
 	serialNumber := fs.String("serial-number", "", "Filter by certificate serial number(s), comma-separated")
@@ -58,42 +58,42 @@ func MerchantIDsCertificatesListCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "list",
-		ShortUsage: "asc merchant-ids certificates list --merchant-id \"MERCHANT_ID\" [flags]",
-		ShortHelp:  "List certificates for a merchant ID.",
-		LongHelp: `List certificates for a merchant ID.
+		ShortUsage: "asc pass-type-ids certificates list --pass-type-id \"PASS_TYPE_ID\" [flags]",
+		ShortHelp:  "List certificates for a pass type ID.",
+		LongHelp: `List certificates for a pass type ID.
 
 Examples:
-  asc merchant-ids certificates list --merchant-id "MERCHANT_ID"
-  asc merchant-ids certificates list --merchant-id "MERCHANT_ID" --paginate`,
+  asc pass-type-ids certificates list --pass-type-id "PASS_TYPE_ID"
+  asc pass-type-ids certificates list --pass-type-id "PASS_TYPE_ID" --paginate`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			merchantIDValue := strings.TrimSpace(*merchantID)
-			if merchantIDValue == "" && strings.TrimSpace(*next) == "" {
-				fmt.Fprintln(os.Stderr, "Error: --merchant-id is required")
+			passTypeIDValue := strings.TrimSpace(*passTypeID)
+			if passTypeIDValue == "" && strings.TrimSpace(*next) == "" {
+				fmt.Fprintln(os.Stderr, "Error: --pass-type-id is required")
 				return flag.ErrHelp
 			}
 			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("merchant-ids certificates list: --limit must be between 1 and 200")
+				return fmt.Errorf("pass-type-ids certificates list: --limit must be between 1 and 200")
 			}
 			if err := validateNextURL(*next); err != nil {
-				return fmt.Errorf("merchant-ids certificates list: %w", err)
+				return fmt.Errorf("pass-type-ids certificates list: %w", err)
 			}
 			if err := validateSort(*sort, certificateSortValues...); err != nil {
-				return fmt.Errorf("merchant-ids certificates list: %w", err)
+				return fmt.Errorf("pass-type-ids certificates list: %w", err)
 			}
 
 			fieldsValue, err := normalizeCertificateFields(*fields, "--fields")
 			if err != nil {
-				return fmt.Errorf("merchant-ids certificates list: %w", err)
+				return fmt.Errorf("pass-type-ids certificates list: %w", err)
 			}
 			passTypeFieldsValue, err := normalizePassTypeIDFields(*passTypeFields, "--pass-type-fields")
 			if err != nil {
-				return fmt.Errorf("merchant-ids certificates list: %w", err)
+				return fmt.Errorf("pass-type-ids certificates list: %w", err)
 			}
 			includeValue, err := normalizeCertificateInclude(*include, "--include")
 			if err != nil {
-				return fmt.Errorf("merchant-ids certificates list: %w", err)
+				return fmt.Errorf("pass-type-ids certificates list: %w", err)
 			}
 			if len(passTypeFieldsValue) > 0 && !hasInclude(includeValue, "passTypeId") {
 				fmt.Fprintln(os.Stderr, "Error: --pass-type-fields requires --include passTypeId")
@@ -102,45 +102,45 @@ Examples:
 
 			client, err := getASCClient()
 			if err != nil {
-				return fmt.Errorf("merchant-ids certificates list: %w", err)
+				return fmt.Errorf("pass-type-ids certificates list: %w", err)
 			}
 
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			opts := []asc.MerchantIDCertificatesOption{
-				asc.WithMerchantIDCertificatesLimit(*limit),
-				asc.WithMerchantIDCertificatesNextURL(*next),
-				asc.WithMerchantIDCertificatesFilterDisplayName(*displayName),
-				asc.WithMerchantIDCertificatesFilterCertificateTypes(*certificateType),
-				asc.WithMerchantIDCertificatesFilterSerialNumbers(*serialNumber),
-				asc.WithMerchantIDCertificatesFilterIDs(*certificateID),
-				asc.WithMerchantIDCertificatesSort(*sort),
-				asc.WithMerchantIDCertificatesFields(fieldsValue),
-				asc.WithMerchantIDCertificatesPassTypeFields(passTypeFieldsValue),
-				asc.WithMerchantIDCertificatesInclude(includeValue),
+			opts := []asc.PassTypeIDCertificatesOption{
+				asc.WithPassTypeIDCertificatesLimit(*limit),
+				asc.WithPassTypeIDCertificatesNextURL(*next),
+				asc.WithPassTypeIDCertificatesFilterDisplayName(*displayName),
+				asc.WithPassTypeIDCertificatesFilterCertificateTypes(*certificateType),
+				asc.WithPassTypeIDCertificatesFilterSerialNumbers(*serialNumber),
+				asc.WithPassTypeIDCertificatesFilterIDs(*certificateID),
+				asc.WithPassTypeIDCertificatesSort(*sort),
+				asc.WithPassTypeIDCertificatesFields(fieldsValue),
+				asc.WithPassTypeIDCertificatesPassTypeFields(passTypeFieldsValue),
+				asc.WithPassTypeIDCertificatesInclude(includeValue),
 			}
 
 			if *paginate {
-				paginateOpts := append(opts, asc.WithMerchantIDCertificatesLimit(200))
-				firstPage, err := client.GetMerchantIDCertificates(requestCtx, merchantIDValue, paginateOpts...)
+				paginateOpts := append(opts, asc.WithPassTypeIDCertificatesLimit(200))
+				firstPage, err := client.GetPassTypeIDCertificates(requestCtx, passTypeIDValue, paginateOpts...)
 				if err != nil {
-					return fmt.Errorf("merchant-ids certificates list: failed to fetch: %w", err)
+					return fmt.Errorf("pass-type-ids certificates list: failed to fetch: %w", err)
 				}
 
 				paginated, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-					return client.GetMerchantIDCertificates(ctx, merchantIDValue, asc.WithMerchantIDCertificatesNextURL(nextURL))
+					return client.GetPassTypeIDCertificates(ctx, passTypeIDValue, asc.WithPassTypeIDCertificatesNextURL(nextURL))
 				})
 				if err != nil {
-					return fmt.Errorf("merchant-ids certificates list: %w", err)
+					return fmt.Errorf("pass-type-ids certificates list: %w", err)
 				}
 
 				return printOutput(paginated, *output, *pretty)
 			}
 
-			resp, err := client.GetMerchantIDCertificates(requestCtx, merchantIDValue, opts...)
+			resp, err := client.GetPassTypeIDCertificates(requestCtx, passTypeIDValue, opts...)
 			if err != nil {
-				return fmt.Errorf("merchant-ids certificates list: failed to fetch: %w", err)
+				return fmt.Errorf("pass-type-ids certificates list: failed to fetch: %w", err)
 			}
 
 			return printOutput(resp, *output, *pretty)
@@ -148,11 +148,11 @@ Examples:
 	}
 }
 
-// MerchantIDsCertificatesGetCommand returns the certificates relationships get subcommand.
-func MerchantIDsCertificatesGetCommand() *ffcli.Command {
+// PassTypeIDsCertificatesGetCommand returns the certificates relationships get subcommand.
+func PassTypeIDsCertificatesGetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("certificates get", flag.ExitOnError)
 
-	merchantID := fs.String("merchant-id", "", "Merchant ID")
+	passTypeID := fs.String("pass-type-id", "", "Pass type ID")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
@@ -161,31 +161,31 @@ func MerchantIDsCertificatesGetCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "get",
-		ShortUsage: "asc merchant-ids certificates get --merchant-id \"MERCHANT_ID\" [flags]",
-		ShortHelp:  "Get certificate relationships for a merchant ID.",
-		LongHelp: `Get certificate relationships for a merchant ID.
+		ShortUsage: "asc pass-type-ids certificates get --pass-type-id \"PASS_TYPE_ID\" [flags]",
+		ShortHelp:  "Get certificate relationships for a pass type ID.",
+		LongHelp: `Get certificate relationships for a pass type ID.
 
 Examples:
-  asc merchant-ids certificates get --merchant-id "MERCHANT_ID"
-  asc merchant-ids certificates get --merchant-id "MERCHANT_ID" --paginate`,
+  asc pass-type-ids certificates get --pass-type-id "PASS_TYPE_ID"
+  asc pass-type-ids certificates get --pass-type-id "PASS_TYPE_ID" --paginate`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			merchantIDValue := strings.TrimSpace(*merchantID)
-			if merchantIDValue == "" && strings.TrimSpace(*next) == "" {
-				fmt.Fprintln(os.Stderr, "Error: --merchant-id is required")
+			passTypeIDValue := strings.TrimSpace(*passTypeID)
+			if passTypeIDValue == "" && strings.TrimSpace(*next) == "" {
+				fmt.Fprintln(os.Stderr, "Error: --pass-type-id is required")
 				return flag.ErrHelp
 			}
 			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("merchant-ids certificates get: --limit must be between 1 and 200")
+				return fmt.Errorf("pass-type-ids certificates get: --limit must be between 1 and 200")
 			}
 			if err := validateNextURL(*next); err != nil {
-				return fmt.Errorf("merchant-ids certificates get: %w", err)
+				return fmt.Errorf("pass-type-ids certificates get: %w", err)
 			}
 
 			client, err := getASCClient()
 			if err != nil {
-				return fmt.Errorf("merchant-ids certificates get: %w", err)
+				return fmt.Errorf("pass-type-ids certificates get: %w", err)
 			}
 
 			requestCtx, cancel := contextWithTimeout(ctx)
@@ -198,24 +198,24 @@ Examples:
 
 			if *paginate {
 				paginateOpts := append(opts, asc.WithLinkagesLimit(200))
-				firstPage, err := client.GetMerchantIDCertificatesRelationships(requestCtx, merchantIDValue, paginateOpts...)
+				firstPage, err := client.GetPassTypeIDCertificatesRelationships(requestCtx, passTypeIDValue, paginateOpts...)
 				if err != nil {
-					return fmt.Errorf("merchant-ids certificates get: failed to fetch: %w", err)
+					return fmt.Errorf("pass-type-ids certificates get: failed to fetch: %w", err)
 				}
 
 				paginated, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-					return client.GetMerchantIDCertificatesRelationships(ctx, merchantIDValue, asc.WithLinkagesNextURL(nextURL))
+					return client.GetPassTypeIDCertificatesRelationships(ctx, passTypeIDValue, asc.WithLinkagesNextURL(nextURL))
 				})
 				if err != nil {
-					return fmt.Errorf("merchant-ids certificates get: %w", err)
+					return fmt.Errorf("pass-type-ids certificates get: %w", err)
 				}
 
 				return printOutput(paginated, *output, *pretty)
 			}
 
-			resp, err := client.GetMerchantIDCertificatesRelationships(requestCtx, merchantIDValue, opts...)
+			resp, err := client.GetPassTypeIDCertificatesRelationships(requestCtx, passTypeIDValue, opts...)
 			if err != nil {
-				return fmt.Errorf("merchant-ids certificates get: failed to fetch: %w", err)
+				return fmt.Errorf("pass-type-ids certificates get: failed to fetch: %w", err)
 			}
 
 			return printOutput(resp, *output, *pretty)

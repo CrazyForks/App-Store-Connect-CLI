@@ -77,6 +77,10 @@ func PrintMarkdown(data interface{}) error {
 		return printMerchantIDsMarkdown(v)
 	case *MerchantIDResponse:
 		return printMerchantIDsMarkdown(&MerchantIDsResponse{Data: []Resource[MerchantIDAttributes]{v.Data}})
+	case *PassTypeIDsResponse:
+		return printPassTypeIDsMarkdown(v)
+	case *PassTypeIDResponse:
+		return printPassTypeIDsMarkdown(&PassTypeIDsResponse{Data: []Resource[PassTypeIDAttributes]{v.Data}})
 	case *CertificatesResponse:
 		return printCertificatesMarkdown(v)
 	case *CertificateResponse:
@@ -401,6 +405,8 @@ func PrintMarkdown(data interface{}) error {
 		return printBundleIDDeleteResultMarkdown(v)
 	case *MerchantIDDeleteResult:
 		return printMerchantIDDeleteResultMarkdown(v)
+	case *PassTypeIDDeleteResult:
+		return printPassTypeIDDeleteResultMarkdown(v)
 	case *BundleIDCapabilityDeleteResult:
 		return printBundleIDCapabilityDeleteResultMarkdown(v)
 	case *CertificateRevokeResult:
@@ -525,6 +531,10 @@ func PrintTable(data interface{}) error {
 		return printMerchantIDsTable(v)
 	case *MerchantIDResponse:
 		return printMerchantIDsTable(&MerchantIDsResponse{Data: []Resource[MerchantIDAttributes]{v.Data}})
+	case *PassTypeIDsResponse:
+		return printPassTypeIDsTable(v)
+	case *PassTypeIDResponse:
+		return printPassTypeIDsTable(&PassTypeIDsResponse{Data: []Resource[PassTypeIDAttributes]{v.Data}})
 	case *CertificatesResponse:
 		return printCertificatesTable(v)
 	case *CertificateResponse:
@@ -849,6 +859,8 @@ func PrintTable(data interface{}) error {
 		return printBundleIDDeleteResultTable(v)
 	case *MerchantIDDeleteResult:
 		return printMerchantIDDeleteResultTable(v)
+	case *PassTypeIDDeleteResult:
+		return printPassTypeIDDeleteResultTable(v)
 	case *BundleIDCapabilityDeleteResult:
 		return printBundleIDCapabilityDeleteResultTable(v)
 	case *CertificateRevokeResult:

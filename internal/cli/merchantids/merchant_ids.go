@@ -51,6 +51,11 @@ func MerchantIDsListCommand() *ffcli.Command {
 
 	identifier := fs.String("identifier", "", "Filter by merchant ID identifier(s), comma-separated")
 	name := fs.String("name", "", "Filter by merchant ID name(s), comma-separated")
+	sort := fs.String("sort", "", "Sort by: "+strings.Join(merchantIDSortValues, ", "))
+	fields := fs.String("fields", "", "Fields to include: "+strings.Join(merchantIDFieldsList(), ", "))
+	certificateFields := fs.String("certificate-fields", "", "Certificate fields to include: "+strings.Join(certificateFieldsList(), ", "))
+	include := fs.String("include", "", "Include related resources: "+strings.Join(merchantIDIncludeList(), ", "))
+	certificatesLimit := fs.Int("certificates-limit", 0, "Maximum included certificates per merchant ID (1-50)")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
@@ -74,8 +79,35 @@ Examples:
 			if *limit != 0 && (*limit < 1 || *limit > 200) {
 				return fmt.Errorf("merchant-ids list: --limit must be between 1 and 200")
 			}
+			if *certificatesLimit != 0 && (*certificatesLimit < 1 || *certificatesLimit > 50) {
+				return fmt.Errorf("merchant-ids list: --certificates-limit must be between 1 and 50")
+			}
 			if err := validateNextURL(*next); err != nil {
 				return fmt.Errorf("merchant-ids list: %w", err)
+			}
+			if err := validateSort(*sort, merchantIDSortValues...); err != nil {
+				return fmt.Errorf("merchant-ids list: %w", err)
+			}
+
+			fieldsValue, err := normalizeMerchantIDFields(*fields, "--fields")
+			if err != nil {
+				return fmt.Errorf("merchant-ids list: %w", err)
+			}
+			certificateFieldsValue, err := normalizeCertificateFields(*certificateFields, "--certificate-fields")
+			if err != nil {
+				return fmt.Errorf("merchant-ids list: %w", err)
+			}
+			includeValue, err := normalizeMerchantIDInclude(*include, "--include")
+			if err != nil {
+				return fmt.Errorf("merchant-ids list: %w", err)
+			}
+			if len(certificateFieldsValue) > 0 && !hasInclude(includeValue, "certificates") {
+				fmt.Fprintln(os.Stderr, "Error: --certificate-fields requires --include certificates")
+				return flag.ErrHelp
+			}
+			if *certificatesLimit != 0 && !hasInclude(includeValue, "certificates") {
+				fmt.Fprintln(os.Stderr, "Error: --certificates-limit requires --include certificates")
+				return flag.ErrHelp
 			}
 
 			client, err := getASCClient()
@@ -89,6 +121,11 @@ Examples:
 			opts := []asc.MerchantIDsOption{
 				asc.WithMerchantIDsLimit(*limit),
 				asc.WithMerchantIDsNextURL(*next),
+				asc.WithMerchantIDsSort(*sort),
+				asc.WithMerchantIDsFields(fieldsValue),
+				asc.WithMerchantIDsCertificateFields(certificateFieldsValue),
+				asc.WithMerchantIDsInclude(includeValue),
+				asc.WithMerchantIDsCertificatesLimit(*certificatesLimit),
 			}
 			if strings.TrimSpace(*identifier) != "" {
 				opts = append(opts, asc.WithMerchantIDsFilterIdentifier(*identifier))
@@ -129,6 +166,10 @@ func MerchantIDsGetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 
 	merchantID := fs.String("merchant-id", "", "Merchant ID")
+	fields := fs.String("fields", "", "Fields to include: "+strings.Join(merchantIDFieldsList(), ", "))
+	certificateFields := fs.String("certificate-fields", "", "Certificate fields to include: "+strings.Join(certificateFieldsList(), ", "))
+	include := fs.String("include", "", "Include related resources: "+strings.Join(merchantIDIncludeList(), ", "))
+	certificatesLimit := fs.Int("certificates-limit", 0, "Maximum included certificates per merchant ID (1-50)")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -148,6 +189,30 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --merchant-id is required")
 				return flag.ErrHelp
 			}
+			if *certificatesLimit != 0 && (*certificatesLimit < 1 || *certificatesLimit > 50) {
+				return fmt.Errorf("merchant-ids get: --certificates-limit must be between 1 and 50")
+			}
+
+			fieldsValue, err := normalizeMerchantIDFields(*fields, "--fields")
+			if err != nil {
+				return fmt.Errorf("merchant-ids get: %w", err)
+			}
+			certificateFieldsValue, err := normalizeCertificateFields(*certificateFields, "--certificate-fields")
+			if err != nil {
+				return fmt.Errorf("merchant-ids get: %w", err)
+			}
+			includeValue, err := normalizeMerchantIDInclude(*include, "--include")
+			if err != nil {
+				return fmt.Errorf("merchant-ids get: %w", err)
+			}
+			if len(certificateFieldsValue) > 0 && !hasInclude(includeValue, "certificates") {
+				fmt.Fprintln(os.Stderr, "Error: --certificate-fields requires --include certificates")
+				return flag.ErrHelp
+			}
+			if *certificatesLimit != 0 && !hasInclude(includeValue, "certificates") {
+				fmt.Fprintln(os.Stderr, "Error: --certificates-limit requires --include certificates")
+				return flag.ErrHelp
+			}
 
 			client, err := getASCClient()
 			if err != nil {
@@ -157,7 +222,14 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.GetMerchantID(requestCtx, merchantIDValue)
+			resp, err := client.GetMerchantID(
+				requestCtx,
+				merchantIDValue,
+				asc.WithMerchantIDsFields(fieldsValue),
+				asc.WithMerchantIDsCertificateFields(certificateFieldsValue),
+				asc.WithMerchantIDsInclude(includeValue),
+				asc.WithMerchantIDsCertificatesLimit(*certificatesLimit),
+			)
 			if err != nil {
 				return fmt.Errorf("merchant-ids get: failed to fetch: %w", err)
 			}
@@ -226,6 +298,7 @@ func MerchantIDsUpdateCommand() *ffcli.Command {
 
 	merchantID := fs.String("merchant-id", "", "Merchant ID")
 	name := fs.String("name", "", "Merchant ID name")
+	clearName := fs.Bool("clear-name", false, "Clear the merchant ID name")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -246,8 +319,12 @@ Examples:
 				return flag.ErrHelp
 			}
 			nameValue := strings.TrimSpace(*name)
-			if nameValue == "" {
+			if nameValue == "" && !*clearName {
 				fmt.Fprintln(os.Stderr, "Error: --name is required")
+				return flag.ErrHelp
+			}
+			if nameValue != "" && *clearName {
+				fmt.Fprintln(os.Stderr, "Error: --name cannot be used with --clear-name")
 				return flag.ErrHelp
 			}
 
@@ -259,7 +336,11 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			attrs := asc.MerchantIDUpdateAttributes{Name: nameValue}
+			var name *string
+			if !*clearName {
+				name = &nameValue
+			}
+			attrs := asc.MerchantIDUpdateAttributes{Name: name}
 			resp, err := client.UpdateMerchantID(requestCtx, merchantIDValue, attrs)
 			if err != nil {
 				return fmt.Errorf("merchant-ids update: failed to update: %w", err)
@@ -320,4 +401,75 @@ Examples:
 			return printOutput(result, *output, *pretty)
 		},
 	}
+}
+
+var merchantIDSortValues = []string{"name", "-name", "identifier", "-identifier"}
+
+func normalizeMerchantIDFields(value, flagName string) ([]string, error) {
+	return normalizeSelection(value, flagName, merchantIDFieldsList())
+}
+
+func normalizeMerchantIDInclude(value, flagName string) ([]string, error) {
+	return normalizeSelection(value, flagName, merchantIDIncludeList())
+}
+
+func normalizeCertificateFields(value, flagName string) ([]string, error) {
+	return normalizeSelection(value, flagName, certificateFieldsList())
+}
+
+func normalizeCertificateInclude(value, flagName string) ([]string, error) {
+	return normalizeSelection(value, flagName, certificateIncludeList())
+}
+
+func normalizePassTypeIDFields(value, flagName string) ([]string, error) {
+	return normalizeSelection(value, flagName, passTypeIDFieldsList())
+}
+
+func normalizeSelection(value, flagName string, allowed []string) ([]string, error) {
+	values := splitCSV(value)
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	allowedSet := map[string]struct{}{}
+	for _, item := range allowed {
+		allowedSet[item] = struct{}{}
+	}
+	for _, item := range values {
+		if _, ok := allowedSet[item]; !ok {
+			return nil, fmt.Errorf("%s must be one of: %s", flagName, strings.Join(allowed, ", "))
+		}
+	}
+
+	return values, nil
+}
+
+func merchantIDFieldsList() []string {
+	return []string{"name", "identifier", "certificates"}
+}
+
+func merchantIDIncludeList() []string {
+	return []string{"certificates"}
+}
+
+func passTypeIDFieldsList() []string {
+	return []string{"name", "identifier", "certificates"}
+}
+
+func certificateFieldsList() []string {
+	return []string{
+		"name",
+		"certificateType",
+		"displayName",
+		"serialNumber",
+		"platform",
+		"expirationDate",
+		"certificateContent",
+		"activated",
+		"passTypeId",
+	}
+}
+
+func certificateIncludeList() []string {
+	return []string{"passTypeId"}
 }

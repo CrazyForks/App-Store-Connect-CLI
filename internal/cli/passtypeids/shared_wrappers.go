@@ -1,4 +1,4 @@
-package merchantids
+package passtypeids
 
 import (
 	"context"

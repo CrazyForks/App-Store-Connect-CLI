@@ -14,7 +14,7 @@ type MerchantIDCreateAttributes struct {
 
 // MerchantIDUpdateAttributes describes attributes for updating a merchant ID.
 type MerchantIDUpdateAttributes struct {
-	Name string `json:"name,omitempty"`
+	Name *string `json:"name"`
 }
 
 // MerchantIDCreateData is the data portion of a merchant ID create request.

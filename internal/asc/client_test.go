@@ -955,6 +955,202 @@ func TestBuildSubscriptionOfferCodeOneTimeUseCodesQuery(t *testing.T) {
 	}
 }
 
+func TestBuildMerchantIDsQuery(t *testing.T) {
+	query := &merchantIDsQuery{}
+	opts := []MerchantIDsOption{
+		WithMerchantIDsFilterName("Example"),
+		WithMerchantIDsFilterIdentifier("merchant.com.example"),
+		WithMerchantIDsSort("-identifier"),
+		WithMerchantIDsFields([]string{"name", "identifier"}),
+		WithMerchantIDsCertificateFields([]string{"certificateType"}),
+		WithMerchantIDsInclude([]string{"certificates"}),
+		WithMerchantIDsCertificatesLimit(10),
+		WithMerchantIDsLimit(5),
+	}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	values, err := url.ParseQuery(buildMerchantIDsQuery(query))
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("filter[name]"); got != "Example" {
+		t.Fatalf("expected filter[name]=Example, got %q", got)
+	}
+	if got := values.Get("filter[identifier]"); got != "merchant.com.example" {
+		t.Fatalf("expected filter[identifier], got %q", got)
+	}
+	if got := values.Get("sort"); got != "-identifier" {
+		t.Fatalf("expected sort=-identifier, got %q", got)
+	}
+	if got := values.Get("fields[merchantIds]"); got != "name,identifier" {
+		t.Fatalf("expected fields[merchantIds], got %q", got)
+	}
+	if got := values.Get("fields[certificates]"); got != "certificateType" {
+		t.Fatalf("expected fields[certificates], got %q", got)
+	}
+	if got := values.Get("include"); got != "certificates" {
+		t.Fatalf("expected include=certificates, got %q", got)
+	}
+	if got := values.Get("limit[certificates]"); got != "10" {
+		t.Fatalf("expected limit[certificates]=10, got %q", got)
+	}
+	if got := values.Get("limit"); got != "5" {
+		t.Fatalf("expected limit=5, got %q", got)
+	}
+}
+
+func TestBuildMerchantIDCertificatesQuery(t *testing.T) {
+	query := &merchantIDCertificatesQuery{}
+	opts := []MerchantIDCertificatesOption{
+		WithMerchantIDCertificatesFilterDisplayName("Cert Name"),
+		WithMerchantIDCertificatesFilterCertificateTypes("PASS_TYPE_ID"),
+		WithMerchantIDCertificatesFilterSerialNumbers("SN123"),
+		WithMerchantIDCertificatesFilterIDs("c1"),
+		WithMerchantIDCertificatesSort("-serialNumber"),
+		WithMerchantIDCertificatesFields([]string{"serialNumber"}),
+		WithMerchantIDCertificatesPassTypeFields([]string{"identifier"}),
+		WithMerchantIDCertificatesInclude([]string{"passTypeId"}),
+		WithMerchantIDCertificatesLimit(5),
+	}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	values, err := url.ParseQuery(buildMerchantIDCertificatesQuery(query))
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("filter[displayName]"); got != "Cert Name" {
+		t.Fatalf("expected filter[displayName], got %q", got)
+	}
+	if got := values.Get("filter[certificateType]"); got != "PASS_TYPE_ID" {
+		t.Fatalf("expected filter[certificateType], got %q", got)
+	}
+	if got := values.Get("filter[serialNumber]"); got != "SN123" {
+		t.Fatalf("expected filter[serialNumber], got %q", got)
+	}
+	if got := values.Get("filter[id]"); got != "c1" {
+		t.Fatalf("expected filter[id]=c1, got %q", got)
+	}
+	if got := values.Get("sort"); got != "-serialNumber" {
+		t.Fatalf("expected sort=-serialNumber, got %q", got)
+	}
+	if got := values.Get("fields[certificates]"); got != "serialNumber" {
+		t.Fatalf("expected fields[certificates], got %q", got)
+	}
+	if got := values.Get("fields[passTypeIds]"); got != "identifier" {
+		t.Fatalf("expected fields[passTypeIds], got %q", got)
+	}
+	if got := values.Get("include"); got != "passTypeId" {
+		t.Fatalf("expected include=passTypeId, got %q", got)
+	}
+	if got := values.Get("limit"); got != "5" {
+		t.Fatalf("expected limit=5, got %q", got)
+	}
+}
+
+func TestBuildPassTypeIDsQuery(t *testing.T) {
+	query := &passTypeIDsQuery{}
+	opts := []PassTypeIDsOption{
+		WithPassTypeIDsFilterName("Example"),
+		WithPassTypeIDsFilterIdentifier("pass.com.example"),
+		WithPassTypeIDsFilterIDs("p1"),
+		WithPassTypeIDsSort("id"),
+		WithPassTypeIDsFields([]string{"identifier"}),
+		WithPassTypeIDsCertificateFields([]string{"certificateType"}),
+		WithPassTypeIDsInclude([]string{"certificates"}),
+		WithPassTypeIDsCertificatesLimit(5),
+		WithPassTypeIDsLimit(10),
+	}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	values, err := url.ParseQuery(buildPassTypeIDsQuery(query))
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("filter[name]"); got != "Example" {
+		t.Fatalf("expected filter[name]=Example, got %q", got)
+	}
+	if got := values.Get("filter[identifier]"); got != "pass.com.example" {
+		t.Fatalf("expected filter[identifier], got %q", got)
+	}
+	if got := values.Get("filter[id]"); got != "p1" {
+		t.Fatalf("expected filter[id]=p1, got %q", got)
+	}
+	if got := values.Get("sort"); got != "id" {
+		t.Fatalf("expected sort=id, got %q", got)
+	}
+	if got := values.Get("fields[passTypeIds]"); got != "identifier" {
+		t.Fatalf("expected fields[passTypeIds], got %q", got)
+	}
+	if got := values.Get("fields[certificates]"); got != "certificateType" {
+		t.Fatalf("expected fields[certificates], got %q", got)
+	}
+	if got := values.Get("include"); got != "certificates" {
+		t.Fatalf("expected include=certificates, got %q", got)
+	}
+	if got := values.Get("limit[certificates]"); got != "5" {
+		t.Fatalf("expected limit[certificates]=5, got %q", got)
+	}
+	if got := values.Get("limit"); got != "10" {
+		t.Fatalf("expected limit=10, got %q", got)
+	}
+}
+
+func TestBuildPassTypeIDCertificatesQuery(t *testing.T) {
+	query := &passTypeIDCertificatesQuery{}
+	opts := []PassTypeIDCertificatesOption{
+		WithPassTypeIDCertificatesFilterDisplayName("Cert Name"),
+		WithPassTypeIDCertificatesFilterCertificateTypes("PASS_TYPE_ID"),
+		WithPassTypeIDCertificatesFilterSerialNumbers("SN123"),
+		WithPassTypeIDCertificatesFilterIDs("c1"),
+		WithPassTypeIDCertificatesSort("serialNumber"),
+		WithPassTypeIDCertificatesFields([]string{"serialNumber"}),
+		WithPassTypeIDCertificatesPassTypeFields([]string{"identifier"}),
+		WithPassTypeIDCertificatesInclude([]string{"passTypeId"}),
+		WithPassTypeIDCertificatesLimit(5),
+	}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	values, err := url.ParseQuery(buildPassTypeIDCertificatesQuery(query))
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("filter[displayName]"); got != "Cert Name" {
+		t.Fatalf("expected filter[displayName], got %q", got)
+	}
+	if got := values.Get("filter[certificateType]"); got != "PASS_TYPE_ID" {
+		t.Fatalf("expected filter[certificateType], got %q", got)
+	}
+	if got := values.Get("filter[serialNumber]"); got != "SN123" {
+		t.Fatalf("expected filter[serialNumber], got %q", got)
+	}
+	if got := values.Get("filter[id]"); got != "c1" {
+		t.Fatalf("expected filter[id]=c1, got %q", got)
+	}
+	if got := values.Get("sort"); got != "serialNumber" {
+		t.Fatalf("expected sort=serialNumber, got %q", got)
+	}
+	if got := values.Get("fields[certificates]"); got != "serialNumber" {
+		t.Fatalf("expected fields[certificates], got %q", got)
+	}
+	if got := values.Get("fields[passTypeIds]"); got != "identifier" {
+		t.Fatalf("expected fields[passTypeIds], got %q", got)
+	}
+	if got := values.Get("include"); got != "passTypeId" {
+		t.Fatalf("expected include=passTypeId, got %q", got)
+	}
+	if got := values.Get("limit"); got != "5" {
+		t.Fatalf("expected limit=5, got %q", got)
+	}
+}
+
 func TestBuildPerfPowerMetricsQuery(t *testing.T) {
 	query := &perfPowerMetricsQuery{
 		platforms:   []string{"IOS"},

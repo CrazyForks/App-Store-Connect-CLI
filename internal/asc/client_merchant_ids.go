@@ -39,9 +39,17 @@ func (c *Client) GetMerchantIDs(ctx context.Context, opts ...MerchantIDsOption) 
 }
 
 // GetMerchantID retrieves a single merchant ID by ID.
-func (c *Client) GetMerchantID(ctx context.Context, id string) (*MerchantIDResponse, error) {
+func (c *Client) GetMerchantID(ctx context.Context, id string, opts ...MerchantIDsOption) (*MerchantIDResponse, error) {
+	query := &merchantIDsQuery{}
+	for _, opt := range opts {
+		opt(query)
+	}
+
 	id = strings.TrimSpace(id)
 	path := fmt.Sprintf("/v1/merchantIds/%s", id)
+	if queryString := buildMerchantIDsQuery(query); queryString != "" {
+		path += "?" + queryString
+	}
 	data, err := c.do(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
