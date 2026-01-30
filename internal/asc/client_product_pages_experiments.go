@@ -238,6 +238,9 @@ func (c *Client) GetAppStoreVersionExperiments(ctx context.Context, versionID st
 	}
 
 	versionID = strings.TrimSpace(versionID)
+	if query.nextURL == "" && versionID == "" {
+		return nil, fmt.Errorf("versionID is required")
+	}
 	path := fmt.Sprintf("/v1/appStoreVersions/%s/appStoreVersionExperiments", versionID)
 	if query.nextURL != "" {
 		if err := validateNextURL(query.nextURL); err != nil {
@@ -269,6 +272,9 @@ func (c *Client) GetAppStoreVersionExperimentsV2(ctx context.Context, appID stri
 	}
 
 	appID = strings.TrimSpace(appID)
+	if query.nextURL == "" && appID == "" {
+		return nil, fmt.Errorf("appID is required")
+	}
 	path := fmt.Sprintf("/v1/apps/%s/appStoreVersionExperimentsV2", appID)
 	if query.nextURL != "" {
 		if err := validateNextURL(query.nextURL); err != nil {
@@ -295,6 +301,9 @@ func (c *Client) GetAppStoreVersionExperimentsV2(ctx context.Context, appID stri
 // GetAppStoreVersionExperiment retrieves an experiment by ID (v1).
 func (c *Client) GetAppStoreVersionExperiment(ctx context.Context, experimentID string) (*AppStoreVersionExperimentResponse, error) {
 	experimentID = strings.TrimSpace(experimentID)
+	if experimentID == "" {
+		return nil, fmt.Errorf("experimentID is required")
+	}
 	data, err := c.do(ctx, "GET", fmt.Sprintf("/v1/appStoreVersionExperiments/%s", experimentID), nil)
 	if err != nil {
 		return nil, err
@@ -311,6 +320,9 @@ func (c *Client) GetAppStoreVersionExperiment(ctx context.Context, experimentID 
 // GetAppStoreVersionExperimentV2 retrieves an experiment by ID (v2).
 func (c *Client) GetAppStoreVersionExperimentV2(ctx context.Context, experimentID string) (*AppStoreVersionExperimentV2Response, error) {
 	experimentID = strings.TrimSpace(experimentID)
+	if experimentID == "" {
+		return nil, fmt.Errorf("experimentID is required")
+	}
 	data, err := c.do(ctx, "GET", fmt.Sprintf("/v2/appStoreVersionExperiments/%s", experimentID), nil)
 	if err != nil {
 		return nil, err
@@ -510,6 +522,9 @@ func (c *Client) GetAppStoreVersionExperimentTreatments(ctx context.Context, exp
 	}
 
 	experimentID = strings.TrimSpace(experimentID)
+	if query.nextURL == "" && experimentID == "" {
+		return nil, fmt.Errorf("experimentID is required")
+	}
 	path := fmt.Sprintf("/v1/appStoreVersionExperiments/%s/appStoreVersionExperimentTreatments", experimentID)
 	if query.nextURL != "" {
 		if err := validateNextURL(query.nextURL); err != nil {
@@ -536,6 +551,9 @@ func (c *Client) GetAppStoreVersionExperimentTreatments(ctx context.Context, exp
 // GetAppStoreVersionExperimentTreatment retrieves a treatment by ID.
 func (c *Client) GetAppStoreVersionExperimentTreatment(ctx context.Context, treatmentID string) (*AppStoreVersionExperimentTreatmentResponse, error) {
 	treatmentID = strings.TrimSpace(treatmentID)
+	if treatmentID == "" {
+		return nil, fmt.Errorf("treatmentID is required")
+	}
 	data, err := c.do(ctx, "GET", fmt.Sprintf("/v1/appStoreVersionExperimentTreatments/%s", treatmentID), nil)
 	if err != nil {
 		return nil, err
@@ -647,6 +665,9 @@ func (c *Client) GetAppStoreVersionExperimentTreatmentLocalizations(ctx context.
 	}
 
 	treatmentID = strings.TrimSpace(treatmentID)
+	if query.nextURL == "" && treatmentID == "" {
+		return nil, fmt.Errorf("treatmentID is required")
+	}
 	path := fmt.Sprintf("/v1/appStoreVersionExperimentTreatments/%s/appStoreVersionExperimentTreatmentLocalizations", treatmentID)
 	if query.nextURL != "" {
 		if err := validateNextURL(query.nextURL); err != nil {
@@ -673,6 +694,9 @@ func (c *Client) GetAppStoreVersionExperimentTreatmentLocalizations(ctx context.
 // GetAppStoreVersionExperimentTreatmentLocalization retrieves a treatment localization by ID.
 func (c *Client) GetAppStoreVersionExperimentTreatmentLocalization(ctx context.Context, localizationID string) (*AppStoreVersionExperimentTreatmentLocalizationResponse, error) {
 	localizationID = strings.TrimSpace(localizationID)
+	if localizationID == "" {
+		return nil, fmt.Errorf("localizationID is required")
+	}
 	data, err := c.do(ctx, "GET", fmt.Sprintf("/v1/appStoreVersionExperimentTreatmentLocalizations/%s", localizationID), nil)
 	if err != nil {
 		return nil, err
