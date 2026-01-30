@@ -145,17 +145,19 @@ func GameCenterAchievementsGetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 
 	achievementID := fs.String("id", "", "Game Center achievement ID")
+	v2 := fs.Bool("v2", false, "Use v2 achievements endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
 	return &ffcli.Command{
 		Name:       "get",
-		ShortUsage: "asc game-center achievements get --id \"ACHIEVEMENT_ID\"",
+		ShortUsage: "asc game-center achievements get --id \"ACHIEVEMENT_ID\" [--v2]",
 		ShortHelp:  "Get a Game Center achievement by ID.",
 		LongHelp: `Get a Game Center achievement by ID.
 
 Examples:
-  asc game-center achievements get --id "ACHIEVEMENT_ID"`,
+  asc game-center achievements get --id "ACHIEVEMENT_ID"
+  asc game-center achievements get --id "ACHIEVEMENT_ID" --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -173,7 +175,12 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.GetGameCenterAchievement(requestCtx, id)
+			var resp *asc.GameCenterAchievementResponse
+			if *v2 {
+				resp, err = client.GetGameCenterAchievementV2(requestCtx, id)
+			} else {
+				resp, err = client.GetGameCenterAchievement(requestCtx, id)
+			}
 			if err != nil {
 				return fmt.Errorf("game-center achievements get: failed to fetch: %w", err)
 			}
@@ -193,6 +200,8 @@ func GameCenterAchievementsCreateCommand() *ffcli.Command {
 	points := fs.Int("points", 0, "Points value (1-100)")
 	showBeforeEarned := fs.Bool("show-before-earned", true, "Show achievement before it is earned")
 	repeatable := fs.Bool("repeatable", false, "Achievement can be earned multiple times")
+	groupID := fs.String("group-id", "", "Game Center group ID (v2 only)")
+	v2 := fs.Bool("v2", false, "Use v2 achievements endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -204,12 +213,19 @@ func GameCenterAchievementsCreateCommand() *ffcli.Command {
 
 Examples:
   asc game-center achievements create --app "APP_ID" --reference-name "First Win" --vendor-id "com.example.firstwin" --points 10
-  asc game-center achievements create --app "APP_ID" --reference-name "Master" --vendor-id "com.example.master" --points 100 --repeatable`,
+  asc game-center achievements create --app "APP_ID" --reference-name "Master" --vendor-id "com.example.master" --points 100 --repeatable
+  asc game-center achievements create --group-id "GROUP_ID" --reference-name "Group Win" --vendor-id "grp.com.example.groupwin" --points 10 --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			group := strings.TrimSpace(*groupID)
+			if group != "" && strings.TrimSpace(*appID) != "" {
+				fmt.Fprintln(os.Stderr, "Error: --app cannot be used with --group-id")
+				return flag.ErrHelp
+			}
+
 			resolvedAppID := resolveAppID(*appID)
-			if resolvedAppID == "" {
+			if group == "" && resolvedAppID == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
 				return flag.ErrHelp
 			}
@@ -223,6 +239,10 @@ Examples:
 			vendor := strings.TrimSpace(*vendorID)
 			if vendor == "" {
 				fmt.Fprintln(os.Stderr, "Error: --vendor-id is required")
+				return flag.ErrHelp
+			}
+			if group != "" && !strings.HasPrefix(vendor, "grp.") {
+				fmt.Fprintln(os.Stderr, "Error: --vendor-id must start with \"grp.\" when using --group-id")
 				return flag.ErrHelp
 			}
 
@@ -239,10 +259,14 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			// Get Game Center detail ID first
-			gcDetailID, err := client.GetGameCenterDetailID(requestCtx, resolvedAppID)
-			if err != nil {
-				return fmt.Errorf("game-center achievements create: failed to get Game Center detail: %w", err)
+			gcDetailID := ""
+			if group == "" {
+				// Get Game Center detail ID first
+				var err error
+				gcDetailID, err = client.GetGameCenterDetailID(requestCtx, resolvedAppID)
+				if err != nil {
+					return fmt.Errorf("game-center achievements create: failed to get Game Center detail: %w", err)
+				}
 			}
 
 			attrs := asc.GameCenterAchievementCreateAttributes{
@@ -253,7 +277,13 @@ Examples:
 				Repeatable:       *repeatable,
 			}
 
-			resp, err := client.CreateGameCenterAchievement(requestCtx, gcDetailID, attrs)
+			useV2 := *v2 || group != ""
+			var resp *asc.GameCenterAchievementResponse
+			if useV2 {
+				resp, err = client.CreateGameCenterAchievementV2(requestCtx, gcDetailID, group, attrs)
+			} else {
+				resp, err = client.CreateGameCenterAchievement(requestCtx, gcDetailID, attrs)
+			}
 			if err != nil {
 				return fmt.Errorf("game-center achievements create: failed to create: %w", err)
 			}
@@ -273,6 +303,7 @@ func GameCenterAchievementsUpdateCommand() *ffcli.Command {
 	showBeforeEarned := fs.String("show-before-earned", "", "Show achievement before it is earned (true/false)")
 	repeatable := fs.String("repeatable", "", "Achievement can be earned multiple times (true/false)")
 	archived := fs.String("archived", "", "Archive the achievement (true/false)")
+	v2 := fs.Bool("v2", false, "Use v2 achievements endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -285,7 +316,8 @@ func GameCenterAchievementsUpdateCommand() *ffcli.Command {
 Examples:
   asc game-center achievements update --id "ACHIEVEMENT_ID" --reference-name "New Name"
   asc game-center achievements update --id "ACHIEVEMENT_ID" --points 20
-  asc game-center achievements update --id "ACHIEVEMENT_ID" --archived true`,
+  asc game-center achievements update --id "ACHIEVEMENT_ID" --archived true
+  asc game-center achievements update --id "ACHIEVEMENT_ID" --points 20 --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -356,7 +388,12 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.UpdateGameCenterAchievement(requestCtx, id, attrs)
+			var resp *asc.GameCenterAchievementResponse
+			if *v2 {
+				resp, err = client.UpdateGameCenterAchievementV2(requestCtx, id, attrs)
+			} else {
+				resp, err = client.UpdateGameCenterAchievement(requestCtx, id, attrs)
+			}
 			if err != nil {
 				return fmt.Errorf("game-center achievements update: failed to update: %w", err)
 			}
@@ -372,17 +409,19 @@ func GameCenterAchievementsDeleteCommand() *ffcli.Command {
 
 	achievementID := fs.String("id", "", "Game Center achievement ID")
 	confirm := fs.Bool("confirm", false, "Confirm deletion")
+	v2 := fs.Bool("v2", false, "Use v2 achievements endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
 	return &ffcli.Command{
 		Name:       "delete",
-		ShortUsage: "asc game-center achievements delete --id \"ACHIEVEMENT_ID\" --confirm",
+		ShortUsage: "asc game-center achievements delete --id \"ACHIEVEMENT_ID\" --confirm [--v2]",
 		ShortHelp:  "Delete a Game Center achievement.",
 		LongHelp: `Delete a Game Center achievement.
 
 Examples:
-  asc game-center achievements delete --id "ACHIEVEMENT_ID" --confirm`,
+  asc game-center achievements delete --id "ACHIEVEMENT_ID" --confirm
+  asc game-center achievements delete --id "ACHIEVEMENT_ID" --confirm --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -404,8 +443,14 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			if err := client.DeleteGameCenterAchievement(requestCtx, id); err != nil {
-				return fmt.Errorf("game-center achievements delete: failed to delete: %w", err)
+			if *v2 {
+				if err := client.DeleteGameCenterAchievementV2(requestCtx, id); err != nil {
+					return fmt.Errorf("game-center achievements delete: failed to delete: %w", err)
+				}
+			} else {
+				if err := client.DeleteGameCenterAchievement(requestCtx, id); err != nil {
+					return fmt.Errorf("game-center achievements delete: failed to delete: %w", err)
+				}
 			}
 
 			result := &asc.GameCenterAchievementDeleteResult{

@@ -275,17 +275,19 @@ func GameCenterLeaderboardsGetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 
 	leaderboardID := fs.String("id", "", "Game Center leaderboard ID")
+	v2 := fs.Bool("v2", false, "Use v2 leaderboards endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
 	return &ffcli.Command{
 		Name:       "get",
-		ShortUsage: "asc game-center leaderboards get --id \"LEADERBOARD_ID\"",
+		ShortUsage: "asc game-center leaderboards get --id \"LEADERBOARD_ID\" [--v2]",
 		ShortHelp:  "Get a Game Center leaderboard by ID.",
 		LongHelp: `Get a Game Center leaderboard by ID.
 
 Examples:
-  asc game-center leaderboards get --id "LEADERBOARD_ID"`,
+  asc game-center leaderboards get --id "LEADERBOARD_ID"
+  asc game-center leaderboards get --id "LEADERBOARD_ID" --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -303,7 +305,12 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.GetGameCenterLeaderboard(requestCtx, id)
+			var resp *asc.GameCenterLeaderboardResponse
+			if *v2 {
+				resp, err = client.GetGameCenterLeaderboardV2(requestCtx, id)
+			} else {
+				resp, err = client.GetGameCenterLeaderboard(requestCtx, id)
+			}
 			if err != nil {
 				return fmt.Errorf("game-center leaderboards get: failed to fetch: %w", err)
 			}
@@ -325,6 +332,8 @@ func GameCenterLeaderboardsCreateCommand() *ffcli.Command {
 	submissionType := fs.String("submission-type", "", "Submission type: BEST_SCORE, MOST_RECENT_SCORE")
 	scoreRangeStart := fs.String("score-range-start", "", "Score range start (optional)")
 	scoreRangeEnd := fs.String("score-range-end", "", "Score range end (optional)")
+	groupID := fs.String("group-id", "", "Game Center group ID (v2 only)")
+	v2 := fs.Bool("v2", false, "Use v2 leaderboards endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -336,12 +345,19 @@ func GameCenterLeaderboardsCreateCommand() *ffcli.Command {
 
 Examples:
   asc game-center leaderboards create --app "APP_ID" --reference-name "High Score" --vendor-id "com.example.highscore" --formatter INTEGER --sort DESC --submission-type BEST_SCORE
-  asc game-center leaderboards create --app "APP_ID" --reference-name "Time Trial" --vendor-id "com.example.timetrial" --formatter ELAPSED_TIME_MILLISECOND --sort ASC --submission-type BEST_SCORE`,
+  asc game-center leaderboards create --app "APP_ID" --reference-name "Time Trial" --vendor-id "com.example.timetrial" --formatter ELAPSED_TIME_MILLISECOND --sort ASC --submission-type BEST_SCORE
+  asc game-center leaderboards create --group-id "GROUP_ID" --reference-name "Group Score" --vendor-id "grp.com.example.groupscore" --formatter INTEGER --sort DESC --submission-type BEST_SCORE --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			group := strings.TrimSpace(*groupID)
+			if group != "" && strings.TrimSpace(*appID) != "" {
+				fmt.Fprintln(os.Stderr, "Error: --app cannot be used with --group-id")
+				return flag.ErrHelp
+			}
+
 			resolvedAppID := resolveAppID(*appID)
-			if resolvedAppID == "" {
+			if group == "" && resolvedAppID == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
 				return flag.ErrHelp
 			}
@@ -355,6 +371,10 @@ Examples:
 			vendor := strings.TrimSpace(*vendorID)
 			if vendor == "" {
 				fmt.Fprintln(os.Stderr, "Error: --vendor-id is required")
+				return flag.ErrHelp
+			}
+			if group != "" && !strings.HasPrefix(vendor, "grp.") {
+				fmt.Fprintln(os.Stderr, "Error: --vendor-id must start with \"grp.\" when using --group-id")
 				return flag.ErrHelp
 			}
 
@@ -396,10 +416,14 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			// Get Game Center detail ID first
-			gcDetailID, err := client.GetGameCenterDetailID(requestCtx, resolvedAppID)
-			if err != nil {
-				return fmt.Errorf("game-center leaderboards create: failed to get Game Center detail: %w", err)
+			gcDetailID := ""
+			if group == "" {
+				// Get Game Center detail ID first
+				var err error
+				gcDetailID, err = client.GetGameCenterDetailID(requestCtx, resolvedAppID)
+				if err != nil {
+					return fmt.Errorf("game-center leaderboards create: failed to get Game Center detail: %w", err)
+				}
 			}
 
 			attrs := asc.GameCenterLeaderboardCreateAttributes{
@@ -412,7 +436,13 @@ Examples:
 				ScoreRangeEnd:    strings.TrimSpace(*scoreRangeEnd),
 			}
 
-			resp, err := client.CreateGameCenterLeaderboard(requestCtx, gcDetailID, attrs)
+			useV2 := *v2 || group != ""
+			var resp *asc.GameCenterLeaderboardResponse
+			if useV2 {
+				resp, err = client.CreateGameCenterLeaderboardV2(requestCtx, gcDetailID, group, attrs)
+			} else {
+				resp, err = client.CreateGameCenterLeaderboard(requestCtx, gcDetailID, attrs)
+			}
 			if err != nil {
 				return fmt.Errorf("game-center leaderboards create: failed to create: %w", err)
 			}
@@ -429,6 +459,7 @@ func GameCenterLeaderboardsUpdateCommand() *ffcli.Command {
 	leaderboardID := fs.String("id", "", "Game Center leaderboard ID")
 	referenceName := fs.String("reference-name", "", "Reference name for the leaderboard")
 	archived := fs.String("archived", "", "Archive the leaderboard (true/false)")
+	v2 := fs.Bool("v2", false, "Use v2 leaderboards endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -440,7 +471,8 @@ func GameCenterLeaderboardsUpdateCommand() *ffcli.Command {
 
 Examples:
   asc game-center leaderboards update --id "LEADERBOARD_ID" --reference-name "New Name"
-  asc game-center leaderboards update --id "LEADERBOARD_ID" --archived true`,
+  asc game-center leaderboards update --id "LEADERBOARD_ID" --archived true
+  asc game-center leaderboards update --id "LEADERBOARD_ID" --archived true --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -482,7 +514,12 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.UpdateGameCenterLeaderboard(requestCtx, id, attrs)
+			var resp *asc.GameCenterLeaderboardResponse
+			if *v2 {
+				resp, err = client.UpdateGameCenterLeaderboardV2(requestCtx, id, attrs)
+			} else {
+				resp, err = client.UpdateGameCenterLeaderboard(requestCtx, id, attrs)
+			}
 			if err != nil {
 				return fmt.Errorf("game-center leaderboards update: failed to update: %w", err)
 			}
@@ -498,17 +535,19 @@ func GameCenterLeaderboardsDeleteCommand() *ffcli.Command {
 
 	leaderboardID := fs.String("id", "", "Game Center leaderboard ID")
 	confirm := fs.Bool("confirm", false, "Confirm deletion")
+	v2 := fs.Bool("v2", false, "Use v2 leaderboards endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
 	return &ffcli.Command{
 		Name:       "delete",
-		ShortUsage: "asc game-center leaderboards delete --id \"LEADERBOARD_ID\" --confirm",
+		ShortUsage: "asc game-center leaderboards delete --id \"LEADERBOARD_ID\" --confirm [--v2]",
 		ShortHelp:  "Delete a Game Center leaderboard.",
 		LongHelp: `Delete a Game Center leaderboard.
 
 Examples:
-  asc game-center leaderboards delete --id "LEADERBOARD_ID" --confirm`,
+  asc game-center leaderboards delete --id "LEADERBOARD_ID" --confirm
+  asc game-center leaderboards delete --id "LEADERBOARD_ID" --confirm --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -530,8 +569,14 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			if err := client.DeleteGameCenterLeaderboard(requestCtx, id); err != nil {
-				return fmt.Errorf("game-center leaderboards delete: failed to delete: %w", err)
+			if *v2 {
+				if err := client.DeleteGameCenterLeaderboardV2(requestCtx, id); err != nil {
+					return fmt.Errorf("game-center leaderboards delete: failed to delete: %w", err)
+				}
+			} else {
+				if err := client.DeleteGameCenterLeaderboard(requestCtx, id); err != nil {
+					return fmt.Errorf("game-center leaderboards delete: failed to delete: %w", err)
+				}
 			}
 
 			result := &asc.GameCenterLeaderboardDeleteResult{

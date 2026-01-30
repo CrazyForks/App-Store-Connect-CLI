@@ -356,6 +356,7 @@ func GameCenterGroupAchievementsSetCommand() *ffcli.Command {
 
 	groupID := fs.String("group-id", "", "Game Center group ID")
 	ids := fs.String("ids", "", "Comma-separated achievement IDs")
+	v2 := fs.Bool("v2", false, "Use v2 relationships endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -366,7 +367,8 @@ func GameCenterGroupAchievementsSetCommand() *ffcli.Command {
 		LongHelp: `Replace group achievements relationships.
 
 Examples:
-  asc game-center groups achievements set --group-id "GROUP_ID" --ids "ACH_1,ACH_2"`,
+  asc game-center groups achievements set --group-id "GROUP_ID" --ids "ACH_1,ACH_2"
+  asc game-center groups achievements set --group-id "GROUP_ID" --ids "ACH_1,ACH_2" --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -389,8 +391,14 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			if err := client.UpdateGameCenterGroupAchievements(requestCtx, id, idsValue); err != nil {
-				return fmt.Errorf("game-center groups achievements set: failed to update: %w", err)
+			if *v2 {
+				if err := client.UpdateGameCenterGroupAchievementsV2(requestCtx, id, idsValue); err != nil {
+					return fmt.Errorf("game-center groups achievements set: failed to update: %w", err)
+				}
+			} else {
+				if err := client.UpdateGameCenterGroupAchievements(requestCtx, id, idsValue); err != nil {
+					return fmt.Errorf("game-center groups achievements set: failed to update: %w", err)
+				}
 			}
 
 			result := &asc.LinkagesResponse{Data: resourceDataList(asc.ResourceTypeGameCenterAchievements, idsValue)}
@@ -428,6 +436,7 @@ func GameCenterGroupLeaderboardsSetCommand() *ffcli.Command {
 
 	groupID := fs.String("group-id", "", "Game Center group ID")
 	ids := fs.String("ids", "", "Comma-separated leaderboard IDs")
+	v2 := fs.Bool("v2", false, "Use v2 relationships endpoint")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -438,7 +447,8 @@ func GameCenterGroupLeaderboardsSetCommand() *ffcli.Command {
 		LongHelp: `Replace group leaderboards relationships.
 
 Examples:
-  asc game-center groups leaderboards set --group-id "GROUP_ID" --ids "LB_1,LB_2"`,
+  asc game-center groups leaderboards set --group-id "GROUP_ID" --ids "LB_1,LB_2"
+  asc game-center groups leaderboards set --group-id "GROUP_ID" --ids "LB_1,LB_2" --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -461,8 +471,14 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			if err := client.UpdateGameCenterGroupLeaderboards(requestCtx, id, idsValue); err != nil {
-				return fmt.Errorf("game-center groups leaderboards set: failed to update: %w", err)
+			if *v2 {
+				if err := client.UpdateGameCenterGroupLeaderboardsV2(requestCtx, id, idsValue); err != nil {
+					return fmt.Errorf("game-center groups leaderboards set: failed to update: %w", err)
+				}
+			} else {
+				if err := client.UpdateGameCenterGroupLeaderboards(requestCtx, id, idsValue); err != nil {
+					return fmt.Errorf("game-center groups leaderboards set: failed to update: %w", err)
+				}
 			}
 
 			result := &asc.LinkagesResponse{Data: resourceDataList(asc.ResourceTypeGameCenterLeaderboards, idsValue)}

@@ -41,6 +41,14 @@ func TestGameCenterLeaderboardsCreateValidationErrors(t *testing.T) {
 			args: []string{"game-center", "leaderboards", "create", "--reference-name", "Test", "--vendor-id", "com.test", "--formatter", "INTEGER", "--sort", "DESC", "--submission-type", "BEST_SCORE"},
 		},
 		{
+			name: "app and group",
+			args: []string{"game-center", "leaderboards", "create", "--app", "APP_ID", "--group-id", "GROUP_ID", "--reference-name", "Test", "--vendor-id", "com.test", "--formatter", "INTEGER", "--sort", "DESC", "--submission-type", "BEST_SCORE"},
+		},
+		{
+			name: "group vendor prefix",
+			args: []string{"game-center", "leaderboards", "create", "--group-id", "GROUP_ID", "--reference-name", "Test", "--vendor-id", "com.test", "--formatter", "INTEGER", "--sort", "DESC", "--submission-type", "BEST_SCORE"},
+		},
+		{
 			name: "missing reference-name",
 			args: []string{"game-center", "leaderboards", "create", "--app", "APP_ID", "--vendor-id", "com.test", "--formatter", "INTEGER", "--sort", "DESC", "--submission-type", "BEST_SCORE"},
 		},

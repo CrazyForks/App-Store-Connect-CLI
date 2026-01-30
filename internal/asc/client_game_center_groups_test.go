@@ -164,6 +164,30 @@ func TestUpdateGameCenterGroupAchievements(t *testing.T) {
 	}
 }
 
+func TestUpdateGameCenterGroupAchievementsV2(t *testing.T) {
+	response := jsonResponse(http.StatusNoContent, "")
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/gameCenterGroups/group-1/relationships/gameCenterAchievementsV2" {
+			t.Fatalf("expected path /v1/gameCenterGroups/group-1/relationships/gameCenterAchievementsV2, got %s", req.URL.Path)
+		}
+		var payload RelationshipRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if len(payload.Data) != 1 || payload.Data[0].ID != "ach-1" {
+			t.Fatalf("unexpected payload: %+v", payload.Data)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if err := client.UpdateGameCenterGroupAchievementsV2(context.Background(), "group-1", []string{"ach-1"}); err != nil {
+		t.Fatalf("UpdateGameCenterGroupAchievementsV2() error: %v", err)
+	}
+}
+
 func TestUpdateGameCenterGroupLeaderboards(t *testing.T) {
 	response := jsonResponse(http.StatusNoContent, "")
 	client := newTestClient(t, func(req *http.Request) {
@@ -185,6 +209,30 @@ func TestUpdateGameCenterGroupLeaderboards(t *testing.T) {
 
 	if err := client.UpdateGameCenterGroupLeaderboards(context.Background(), "group-1", []string{"lb-1"}); err != nil {
 		t.Fatalf("UpdateGameCenterGroupLeaderboards() error: %v", err)
+	}
+}
+
+func TestUpdateGameCenterGroupLeaderboardsV2(t *testing.T) {
+	response := jsonResponse(http.StatusNoContent, "")
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/gameCenterGroups/group-1/relationships/gameCenterLeaderboardsV2" {
+			t.Fatalf("expected path /v1/gameCenterGroups/group-1/relationships/gameCenterLeaderboardsV2, got %s", req.URL.Path)
+		}
+		var payload RelationshipRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if len(payload.Data) != 2 {
+			t.Fatalf("unexpected payload: %+v", payload.Data)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if err := client.UpdateGameCenterGroupLeaderboardsV2(context.Background(), "group-1", []string{"lb-1", "lb-2"}); err != nil {
+		t.Fatalf("UpdateGameCenterGroupLeaderboardsV2() error: %v", err)
 	}
 }
 

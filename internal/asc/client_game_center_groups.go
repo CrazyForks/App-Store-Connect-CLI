@@ -148,6 +148,21 @@ func (c *Client) UpdateGameCenterGroupAchievements(ctx context.Context, groupID 
 	return err
 }
 
+// UpdateGameCenterGroupAchievementsV2 replaces the group's v2 achievements.
+func (c *Client) UpdateGameCenterGroupAchievementsV2(ctx context.Context, groupID string, achievementIDs []string) error {
+	payload := RelationshipRequest{
+		Data: buildRelationshipData(ResourceTypeGameCenterAchievements, achievementIDs),
+	}
+	body, err := BuildRequestBody(payload)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/v1/gameCenterGroups/%s/relationships/gameCenterAchievementsV2", strings.TrimSpace(groupID))
+	_, err = c.do(ctx, http.MethodPatch, path, body)
+	return err
+}
+
 // UpdateGameCenterGroupLeaderboards replaces the group's leaderboards.
 func (c *Client) UpdateGameCenterGroupLeaderboards(ctx context.Context, groupID string, leaderboardIDs []string) error {
 	payload := RelationshipRequest{
@@ -159,6 +174,21 @@ func (c *Client) UpdateGameCenterGroupLeaderboards(ctx context.Context, groupID 
 	}
 
 	path := fmt.Sprintf("/v1/gameCenterGroups/%s/relationships/gameCenterLeaderboards", strings.TrimSpace(groupID))
+	_, err = c.do(ctx, http.MethodPatch, path, body)
+	return err
+}
+
+// UpdateGameCenterGroupLeaderboardsV2 replaces the group's v2 leaderboards.
+func (c *Client) UpdateGameCenterGroupLeaderboardsV2(ctx context.Context, groupID string, leaderboardIDs []string) error {
+	payload := RelationshipRequest{
+		Data: buildRelationshipData(ResourceTypeGameCenterLeaderboards, leaderboardIDs),
+	}
+	body, err := BuildRequestBody(payload)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/v1/gameCenterGroups/%s/relationships/gameCenterLeaderboardsV2", strings.TrimSpace(groupID))
 	_, err = c.do(ctx, http.MethodPatch, path, body)
 	return err
 }

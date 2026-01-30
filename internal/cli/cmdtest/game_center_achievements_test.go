@@ -60,6 +60,14 @@ func TestGameCenterAchievementsCreateValidationErrors(t *testing.T) {
 			args: []string{"game-center", "achievements", "create", "--reference-name", "Test", "--vendor-id", "com.test", "--points", "10"},
 		},
 		{
+			name: "app and group",
+			args: []string{"game-center", "achievements", "create", "--app", "APP_ID", "--group-id", "GROUP_ID", "--reference-name", "Test", "--vendor-id", "com.test", "--points", "10"},
+		},
+		{
+			name: "group vendor prefix",
+			args: []string{"game-center", "achievements", "create", "--group-id", "GROUP_ID", "--reference-name", "Test", "--vendor-id", "com.test", "--points", "10"},
+		},
+		{
 			name: "missing reference-name",
 			args: []string{"game-center", "achievements", "create", "--app", "APP_ID", "--vendor-id", "com.test", "--points", "10"},
 		},
