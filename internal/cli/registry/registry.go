@@ -24,6 +24,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/bundleids"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/categories"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/certificates"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/completion"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/crashes"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/devices"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/encryption"
@@ -79,7 +80,7 @@ func VersionCommand(version string) *ffcli.Command {
 
 // Subcommands returns all root subcommands in display order.
 func Subcommands(version string) []*ffcli.Command {
-	return []*ffcli.Command{
+	subs := []*ffcli.Command{
 		auth.AuthCommand(),
 		install.InstallCommand(),
 		feedback.FeedbackCommand(),
@@ -143,4 +144,7 @@ func Subcommands(version string) []*ffcli.Command {
 		gamecenter.GameCenterCommand(),
 		VersionCommand(version),
 	}
+
+	subs = append(subs, completion.CompletionCommand(subs))
+	return subs
 }
