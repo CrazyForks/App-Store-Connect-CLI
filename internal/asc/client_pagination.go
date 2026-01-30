@@ -324,6 +324,20 @@ func typeOf(p PaginatedResponse) string {
 		return "WinBackOfferPricesResponse"
 	case *AppStoreVersionsResponse:
 		return "AppStoreVersionsResponse"
+	case *AppCustomProductPagesResponse:
+		return "AppCustomProductPagesResponse"
+	case *AppCustomProductPageVersionsResponse:
+		return "AppCustomProductPageVersionsResponse"
+	case *AppCustomProductPageLocalizationsResponse:
+		return "AppCustomProductPageLocalizationsResponse"
+	case *AppStoreVersionExperimentsResponse:
+		return "AppStoreVersionExperimentsResponse"
+	case *AppStoreVersionExperimentsV2Response:
+		return "AppStoreVersionExperimentsV2Response"
+	case *AppStoreVersionExperimentTreatmentsResponse:
+		return "AppStoreVersionExperimentTreatmentsResponse"
+	case *AppStoreVersionExperimentTreatmentLocalizationsResponse:
+		return "AppStoreVersionExperimentTreatmentLocalizationsResponse"
 	case *BackgroundAssetsResponse:
 		return "BackgroundAssetsResponse"
 	case *BackgroundAssetVersionsResponse:
