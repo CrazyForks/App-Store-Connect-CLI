@@ -29,7 +29,7 @@ func OfferCodesCommand() *ffcli.Command {
 
 Examples:
   asc offer-codes get --offer-code-id "OFFER_CODE_ID"
-  asc offer-codes create --subscription-id "SUB_ID" --name "SPRING" --customer-eligibilities NEW --offer-eligibility STACK_WITH_INTRO_OFFERS --duration ONE_MONTH --offer-mode PAY_AS_YOU_GO --number-of-periods 1 --price-id "PRICE_ID"
+  asc offer-codes create --subscription-id "SUB_ID" --name "SPRING" --customer-eligibilities NEW --offer-eligibility STACK_WITH_INTRO_OFFERS --duration ONE_MONTH --offer-mode PAY_AS_YOU_GO --number-of-periods 1 --prices "USA:PRICE_POINT_ID"
   asc offer-codes update --offer-code-id "OFFER_CODE_ID" --active true
   asc offer-codes custom-codes list --offer-code-id "OFFER_CODE_ID"
   asc offer-codes prices list --offer-code-id "OFFER_CODE_ID"

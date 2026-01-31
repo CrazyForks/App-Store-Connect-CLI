@@ -238,6 +238,11 @@ type SubscriptionOfferCodeCreateAttributes struct {
 	AutoRenewEnabled      *bool                             `json:"autoRenewEnabled,omitempty"`
 }
 
+type SubscriptionOfferCodePrice struct {
+	TerritoryID  string
+	PricePointID string
+}
+
 // SubscriptionOfferCodeUpdateAttributes describes attributes for updating an offer code.
 type SubscriptionOfferCodeUpdateAttributes struct {
 	Active *bool `json:"active,omitempty"`
@@ -258,7 +263,8 @@ type SubscriptionOfferCodeCreateData struct {
 
 // SubscriptionOfferCodeCreateRequest is a request to create an offer code.
 type SubscriptionOfferCodeCreateRequest struct {
-	Data SubscriptionOfferCodeCreateData `json:"data"`
+	Data     SubscriptionOfferCodeCreateData          `json:"data"`
+	Included []SubscriptionOfferCodePriceInlineCreate `json:"included,omitempty"`
 }
 
 // SubscriptionOfferCodeUpdateData is the data portion of an offer code update request.

@@ -582,8 +582,17 @@ func TestCreateSubscriptionOfferCode(t *testing.T) {
 		if payload.Data.Relationships.Subscription.Data.ID != "sub-1" {
 			t.Fatalf("unexpected subscription relationship: %+v", payload.Data.Relationships.Subscription.Data)
 		}
-		if len(payload.Data.Relationships.Prices.Data) != 1 || payload.Data.Relationships.Prices.Data[0].ID != "price-1" {
+		if len(payload.Data.Relationships.Prices.Data) != 1 || payload.Data.Relationships.Prices.Data[0].ID != "${local-price-1}" {
 			t.Fatalf("unexpected price relationships: %+v", payload.Data.Relationships.Prices.Data)
+		}
+		if len(payload.Included) != 1 {
+			t.Fatalf("expected one included price, got %d", len(payload.Included))
+		}
+		if payload.Included[0].Relationships.Territory.Data.ID != "USA" {
+			t.Fatalf("expected territory USA, got %q", payload.Included[0].Relationships.Territory.Data.ID)
+		}
+		if payload.Included[0].Relationships.SubscriptionPricePoint.Data.ID != "price-1" {
+			t.Fatalf("expected price point price-1, got %q", payload.Included[0].Relationships.SubscriptionPricePoint.Data.ID)
 		}
 		assertAuthorized(t, req)
 	}, response)
@@ -596,7 +605,13 @@ func TestCreateSubscriptionOfferCode(t *testing.T) {
 		OfferMode:             SubscriptionOfferModeFreeTrial,
 		NumberOfPeriods:       1,
 	}
-	if _, err := client.CreateSubscriptionOfferCode(context.Background(), "sub-1", attrs, []string{"price-1"}); err != nil {
+	prices := []SubscriptionOfferCodePrice{
+		{
+			TerritoryID:  "USA",
+			PricePointID: "price-1",
+		},
+	}
+	if _, err := client.CreateSubscriptionOfferCode(context.Background(), "sub-1", attrs, prices); err != nil {
 		t.Fatalf("CreateSubscriptionOfferCode() error: %v", err)
 	}
 }

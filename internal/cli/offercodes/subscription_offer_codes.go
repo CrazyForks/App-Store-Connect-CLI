@@ -69,6 +69,32 @@ var offerCodeCustomerEligibilityMap = map[string]asc.SubscriptionCustomerEligibi
 	string(asc.SubscriptionCustomerEligibilityExpired):  asc.SubscriptionCustomerEligibilityExpired,
 }
 
+func parseOfferCodePrices(value string) ([]asc.SubscriptionOfferCodePrice, error) {
+	entries := parseCommaSeparatedIDs(value)
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	prices := make([]asc.SubscriptionOfferCodePrice, 0, len(entries))
+	for _, entry := range entries {
+		parts := strings.SplitN(entry, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("--prices must use TERRITORY:PRICE_POINT_ID entries")
+		}
+		territoryID := strings.ToUpper(strings.TrimSpace(parts[0]))
+		pricePointID := strings.TrimSpace(parts[1])
+		if territoryID == "" || pricePointID == "" {
+			return nil, fmt.Errorf("--prices must use TERRITORY:PRICE_POINT_ID entries")
+		}
+		prices = append(prices, asc.SubscriptionOfferCodePrice{
+			TerritoryID:  territoryID,
+			PricePointID: pricePointID,
+		})
+	}
+
+	return prices, nil
+}
+
 // OfferCodesGetCommand returns the offer codes get subcommand.
 func OfferCodesGetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
@@ -125,7 +151,8 @@ func OfferCodesCreateCommand() *ffcli.Command {
 	var numberOfPeriods optionalInt
 	fs.Var(&numberOfPeriods, "number-of-periods", "Number of periods (required)")
 	autoRenewEnabled := fs.String("auto-renew-enabled", "", "Auto-renew enabled (true/false)")
-	priceIDs := fs.String("price-id", "", "Offer code price ID(s), comma-separated (required)")
+	prices := fs.String("prices", "", "Offer code prices: TERRITORY:PRICE_POINT_ID entries (required)")
+	priceIDs := fs.String("price-id", "", "Deprecated: use --prices")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 
@@ -136,7 +163,7 @@ func OfferCodesCreateCommand() *ffcli.Command {
 		LongHelp: `Create a subscription offer code.
 
 Examples:
-  asc offer-codes create --subscription-id "SUB_ID" --name "SPRING" --customer-eligibilities NEW --offer-eligibility STACK_WITH_INTRO_OFFERS --duration ONE_MONTH --offer-mode PAY_AS_YOU_GO --number-of-periods 1 --price-id "PRICE_ID"`,
+  asc offer-codes create --subscription-id "SUB_ID" --name "SPRING" --customer-eligibilities NEW --offer-eligibility STACK_WITH_INTRO_OFFERS --duration ONE_MONTH --offer-mode PAY_AS_YOU_GO --number-of-periods 1 --prices "USA:PRICE_POINT_ID"`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -196,9 +223,16 @@ Examples:
 				return fmt.Errorf("offer-codes create: --number-of-periods must be greater than 0")
 			}
 
-			prices := parseCommaSeparatedIDs(*priceIDs)
-			if len(prices) == 0 {
-				fmt.Fprintln(os.Stderr, "Error: --price-id is required")
+			pricesValue := strings.TrimSpace(*prices)
+			if pricesValue == "" {
+				pricesValue = strings.TrimSpace(*priceIDs)
+			}
+			priceEntries, err := parseOfferCodePrices(pricesValue)
+			if err != nil {
+				return fmt.Errorf("offer-codes create: %w", err)
+			}
+			if len(priceEntries) == 0 {
+				fmt.Fprintln(os.Stderr, "Error: --prices is required")
 				return flag.ErrHelp
 			}
 
@@ -225,7 +259,7 @@ Examples:
 				AutoRenewEnabled:      autoRenewEnabledValue,
 			}
 
-			resp, err := client.CreateSubscriptionOfferCode(requestCtx, subscription, attrs, prices)
+			resp, err := client.CreateSubscriptionOfferCode(requestCtx, subscription, attrs, priceEntries)
 			if err != nil {
 				return fmt.Errorf("offer-codes create: failed to create: %w", err)
 			}

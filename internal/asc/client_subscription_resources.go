@@ -608,21 +608,48 @@ func (c *Client) GetSubscriptionOfferCode(ctx context.Context, offerCodeID strin
 }
 
 // CreateSubscriptionOfferCode creates a subscription offer code.
-func (c *Client) CreateSubscriptionOfferCode(ctx context.Context, subscriptionID string, attrs SubscriptionOfferCodeCreateAttributes, priceIDs []string) (*SubscriptionOfferCodeResponse, error) {
+func (c *Client) CreateSubscriptionOfferCode(ctx context.Context, subscriptionID string, attrs SubscriptionOfferCodeCreateAttributes, prices []SubscriptionOfferCodePrice) (*SubscriptionOfferCodeResponse, error) {
 	subscriptionID = strings.TrimSpace(subscriptionID)
-	priceIDs = normalizeList(priceIDs)
 	if subscriptionID == "" {
 		return nil, fmt.Errorf("subscription ID is required")
 	}
-	if len(priceIDs) == 0 {
-		return nil, fmt.Errorf("price IDs are required")
+	if len(prices) == 0 {
+		return nil, fmt.Errorf("at least one price is required")
 	}
 
-	priceData := make([]ResourceData, 0, len(priceIDs))
-	for _, priceID := range priceIDs {
+	included := make([]SubscriptionOfferCodePriceInlineCreate, 0, len(prices))
+	priceData := make([]ResourceData, 0, len(prices))
+	for idx, price := range prices {
+		territoryID := strings.ToUpper(strings.TrimSpace(price.TerritoryID))
+		pricePointID := strings.TrimSpace(price.PricePointID)
+		if territoryID == "" {
+			return nil, fmt.Errorf("territory ID is required")
+		}
+		if pricePointID == "" {
+			return nil, fmt.Errorf("price point ID is required")
+		}
+		resourceID := fmt.Sprintf("${local-price-%d}", idx+1)
 		priceData = append(priceData, ResourceData{
 			Type: ResourceTypeSubscriptionOfferCodePrices,
-			ID:   priceID,
+			ID:   resourceID,
+		})
+		included = append(included, SubscriptionOfferCodePriceInlineCreate{
+			Type: ResourceTypeSubscriptionOfferCodePrices,
+			ID:   resourceID,
+			Relationships: SubscriptionOfferCodePriceRelationships{
+				Territory: Relationship{
+					Data: ResourceData{
+						Type: ResourceTypeTerritories,
+						ID:   territoryID,
+					},
+				},
+				SubscriptionPricePoint: Relationship{
+					Data: ResourceData{
+						Type: ResourceTypeSubscriptionPricePoints,
+						ID:   pricePointID,
+					},
+				},
+			},
 		})
 	}
 
@@ -640,6 +667,7 @@ func (c *Client) CreateSubscriptionOfferCode(ctx context.Context, subscriptionID
 				Prices: RelationshipList{Data: priceData},
 			},
 		},
+		Included: included,
 	}
 
 	body, err := BuildRequestBody(payload)

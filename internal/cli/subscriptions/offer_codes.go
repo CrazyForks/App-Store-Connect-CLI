@@ -173,7 +173,7 @@ func SubscriptionsOfferCodesCreateCommand() *ffcli.Command {
 	offerDuration := fs.String("offer-duration", "", "Offer duration: "+strings.Join(subscriptionOfferDurationValues, ", "))
 	offerMode := fs.String("offer-mode", "", "Offer mode: "+strings.Join(subscriptionOfferModeValues, ", "))
 	numberOfPeriods := fs.Int("number-of-periods", 0, "Number of periods (required)")
-	prices := fs.String("prices", "", "Offer code price ID(s), comma-separated")
+	prices := fs.String("prices", "", "Offer code prices: TERRITORY:PRICE_POINT_ID entries")
 	var autoRenewEnabled shared.OptionalBool
 	fs.Var(&autoRenewEnabled, "auto-renew-enabled", "Enable auto-renew: true or false")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
@@ -186,7 +186,7 @@ func SubscriptionsOfferCodesCreateCommand() *ffcli.Command {
 		LongHelp: `Create an offer code.
 
 Examples:
-  asc subscriptions offer-codes create --subscription-id "SUB_ID" --name "SPRING" --offer-eligibility STACK_WITH_INTRO_OFFERS --customer-eligibilities NEW --offer-duration ONE_MONTH --offer-mode FREE_TRIAL --number-of-periods 1 --prices "PRICE_ID"`,
+  asc subscriptions offer-codes create --subscription-id "SUB_ID" --name "SPRING" --offer-eligibility STACK_WITH_INTRO_OFFERS --customer-eligibilities NEW --offer-duration ONE_MONTH --offer-mode FREE_TRIAL --number-of-periods 1 --prices "USA:PRICE_POINT_ID"`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -231,8 +231,12 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			priceIDs := parseCommaSeparatedIDs(*prices)
-			if len(priceIDs) == 0 {
+			priceEntries, err := parseSubscriptionOfferCodePrices(*prices)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err.Error())
+				return flag.ErrHelp
+			}
+			if len(priceEntries) == 0 {
 				fmt.Fprintln(os.Stderr, "Error: --prices is required")
 				return flag.ErrHelp
 			}
@@ -258,7 +262,7 @@ Examples:
 				attrs.AutoRenewEnabled = &value
 			}
 
-			resp, err := client.CreateSubscriptionOfferCode(requestCtx, id, attrs, priceIDs)
+			resp, err := client.CreateSubscriptionOfferCode(requestCtx, id, attrs, priceEntries)
 			if err != nil {
 				return fmt.Errorf("subscriptions offer-codes create: failed to create: %w", err)
 			}

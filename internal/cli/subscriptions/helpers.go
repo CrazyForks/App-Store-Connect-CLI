@@ -127,6 +127,32 @@ func normalizeSubscriptionCustomerEligibilities(value string, required bool) ([]
 	return eligibilities, nil
 }
 
+func parseSubscriptionOfferCodePrices(value string) ([]asc.SubscriptionOfferCodePrice, error) {
+	entries := splitCSV(value)
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	prices := make([]asc.SubscriptionOfferCodePrice, 0, len(entries))
+	for _, entry := range entries {
+		parts := strings.SplitN(entry, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("--prices must use TERRITORY:PRICE_POINT_ID entries")
+		}
+		territoryID := strings.ToUpper(strings.TrimSpace(parts[0]))
+		pricePointID := strings.TrimSpace(parts[1])
+		if territoryID == "" || pricePointID == "" {
+			return nil, fmt.Errorf("--prices must use TERRITORY:PRICE_POINT_ID entries")
+		}
+		prices = append(prices, asc.SubscriptionOfferCodePrice{
+			TerritoryID:  territoryID,
+			PricePointID: pricePointID,
+		})
+	}
+
+	return prices, nil
+}
+
 func openSubscriptionImageFile(path string) (*os.File, os.FileInfo, error) {
 	if err := asc.ValidateImageFile(path); err != nil {
 		return nil, nil, err
@@ -142,4 +168,3 @@ func openSubscriptionImageFile(path string) (*os.File, os.FileInfo, error) {
 	}
 	return file, info, nil
 }
-
