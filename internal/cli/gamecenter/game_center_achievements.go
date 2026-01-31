@@ -28,6 +28,7 @@ Examples:
   asc game-center achievements create --app "APP_ID" --reference-name "First Win" --vendor-id "com.example.firstwin" --points 10
   asc game-center achievements update --id "ACHIEVEMENT_ID" --points 20
   asc game-center achievements delete --id "ACHIEVEMENT_ID" --confirm
+  asc game-center achievements submit --vendor-id "com.example.achievement" --percentage 100 --bundle-id "com.example.app" --scoped-player-id "PLAYER_ID"
   asc game-center achievements localizations list --achievement-id "ACHIEVEMENT_ID"
   asc game-center achievements localizations create --achievement-id "ACHIEVEMENT_ID" --locale en-US --name "First Win" --before-earned-description "Win your first game" --after-earned-description "You won!"
   asc game-center achievements localizations update --id "LOC_ID" --name "New Name"
@@ -42,6 +43,7 @@ Examples:
 			GameCenterAchievementsCreateCommand(),
 			GameCenterAchievementsUpdateCommand(),
 			GameCenterAchievementsDeleteCommand(),
+			GameCenterAchievementsSubmitCommand(),
 			GameCenterAchievementLocalizationsCommand(),
 			GameCenterAchievementImagesCommand(),
 			GameCenterAchievementReleasesCommand(),
@@ -459,6 +461,81 @@ Examples:
 			}
 
 			return printOutput(result, *output, *pretty)
+		},
+	}
+}
+
+// GameCenterAchievementsSubmitCommand submits a player achievement.
+func GameCenterAchievementsSubmitCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("submit", flag.ExitOnError)
+
+	vendorID := fs.String("vendor-id", "", "Achievement vendor identifier")
+	percentage := fs.Int("percentage", -1, "Percentage achieved (0-100)")
+	bundleID := fs.String("bundle-id", "", "App bundle ID")
+	scopedPlayerID := fs.String("scoped-player-id", "", "Scoped player ID")
+	challengeIDs := fs.String("challenge-ids", "", "Challenge ID(s), comma-separated")
+	submittedDate := fs.String("submitted-date", "", "Submission date (RFC3339)")
+	output := fs.String("output", "json", "Output format: json (default), table, markdown")
+	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
+
+	return &ffcli.Command{
+		Name:       "submit",
+		ShortUsage: "asc game-center achievements submit --vendor-id \"VENDOR_ID\" --percentage 100 --bundle-id \"BUNDLE_ID\" --scoped-player-id \"PLAYER_ID\"",
+		ShortHelp:  "Submit a player achievement.",
+		LongHelp: `Submit a player achievement.
+
+Examples:
+  asc game-center achievements submit --vendor-id "com.example.achievement" --percentage 100 --bundle-id "com.example.app" --scoped-player-id "PLAYER_ID"
+  asc game-center achievements submit --vendor-id "com.example.achievement" --percentage 50 --bundle-id "com.example.app" --scoped-player-id "PLAYER_ID" --challenge-ids "CHALLENGE_ID"
+  asc game-center achievements submit --vendor-id "com.example.achievement" --percentage 100 --bundle-id "com.example.app" --scoped-player-id "PLAYER_ID" --submitted-date "2025-01-10T12:34:56Z"`,
+		FlagSet:   fs,
+		UsageFunc: DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			vendorValue := strings.TrimSpace(*vendorID)
+			if vendorValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --vendor-id is required")
+				return flag.ErrHelp
+			}
+			if *percentage < 0 {
+				fmt.Fprintln(os.Stderr, "Error: --percentage is required")
+				return flag.ErrHelp
+			}
+			bundleValue := strings.TrimSpace(*bundleID)
+			if bundleValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --bundle-id is required")
+				return flag.ErrHelp
+			}
+			playerValue := strings.TrimSpace(*scopedPlayerID)
+			if playerValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --scoped-player-id is required")
+				return flag.ErrHelp
+			}
+
+			client, err := getASCClient()
+			if err != nil {
+				return fmt.Errorf("game-center achievements submit: %w", err)
+			}
+
+			requestCtx, cancel := contextWithTimeout(ctx)
+			defer cancel()
+
+			attrs := asc.GameCenterPlayerAchievementSubmissionAttributes{
+				VendorIdentifier:   vendorValue,
+				PercentageAchieved: *percentage,
+				BundleID:           bundleValue,
+				ScopedPlayerID:     playerValue,
+				ChallengeIDs:       splitCSV(*challengeIDs),
+			}
+			if value := strings.TrimSpace(*submittedDate); value != "" {
+				attrs.SubmittedDate = &value
+			}
+
+			resp, err := client.CreateGameCenterPlayerAchievementSubmission(requestCtx, attrs)
+			if err != nil {
+				return fmt.Errorf("game-center achievements submit: failed to submit: %w", err)
+			}
+
+			return printOutput(resp, *output, *pretty)
 		},
 	}
 }

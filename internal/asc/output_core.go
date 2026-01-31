@@ -595,6 +595,10 @@ func PrintMarkdown(data interface{}) error {
 		return printGameCenterLeaderboardReleasesMarkdown(&GameCenterLeaderboardReleasesResponse{Data: []Resource[GameCenterLeaderboardReleaseAttributes]{v.Data}})
 	case *GameCenterLeaderboardReleaseDeleteResult:
 		return printGameCenterLeaderboardReleaseDeleteResultMarkdown(v)
+	case *GameCenterLeaderboardEntrySubmissionResponse:
+		return printGameCenterLeaderboardEntrySubmissionMarkdown(v)
+	case *GameCenterPlayerAchievementSubmissionResponse:
+		return printGameCenterPlayerAchievementSubmissionMarkdown(v)
 	case *GameCenterAchievementReleasesResponse:
 		return printGameCenterAchievementReleasesMarkdown(v)
 	case *GameCenterAchievementReleaseResponse:
@@ -1461,6 +1465,10 @@ func PrintTable(data interface{}) error {
 		return printGameCenterLeaderboardReleasesTable(&GameCenterLeaderboardReleasesResponse{Data: []Resource[GameCenterLeaderboardReleaseAttributes]{v.Data}})
 	case *GameCenterLeaderboardReleaseDeleteResult:
 		return printGameCenterLeaderboardReleaseDeleteResultTable(v)
+	case *GameCenterLeaderboardEntrySubmissionResponse:
+		return printGameCenterLeaderboardEntrySubmissionTable(v)
+	case *GameCenterPlayerAchievementSubmissionResponse:
+		return printGameCenterPlayerAchievementSubmissionTable(v)
 	case *GameCenterLeaderboardSetReleasesResponse:
 		return printGameCenterLeaderboardSetReleasesTable(v)
 	case *GameCenterLeaderboardSetReleaseResponse:

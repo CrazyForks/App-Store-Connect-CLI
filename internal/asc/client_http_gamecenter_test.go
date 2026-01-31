@@ -722,3 +722,69 @@ func TestDeleteGameCenterAchievementLocalization(t *testing.T) {
 		t.Fatalf("DeleteGameCenterAchievementLocalization() error: %v", err)
 	}
 }
+
+func TestCreateGameCenterLeaderboardEntrySubmission(t *testing.T) {
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"gameCenterLeaderboardEntrySubmissions","id":"sub-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/gameCenterLeaderboardEntrySubmissions" {
+			t.Fatalf("expected path /v1/gameCenterLeaderboardEntrySubmissions, got %s", req.URL.Path)
+		}
+		var payload GameCenterLeaderboardEntrySubmissionCreateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeGameCenterLeaderboardEntrySubmissions {
+			t.Fatalf("expected type gameCenterLeaderboardEntrySubmissions, got %q", payload.Data.Type)
+		}
+		if payload.Data.Attributes.VendorIdentifier != "com.example.leaderboard" || payload.Data.Attributes.Score != "100" {
+			t.Fatalf("unexpected attributes: %+v", payload.Data.Attributes)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	attrs := GameCenterLeaderboardEntrySubmissionAttributes{
+		VendorIdentifier: "com.example.leaderboard",
+		Score:            "100",
+		BundleID:         "com.example.app",
+		ScopedPlayerID:   "player-1",
+	}
+	if _, err := client.CreateGameCenterLeaderboardEntrySubmission(context.Background(), attrs); err != nil {
+		t.Fatalf("CreateGameCenterLeaderboardEntrySubmission() error: %v", err)
+	}
+}
+
+func TestCreateGameCenterPlayerAchievementSubmission(t *testing.T) {
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"gameCenterPlayerAchievementSubmissions","id":"sub-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/gameCenterPlayerAchievementSubmissions" {
+			t.Fatalf("expected path /v1/gameCenterPlayerAchievementSubmissions, got %s", req.URL.Path)
+		}
+		var payload GameCenterPlayerAchievementSubmissionCreateRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Type != ResourceTypeGameCenterPlayerAchievementSubmissions {
+			t.Fatalf("expected type gameCenterPlayerAchievementSubmissions, got %q", payload.Data.Type)
+		}
+		if payload.Data.Attributes.VendorIdentifier != "com.example.achievement" || payload.Data.Attributes.PercentageAchieved != 100 {
+			t.Fatalf("unexpected attributes: %+v", payload.Data.Attributes)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	attrs := GameCenterPlayerAchievementSubmissionAttributes{
+		VendorIdentifier:   "com.example.achievement",
+		PercentageAchieved: 100,
+		BundleID:           "com.example.app",
+		ScopedPlayerID:     "player-1",
+	}
+	if _, err := client.CreateGameCenterPlayerAchievementSubmission(context.Background(), attrs); err != nil {
+		t.Fatalf("CreateGameCenterPlayerAchievementSubmission() error: %v", err)
+	}
+}

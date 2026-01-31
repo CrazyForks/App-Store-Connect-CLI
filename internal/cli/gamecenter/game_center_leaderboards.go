@@ -28,6 +28,7 @@ Examples:
   asc game-center leaderboards create --app "APP_ID" --reference-name "High Score" --vendor-id "com.example.highscore" --formatter INTEGER --sort DESC --submission-type BEST_SCORE
   asc game-center leaderboards update --id "LEADERBOARD_ID" --reference-name "New Name"
   asc game-center leaderboards delete --id "LEADERBOARD_ID" --confirm
+  asc game-center leaderboards submit --vendor-id "com.example.leaderboard" --score "100" --bundle-id "com.example.app" --scoped-player-id "PLAYER_ID"
   asc game-center leaderboards localizations list --leaderboard-id "LEADERBOARD_ID"
   asc game-center leaderboards localizations create --leaderboard-id "LEADERBOARD_ID" --locale en-US --name "High Score"
   asc game-center leaderboards releases list --leaderboard-id "LEADERBOARD_ID"
@@ -41,6 +42,7 @@ Examples:
 			GameCenterLeaderboardsCreateCommand(),
 			GameCenterLeaderboardsUpdateCommand(),
 			GameCenterLeaderboardsDeleteCommand(),
+			GameCenterLeaderboardsSubmitCommand(),
 			GameCenterLeaderboardLocalizationsCommand(),
 			GameCenterLeaderboardReleasesCommand(),
 			GameCenterLeaderboardImagesCommand(),
@@ -585,6 +587,86 @@ Examples:
 			}
 
 			return printOutput(result, *output, *pretty)
+		},
+	}
+}
+
+// GameCenterLeaderboardsSubmitCommand submits a leaderboard entry.
+func GameCenterLeaderboardsSubmitCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("submit", flag.ExitOnError)
+
+	vendorID := fs.String("vendor-id", "", "Leaderboard vendor identifier")
+	score := fs.String("score", "", "Score value")
+	bundleID := fs.String("bundle-id", "", "App bundle ID")
+	scopedPlayerID := fs.String("scoped-player-id", "", "Scoped player ID")
+	scoreContext := fs.String("context", "", "Optional score context value")
+	challengeIDs := fs.String("challenge-ids", "", "Challenge ID(s), comma-separated")
+	submittedDate := fs.String("submitted-date", "", "Submission date (RFC3339)")
+	output := fs.String("output", "json", "Output format: json (default), table, markdown")
+	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
+
+	return &ffcli.Command{
+		Name:       "submit",
+		ShortUsage: "asc game-center leaderboards submit --vendor-id \"VENDOR_ID\" --score \"100\" --bundle-id \"BUNDLE_ID\" --scoped-player-id \"PLAYER_ID\"",
+		ShortHelp:  "Submit a leaderboard entry.",
+		LongHelp: `Submit a leaderboard entry.
+
+Examples:
+  asc game-center leaderboards submit --vendor-id "com.example.leaderboard" --score "100" --bundle-id "com.example.app" --scoped-player-id "PLAYER_ID"
+  asc game-center leaderboards submit --vendor-id "com.example.leaderboard" --score "100" --bundle-id "com.example.app" --scoped-player-id "PLAYER_ID" --challenge-ids "CHALLENGE_ID"
+  asc game-center leaderboards submit --vendor-id "com.example.leaderboard" --score "100" --bundle-id "com.example.app" --scoped-player-id "PLAYER_ID" --submitted-date "2025-01-10T12:34:56Z"`,
+		FlagSet:   fs,
+		UsageFunc: DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			vendorValue := strings.TrimSpace(*vendorID)
+			if vendorValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --vendor-id is required")
+				return flag.ErrHelp
+			}
+			scoreValue := strings.TrimSpace(*score)
+			if scoreValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --score is required")
+				return flag.ErrHelp
+			}
+			bundleValue := strings.TrimSpace(*bundleID)
+			if bundleValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --bundle-id is required")
+				return flag.ErrHelp
+			}
+			playerValue := strings.TrimSpace(*scopedPlayerID)
+			if playerValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --scoped-player-id is required")
+				return flag.ErrHelp
+			}
+
+			client, err := getASCClient()
+			if err != nil {
+				return fmt.Errorf("game-center leaderboards submit: %w", err)
+			}
+
+			requestCtx, cancel := contextWithTimeout(ctx)
+			defer cancel()
+
+			attrs := asc.GameCenterLeaderboardEntrySubmissionAttributes{
+				VendorIdentifier: vendorValue,
+				Score:            scoreValue,
+				BundleID:         bundleValue,
+				ScopedPlayerID:   playerValue,
+				ChallengeIDs:     splitCSV(*challengeIDs),
+			}
+			if value := strings.TrimSpace(*scoreContext); value != "" {
+				attrs.Context = &value
+			}
+			if value := strings.TrimSpace(*submittedDate); value != "" {
+				attrs.SubmittedDate = &value
+			}
+
+			resp, err := client.CreateGameCenterLeaderboardEntrySubmission(requestCtx, attrs)
+			if err != nil {
+				return fmt.Errorf("game-center leaderboards submit: failed to submit: %w", err)
+			}
+
+			return printOutput(resp, *output, *pretty)
 		},
 	}
 }

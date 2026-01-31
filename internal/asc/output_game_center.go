@@ -1278,6 +1278,82 @@ func printGameCenterMatchmakingRuleSetTestMarkdown(resp *GameCenterMatchmakingRu
 	return nil
 }
 
+func printGameCenterLeaderboardEntrySubmissionTable(resp *GameCenterLeaderboardEntrySubmissionResponse) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tVendor ID\tScore\tBundle ID\tScoped Player ID\tSubmitted Date")
+	attrs := resp.Data.Attributes
+	submittedDate := ""
+	if attrs.SubmittedDate != nil {
+		submittedDate = *attrs.SubmittedDate
+	}
+	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		resp.Data.ID,
+		compactWhitespace(attrs.VendorIdentifier),
+		compactWhitespace(attrs.Score),
+		compactWhitespace(attrs.BundleID),
+		compactWhitespace(attrs.ScopedPlayerID),
+		compactWhitespace(submittedDate),
+	)
+	return w.Flush()
+}
+
+func printGameCenterLeaderboardEntrySubmissionMarkdown(resp *GameCenterLeaderboardEntrySubmissionResponse) error {
+	fmt.Fprintln(os.Stdout, "| ID | Vendor ID | Score | Bundle ID | Scoped Player ID | Submitted Date |")
+	fmt.Fprintln(os.Stdout, "| --- | --- | --- | --- | --- | --- |")
+	attrs := resp.Data.Attributes
+	submittedDate := ""
+	if attrs.SubmittedDate != nil {
+		submittedDate = *attrs.SubmittedDate
+	}
+	fmt.Fprintf(os.Stdout, "| %s | %s | %s | %s | %s | %s |\n",
+		escapeMarkdown(resp.Data.ID),
+		escapeMarkdown(attrs.VendorIdentifier),
+		escapeMarkdown(attrs.Score),
+		escapeMarkdown(attrs.BundleID),
+		escapeMarkdown(attrs.ScopedPlayerID),
+		escapeMarkdown(submittedDate),
+	)
+	return nil
+}
+
+func printGameCenterPlayerAchievementSubmissionTable(resp *GameCenterPlayerAchievementSubmissionResponse) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tVendor ID\tPercent\tBundle ID\tScoped Player ID\tSubmitted Date")
+	attrs := resp.Data.Attributes
+	submittedDate := ""
+	if attrs.SubmittedDate != nil {
+		submittedDate = *attrs.SubmittedDate
+	}
+	fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n",
+		resp.Data.ID,
+		compactWhitespace(attrs.VendorIdentifier),
+		attrs.PercentageAchieved,
+		compactWhitespace(attrs.BundleID),
+		compactWhitespace(attrs.ScopedPlayerID),
+		compactWhitespace(submittedDate),
+	)
+	return w.Flush()
+}
+
+func printGameCenterPlayerAchievementSubmissionMarkdown(resp *GameCenterPlayerAchievementSubmissionResponse) error {
+	fmt.Fprintln(os.Stdout, "| ID | Vendor ID | Percent | Bundle ID | Scoped Player ID | Submitted Date |")
+	fmt.Fprintln(os.Stdout, "| --- | --- | --- | --- | --- | --- |")
+	attrs := resp.Data.Attributes
+	submittedDate := ""
+	if attrs.SubmittedDate != nil {
+		submittedDate = *attrs.SubmittedDate
+	}
+	fmt.Fprintf(os.Stdout, "| %s | %s | %d | %s | %s | %s |\n",
+		escapeMarkdown(resp.Data.ID),
+		escapeMarkdown(attrs.VendorIdentifier),
+		attrs.PercentageAchieved,
+		escapeMarkdown(attrs.BundleID),
+		escapeMarkdown(attrs.ScopedPlayerID),
+		escapeMarkdown(submittedDate),
+	)
+	return nil
+}
+
 func formatStringList(items []string) string {
 	if len(items) == 0 {
 		return ""

@@ -103,6 +103,51 @@ func TestGameCenterAchievementsCreateValidationErrors(t *testing.T) {
 	}
 }
 
+func TestGameCenterAchievementsSubmitValidationErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "missing vendor-id",
+			args: []string{"game-center", "achievements", "submit", "--percentage", "100", "--bundle-id", "BUNDLE_ID", "--scoped-player-id", "PLAYER_ID"},
+		},
+		{
+			name: "missing percentage",
+			args: []string{"game-center", "achievements", "submit", "--vendor-id", "com.example.achievement", "--bundle-id", "BUNDLE_ID", "--scoped-player-id", "PLAYER_ID"},
+		},
+		{
+			name: "missing bundle-id",
+			args: []string{"game-center", "achievements", "submit", "--vendor-id", "com.example.achievement", "--percentage", "100", "--scoped-player-id", "PLAYER_ID"},
+		},
+		{
+			name: "missing scoped-player-id",
+			args: []string{"game-center", "achievements", "submit", "--vendor-id", "com.example.achievement", "--percentage", "100", "--bundle-id", "BUNDLE_ID"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, _ := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+		})
+	}
+}
+
 func TestGameCenterAchievementsUpdateValidationErrors(t *testing.T) {
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
