@@ -260,6 +260,27 @@ func (c *Client) GetBuildAppStoreVersion(ctx context.Context, buildID string) (*
 	return &response, nil
 }
 
+// GetBuildAppEncryptionDeclaration retrieves the encryption declaration for a build.
+func (c *Client) GetBuildAppEncryptionDeclaration(ctx context.Context, buildID string) (*AppEncryptionDeclarationResponse, error) {
+	buildID = strings.TrimSpace(buildID)
+	if buildID == "" {
+		return nil, fmt.Errorf("buildID is required")
+	}
+
+	path := fmt.Sprintf("/v1/builds/%s/appEncryptionDeclaration", buildID)
+	data, err := c.do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response AppEncryptionDeclarationResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
 // ExpireBuild expires a build for TestFlight testing.
 func (c *Client) ExpireBuild(ctx context.Context, buildID string) (*BuildResponse, error) {
 	payload := struct {

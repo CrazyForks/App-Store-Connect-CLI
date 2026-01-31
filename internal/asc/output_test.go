@@ -801,6 +801,35 @@ func TestPrintTable_Apps(t *testing.T) {
 	}
 }
 
+func TestPrintTable_TerritoryAgeRatings(t *testing.T) {
+	relationships, err := json.Marshal(TerritoryAgeRatingRelationships{
+		Territory: Relationship{Data: ResourceData{Type: ResourceTypeTerritories, ID: "US"}},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal relationships: %v", err)
+	}
+	resp := &TerritoryAgeRatingsResponse{
+		Data: []Resource[TerritoryAgeRatingAttributes]{
+			{
+				ID:            "tar-1",
+				Attributes:    TerritoryAgeRatingAttributes{AppStoreAgeRating: AppStoreAgeRating("SEVENTEEN_PLUS")},
+				Relationships: relationships,
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintTable(resp)
+	})
+
+	if !strings.Contains(output, "US") {
+		t.Fatalf("expected territory ID in output, got: %s", output)
+	}
+	if !strings.Contains(output, "SEVENTEEN_PLUS") {
+		t.Fatalf("expected age rating in output, got: %s", output)
+	}
+}
+
 func TestPrintMarkdown_Apps(t *testing.T) {
 	resp := &AppsResponse{
 		Data: []Resource[AppAttributes]{
@@ -824,6 +853,38 @@ func TestPrintMarkdown_Apps(t *testing.T) {
 	}
 	if !strings.Contains(output, "Demo App") {
 		t.Fatalf("expected app name in output, got: %s", output)
+	}
+}
+
+func TestPrintMarkdown_TerritoryAgeRatings(t *testing.T) {
+	relationships, err := json.Marshal(TerritoryAgeRatingRelationships{
+		Territory: Relationship{Data: ResourceData{Type: ResourceTypeTerritories, ID: "CA"}},
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal relationships: %v", err)
+	}
+	resp := &TerritoryAgeRatingsResponse{
+		Data: []Resource[TerritoryAgeRatingAttributes]{
+			{
+				ID:            "tar-2",
+				Attributes:    TerritoryAgeRatingAttributes{AppStoreAgeRating: AppStoreAgeRating("SEVENTEEN_PLUS")},
+				Relationships: relationships,
+			},
+		},
+	}
+
+	output := captureStdout(t, func() error {
+		return PrintMarkdown(resp)
+	})
+
+	if !strings.Contains(output, "| ID | Territory | App Store Age Rating |") {
+		t.Fatalf("expected markdown header, got: %s", output)
+	}
+	if !strings.Contains(output, "CA") {
+		t.Fatalf("expected territory ID in output, got: %s", output)
+	}
+	if !strings.Contains(output, "SEVENTEEN_PLUS") {
+		t.Fatalf("expected age rating in output, got: %s", output)
 	}
 }
 

@@ -26,6 +26,36 @@ type AgeRatingDeclarationAttributes struct {
 	KidsAgeBand                                 *string `json:"kidsAgeBand,omitempty"`
 }
 
+// AppStoreAgeRating represents an App Store age rating value.
+type AppStoreAgeRating string
+
+const (
+	AppStoreAgeRatingL             AppStoreAgeRating = "L"
+	AppStoreAgeRatingAll           AppStoreAgeRating = "ALL"
+	AppStoreAgeRatingOnePlus       AppStoreAgeRating = "ONE_PLUS"
+	AppStoreAgeRatingTwoPlus       AppStoreAgeRating = "TWO_PLUS"
+	AppStoreAgeRatingThreePlus     AppStoreAgeRating = "THREE_PLUS"
+	AppStoreAgeRatingFourPlus      AppStoreAgeRating = "FOUR_PLUS"
+	AppStoreAgeRatingFivePlus      AppStoreAgeRating = "FIVE_PLUS"
+	AppStoreAgeRatingSixPlus       AppStoreAgeRating = "SIX_PLUS"
+	AppStoreAgeRatingSevenPlus     AppStoreAgeRating = "SEVEN_PLUS"
+	AppStoreAgeRatingEightPlus     AppStoreAgeRating = "EIGHT_PLUS"
+	AppStoreAgeRatingNinePlus      AppStoreAgeRating = "NINE_PLUS"
+	AppStoreAgeRatingTenPlus       AppStoreAgeRating = "TEN_PLUS"
+	AppStoreAgeRatingElevenPlus    AppStoreAgeRating = "ELEVEN_PLUS"
+	AppStoreAgeRatingTwelvePlus    AppStoreAgeRating = "TWELVE_PLUS"
+	AppStoreAgeRatingThirteenPlus  AppStoreAgeRating = "THIRTEEN_PLUS"
+	AppStoreAgeRatingFourteenPlus  AppStoreAgeRating = "FOURTEEN_PLUS"
+	AppStoreAgeRatingFifteenPlus   AppStoreAgeRating = "FIFTEEN_PLUS"
+	AppStoreAgeRatingSixteenPlus   AppStoreAgeRating = "SIXTEEN_PLUS"
+	AppStoreAgeRatingSeventeenPlus AppStoreAgeRating = "SEVENTEEN_PLUS"
+	AppStoreAgeRatingEighteenPlus  AppStoreAgeRating = "EIGHTEEN_PLUS"
+	AppStoreAgeRatingNineteenPlus  AppStoreAgeRating = "NINETEEN_PLUS"
+	AppStoreAgeRatingTwentyPlus    AppStoreAgeRating = "TWENTY_PLUS"
+	AppStoreAgeRatingTwentyOnePlus AppStoreAgeRating = "TWENTY_ONE_PLUS"
+	AppStoreAgeRatingUnrated       AppStoreAgeRating = "UNRATED"
+)
+
 // AgeRatingDeclarationResponse is the response from age rating declaration endpoints.
 type AgeRatingDeclarationResponse = SingleResponse[AgeRatingDeclarationAttributes]
 

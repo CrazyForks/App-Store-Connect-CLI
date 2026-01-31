@@ -2087,6 +2087,18 @@ func TestEncryptionValidationErrors(t *testing.T) {
 			wantHelp: true,
 		},
 		{
+			name:     "encryption declarations app get missing id",
+			args:     []string{"encryption", "declarations", "app", "get"},
+			wantErr:  "--id is required",
+			wantHelp: true,
+		},
+		{
+			name:     "encryption declarations document get missing id",
+			args:     []string{"encryption", "declarations", "app-encryption-declaration-document", "get"},
+			wantErr:  "--id is required",
+			wantHelp: true,
+		},
+		{
 			name:     "encryption declarations create missing app",
 			args:     []string{"encryption", "declarations", "create", "--app-description", "Uses TLS", "--contains-proprietary-cryptography=false", "--contains-third-party-cryptography=true", "--available-on-french-store=true"},
 			wantErr:  "--app is required",
@@ -3184,6 +3196,56 @@ func TestAppInfoValidationErrors(t *testing.T) {
 			name:    "app-info set version missing platform",
 			args:    []string{"app-info", "set", "--app", "APP_ID", "--version", "1.0.0", "--locale", "en-US", "--whats-new", "Fixes"},
 			wantErr: "--platform is required with --version",
+		},
+		{
+			name:    "app-info relationships primary-category missing id",
+			args:    []string{"app-info", "relationships", "primary-category"},
+			wantErr: "--id is required",
+		},
+		{
+			name:    "app-info territory-age-ratings list missing id",
+			args:    []string{"app-info", "territory-age-ratings", "list"},
+			wantErr: "--id is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected error %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}
+
+func TestAppsAppEncryptionDeclarationsValidationErrors(t *testing.T) {
+	t.Setenv("ASC_APP_ID", "")
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "apps app-encryption-declarations list missing id",
+			args:    []string{"apps", "app-encryption-declarations", "list"},
+			wantErr: "--id is required",
 		},
 	}
 

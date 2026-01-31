@@ -124,6 +124,7 @@ const (
 	ResourceTypeDevices                                         ResourceType = "devices"
 	ResourceTypeProfiles                                        ResourceType = "profiles"
 	ResourceTypeTerritories                                     ResourceType = "territories"
+	ResourceTypeTerritoryAgeRatings                             ResourceType = "territoryAgeRatings"
 	ResourceTypeEndUserLicenseAgreements                        ResourceType = "endUserLicenseAgreements"
 	ResourceTypeEndAppAvailabilityPreOrders                     ResourceType = "endAppAvailabilityPreOrders"
 	ResourceTypeTerritoryAvailabilities                         ResourceType = "territoryAvailabilities"

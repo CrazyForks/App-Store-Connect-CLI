@@ -7517,6 +7517,103 @@ func TestGetAppEncryptionDeclaration(t *testing.T) {
 	}
 }
 
+func TestGetAppEncryptionDeclarationApp(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"apps","id":"app-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appEncryptionDeclarations/decl-1/app" {
+			t.Fatalf("expected path /v1/appEncryptionDeclarations/decl-1/app, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppEncryptionDeclarationApp(context.Background(), "decl-1"); err != nil {
+		t.Fatalf("GetAppEncryptionDeclarationApp() error: %v", err)
+	}
+}
+
+func TestGetAppEncryptionDeclarationDocumentForDeclaration(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appEncryptionDeclarationDocuments","id":"doc-1","attributes":{"fileName":"export.pdf"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appEncryptionDeclarations/decl-1/appEncryptionDeclarationDocument" {
+			t.Fatalf("expected path /v1/appEncryptionDeclarations/decl-1/appEncryptionDeclarationDocument, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppEncryptionDeclarationDocumentForDeclaration(context.Background(), "decl-1"); err != nil {
+		t.Fatalf("GetAppEncryptionDeclarationDocumentForDeclaration() error: %v", err)
+	}
+}
+
+func TestGetAppEncryptionDeclarationsForAppResource(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"appEncryptionDeclarations","id":"decl-1","attributes":{"appDescription":"Uses TLS"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/apps/app-1/appEncryptionDeclarations" {
+			t.Fatalf("expected path /v1/apps/app-1/appEncryptionDeclarations, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[app]") != "" {
+			t.Fatalf("expected filter[app] to be empty, got %q", values.Get("filter[app]"))
+		}
+		if values.Get("filter[builds]") != "build-1,build-2" {
+			t.Fatalf("expected filter[builds]=build-1,build-2, got %q", values.Get("filter[builds]"))
+		}
+		if values.Get("fields[appEncryptionDeclarations]") != "appDescription,exempt" {
+			t.Fatalf("expected fields[appEncryptionDeclarations]=appDescription,exempt, got %q", values.Get("fields[appEncryptionDeclarations]"))
+		}
+		if values.Get("fields[appEncryptionDeclarationDocuments]") != "fileName,fileSize" {
+			t.Fatalf("expected fields[appEncryptionDeclarationDocuments]=fileName,fileSize, got %q", values.Get("fields[appEncryptionDeclarationDocuments]"))
+		}
+		if values.Get("include") != "appEncryptionDeclarationDocument" {
+			t.Fatalf("expected include=appEncryptionDeclarationDocument, got %q", values.Get("include"))
+		}
+		if values.Get("limit") != "5" {
+			t.Fatalf("expected limit=5, got %q", values.Get("limit"))
+		}
+		if values.Get("limit[builds]") != "10" {
+			t.Fatalf("expected limit[builds]=10, got %q", values.Get("limit[builds]"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppEncryptionDeclarationsForApp(context.Background(), "app-1",
+		WithAppEncryptionDeclarationsBuildIDs([]string{"build-1", "build-2"}),
+		WithAppEncryptionDeclarationsFields([]string{"appDescription", "exempt"}),
+		WithAppEncryptionDeclarationsDocumentFields([]string{"fileName", "fileSize"}),
+		WithAppEncryptionDeclarationsInclude([]string{"appEncryptionDeclarationDocument"}),
+		WithAppEncryptionDeclarationsLimit(5),
+		WithAppEncryptionDeclarationsBuildLimit(10),
+	); err != nil {
+		t.Fatalf("GetAppEncryptionDeclarationsForApp() error: %v", err)
+	}
+}
+
+func TestGetBuildAppEncryptionDeclaration(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appEncryptionDeclarations","id":"decl-1","attributes":{"appDescription":"Uses TLS"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/builds/build-1/appEncryptionDeclaration" {
+			t.Fatalf("expected path /v1/builds/build-1/appEncryptionDeclaration, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetBuildAppEncryptionDeclaration(context.Background(), "build-1"); err != nil {
+		t.Fatalf("GetBuildAppEncryptionDeclaration() error: %v", err)
+	}
+}
+
 func TestCreateAppEncryptionDeclaration(t *testing.T) {
 	response := jsonResponse(http.StatusCreated, `{"data":{"type":"appEncryptionDeclarations","id":"decl-1","attributes":{"appDescription":"Uses TLS"}}}`)
 	client := newTestClient(t, func(req *http.Request) {

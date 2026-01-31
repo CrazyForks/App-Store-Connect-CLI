@@ -603,6 +603,82 @@ func TestGetAppInfoRelationships_SendsRequest(t *testing.T) {
 	}
 }
 
+func TestGetAppInfoCategoryRelatedResources_SendsRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(ctx context.Context, client *Client) error
+		path string
+	}{
+		{
+			name: "primary category",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.GetAppInfoPrimaryCategory(ctx, "info-1")
+				return err
+			},
+			path: "/v1/appInfos/info-1/primaryCategory",
+		},
+		{
+			name: "primary subcategory one",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.GetAppInfoPrimarySubcategoryOne(ctx, "info-1")
+				return err
+			},
+			path: "/v1/appInfos/info-1/primarySubcategoryOne",
+		},
+		{
+			name: "primary subcategory two",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.GetAppInfoPrimarySubcategoryTwo(ctx, "info-1")
+				return err
+			},
+			path: "/v1/appInfos/info-1/primarySubcategoryTwo",
+		},
+		{
+			name: "secondary category",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.GetAppInfoSecondaryCategory(ctx, "info-1")
+				return err
+			},
+			path: "/v1/appInfos/info-1/secondaryCategory",
+		},
+		{
+			name: "secondary subcategory one",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.GetAppInfoSecondarySubcategoryOne(ctx, "info-1")
+				return err
+			},
+			path: "/v1/appInfos/info-1/secondarySubcategoryOne",
+		},
+		{
+			name: "secondary subcategory two",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.GetAppInfoSecondarySubcategoryTwo(ctx, "info-1")
+				return err
+			},
+			path: "/v1/appInfos/info-1/secondarySubcategoryTwo",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := jsonResponse(http.StatusOK, `{"data":{"type":"appCategories","id":"cat-1"}}`)
+			client := newTestClient(t, func(req *http.Request) {
+				if req.Method != http.MethodGet {
+					t.Fatalf("expected GET, got %s", req.Method)
+				}
+				if req.URL.Path != test.path {
+					t.Fatalf("expected path %s, got %s", test.path, req.URL.Path)
+				}
+				assertAuthorized(t, req)
+			}, response)
+
+			if err := test.call(context.Background(), client); err != nil {
+				t.Fatalf("call error: %v", err)
+			}
+		})
+	}
+}
+
 func TestGetAppInfoTerritoryAgeRatingsRelationships_UsesNextURL(t *testing.T) {
 	next := "https://api.appstoreconnect.apple.com/v1/appInfos/info-1/relationships/territoryAgeRatings?cursor=abc"
 	response := jsonResponse(http.StatusOK, `{"data":[]}`)
@@ -615,5 +691,56 @@ func TestGetAppInfoTerritoryAgeRatingsRelationships_UsesNextURL(t *testing.T) {
 
 	if _, err := client.GetAppInfoTerritoryAgeRatingsRelationships(context.Background(), "", WithLinkagesNextURL(next)); err != nil {
 		t.Fatalf("GetAppInfoTerritoryAgeRatingsRelationships() error: %v", err)
+	}
+}
+
+func TestGetAppInfoTerritoryAgeRatings_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appInfos/info-1/territoryAgeRatings" {
+			t.Fatalf("expected path /v1/appInfos/info-1/territoryAgeRatings, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if got := values.Get("fields[territoryAgeRatings]"); got != "appStoreAgeRating,territory" {
+			t.Fatalf("expected fields[territoryAgeRatings]=appStoreAgeRating,territory, got %q", got)
+		}
+		if got := values.Get("fields[territories]"); got != "currency" {
+			t.Fatalf("expected fields[territories]=currency, got %q", got)
+		}
+		if got := values.Get("include"); got != "territory" {
+			t.Fatalf("expected include=territory, got %q", got)
+		}
+		if got := values.Get("limit"); got != "10" {
+			t.Fatalf("expected limit=10, got %q", got)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	_, err := client.GetAppInfoTerritoryAgeRatings(context.Background(), "info-1",
+		WithTerritoryAgeRatingsFields([]string{"appStoreAgeRating", "territory"}),
+		WithTerritoryAgeRatingsTerritoryFields([]string{"currency"}),
+		WithTerritoryAgeRatingsInclude([]string{"territory"}),
+		WithTerritoryAgeRatingsLimit(10),
+	)
+	if err != nil {
+		t.Fatalf("GetAppInfoTerritoryAgeRatings() error: %v", err)
+	}
+}
+
+func TestGetAppInfoTerritoryAgeRatings_UsesNextURL(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/appInfos/info-1/territoryAgeRatings?cursor=abc"
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.String() != next {
+			t.Fatalf("expected next URL %q, got %q", next, req.URL.String())
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppInfoTerritoryAgeRatings(context.Background(), "", WithTerritoryAgeRatingsNextURL(next)); err != nil {
+		t.Fatalf("GetAppInfoTerritoryAgeRatings() error: %v", err)
 	}
 }

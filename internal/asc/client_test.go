@@ -799,6 +799,36 @@ func TestBuildAppInfoQuery(t *testing.T) {
 	}
 }
 
+func TestBuildTerritoryAgeRatingsQuery(t *testing.T) {
+	query := &territoryAgeRatingsQuery{}
+	opts := []TerritoryAgeRatingsOption{
+		WithTerritoryAgeRatingsFields([]string{"appStoreAgeRating", "territory"}),
+		WithTerritoryAgeRatingsTerritoryFields([]string{"currency"}),
+		WithTerritoryAgeRatingsInclude([]string{"territory"}),
+		WithTerritoryAgeRatingsLimit(12),
+	}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	values, err := url.ParseQuery(buildTerritoryAgeRatingsQuery(query))
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("fields[territoryAgeRatings]"); got != "appStoreAgeRating,territory" {
+		t.Fatalf("expected fields[territoryAgeRatings]=appStoreAgeRating,territory, got %q", got)
+	}
+	if got := values.Get("fields[territories]"); got != "currency" {
+		t.Fatalf("expected fields[territories]=currency, got %q", got)
+	}
+	if got := values.Get("include"); got != "territory" {
+		t.Fatalf("expected include=territory, got %q", got)
+	}
+	if got := values.Get("limit"); got != "12" {
+		t.Fatalf("expected limit=12, got %q", got)
+	}
+}
+
 func TestBuildPreReleaseVersionsQuery(t *testing.T) {
 	query := &preReleaseVersionsQuery{}
 	opts := []PreReleaseVersionsOption{

@@ -2895,6 +2895,48 @@ func WithAppInfoInclude(include []string) AppInfoOption {
 	}
 }
 
+// TerritoryAgeRatingsOption is a functional option for territory age ratings.
+type TerritoryAgeRatingsOption func(*territoryAgeRatingsQuery)
+
+// WithTerritoryAgeRatingsFields sets fields[territoryAgeRatings].
+func WithTerritoryAgeRatingsFields(fields []string) TerritoryAgeRatingsOption {
+	return func(q *territoryAgeRatingsQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
+// WithTerritoryAgeRatingsTerritoryFields sets fields[territories].
+func WithTerritoryAgeRatingsTerritoryFields(fields []string) TerritoryAgeRatingsOption {
+	return func(q *territoryAgeRatingsQuery) {
+		q.territoryFields = normalizeList(fields)
+	}
+}
+
+// WithTerritoryAgeRatingsInclude sets include values for territory age ratings.
+func WithTerritoryAgeRatingsInclude(include []string) TerritoryAgeRatingsOption {
+	return func(q *territoryAgeRatingsQuery) {
+		q.include = normalizeList(include)
+	}
+}
+
+// WithTerritoryAgeRatingsLimit sets the max number of territory age ratings to return.
+func WithTerritoryAgeRatingsLimit(limit int) TerritoryAgeRatingsOption {
+	return func(q *territoryAgeRatingsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithTerritoryAgeRatingsNextURL uses a next page URL directly.
+func WithTerritoryAgeRatingsNextURL(next string) TerritoryAgeRatingsOption {
+	return func(q *territoryAgeRatingsQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
 // WithTerritoriesLimit sets the max number of territories to return.
 func WithTerritoriesLimit(limit int) TerritoriesOption {
 	return func(q *territoriesQuery) {

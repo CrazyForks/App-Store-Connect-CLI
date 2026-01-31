@@ -291,6 +291,13 @@ type appInfoQuery struct {
 	include []string
 }
 
+type territoryAgeRatingsQuery struct {
+	listQuery
+	fields          []string
+	territoryFields []string
+	include         []string
+}
+
 type appCustomProductPagesQuery struct {
 	listQuery
 }
@@ -1355,6 +1362,15 @@ func buildAppInfoLocalizationsQuery(query *appInfoLocalizationsQuery) string {
 func buildAppInfoQuery(query *appInfoQuery) string {
 	values := url.Values{}
 	addCSV(values, "include", query.include)
+	return values.Encode()
+}
+
+func buildTerritoryAgeRatingsQuery(query *territoryAgeRatingsQuery) string {
+	values := url.Values{}
+	addCSV(values, "fields[territoryAgeRatings]", query.fields)
+	addCSV(values, "fields[territories]", query.territoryFields)
+	addCSV(values, "include", query.include)
+	addLimit(values, query.limit)
 	return values.Encode()
 }
 

@@ -59,6 +59,7 @@ Examples:
 			AppsUpdateCommand(),
 			AppsSubscriptionGracePeriodCommand(),
 			AppsSearchKeywordsCommand(),
+			AppEncryptionDeclarationsCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return appsList(ctx, *output, *pretty, *bundleID, *name, *sku, *sort, *limit, *next, *paginate)

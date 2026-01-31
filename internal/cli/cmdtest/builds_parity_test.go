@@ -144,6 +144,11 @@ func TestBuildsParityValidationErrors(t *testing.T) {
 			args:    []string{"builds", "uploads", "files", "get"},
 			wantErr: "--id is required",
 		},
+		{
+			name:    "builds app-encryption-declaration get missing id",
+			args:    []string{"builds", "app-encryption-declaration", "get"},
+			wantErr: "--id is required",
+		},
 	}
 
 	runValidationTests(t, tests)

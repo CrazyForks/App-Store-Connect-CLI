@@ -56,6 +56,8 @@ Examples:
 		Subcommands: []*ffcli.Command{
 			EncryptionDeclarationsListCommand(),
 			EncryptionDeclarationsGetCommand(),
+			EncryptionDeclarationsAppCommand(),
+			EncryptionDeclarationsDeclarationDocumentCommand(),
 			EncryptionDeclarationsCreateCommand(),
 			EncryptionDeclarationsAssignBuildsCommand(),
 		},
