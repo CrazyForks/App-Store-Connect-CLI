@@ -1,7 +1,6 @@
 package cmdtest
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -53,9 +52,7 @@ func TestDebugFlagLogsHTTPRequests(t *testing.T) {
 
 func TestDebugLogsHTTPMethodAndURL(t *testing.T) {
 	// This test verifies that debug logging outputs HTTP method and URL
-	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"data":[]}`))
 	}))
