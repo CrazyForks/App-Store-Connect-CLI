@@ -411,6 +411,12 @@ func PrintMarkdown(data interface{}) error {
 		return printBuildBetaDetailsMarkdown(v)
 	case *BuildBetaDetailResponse:
 		return printBuildBetaDetailMarkdown(v)
+	case *BetaLicenseAgreementsResponse:
+		return printBetaLicenseAgreementsMarkdown(v)
+	case *BetaLicenseAgreementResponse:
+		return printBetaLicenseAgreementsMarkdown(&BetaLicenseAgreementsResponse{Data: []BetaLicenseAgreementResource{v.Data}})
+	case *BuildBetaNotificationResponse:
+		return printBuildBetaNotificationMarkdown(v)
 	case *AgeRatingDeclarationResponse:
 		return printAgeRatingDeclarationMarkdown(v)
 	case *AccessibilityDeclarationsResponse:
@@ -1271,6 +1277,12 @@ func PrintTable(data interface{}) error {
 		return printBuildBetaDetailsTable(v)
 	case *BuildBetaDetailResponse:
 		return printBuildBetaDetailTable(v)
+	case *BetaLicenseAgreementsResponse:
+		return printBetaLicenseAgreementsTable(v)
+	case *BetaLicenseAgreementResponse:
+		return printBetaLicenseAgreementsTable(&BetaLicenseAgreementsResponse{Data: []BetaLicenseAgreementResource{v.Data}})
+	case *BuildBetaNotificationResponse:
+		return printBuildBetaNotificationTable(v)
 	case *AgeRatingDeclarationResponse:
 		return printAgeRatingDeclarationTable(v)
 	case *AccessibilityDeclarationsResponse:

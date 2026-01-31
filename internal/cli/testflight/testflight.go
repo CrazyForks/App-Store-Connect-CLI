@@ -33,6 +33,8 @@ Examples:
 			TestFlightAppsCommand(),
 			BetaGroupsCommand(),
 			BetaTestersCommand(),
+			BetaLicenseAgreementsCommand(),
+			BetaNotificationsCommand(),
 			TestFlightReviewCommand(),
 			TestFlightBetaDetailsCommand(),
 			TestFlightRecruitmentCommand(),
