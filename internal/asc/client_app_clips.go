@@ -766,6 +766,48 @@ func (c *Client) GetAppClipDefaultExperience(ctx context.Context, experienceID s
 	return &response, nil
 }
 
+// GetAppClipDefaultExperienceReviewDetail retrieves review detail for a default experience.
+func (c *Client) GetAppClipDefaultExperienceReviewDetail(ctx context.Context, experienceID string) (*AppClipAppStoreReviewDetailResponse, error) {
+	experienceID = strings.TrimSpace(experienceID)
+	if experienceID == "" {
+		return nil, fmt.Errorf("experienceID is required")
+	}
+
+	path := fmt.Sprintf("/v1/appClipDefaultExperiences/%s/appClipAppStoreReviewDetail", experienceID)
+	data, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response AppClipAppStoreReviewDetailResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetAppClipDefaultExperienceReleaseWithAppStoreVersion retrieves the release version for a default experience.
+func (c *Client) GetAppClipDefaultExperienceReleaseWithAppStoreVersion(ctx context.Context, experienceID string) (*AppStoreVersionResponse, error) {
+	experienceID = strings.TrimSpace(experienceID)
+	if experienceID == "" {
+		return nil, fmt.Errorf("experienceID is required")
+	}
+
+	path := fmt.Sprintf("/v1/appClipDefaultExperiences/%s/releaseWithAppStoreVersion", experienceID)
+	data, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response AppStoreVersionResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
 // GetAppClipDefaultExperienceReviewDetailRelationship retrieves the review detail linkage for a default experience.
 func (c *Client) GetAppClipDefaultExperienceReviewDetailRelationship(ctx context.Context, experienceID string) (*AppClipDefaultExperienceReviewDetailLinkageResponse, error) {
 	experienceID = strings.TrimSpace(experienceID)
@@ -968,6 +1010,27 @@ func (c *Client) GetAppClipDefaultExperienceLocalization(ctx context.Context, lo
 	}
 
 	var response AppClipDefaultExperienceLocalizationResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetAppClipDefaultExperienceLocalizationHeaderImage retrieves the header image for a localization.
+func (c *Client) GetAppClipDefaultExperienceLocalizationHeaderImage(ctx context.Context, localizationID string) (*AppClipHeaderImageResponse, error) {
+	localizationID = strings.TrimSpace(localizationID)
+	if localizationID == "" {
+		return nil, fmt.Errorf("localizationID is required")
+	}
+
+	path := fmt.Sprintf("/v1/appClipDefaultExperienceLocalizations/%s/appClipHeaderImage", localizationID)
+	data, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response AppClipHeaderImageResponse
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}

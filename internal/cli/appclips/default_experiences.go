@@ -34,6 +34,8 @@ Examples:
 			AppClipDefaultExperiencesGetCommand(),
 			AppClipDefaultExperienceReviewDetailCommand(),
 			AppClipDefaultExperienceReleaseWithAppStoreVersionCommand(),
+			AppClipDefaultExperienceRelationshipsCommand(),
+			AppClipDefaultExperienceHeaderImageCommand(),
 			AppClipDefaultExperiencesCreateCommand(),
 			AppClipDefaultExperiencesUpdateCommand(),
 			AppClipDefaultExperiencesDeleteCommand(),
@@ -354,7 +356,7 @@ Examples:
 	}
 }
 
-// AppClipDefaultExperienceReviewDetailCommand fetches review detail relationship.
+// AppClipDefaultExperienceReviewDetailCommand fetches review detail for a default experience.
 func AppClipDefaultExperienceReviewDetailCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("review-detail", flag.ExitOnError)
 
@@ -365,8 +367,8 @@ func AppClipDefaultExperienceReviewDetailCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "review-detail",
 		ShortUsage: "asc app-clips default-experiences review-detail --experience-id \"EXP_ID\"",
-		ShortHelp:  "Get review detail relationship for a default experience.",
-		LongHelp: `Get review detail relationship for a default experience.
+		ShortHelp:  "Get review detail for a default experience.",
+		LongHelp: `Get review detail for a default experience.
 
 Examples:
   asc app-clips default-experiences review-detail --experience-id "EXP_ID"`,
@@ -387,7 +389,7 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.GetAppClipDefaultExperienceReviewDetailRelationship(requestCtx, experienceValue)
+			resp, err := client.GetAppClipDefaultExperienceReviewDetail(requestCtx, experienceValue)
 			if err != nil {
 				return fmt.Errorf("app-clips default-experiences review-detail: failed to fetch: %w", err)
 			}
@@ -397,7 +399,7 @@ Examples:
 	}
 }
 
-// AppClipDefaultExperienceReleaseWithAppStoreVersionCommand fetches releaseWithAppStoreVersion relationship.
+// AppClipDefaultExperienceReleaseWithAppStoreVersionCommand fetches releaseWithAppStoreVersion for a default experience.
 func AppClipDefaultExperienceReleaseWithAppStoreVersionCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("release-with-app-store-version", flag.ExitOnError)
 
@@ -408,8 +410,8 @@ func AppClipDefaultExperienceReleaseWithAppStoreVersionCommand() *ffcli.Command 
 	return &ffcli.Command{
 		Name:       "release-with-app-store-version",
 		ShortUsage: "asc app-clips default-experiences release-with-app-store-version --experience-id \"EXP_ID\"",
-		ShortHelp:  "Get release with App Store version relationship for a default experience.",
-		LongHelp: `Get release with App Store version relationship for a default experience.
+		ShortHelp:  "Get release with App Store version for a default experience.",
+		LongHelp: `Get release with App Store version for a default experience.
 
 Examples:
   asc app-clips default-experiences release-with-app-store-version --experience-id "EXP_ID"`,
@@ -430,7 +432,7 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.GetAppClipDefaultExperienceReleaseWithAppStoreVersionRelationship(requestCtx, experienceValue)
+			resp, err := client.GetAppClipDefaultExperienceReleaseWithAppStoreVersion(requestCtx, experienceValue)
 			if err != nil {
 				return fmt.Errorf("app-clips default-experiences release-with-app-store-version: failed to fetch: %w", err)
 			}

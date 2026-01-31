@@ -33,6 +33,8 @@ Examples:
 			ExperimentTreatmentLocalizationsGetCommand(),
 			ExperimentTreatmentLocalizationsCreateCommand(),
 			ExperimentTreatmentLocalizationsDeleteCommand(),
+			ExperimentTreatmentLocalizationPreviewSetsCommand(),
+			ExperimentTreatmentLocalizationScreenshotSetsCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp

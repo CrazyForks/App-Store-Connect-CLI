@@ -898,6 +898,26 @@ func TestGetAppStoreVersionExperimentTreatments_WithLimit(t *testing.T) {
 	}
 }
 
+func TestGetAppStoreVersionExperimentTreatmentsV2_WithLimit(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v2/appStoreVersionExperiments/exp-1/appStoreVersionExperimentTreatments" {
+			t.Fatalf("expected path /v2/appStoreVersionExperiments/exp-1/appStoreVersionExperimentTreatments, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("limit") != "10" {
+			t.Fatalf("expected limit=10, got %q", req.URL.Query().Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppStoreVersionExperimentTreatmentsV2(context.Background(), "exp-1", WithAppStoreVersionExperimentTreatmentsLimit(10)); err != nil {
+		t.Fatalf("GetAppStoreVersionExperimentTreatmentsV2() error: %v", err)
+	}
+}
+
 func TestGetAppStoreVersionExperimentTreatment_SendsRequest(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"appStoreVersionExperimentTreatments","id":"treat-1","attributes":{"name":"Variant A"}}}`)
 	client := newTestClient(t, func(req *http.Request) {
@@ -1029,6 +1049,46 @@ func TestGetAppStoreVersionExperimentTreatmentLocalization_SendsRequest(t *testi
 
 	if _, err := client.GetAppStoreVersionExperimentTreatmentLocalization(context.Background(), "tloc-1"); err != nil {
 		t.Fatalf("GetAppStoreVersionExperimentTreatmentLocalization() error: %v", err)
+	}
+}
+
+func TestGetAppStoreVersionExperimentTreatmentLocalizationPreviewSets_WithLimit(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appStoreVersionExperimentTreatmentLocalizations/tloc-1/appPreviewSets" {
+			t.Fatalf("expected path /v1/appStoreVersionExperimentTreatmentLocalizations/tloc-1/appPreviewSets, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("limit") != "6" {
+			t.Fatalf("expected limit=6, got %q", req.URL.Query().Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppStoreVersionExperimentTreatmentLocalizationPreviewSets(context.Background(), "tloc-1", WithAppStoreVersionExperimentTreatmentLocalizationPreviewSetsLimit(6)); err != nil {
+		t.Fatalf("GetAppStoreVersionExperimentTreatmentLocalizationPreviewSets() error: %v", err)
+	}
+}
+
+func TestGetAppStoreVersionExperimentTreatmentLocalizationScreenshotSets_WithLimit(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appStoreVersionExperimentTreatmentLocalizations/tloc-1/appScreenshotSets" {
+			t.Fatalf("expected path /v1/appStoreVersionExperimentTreatmentLocalizations/tloc-1/appScreenshotSets, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("limit") != "4" {
+			t.Fatalf("expected limit=4, got %q", req.URL.Query().Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppStoreVersionExperimentTreatmentLocalizationScreenshotSets(context.Background(), "tloc-1", WithAppStoreVersionExperimentTreatmentLocalizationScreenshotSetsLimit(4)); err != nil {
+		t.Fatalf("GetAppStoreVersionExperimentTreatmentLocalizationScreenshotSets() error: %v", err)
 	}
 }
 

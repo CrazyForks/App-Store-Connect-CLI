@@ -323,6 +323,40 @@ func TestGetAppClipDefaultExperienceReleaseWithAppStoreVersionRelationship(t *te
 	}
 }
 
+func TestGetAppClipDefaultExperienceReviewDetail(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appClipAppStoreReviewDetails","id":"detail-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appClipDefaultExperiences/exp-1/appClipAppStoreReviewDetail" {
+			t.Fatalf("expected path /v1/appClipDefaultExperiences/exp-1/appClipAppStoreReviewDetail, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppClipDefaultExperienceReviewDetail(context.Background(), "exp-1"); err != nil {
+		t.Fatalf("GetAppClipDefaultExperienceReviewDetail() error: %v", err)
+	}
+}
+
+func TestGetAppClipDefaultExperienceReleaseWithAppStoreVersion(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"version-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appClipDefaultExperiences/exp-1/releaseWithAppStoreVersion" {
+			t.Fatalf("expected path /v1/appClipDefaultExperiences/exp-1/releaseWithAppStoreVersion, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppClipDefaultExperienceReleaseWithAppStoreVersion(context.Background(), "exp-1"); err != nil {
+		t.Fatalf("GetAppClipDefaultExperienceReleaseWithAppStoreVersion() error: %v", err)
+	}
+}
+
 func TestGetAppClipDefaultExperienceLocalizationHeaderImageRelationship(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"appClipHeaderImages","id":"header-1"}}`)
 	client := newTestClient(t, func(req *http.Request) {
@@ -337,6 +371,23 @@ func TestGetAppClipDefaultExperienceLocalizationHeaderImageRelationship(t *testi
 
 	if _, err := client.GetAppClipDefaultExperienceLocalizationHeaderImageRelationship(context.Background(), "loc-1"); err != nil {
 		t.Fatalf("GetAppClipDefaultExperienceLocalizationHeaderImageRelationship() error: %v", err)
+	}
+}
+
+func TestGetAppClipDefaultExperienceLocalizationHeaderImage(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appClipHeaderImages","id":"header-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appClipDefaultExperienceLocalizations/loc-1/appClipHeaderImage" {
+			t.Fatalf("expected path /v1/appClipDefaultExperienceLocalizations/loc-1/appClipHeaderImage, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppClipDefaultExperienceLocalizationHeaderImage(context.Background(), "loc-1"); err != nil {
+		t.Fatalf("GetAppClipDefaultExperienceLocalizationHeaderImage() error: %v", err)
 	}
 }
 

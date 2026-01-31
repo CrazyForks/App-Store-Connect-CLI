@@ -203,6 +203,12 @@ type AppStoreVersionLocalizationPreviewSetsOption func(*appStoreVersionLocalizat
 // AppStoreVersionLocalizationScreenshotSetsOption is a functional option for app store version screenshot sets list endpoints.
 type AppStoreVersionLocalizationScreenshotSetsOption func(*appStoreVersionLocalizationScreenshotSetsQuery)
 
+// AppStoreVersionExperimentTreatmentLocalizationPreviewSetsOption is a functional option for treatment localization preview set list endpoints.
+type AppStoreVersionExperimentTreatmentLocalizationPreviewSetsOption func(*appStoreVersionExperimentTreatmentLocalizationPreviewSetsQuery)
+
+// AppStoreVersionExperimentTreatmentLocalizationScreenshotSetsOption is a functional option for treatment localization screenshot set list endpoints.
+type AppStoreVersionExperimentTreatmentLocalizationScreenshotSetsOption func(*appStoreVersionExperimentTreatmentLocalizationScreenshotSetsQuery)
+
 // AppStoreVersionExperimentsOption is a functional option for app store version experiment list endpoints (v1).
 type AppStoreVersionExperimentsOption func(*appStoreVersionExperimentsQuery)
 
@@ -3111,6 +3117,42 @@ func WithAppStoreVersionLocalizationScreenshotSetsLimit(limit int) AppStoreVersi
 // WithAppStoreVersionLocalizationScreenshotSetsNextURL uses a next page URL directly.
 func WithAppStoreVersionLocalizationScreenshotSetsNextURL(next string) AppStoreVersionLocalizationScreenshotSetsOption {
 	return func(q *appStoreVersionLocalizationScreenshotSetsQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
+// WithAppStoreVersionExperimentTreatmentLocalizationPreviewSetsLimit sets the max number of preview sets to return.
+func WithAppStoreVersionExperimentTreatmentLocalizationPreviewSetsLimit(limit int) AppStoreVersionExperimentTreatmentLocalizationPreviewSetsOption {
+	return func(q *appStoreVersionExperimentTreatmentLocalizationPreviewSetsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithAppStoreVersionExperimentTreatmentLocalizationPreviewSetsNextURL uses a next page URL directly.
+func WithAppStoreVersionExperimentTreatmentLocalizationPreviewSetsNextURL(next string) AppStoreVersionExperimentTreatmentLocalizationPreviewSetsOption {
+	return func(q *appStoreVersionExperimentTreatmentLocalizationPreviewSetsQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
+// WithAppStoreVersionExperimentTreatmentLocalizationScreenshotSetsLimit sets the max number of screenshot sets to return.
+func WithAppStoreVersionExperimentTreatmentLocalizationScreenshotSetsLimit(limit int) AppStoreVersionExperimentTreatmentLocalizationScreenshotSetsOption {
+	return func(q *appStoreVersionExperimentTreatmentLocalizationScreenshotSetsQuery) {
+		if limit > 0 {
+			q.limit = limit
+		}
+	}
+}
+
+// WithAppStoreVersionExperimentTreatmentLocalizationScreenshotSetsNextURL uses a next page URL directly.
+func WithAppStoreVersionExperimentTreatmentLocalizationScreenshotSetsNextURL(next string) AppStoreVersionExperimentTreatmentLocalizationScreenshotSetsOption {
+	return func(q *appStoreVersionExperimentTreatmentLocalizationScreenshotSetsQuery) {
 		if strings.TrimSpace(next) != "" {
 			q.nextURL = strings.TrimSpace(next)
 		}

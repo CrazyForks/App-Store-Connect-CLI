@@ -3315,6 +3315,21 @@ func TestAppClipsValidationErrors(t *testing.T) {
 			wantErr: "Error: --localization-id is required",
 		},
 		{
+			name:    "default experiences relationships review detail missing experience-id",
+			args:    []string{"app-clips", "default-experiences", "relationships", "app-store-review-detail"},
+			wantErr: "Error: --experience-id is required",
+		},
+		{
+			name:    "default experiences relationships release version missing experience-id",
+			args:    []string{"app-clips", "default-experiences", "relationships", "release-with-app-store-version"},
+			wantErr: "Error: --experience-id is required",
+		},
+		{
+			name:    "default experiences header image get missing localization",
+			args:    []string{"app-clips", "default-experiences", "header-image", "get"},
+			wantErr: "Error: --localization-id is required",
+		},
+		{
 			name:    "default experiences review detail missing experience-id",
 			args:    []string{"app-clips", "default-experiences", "review-detail"},
 			wantErr: "Error: --experience-id is required",

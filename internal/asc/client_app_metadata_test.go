@@ -388,6 +388,63 @@ func TestGetAppStoreVersionRelationshipLists_SendsRequestWithLimit(t *testing.T)
 	}
 }
 
+func TestGetAppStoreVersionAppClipDefaultExperience_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appClipDefaultExperiences","id":"exp-1"}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appStoreVersions/version-1/appClipDefaultExperience" {
+			t.Fatalf("expected path /v1/appStoreVersions/version-1/appClipDefaultExperience, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppStoreVersionAppClipDefaultExperience(context.Background(), "version-1"); err != nil {
+		t.Fatalf("GetAppStoreVersionAppClipDefaultExperience() error: %v", err)
+	}
+}
+
+func TestGetAppStoreVersionExperimentsV2ForVersion_WithLimit(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appStoreVersions/version-1/appStoreVersionExperimentsV2" {
+			t.Fatalf("expected path /v1/appStoreVersions/version-1/appStoreVersionExperimentsV2, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("limit") != "12" {
+			t.Fatalf("expected limit=12, got %q", req.URL.Query().Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppStoreVersionExperimentsV2ForVersion(context.Background(), "version-1", WithAppStoreVersionExperimentsV2Limit(12)); err != nil {
+		t.Fatalf("GetAppStoreVersionExperimentsV2ForVersion() error: %v", err)
+	}
+}
+
+func TestGetAppStoreVersionCustomerReviews_WithLimit(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/appStoreVersions/version-1/customerReviews" {
+			t.Fatalf("expected path /v1/appStoreVersions/version-1/customerReviews, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("limit") != "5" {
+			t.Fatalf("expected limit=5, got %q", req.URL.Query().Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppStoreVersionCustomerReviews(context.Background(), "version-1", WithLimit(5)); err != nil {
+		t.Fatalf("GetAppStoreVersionCustomerReviews() error: %v", err)
+	}
+}
+
 func TestGetAppCategory_SendsRequest(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"appCategories","id":"GAMES","attributes":{"platforms":["IOS"]}}}`)
 	client := newTestClient(t, func(req *http.Request) {

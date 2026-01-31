@@ -337,6 +337,14 @@ type appStoreVersionExperimentTreatmentLocalizationsQuery struct {
 	listQuery
 }
 
+type appStoreVersionExperimentTreatmentLocalizationPreviewSetsQuery struct {
+	listQuery
+}
+
+type appStoreVersionExperimentTreatmentLocalizationScreenshotSetsQuery struct {
+	listQuery
+}
+
 type betaGroupsQuery struct {
 	listQuery
 }
@@ -1387,6 +1395,18 @@ func buildAppStoreVersionExperimentTreatmentsQuery(query *appStoreVersionExperim
 }
 
 func buildAppStoreVersionExperimentTreatmentLocalizationsQuery(query *appStoreVersionExperimentTreatmentLocalizationsQuery) string {
+	values := url.Values{}
+	addLimit(values, query.limit)
+	return values.Encode()
+}
+
+func buildAppStoreVersionExperimentTreatmentLocalizationPreviewSetsQuery(query *appStoreVersionExperimentTreatmentLocalizationPreviewSetsQuery) string {
+	values := url.Values{}
+	addLimit(values, query.limit)
+	return values.Encode()
+}
+
+func buildAppStoreVersionExperimentTreatmentLocalizationScreenshotSetsQuery(query *appStoreVersionExperimentTreatmentLocalizationScreenshotSetsQuery) string {
 	values := url.Values{}
 	addLimit(values, query.limit)
 	return values.Encode()

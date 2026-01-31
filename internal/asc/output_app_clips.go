@@ -191,6 +191,38 @@ func printAppClipHeaderImageUploadResultMarkdown(result *AppClipHeaderImageUploa
 	return nil
 }
 
+func printAppClipHeaderImageTable(resp *AppClipHeaderImageResponse) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tFile Name\tFile Size\tState")
+	state := ""
+	if resp.Data.Attributes.AssetDeliveryState != nil {
+		state = resp.Data.Attributes.AssetDeliveryState.State
+	}
+	fmt.Fprintf(w, "%s\t%s\t%d\t%s\n",
+		resp.Data.ID,
+		resp.Data.Attributes.FileName,
+		resp.Data.Attributes.FileSize,
+		state,
+	)
+	return w.Flush()
+}
+
+func printAppClipHeaderImageMarkdown(resp *AppClipHeaderImageResponse) error {
+	fmt.Fprintln(os.Stdout, "| ID | File Name | File Size | State |")
+	fmt.Fprintln(os.Stdout, "| --- | --- | --- | --- |")
+	state := ""
+	if resp.Data.Attributes.AssetDeliveryState != nil {
+		state = resp.Data.Attributes.AssetDeliveryState.State
+	}
+	fmt.Fprintf(os.Stdout, "| %s | %s | %d | %s |\n",
+		escapeMarkdown(resp.Data.ID),
+		escapeMarkdown(resp.Data.Attributes.FileName),
+		resp.Data.Attributes.FileSize,
+		escapeMarkdown(state),
+	)
+	return nil
+}
+
 func printAppClipDefaultExperienceDeleteResultTable(result *AppClipDefaultExperienceDeleteResult) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tDeleted")

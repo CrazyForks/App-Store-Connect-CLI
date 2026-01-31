@@ -52,6 +52,7 @@ func ExperimentTreatmentsListCommand() *ffcli.Command {
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
 	output := fs.String("output", "json", "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
+	v2 := fs.Bool("v2", false, "Use v2 experiments endpoint")
 
 	return &ffcli.Command{
 		Name:       "list",
@@ -61,7 +62,8 @@ func ExperimentTreatmentsListCommand() *ffcli.Command {
 
 Examples:
   asc product-pages experiments treatments list --experiment-id "EXPERIMENT_ID"
-  asc product-pages experiments treatments list --experiment-id "EXPERIMENT_ID" --paginate`,
+  asc product-pages experiments treatments list --experiment-id "EXPERIMENT_ID" --paginate
+  asc product-pages experiments treatments list --experiment-id "EXPERIMENT_ID" --v2`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -93,12 +95,20 @@ Examples:
 
 			if *paginate {
 				paginateOpts := append(opts, asc.WithAppStoreVersionExperimentTreatmentsLimit(productPagesMaxLimit))
-				firstPage, err := client.GetAppStoreVersionExperimentTreatments(requestCtx, trimmedID, paginateOpts...)
+				var firstPage *asc.AppStoreVersionExperimentTreatmentsResponse
+				if *v2 {
+					firstPage, err = client.GetAppStoreVersionExperimentTreatmentsV2(requestCtx, trimmedID, paginateOpts...)
+				} else {
+					firstPage, err = client.GetAppStoreVersionExperimentTreatments(requestCtx, trimmedID, paginateOpts...)
+				}
 				if err != nil {
 					return fmt.Errorf("experiments treatments list: failed to fetch: %w", err)
 				}
 
 				paginated, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+					if *v2 {
+						return client.GetAppStoreVersionExperimentTreatmentsV2(ctx, trimmedID, asc.WithAppStoreVersionExperimentTreatmentsNextURL(nextURL))
+					}
 					return client.GetAppStoreVersionExperimentTreatments(ctx, trimmedID, asc.WithAppStoreVersionExperimentTreatmentsNextURL(nextURL))
 				})
 				if err != nil {
@@ -108,7 +118,12 @@ Examples:
 				return printOutput(paginated, *output, *pretty)
 			}
 
-			resp, err := client.GetAppStoreVersionExperimentTreatments(requestCtx, trimmedID, opts...)
+			var resp *asc.AppStoreVersionExperimentTreatmentsResponse
+			if *v2 {
+				resp, err = client.GetAppStoreVersionExperimentTreatmentsV2(requestCtx, trimmedID, opts...)
+			} else {
+				resp, err = client.GetAppStoreVersionExperimentTreatments(requestCtx, trimmedID, opts...)
+			}
 			if err != nil {
 				return fmt.Errorf("experiments treatments list: failed to fetch: %w", err)
 			}

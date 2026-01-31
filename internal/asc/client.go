@@ -58,6 +58,9 @@ type CrashesResponse = Response[CrashAttributes]
 // ReviewsResponse is the response from customer reviews endpoint.
 type ReviewsResponse = Response[ReviewAttributes]
 
+// CustomerReviewResponse is the response from customer review detail endpoint.
+type CustomerReviewResponse = SingleResponse[ReviewAttributes]
+
 // AppStoreVersionLocalizationsResponse is the response from app store version localizations endpoints.
 type AppStoreVersionLocalizationsResponse = Response[AppStoreVersionLocalizationAttributes]
 
@@ -215,8 +218,8 @@ type AppStoreVersionLocalizationRelationships struct {
 
 // BetaAppLocalizationCreateData is the data portion of a beta app localization create request.
 type BetaAppLocalizationCreateData struct {
-	Type          ResourceType                   `json:"type"`
-	Attributes    BetaAppLocalizationAttributes  `json:"attributes"`
+	Type          ResourceType                      `json:"type"`
+	Attributes    BetaAppLocalizationAttributes     `json:"attributes"`
 	Relationships *BetaAppLocalizationRelationships `json:"relationships"`
 }
 
@@ -236,8 +239,8 @@ type BetaAppLocalizationUpdateAttributes struct {
 
 // BetaAppLocalizationUpdateData is the data portion of a beta app localization update request.
 type BetaAppLocalizationUpdateData struct {
-	Type       ResourceType                   `json:"type"`
-	ID         string                         `json:"id"`
+	Type       ResourceType                         `json:"type"`
+	ID         string                               `json:"id"`
 	Attributes *BetaAppLocalizationUpdateAttributes `json:"attributes,omitempty"`
 }
 
@@ -476,6 +479,27 @@ func (c *Client) GetReviews(ctx context.Context, appID string, opts ...ReviewOpt
 	}
 
 	var response ReviewsResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// GetCustomerReview retrieves a customer review by ID.
+func (c *Client) GetCustomerReview(ctx context.Context, reviewID string) (*CustomerReviewResponse, error) {
+	reviewID = strings.TrimSpace(reviewID)
+	if reviewID == "" {
+		return nil, fmt.Errorf("reviewID is required")
+	}
+
+	path := fmt.Sprintf("/v1/customerReviews/%s", reviewID)
+	data, err := c.do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response CustomerReviewResponse
 	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}

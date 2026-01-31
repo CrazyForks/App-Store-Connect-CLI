@@ -2728,6 +2728,23 @@ func TestGetReviews_BuildsQuery(t *testing.T) {
 	}
 }
 
+func TestGetCustomerReview_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"customerReviews","id":"review-1","attributes":{"rating":5,"title":"Great","body":"Nice","reviewerNickname":"Tester","createdDate":"2026-01-20T00:00:00Z","territory":"US"}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/customerReviews/review-1" {
+			t.Fatalf("expected path /v1/customerReviews/review-1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetCustomerReview(context.Background(), "review-1"); err != nil {
+		t.Fatalf("GetCustomerReview() error: %v", err)
+	}
+}
+
 func TestGetEndpoints_ReturnsAPIError(t *testing.T) {
 	tests := []struct {
 		name string

@@ -218,6 +218,54 @@ func TestVersionsRelationshipsValidationErrors(t *testing.T) {
 	}
 }
 
+func TestVersionsRelatedCommandsValidationErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "versions experiments v2 list missing version id",
+			args:    []string{"versions", "experiments-v2", "list"},
+			wantErr: "Error: --version-id is required",
+		},
+		{
+			name:    "versions customer reviews list missing version id",
+			args:    []string{"versions", "customer-reviews", "list"},
+			wantErr: "Error: --version-id is required",
+		},
+		{
+			name:    "versions app clip default experience get missing version id",
+			args:    []string{"versions", "app-clip-default-experience", "get"},
+			wantErr: "Error: --version-id is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected error %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}
+
 func TestCategoriesValidationErrors(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -43,6 +43,7 @@ Examples:
   asc reviews --app "123456789" --sort -createdDate --limit 5
   asc reviews --next "<links.next>"
   asc reviews --app "123456789" --paginate
+  asc reviews get --id "REVIEW_ID"
   asc reviews ratings --app "123456789"
   asc reviews ratings --app "123456789" --all
   asc reviews summarizations --app "123456789" --platform IOS --territory US
@@ -54,6 +55,7 @@ Examples:
 		UsageFunc: DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			ReviewsListCommand(),
+			ReviewsGetCommand(),
 			ReviewsRatingsCommand(),
 			ReviewsSummarizationsCommand(),
 			ReviewsRespondCommand(),
