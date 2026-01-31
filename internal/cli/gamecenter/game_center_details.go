@@ -64,15 +64,18 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("game-center details list: --limit must be between 1 and 200")
+			nextURL := strings.TrimSpace(*next)
+			if nextURL != "" {
+				return fmt.Errorf("game-center details list: --next is not supported")
 			}
-			if err := validateNextURL(*next); err != nil {
-				return fmt.Errorf("game-center details list: %w", err)
+			if *paginate {
+				return fmt.Errorf("game-center details list: --paginate is not supported")
+			}
+			if *limit != 0 {
+				return fmt.Errorf("game-center details list: --limit is not supported")
 			}
 
 			resolvedAppID := resolveAppID(*appID)
-			nextURL := strings.TrimSpace(*next)
 			if resolvedAppID == "" && nextURL == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
 				return flag.ErrHelp
@@ -86,55 +89,21 @@ Examples:
 			requestCtx, cancel := contextWithTimeout(ctx)
 			defer cancel()
 
-			if nextURL == "" && !*paginate && *limit == 0 {
-				detailID, err := client.GetGameCenterDetailID(requestCtx, resolvedAppID)
-				if err != nil {
-					return fmt.Errorf("game-center details list: failed to get Game Center detail: %w", err)
-				}
-
-				detail, err := client.GetGameCenterDetail(requestCtx, detailID)
-				if err != nil {
-					return fmt.Errorf("game-center details list: failed to fetch: %w", err)
-				}
-
-				resp := &asc.GameCenterDetailsResponse{
-					Data:     []asc.Resource[asc.GameCenterDetailAttributes]{detail.Data},
-					Links:    detail.Links,
-					Included: detail.Included,
-					Meta:     detail.Meta,
-				}
-
-				return printOutput(resp, *output, *pretty)
+			detailID, err := client.GetGameCenterDetailID(requestCtx, resolvedAppID)
+			if err != nil {
+				return fmt.Errorf("game-center details list: failed to get Game Center detail: %w", err)
 			}
 
-			opts := []asc.GCDetailsOption{
-				asc.WithGCDetailsLimit(*limit),
-				asc.WithGCDetailsNextURL(*next),
-			}
-
-			if *paginate {
-				paginateOpts := []asc.GCDetailsOption{asc.WithGCDetailsNextURL(*next)}
-				if nextURL == "" {
-					paginateOpts = []asc.GCDetailsOption{asc.WithGCDetailsLimit(200)}
-				}
-				firstPage, err := client.GetGameCenterDetails(requestCtx, paginateOpts...)
-				if err != nil {
-					return fmt.Errorf("game-center details list: failed to fetch: %w", err)
-				}
-
-				resp, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-					return client.GetGameCenterDetails(ctx, asc.WithGCDetailsNextURL(nextURL))
-				})
-				if err != nil {
-					return fmt.Errorf("game-center details list: %w", err)
-				}
-
-				return printOutput(resp, *output, *pretty)
-			}
-
-			resp, err := client.GetGameCenterDetails(requestCtx, opts...)
+			detail, err := client.GetGameCenterDetail(requestCtx, detailID)
 			if err != nil {
 				return fmt.Errorf("game-center details list: failed to fetch: %w", err)
+			}
+
+			resp := &asc.GameCenterDetailsResponse{
+				Data:     []asc.Resource[asc.GameCenterDetailAttributes]{detail.Data},
+				Links:    detail.Links,
+				Included: detail.Included,
+				Meta:     detail.Meta,
 			}
 
 			return printOutput(resp, *output, *pretty)
