@@ -91,6 +91,7 @@ func TestCheckAndUpdate_HomebrewSkipsDownload(t *testing.T) {
 		AutoUpdate:      true,
 		APIBaseURL:      server.URL,
 		DownloadBaseURL: server.URL,
+		CachePath:       filepath.Join(t.TempDir(), "update.json"),
 		Output:          io.Discard,
 		ExecutablePath:  "/opt/homebrew/bin/asc",
 		EvalSymlinks: func(string) (string, error) {
