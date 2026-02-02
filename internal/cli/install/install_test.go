@@ -107,3 +107,49 @@ func TestInstallSkillsFailsWhenNpxMissing(t *testing.T) {
 		t.Fatalf("expected npx error, got %q", err.Error())
 	}
 }
+
+func TestValidatePackageName(t *testing.T) {
+	tests := []struct {
+		name    string
+		pkg     string
+		wantErr bool
+	}{
+		{
+			name:    "valid repo",
+			pkg:     "rudrankriyam/asc-skills",
+			wantErr: false,
+		},
+		{
+			name:    "valid scoped",
+			pkg:     "@scope/skills",
+			wantErr: false,
+		},
+		{
+			name:    "valid name",
+			pkg:     "skills_pack-1",
+			wantErr: false,
+		},
+		{
+			name:    "invalid leading dash",
+			pkg:     "-skills",
+			wantErr: true,
+		},
+		{
+			name:    "invalid characters",
+			pkg:     "skills$bad",
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validatePackageName(test.pkg)
+			if test.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
+	}
+}
