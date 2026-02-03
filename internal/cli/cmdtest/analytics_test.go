@@ -40,6 +40,16 @@ func TestAnalyticsValidationErrors(t *testing.T) {
 			args:    []string{"analytics", "segments", "get"},
 			wantErr: "--segment-id is required",
 		},
+		{
+			name:    "requests delete missing request id",
+			args:    []string{"analytics", "requests", "delete", "--confirm"},
+			wantErr: "--request-id is required",
+		},
+		{
+			name:    "requests delete missing confirm",
+			args:    []string{"analytics", "requests", "delete", "--request-id", "11111111-1111-1111-1111-111111111111"},
+			wantErr: "--confirm is required",
+		},
 	}
 
 	for _, test := range tests {

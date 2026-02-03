@@ -543,6 +543,8 @@ func PrintMarkdown(data interface{}) error {
 		return printFinanceRegionsMarkdown(v)
 	case *AnalyticsReportRequestResult:
 		return printAnalyticsReportRequestResultMarkdown(v)
+	case *AnalyticsReportRequestDeleteResult:
+		return printAnalyticsReportRequestDeleteResultMarkdown(v)
 	case *AnalyticsReportRequestsResponse:
 		return printAnalyticsReportRequestsMarkdown(v)
 	case *AnalyticsReportRequestResponse:
@@ -1485,6 +1487,8 @@ func PrintTable(data interface{}) error {
 		return printFinanceRegionsTable(v)
 	case *AnalyticsReportRequestResult:
 		return printAnalyticsReportRequestResultTable(v)
+	case *AnalyticsReportRequestDeleteResult:
+		return printAnalyticsReportRequestDeleteResultTable(v)
 	case *AnalyticsReportRequestsResponse:
 		return printAnalyticsReportRequestsTable(v)
 	case *AnalyticsReportRequestResponse:

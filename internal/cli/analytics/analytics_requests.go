@@ -90,7 +90,7 @@ func AnalyticsRequestsCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "requests",
 		ShortUsage: "asc analytics requests [flags]",
-		ShortHelp:  "List analytics report requests.",
+		ShortHelp:  "List and manage analytics report requests.",
 		LongHelp: `List analytics report requests.
 
 Examples:
@@ -98,10 +98,17 @@ Examples:
   asc analytics requests --app "123456789" --state COMPLETED
   asc analytics requests --app "123456789" --request-id "REQUEST_ID"
   asc analytics requests --next "<links.next>"
-  asc analytics requests --app "123456789" --paginate`,
+  asc analytics requests --app "123456789" --paginate
+  asc analytics requests delete --request-id "REQUEST_ID" --confirm`,
 		FlagSet:   fs,
 		UsageFunc: DefaultUsageFunc,
+		Subcommands: []*ffcli.Command{
+			AnalyticsRequestsDeleteCommand(),
+		},
 		Exec: func(ctx context.Context, args []string) error {
+			if len(args) > 0 {
+				return flag.ErrHelp
+			}
 			if *limit != 0 && (*limit < 1 || *limit > analyticsMaxLimit) {
 				return fmt.Errorf("analytics requests: --limit must be between 1 and 200")
 			}
@@ -182,6 +189,61 @@ Examples:
 			}
 
 			return printOutput(response, *output, *pretty)
+		},
+	}
+}
+
+// AnalyticsRequestsDeleteCommand deletes an analytics report request.
+func AnalyticsRequestsDeleteCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("delete", flag.ExitOnError)
+
+	requestID := fs.String("request-id", "", "Analytics report request ID")
+	confirm := fs.Bool("confirm", false, "Confirm deletion")
+	output := fs.String("output", "json", "Output format: json (default), table, markdown")
+	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
+
+	return &ffcli.Command{
+		Name:       "delete",
+		ShortUsage: "asc analytics requests delete --request-id \"REQUEST_ID\" --confirm",
+		ShortHelp:  "Delete an analytics report request.",
+		LongHelp: `Delete an analytics report request by ID.
+
+Examples:
+  asc analytics requests delete --request-id "REQUEST_ID" --confirm`,
+		FlagSet:   fs,
+		UsageFunc: DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			id := strings.TrimSpace(*requestID)
+			if id == "" {
+				fmt.Fprintln(os.Stderr, "Error: --request-id is required")
+				return flag.ErrHelp
+			}
+			if err := validateUUIDFlag("--request-id", id); err != nil {
+				return fmt.Errorf("analytics requests delete: %w", err)
+			}
+			if !*confirm {
+				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
+				return flag.ErrHelp
+			}
+
+			client, err := getASCClient()
+			if err != nil {
+				return fmt.Errorf("analytics requests delete: %w", err)
+			}
+
+			requestCtx, cancel := contextWithTimeout(ctx)
+			defer cancel()
+
+			if err := client.DeleteAnalyticsReportRequest(requestCtx, id); err != nil {
+				return fmt.Errorf("analytics requests delete: failed to delete: %w", err)
+			}
+
+			result := &asc.AnalyticsReportRequestDeleteResult{
+				RequestID: id,
+				Deleted:   true,
+			}
+
+			return printOutput(result, *output, *pretty)
 		},
 	}
 }

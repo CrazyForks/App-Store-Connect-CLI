@@ -183,6 +183,23 @@ func TestGetAnalyticsReportRequest_ByID(t *testing.T) {
 	}
 }
 
+func TestDeleteAnalyticsReportRequest_SendsRequest(t *testing.T) {
+	response := jsonResponse(http.StatusNoContent, ``)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodDelete {
+			t.Fatalf("expected DELETE, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/analyticsReportRequests/req-1" {
+			t.Fatalf("expected path /v1/analyticsReportRequests/req-1, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if err := client.DeleteAnalyticsReportRequest(context.Background(), "req-1"); err != nil {
+		t.Fatalf("DeleteAnalyticsReportRequest() error: %v", err)
+	}
+}
+
 func TestGetAnalyticsReports_UsesNextURL(t *testing.T) {
 	next := "https://api.appstoreconnect.apple.com/v1/analyticsReportRequests/req-1/reports?cursor=abc"
 	response := jsonResponse(http.StatusOK, `{"data":[]}`)

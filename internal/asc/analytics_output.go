@@ -30,6 +30,12 @@ type AnalyticsReportRequestResult struct {
 	CreatedDate string `json:"createdDate,omitempty"`
 }
 
+// AnalyticsReportRequestDeleteResult represents CLI output for deleted requests.
+type AnalyticsReportRequestDeleteResult struct {
+	RequestID string `json:"requestId"`
+	Deleted   bool   `json:"deleted"`
+}
+
 // AnalyticsReportDownloadResult represents CLI output for analytics downloads.
 type AnalyticsReportDownloadResult struct {
 	RequestID        string `json:"requestId"`
@@ -136,6 +142,23 @@ func printAnalyticsReportRequestResultMarkdown(result *AnalyticsReportRequestRes
 		escapeMarkdown(result.AccessType),
 		escapeMarkdown(result.State),
 		escapeMarkdown(result.CreatedDate),
+	)
+	return nil
+}
+
+func printAnalyticsReportRequestDeleteResultTable(result *AnalyticsReportRequestDeleteResult) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "Request ID\tDeleted")
+	fmt.Fprintf(w, "%s\t%t\n", result.RequestID, result.Deleted)
+	return w.Flush()
+}
+
+func printAnalyticsReportRequestDeleteResultMarkdown(result *AnalyticsReportRequestDeleteResult) error {
+	fmt.Fprintln(os.Stdout, "| Request ID | Deleted |")
+	fmt.Fprintln(os.Stdout, "| --- | --- |")
+	fmt.Fprintf(os.Stdout, "| %s | %t |\n",
+		escapeMarkdown(result.RequestID),
+		result.Deleted,
 	)
 	return nil
 }

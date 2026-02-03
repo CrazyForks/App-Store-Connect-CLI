@@ -458,6 +458,13 @@ func (c *Client) GetAnalyticsReportRequest(ctx context.Context, requestID string
 	return &response, nil
 }
 
+// DeleteAnalyticsReportRequest deletes an analytics report request by ID.
+func (c *Client) DeleteAnalyticsReportRequest(ctx context.Context, requestID string) error {
+	path := fmt.Sprintf("/v1/analyticsReportRequests/%s", strings.TrimSpace(requestID))
+	_, err := c.do(ctx, "DELETE", path, nil)
+	return err
+}
+
 // GetAnalyticsReport retrieves a specific analytics report by ID.
 func (c *Client) GetAnalyticsReport(ctx context.Context, reportID string) (*AnalyticsReportResponse, error) {
 	path := fmt.Sprintf("/v1/analyticsReports/%s", strings.TrimSpace(reportID))
