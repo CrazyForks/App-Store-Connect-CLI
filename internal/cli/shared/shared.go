@@ -521,6 +521,10 @@ func printOutput(data interface{}, format string, pretty bool) error {
 	}
 }
 
+func printStreamPage(data interface{}) error {
+	return asc.PrintJSON(data)
+}
+
 func normalizeDate(value, flagName string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -701,4 +705,11 @@ func ValidateNextURL(next string) error {
 
 func ValidateSort(value string, allowed ...string) error {
 	return validateSort(value, allowed...)
+}
+
+// PrintStreamPage writes a single page of data as a JSON line to stdout.
+// Used with --stream --paginate to emit results page-by-page as NDJSON
+// instead of buffering all pages in memory.
+func PrintStreamPage(data interface{}) error {
+	return printStreamPage(data)
 }

@@ -48,3 +48,7 @@ func splitCSVUpper(value string) []string {
 func parseCommaSeparatedIDs(value string) []string {
 	return shared.SplitCSV(value)
 }
+
+func printStreamPage(data interface{}) error {
+	return shared.PrintStreamPage(data)
+}
