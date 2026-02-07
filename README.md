@@ -1,7 +1,7 @@
 # Unofficial App Store Connect CLI
 
-**Repository:** https://github.com/rudrankriyam/App-Store-Connect-CLI
-**Summary:** A Go-based CLI for App Store Connect automation, including apps, builds, metadata, TestFlight, and release workflows.
+**Companion skills pack:** https://github.com/rudrankriyam/app-store-connect-cli-skills
+**Summary:** Agent Skills for automating `asc` workflows including builds, TestFlight, metadata sync, submissions, and signing.
 
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go" alt="Go Version">
