@@ -381,6 +381,14 @@ Goal: eliminate current `0.0%` coverage packages by adding package-local tests i
 - [x] `internal/cli/apps` (`app-tags territories-relationships` invalid/malformed `--next` validation + `--paginate --next` without `--id`)
 - [x] Commit Phase 44
 
+## Phase 45 - `--next` Parity for Core App Lists, Search Keywords, Encryption Declarations, and Territory Age Ratings
+
+- [x] `internal/cli/apps` (`apps` invalid/malformed `--next` validation + `--paginate --next` path)
+- [x] `internal/cli/apps` (`apps search-keywords list` invalid/malformed `--next` validation + `--paginate --next` without `--app`)
+- [x] `internal/cli/apps` (`apps app-encryption-declarations list` invalid/malformed `--next` validation + `--paginate --next` without `--id`)
+- [x] `internal/cli/apps` (`app-info territory-age-ratings list` invalid/malformed `--next` validation + `--paginate --next` without `--id`)
+- [x] Commit Phase 45
+
 ## Validation Gate (after each phase and at end)
 
 - [x] `go test -short ./...`
