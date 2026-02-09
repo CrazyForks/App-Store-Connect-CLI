@@ -355,6 +355,13 @@ Goal: eliminate current `0.0%` coverage packages by adding package-local tests i
 - [x] `internal/cli/analytics` (`analytics reports relationships` invalid/malformed `--next` validation + `--paginate --next` without `--report-id`)
 - [x] Commit Phase 40
 
+## Phase 41 - `--next` Parity for Bundle ID Lists, Capabilities, and Profiles
+
+- [x] `internal/cli/bundleids` (`bundle-ids list` invalid/malformed `--next` validation + `--paginate --next` path)
+- [x] `internal/cli/bundleids` (`bundle-ids capabilities list` invalid/malformed `--next` validation + `--paginate --next` without `--bundle`)
+- [x] `internal/cli/bundleids` (`bundle-ids profiles list` invalid/malformed `--next` validation + `--paginate --next` without `--id`)
+- [x] Commit Phase 41
+
 ## Validation Gate (after each phase and at end)
 
 - [x] `go test -short ./...`
