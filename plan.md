@@ -374,6 +374,13 @@ Goal: eliminate current `0.0%` coverage packages by adding package-local tests i
 - [x] `internal/cli/buildbundles` (`build-bundles app-clip invocations list` invalid/malformed `--next` validation + `--paginate --next` path)
 - [x] Commit Phase 43
 
+## Phase 44 - `--next` Parity for App Tag Relationship and Territory Surfaces
+
+- [x] `internal/cli/apps` (`app-tags relationships` invalid/malformed `--next` validation + `--paginate --next` without `--app`)
+- [x] `internal/cli/apps` (`app-tags territories` invalid/malformed `--next` validation + `--paginate --next` without `--id`)
+- [x] `internal/cli/apps` (`app-tags territories-relationships` invalid/malformed `--next` validation + `--paginate --next` without `--id`)
+- [x] Commit Phase 44
+
 ## Validation Gate (after each phase and at end)
 
 - [x] `go test -short ./...`
