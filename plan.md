@@ -93,6 +93,15 @@ Goal: eliminate current `0.0%` coverage packages by adding package-local tests i
 - [x] `internal/cli/subscriptions` (`offer-codes create` normalization + payload behavior)
 - [x] Commit Phase 8
 
+## Phase 9 - High-Risk Package Negative API Paths
+
+- [x] `internal/cli/builds` (`builds latest` pre-release lookup API failure propagation)
+- [x] `internal/cli/apps` (`app-tags list` fetch failure propagation)
+- [x] `internal/cli/testflight` (`metrics public-link` fetch failure propagation)
+- [x] `internal/cli/iap` (`offer-codes create` API create failure propagation)
+- [x] `internal/cli/subscriptions` (`offer-codes create` API create failure propagation)
+- [x] Commit Phase 9
+
 ## Validation Gate (after each phase and at end)
 
 - [x] `go test -short ./...`

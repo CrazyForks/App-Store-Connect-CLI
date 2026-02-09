@@ -125,3 +125,49 @@ func TestBuildsLatestSelectsNewestAcrossPlatformPreReleaseVersions(t *testing.T)
 		t.Fatalf("expected latest build id build-new, got %q", out.Data.ID)
 	}
 }
+
+func TestBuildsLatestReturnsPreReleaseLookupFailure(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/preReleaseVersions" {
+			t.Fatalf("expected pre-release versions path, got %s", req.URL.Path)
+		}
+		body := `{"errors":[{"status":"500","title":"Server Error","detail":"pre-release lookup failed"}]}`
+		return &http.Response{
+			StatusCode: http.StatusInternalServerError,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, _ := captureOutput(t, func() {
+		if err := root.Parse([]string{"builds", "latest", "--app", "app-1", "--platform", "ios"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if runErr == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(runErr.Error(), "builds latest: failed to lookup pre-release versions") {
+		t.Fatalf("expected pre-release lookup error, got %v", runErr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+}

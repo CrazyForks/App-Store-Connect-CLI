@@ -116,3 +116,54 @@ func TestIAPOfferCodesCreateUsesDefaultEligibilitiesAndParsedPrices(t *testing.T
 		t.Fatalf("expected created offer code id offer-1, got %q", out.Data.ID)
 	}
 }
+
+func TestIAPOfferCodesCreateReturnsCreateFailure(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/inAppPurchaseOfferCodes" {
+			t.Fatalf("expected path /v1/inAppPurchaseOfferCodes, got %s", req.URL.Path)
+		}
+		body := `{"errors":[{"status":"409","title":"Conflict","detail":"duplicate code"}]}`
+		return &http.Response{
+			StatusCode: http.StatusConflict,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, _ := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"iap", "offer-codes", "create",
+			"--iap-id", "iap-1",
+			"--name", "SPRING",
+			"--prices", "usa:pp-us",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if runErr == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(runErr.Error(), "iap offer-codes create: failed to create") {
+		t.Fatalf("expected create failure, got %v", runErr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+}
