@@ -509,7 +509,33 @@ func ParseErrorWithStatus(body []byte, statusCode int) error {
 
 	// Sanitize the error body to prevent information disclosure
 	sanitized := sanitizeErrorBody(body)
-	return fmt.Errorf("unknown error: %s", sanitized)
+	if strings.TrimSpace(sanitized) == "" {
+		sanitized = "unknown error"
+	}
+
+	return &APIError{
+		Code:       apiErrorCodeFromStatus(statusCode),
+		Title:      "API request failed",
+		Detail:     sanitized,
+		StatusCode: statusCode,
+	}
+}
+
+func apiErrorCodeFromStatus(statusCode int) string {
+	switch statusCode {
+	case http.StatusBadRequest:
+		return "BAD_REQUEST"
+	case http.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "CONFLICT"
+	default:
+		return ""
+	}
 }
 
 // sanitizeErrorBody limits the length and strips control characters from error bodies

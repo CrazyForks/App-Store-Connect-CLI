@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"flag"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -132,10 +133,25 @@ func TestAPIErrorCodeToExitCode(t *testing.T) {
 	}
 }
 
+func TestExitCodeFromError_NonJSONAPIStatus(t *testing.T) {
+	err := asc.ParseErrorWithStatus([]byte("<html>bad gateway</html>"), http.StatusBadGateway)
+	result := ExitCodeFromError(err)
+	if result != ExitHTTPBadGateway {
+		t.Errorf("ExitCodeFromError(non-JSON 502) = %d, want %d", result, ExitHTTPBadGateway)
+	}
+}
+
 func TestGetCommandName(t *testing.T) {
 	makeCommandTree := func() *ffcli.Command {
+		rootFlags := flag.NewFlagSet("asc", flag.ContinueOnError)
+		rootFlags.Bool("debug", false, "")
+		rootFlags.String("report", "", "")
+		rootFlags.String("report-file", "", "")
+		rootFlags.String("profile", "", "")
+
 		return &ffcli.Command{
-			Name: "asc",
+			Name:    "asc",
+			FlagSet: rootFlags,
 			Subcommands: []*ffcli.Command{
 				{
 					Name: "builds",
@@ -155,19 +171,21 @@ func TestGetCommandName(t *testing.T) {
 		}
 	}
 
-	// Test cases use os.Args format (with program name as first arg)
+	// Test cases use os.Args[1:] format (without program name).
 	tests := []struct {
 		name     string
 		args     []string
 		expected string
 	}{
-		{"root command", []string{"asc"}, "asc"},
-		{"single level subcommand", []string{"asc", "builds"}, "asc builds"},
-		{"nested subcommand", []string{"asc", "builds", "list"}, "asc builds list"},
-		{"another nested subcommand", []string{"asc", "apps", "list"}, "asc apps list"},
-		{"root flag before subcommand", []string{"asc", "--debug", "builds"}, "asc builds"},
-		{"multiple root flags before subcommand", []string{"asc", "--report", "junit", "--report-file", "/tmp/report.xml", "completion"}, "asc completion"},
-		{"subcommand then flags", []string{"asc", "builds", "list", "--output", "json"}, "asc builds list"},
+		{"root command", []string{}, "asc"},
+		{"single level subcommand", []string{"builds"}, "asc builds"},
+		{"nested subcommand", []string{"builds", "list"}, "asc builds list"},
+		{"another nested subcommand", []string{"apps", "list"}, "asc apps list"},
+		{"root flag before subcommand", []string{"--debug", "builds"}, "asc builds"},
+		{"multiple root flags before subcommand", []string{"--report", "junit", "--report-file", "/tmp/report.xml", "completion"}, "asc completion"},
+		{"flag value matches subcommand name", []string{"--profile", "builds", "completion"}, "asc completion"},
+		{"subcommand then flags", []string{"builds", "list", "--output", "json"}, "asc builds list"},
+		{"backward compatibility with program name", []string{"asc", "apps", "list"}, "asc apps list"},
 	}
 
 	for _, tt := range tests {
@@ -245,6 +263,11 @@ func TestJUnitReportEndToEnd(t *testing.T) {
 		{
 			name:       "single subcommand",
 			args:       []string{"--report", "junit", "--report-file", "report2.xml", "completion", "--shell", "bash"},
+			expectName: "asc completion",
+		},
+		{
+			name:       "flag value matching subcommand name",
+			args:       []string{"--report", "junit", "--report-file", "report3.xml", "--profile", "builds", "completion", "--shell", "bash"},
 			expectName: "asc completion",
 		},
 	}

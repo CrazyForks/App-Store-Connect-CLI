@@ -179,6 +179,7 @@ func TestValidateReportFlags(t *testing.T) {
 		wantError bool
 	}{
 		{"empty format is valid", "", "", false},
+		{"report file without format is error", "", "/tmp/report.xml", true},
 		{"junit without file is error", "junit", "", true},
 		{"junit with file is valid", "junit", "/tmp/report.xml", false},
 		{"invalid format returns error", "nope", "", true},

@@ -108,39 +108,89 @@ func getCommandName(root *ffcli.Command, args []string) string {
 	current := root
 	path := []string{current.Name}
 
-	for i := 0; i < len(args); i++ {
-		found := false
-		for _, sub := range current.Subcommands {
-			if sub.Name == args[i] {
-				path = append(path, sub.Name)
-				current = sub
-				found = true
-				break
-			}
+	// Backward compatibility: tolerate args that include argv[0].
+	if len(args) > 0 && strings.EqualFold(args[0], root.Name) {
+		args = args[1:]
+	}
+
+	for i := 0; i < len(args); {
+		token := args[i]
+		if token == "" {
+			i++
+			continue
 		}
-		if !found {
-			// Check if it's a known subcommand at any level to skip flag values
-			if !isKnownSubcommand(root, args[i]) {
-				continue // Skip non-subcommand tokens (flag values)
-			}
-			break
+
+		if sub := findDirectSubcommand(current, token); sub != nil {
+			path = append(path, sub.Name)
+			current = sub
+			i++
+			continue
 		}
+
+		nextIdx, consumed := consumeFlagToken(current.FlagSet, token, args, i)
+		if consumed {
+			i = nextIdx
+			continue
+		}
+
+		// First positional arg that isn't a subcommand ends traversal.
+		break
 	}
 
 	return strings.Join(path, " ")
 }
 
-// isKnownSubcommand checks if a token matches any subcommand in the tree.
-func isKnownSubcommand(cmd *ffcli.Command, name string) bool {
-	for _, sub := range cmd.Subcommands {
-		if sub.Name == name {
-			return true
-		}
-		if isKnownSubcommand(sub, name) {
-			return true
+func findDirectSubcommand(current *ffcli.Command, token string) *ffcli.Command {
+	for _, sub := range current.Subcommands {
+		if strings.EqualFold(sub.Name, token) {
+			return sub
 		}
 	}
-	return false
+	return nil
+}
+
+func consumeFlagToken(fs *flag.FlagSet, token string, args []string, idx int) (int, bool) {
+	if fs == nil || token == "" || token == "-" || !strings.HasPrefix(token, "-") {
+		return idx, false
+	}
+
+	if token == "--" {
+		return idx + 1, true
+	}
+
+	trimmed := strings.TrimLeft(token, "-")
+	if trimmed == "" {
+		return idx, false
+	}
+
+	name, hasInlineValue := splitFlagToken(trimmed)
+	f := fs.Lookup(name)
+	if f == nil {
+		return idx, false
+	}
+
+	if hasInlineValue || isBoolFlag(f) {
+		return idx + 1, true
+	}
+	if idx+1 < len(args) {
+		return idx + 2, true
+	}
+	return idx + 1, true
+}
+
+func splitFlagToken(token string) (name string, hasInlineValue bool) {
+	if eq := strings.Index(token, "="); eq >= 0 {
+		return token[:eq], true
+	}
+	return token, false
+}
+
+func isBoolFlag(f *flag.Flag) bool {
+	type boolFlag interface {
+		IsBoolFlag() bool
+	}
+	v, ok := f.Value.(boolFlag)
+	return ok && v.IsBoolFlag()
 }
 
 // writeJUnitReport writes a JUnit XML report if --report junit --report-file is configured.

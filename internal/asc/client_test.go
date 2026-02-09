@@ -1103,6 +1103,43 @@ func TestParseError(t *testing.T) {
 	}
 }
 
+func TestParseErrorWithStatus_NonJSON(t *testing.T) {
+	payload := []byte("<html>bad gateway</html>")
+	err := ParseErrorWithStatus(payload, 502)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.StatusCode != 502 {
+		t.Fatalf("expected status code 502, got %d", apiErr.StatusCode)
+	}
+	if !strings.Contains(apiErr.Detail, "bad gateway") {
+		t.Fatalf("expected sanitized detail to include response body, got %q", apiErr.Detail)
+	}
+}
+
+func TestParseErrorWithStatus_NonJSONNotFoundMapsCode(t *testing.T) {
+	err := ParseErrorWithStatus([]byte("not found"), 404)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != "NOT_FOUND" {
+		t.Fatalf("expected code NOT_FOUND, got %q", apiErr.Code)
+	}
+	if !errors.Is(apiErr, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound mapping, got %v", err)
+	}
+}
+
 func TestBuildAppsQuery(t *testing.T) {
 	query := &appsQuery{}
 	opts := []AppsOption{
