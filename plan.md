@@ -271,6 +271,15 @@ Goal: eliminate current `0.0%` coverage packages by adding package-local tests i
 - [x] `internal/cli/app_events` (`app-events video-clips list` invalid/malformed `--next` validation + `--paginate --next` without `--event-id/--localization-id`)
 - [x] Commit Phase 30
 
+## Phase 31 - `--next` Parity for App Events Relationship and Localization Media Linkages
+
+- [x] `internal/cli/app_events` (`app-events relationships` invalid/malformed `--next` validation + `--paginate --next` without `--event-id`)
+- [x] `internal/cli/app_events` (`app-events screenshots relationships` invalid/malformed `--next` validation + `--paginate --next` without `--event-id/--localization-id`)
+- [x] `internal/cli/app_events` (`app-events video-clips relationships` invalid/malformed `--next` validation + `--paginate --next` without `--event-id/--localization-id`)
+- [x] `internal/cli/app_events` (`app-events localizations screenshots list` invalid/malformed `--next` validation + `--paginate --next` path)
+- [x] `internal/cli/app_events` (`app-events localizations video-clips list` invalid/malformed `--next` validation + `--paginate --next` path)
+- [x] Commit Phase 31
+
 ## Validation Gate (after each phase and at end)
 
 - [x] `go test -short ./...`
