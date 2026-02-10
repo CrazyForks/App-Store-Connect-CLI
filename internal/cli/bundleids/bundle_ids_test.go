@@ -166,3 +166,18 @@ func TestExtractBundleIDFromNextURL_Invalid(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestExtractBundleIDFromNextURL_RejectsMalformedHost(t *testing.T) {
+	tests := []string{
+		"http://localhost:80:80/v1/bundleIds/bundle-123/profiles?cursor=abc",
+		"http://::1/v1/bundleIds/bundle-123/profiles?cursor=abc",
+	}
+
+	for _, next := range tests {
+		t.Run(next, func(t *testing.T) {
+			if _, err := extractBundleIDFromNextURL(next); err == nil {
+				t.Fatalf("expected error for malformed URL %q", next)
+			}
+		})
+	}
+}

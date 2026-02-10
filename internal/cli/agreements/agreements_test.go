@@ -65,6 +65,16 @@ func TestExtractEULATerritoryIDFromNextURL(t *testing.T) {
 			input:   "https://api.appstoreconnect.apple.com/v1/apps",
 			wantErr: true,
 		},
+		{
+			name:    "malformed host localhost double port",
+			input:   "http://localhost:80:80/v1/endUserLicenseAgreements/123/territories?limit=50",
+			wantErr: true,
+		},
+		{
+			name:    "malformed host ipv6 without brackets",
+			input:   "http://::1/v1/endUserLicenseAgreements/123/territories?limit=50",
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range tests {

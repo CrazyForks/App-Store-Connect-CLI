@@ -360,6 +360,28 @@ func TestNotifySlackRejectsInsecureScheme(t *testing.T) {
 	}
 }
 
+func TestNotifySlackRejectsMalformedWebhookURL(t *testing.T) {
+	t.Setenv(slackWebhookEnvVar, "")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	cmd := SlackCommand()
+	cmd.FlagSet.SetOutput(io.Discard)
+
+	_, stderr := captureOutput(t, func() {
+		if err := cmd.Parse([]string{"--webhook", "http://localhost:80:80/services/test", "--message", "hi"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr := cmd.Run(context.Background())
+		if !errors.Is(runErr, flag.ErrHelp) {
+			t.Fatalf("expected flag.ErrHelp, got %v", runErr)
+		}
+	})
+
+	if !strings.Contains(stderr, "valid Slack webhook URL") {
+		t.Fatalf("expected malformed URL validation error, got %q", stderr)
+	}
+}
+
 func TestResolveWebhook(t *testing.T) {
 	tests := []struct {
 		name      string
