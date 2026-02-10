@@ -21,6 +21,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Updated %s\n", result.GeneratedPath)
 	fmt.Printf("Synced snippet markers in %s\n", result.ReadmePath)
 }

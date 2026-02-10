@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 )
@@ -19,6 +18,7 @@ const (
 var platformDisplayNames = map[string]string{
 	"IOS":       "iOS",
 	"MAC_OS":    "macOS",
+	"WATCH_OS":  "watchOS",
 	"TV_OS":     "tvOS",
 	"VISION_OS": "visionOS",
 }
@@ -27,6 +27,8 @@ var platformAliases = map[string]string{
 	"ios":       "IOS",
 	"macos":     "MAC_OS",
 	"mac_os":    "MAC_OS",
+	"watchos":   "WATCH_OS",
+	"watch_os":  "WATCH_OS",
 	"tvos":      "TV_OS",
 	"tv_os":     "TV_OS",
 	"visionos":  "VISION_OS",
@@ -42,14 +44,12 @@ type wallEntry struct {
 
 // Result contains generated output paths.
 type Result struct {
-	GeneratedPath string
-	ReadmePath    string
+	ReadmePath string
 }
 
-// Generate reads docs/wall-of-apps.json and updates docs/readme wall snippets.
+// Generate reads docs/wall-of-apps.json and updates the README wall snippet.
 func Generate(repoRoot string) (Result, error) {
 	sourcePath := filepath.Join(repoRoot, "docs", "wall-of-apps.json")
-	generatedPath := filepath.Join(repoRoot, "docs", "generated", "app-wall.md")
 	readmePath := filepath.Join(repoRoot, "README.md")
 
 	entries, err := readEntries(sourcePath)
@@ -58,14 +58,11 @@ func Generate(repoRoot string) (Result, error) {
 	}
 	snippet := buildSnippet(entries)
 
-	if err := writeGenerated(snippet, generatedPath); err != nil {
-		return Result{}, err
-	}
 	if err := syncReadme(snippet, readmePath); err != nil {
 		return Result{}, err
 	}
 
-	return Result{GeneratedPath: generatedPath, ReadmePath: readmePath}, nil
+	return Result{ReadmePath: readmePath}, nil
 }
 
 func readEntries(sourcePath string) ([]wallEntry, error) {
@@ -133,17 +130,11 @@ func normalizeEntry(entry wallEntry, index int) (wallEntry, error) {
 	platforms := make([]string, 0, len(entry.Platform))
 	for _, value := range entry.Platform {
 		token := strings.TrimSpace(value)
-		normalized, ok := normalizePlatform(token)
-		if !ok {
-			allowed := strings.Join(allowedPlatformDisplayValues(), ", ")
-			return wallEntry{}, fmt.Errorf(
-				"entry #%d: invalid platform %q (allowed: %s)",
-				index,
-				token,
-				allowed,
-			)
+		if token == "" {
+			return wallEntry{}, fmt.Errorf("entry #%d: 'platform' entries must be non-empty strings", index)
 		}
-		if !contains(platforms, normalized) {
+		normalized := normalizePlatform(token)
+		if !containsFold(platforms, normalized) {
 			platforms = append(platforms, normalized)
 		}
 	}
@@ -151,20 +142,23 @@ func normalizeEntry(entry wallEntry, index int) (wallEntry, error) {
 	return entry, nil
 }
 
-func normalizePlatform(value string) (string, bool) {
+func normalizePlatform(value string) string {
 	key := strings.ToLower(value)
 	key = strings.ReplaceAll(key, "-", "_")
 	key = strings.ReplaceAll(key, " ", "")
-	normalized, ok := platformAliases[key]
-	return normalized, ok
+	if normalized, ok := platformAliases[key]; ok {
+		return normalized
+	}
+	return value
 }
 
-func allowedPlatformDisplayValues() []string {
-	return []string{"iOS", "macOS", "tvOS", "visionOS"}
-}
-
-func contains(values []string, needle string) bool {
-	return slices.Contains(values, needle)
+func containsFold(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func buildSnippet(entries []wallEntry) string {
@@ -204,17 +198,6 @@ func displayPlatform(value string) string {
 func escapeCell(value string) string {
 	escaped := strings.ReplaceAll(value, "|", "\\|")
 	return strings.TrimSpace(strings.ReplaceAll(escaped, "\n", " "))
-}
-
-func writeGenerated(snippet string, generatedPath string) error {
-	if err := os.MkdirAll(filepath.Dir(generatedPath), 0o755); err != nil {
-		return fmt.Errorf("create generated docs directory: %w", err)
-	}
-	header := "<!-- Generated from docs/wall-of-apps.json by tools/update-wall-of-apps. -->\n\n"
-	if err := os.WriteFile(generatedPath, []byte(header+snippet), 0o644); err != nil {
-		return fmt.Errorf("write generated doc: %w", err)
-	}
-	return nil
 }
 
 func syncReadme(snippet string, readmePath string) error {

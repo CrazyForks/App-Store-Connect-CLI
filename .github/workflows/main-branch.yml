@@ -28,7 +28,7 @@ jobs:
       - name: Check Wall of Apps generation
         run: |
           make update-wall-of-apps
-          git diff --exit-code -- README.md docs/generated/app-wall.md
+          git diff --exit-code -- README.md
 
       - name: Run lint
         run: |

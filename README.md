@@ -29,6 +29,29 @@ Apps shipping with asc-cli. [Add yours via PR](https://github.com/rudrankriyam/A
 | MileIO | [Open](https://apps.apple.com/app/id6758225631) | Juergen | iOS |
 <!-- WALL-OF-APPS:END -->
 
+### Add Your App to the Wall
+
+Do not edit the Wall table in `README.md` directly. It is generated from `docs/wall-of-apps.json`.
+
+1. Add your entry to `docs/wall-of-apps.json`
+2. Run `make update-wall-of-apps`
+3. Commit both files:
+   - `docs/wall-of-apps.json`
+   - `README.md`
+
+Template entry:
+
+```json
+{
+  "app": "Your App Name",
+  "link": "https://apps.apple.com/app/id1234567890",
+  "creator": "your-github-handle",
+  "platform": ["iOS"]
+}
+```
+
+Platform values are free-form labels (for example: `iOS`, `macOS`, `watchOS`, `tvOS`, `visionOS`, `Android`, `Web`).
+
 ## ASC Skills
 
 Agent Skills for automating `asc` workflows including builds, TestFlight, metadata sync, submissions, and signing. https://github.com/rudrankriyam/app-store-connect-cli-skills
