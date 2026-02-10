@@ -146,7 +146,8 @@ func (c *Client) GetReviewSubmissions(ctx context.Context, appID string, opts ..
 	return &response, nil
 }
 
-// ListReviewSubmissions retrieves review submissions using the top-level /v1/reviewSubmissions endpoint (global list).
+// ListReviewSubmissions retrieves review submissions using the top-level /v1/reviewSubmissions endpoint.
+// App Store Connect requires filter[app] for this endpoint, so callers should pass WithReviewSubmissionsApps.
 func (c *Client) ListReviewSubmissions(ctx context.Context, opts ...ReviewSubmissionsOption) (*ReviewSubmissionsResponse, error) {
 	query := &reviewSubmissionsQuery{}
 	for _, opt := range opts {

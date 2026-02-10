@@ -9007,6 +9007,9 @@ func TestListReviewSubmissionsGlobal_WithFilters(t *testing.T) {
 			t.Fatalf("expected path /v1/reviewSubmissions, got %s", req.URL.Path)
 		}
 		values := req.URL.Query()
+		if values.Get("filter[app]") != "app-1" {
+			t.Fatalf("expected filter[app]=app-1, got %q", values.Get("filter[app]"))
+		}
 		if values.Get("filter[platform]") != "IOS" {
 			t.Fatalf("expected filter[platform]=IOS, got %q", values.Get("filter[platform]"))
 		}
@@ -9018,6 +9021,7 @@ func TestListReviewSubmissionsGlobal_WithFilters(t *testing.T) {
 
 	if _, err := client.ListReviewSubmissions(
 		context.Background(),
+		WithReviewSubmissionsApps([]string{"app-1"}),
 		WithReviewSubmissionsPlatforms([]string{"IOS"}),
 		WithReviewSubmissionsStates([]string{"READY_FOR_REVIEW"}),
 	); err != nil {

@@ -1682,6 +1682,13 @@ func WithReviewSubmissionsStates(states []string) ReviewSubmissionsOption {
 	}
 }
 
+// WithReviewSubmissionsApps filters review submissions by app IDs.
+func WithReviewSubmissionsApps(appIDs []string) ReviewSubmissionsOption {
+	return func(q *reviewSubmissionsQuery) {
+		q.appIDs = normalizeList(appIDs)
+	}
+}
+
 // WithReviewSubmissionItemsLimit sets the max number of review submission items to return.
 func WithReviewSubmissionItemsLimit(limit int) ReviewSubmissionItemsOption {
 	return func(q *reviewSubmissionItemsQuery) {

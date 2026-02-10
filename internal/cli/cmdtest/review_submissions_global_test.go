@@ -28,6 +28,9 @@ func TestReviewSubmissionsListGlobalSuccess(t *testing.T) {
 		if req.URL.Path != "/v1/reviewSubmissions" {
 			t.Fatalf("expected path /v1/reviewSubmissions, got %s", req.URL.Path)
 		}
+		if req.URL.Query().Get("filter[app]") != "app-1" {
+			t.Fatalf("expected filter[app]=app-1, got %q", req.URL.Query().Get("filter[app]"))
+		}
 		body := `{"data":[{"type":"reviewSubmissions","id":"rs-1","attributes":{"platform":"IOS","state":"READY_FOR_REVIEW"}}]}`
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -40,7 +43,7 @@ func TestReviewSubmissionsListGlobalSuccess(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"review", "submissions-list", "--global"}); err != nil {
+		if err := root.Parse([]string{"review", "submissions-list", "--global", "--app", "app-1"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -72,6 +75,9 @@ func TestReviewSubmissionsListGlobalWithASCAppIDSet(t *testing.T) {
 		}
 		if req.URL.Path != "/v1/reviewSubmissions" {
 			t.Fatalf("expected global path /v1/reviewSubmissions, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("filter[app]") != "app-from-env" {
+			t.Fatalf("expected filter[app]=app-from-env, got %q", req.URL.Query().Get("filter[app]"))
 		}
 		body := `{"data":[]}`
 		return &http.Response{
@@ -116,6 +122,9 @@ func TestReviewSubmissionsListGlobalWithFilters(t *testing.T) {
 			t.Fatalf("expected path /v1/reviewSubmissions, got %s", req.URL.Path)
 		}
 		values := req.URL.Query()
+		if values.Get("filter[app]") != "app-1" {
+			t.Fatalf("expected filter[app]=app-1, got %q", values.Get("filter[app]"))
+		}
 		if values.Get("filter[platform]") != "IOS" {
 			t.Fatalf("expected filter[platform]=IOS, got %q", values.Get("filter[platform]"))
 		}
@@ -134,7 +143,7 @@ func TestReviewSubmissionsListGlobalWithFilters(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	_, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"review", "submissions-list", "--global", "--platform", "IOS", "--state", "READY_FOR_REVIEW"}); err != nil {
+		if err := root.Parse([]string{"review", "submissions-list", "--global", "--app", "app-1", "--platform", "IOS", "--state", "READY_FOR_REVIEW"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -147,14 +156,14 @@ func TestReviewSubmissionsListGlobalWithFilters(t *testing.T) {
 	}
 }
 
-func TestReviewSubmissionsListGlobalAndAppMutuallyExclusive(t *testing.T) {
+func TestReviewSubmissionsListGlobalMissingAppError(t *testing.T) {
 	t.Setenv("ASC_APP_ID", "")
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
 
 	_, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"review", "submissions-list", "--global", "--app", "app-1"}); err != nil {
+		if err := root.Parse([]string{"review", "submissions-list", "--global"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		err := root.Run(context.Background())
@@ -163,8 +172,8 @@ func TestReviewSubmissionsListGlobalAndAppMutuallyExclusive(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(stderr, "Error: --global and --app are mutually exclusive") {
-		t.Fatalf("expected mutually exclusive error, got %q", stderr)
+	if !strings.Contains(stderr, "Error: --app is required with --global") {
+		t.Fatalf("expected missing app for global error, got %q", stderr)
 	}
 }
 
@@ -289,6 +298,9 @@ func TestReviewSubmissionsListGlobalPaginate(t *testing.T) {
 			if req.URL.Path != "/v1/reviewSubmissions" {
 				t.Fatalf("expected path /v1/reviewSubmissions, got %s", req.URL.Path)
 			}
+			if req.URL.Query().Get("filter[app]") != "app-1" {
+				t.Fatalf("expected filter[app]=app-1, got %q", req.URL.Query().Get("filter[app]"))
+			}
 			body := `{"data":[{"type":"reviewSubmissions","id":"rs-1","attributes":{"platform":"IOS"}}],"links":{"next":"https://api.appstoreconnect.apple.com/v1/reviewSubmissions?cursor=page2"}}`
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -312,7 +324,7 @@ func TestReviewSubmissionsListGlobalPaginate(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"review", "submissions-list", "--global", "--paginate"}); err != nil {
+		if err := root.Parse([]string{"review", "submissions-list", "--global", "--app", "app-1", "--paginate"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
