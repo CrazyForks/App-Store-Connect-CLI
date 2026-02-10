@@ -607,9 +607,9 @@ func TestBetaManagementValidationErrors(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "beta-groups list missing app",
+			name:    "beta-groups list missing app or global",
 			args:    []string{"testflight", "beta-groups", "list"},
-			wantErr: "--app is required",
+			wantErr: "--app or --global is required",
 		},
 		{
 			name:    "beta-groups create missing app",

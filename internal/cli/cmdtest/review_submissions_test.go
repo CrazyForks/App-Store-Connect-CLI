@@ -18,9 +18,9 @@ func TestReviewCommandSubmissionsValidationErrors(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "review submissions-list missing app",
+			name:    "review submissions-list missing app or global",
 			args:    []string{"review", "submissions-list"},
-			wantErr: "--app is required",
+			wantErr: "--app or --global is required",
 		},
 		{
 			name:    "review submissions-get missing id",

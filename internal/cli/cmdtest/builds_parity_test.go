@@ -199,9 +199,9 @@ func TestBetaLocalizationsValidationErrors(t *testing.T) {
 			wantErr: "--confirm is required",
 		},
 		{
-			name:    "beta-build-localizations list missing build",
+			name:    "beta-build-localizations list missing build or global",
 			args:    []string{"beta-build-localizations", "list"},
-			wantErr: "--build is required",
+			wantErr: "--build or --global is required",
 		},
 		{
 			name:    "beta-build-localizations create missing build",

@@ -25,6 +25,8 @@ func BetaBuildLocalizationsCommand() *ffcli.Command {
 
 Examples:
   asc beta-build-localizations list --build "BUILD_ID"
+  asc beta-build-localizations list --global
+  asc beta-build-localizations list --global --paginate
   asc beta-build-localizations create --build "BUILD_ID" --locale "en-US" --whats-new "Test instructions"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -47,6 +49,7 @@ func BetaBuildLocalizationsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
 	buildID := fs.String("build", "", "Build ID")
+	global := fs.Bool("global", false, "List beta build localizations across all builds (top-level endpoint)")
 	locale := fs.String("locale", "", "Filter by locale(s), comma-separated")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
@@ -57,13 +60,15 @@ func BetaBuildLocalizationsListCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "list",
 		ShortUsage: "asc beta-build-localizations list [flags]",
-		ShortHelp:  "List beta build localizations for a build.",
-		LongHelp: `List beta build localizations for a build.
+		ShortHelp:  "List beta build localizations for a build or globally.",
+		LongHelp: `List beta build localizations for a build or globally.
 
 Examples:
   asc beta-build-localizations list --build "BUILD_ID"
   asc beta-build-localizations list --build "BUILD_ID" --locale "en-US,ja"
-  asc beta-build-localizations list --build "BUILD_ID" --paginate`,
+  asc beta-build-localizations list --build "BUILD_ID" --paginate
+  asc beta-build-localizations list --global
+  asc beta-build-localizations list --global --paginate`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -75,8 +80,16 @@ Examples:
 			}
 
 			buildValue := strings.TrimSpace(*buildID)
-			if buildValue == "" && strings.TrimSpace(*next) == "" {
-				fmt.Fprintln(os.Stderr, "Error: --build is required")
+
+			// Reject --global + --build combination
+			if *global && buildValue != "" {
+				fmt.Fprintln(os.Stderr, "Error: --global and --build are mutually exclusive")
+				return flag.ErrHelp
+			}
+
+			// Require one of --build or --global (unless --next is provided)
+			if !*global && buildValue == "" && strings.TrimSpace(*next) == "" {
+				fmt.Fprintln(os.Stderr, "Error: --build or --global is required")
 				return flag.ErrHelp
 			}
 
@@ -99,6 +112,31 @@ Examples:
 			}
 			if len(locales) > 0 {
 				opts = append(opts, asc.WithBetaBuildLocalizationLocales(locales))
+			}
+
+			if *global {
+				if *paginate {
+					paginateOpts := append(opts, asc.WithBetaBuildLocalizationsLimit(200))
+					firstPage, err := client.ListBetaBuildLocalizations(requestCtx, paginateOpts...)
+					if err != nil {
+						return fmt.Errorf("beta-build-localizations list: failed to fetch: %w", err)
+					}
+
+					resp, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+						return client.ListBetaBuildLocalizations(ctx, asc.WithBetaBuildLocalizationsNextURL(nextURL))
+					})
+					if err != nil {
+						return fmt.Errorf("beta-build-localizations list: %w", err)
+					}
+					return shared.PrintOutput(resp, *output, *pretty)
+				}
+
+				resp, err := client.ListBetaBuildLocalizations(requestCtx, opts...)
+				if err != nil {
+					return fmt.Errorf("beta-build-localizations list: failed to fetch: %w", err)
+				}
+
+				return shared.PrintOutput(resp, *output, *pretty)
 			}
 
 			if *paginate {

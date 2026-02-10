@@ -25,6 +25,8 @@ func BetaGroupsCommand() *ffcli.Command {
 
 Examples:
   asc testflight beta-groups list --app "APP_ID"
+  asc testflight beta-groups list --global
+  asc testflight beta-groups list --global --limit 50
   asc testflight beta-groups create --app "APP_ID" --name "Beta Testers"
   asc testflight beta-groups app get --group-id "GROUP_ID"
   asc testflight beta-groups beta-recruitment-criteria get --group-id "GROUP_ID"
@@ -55,6 +57,7 @@ func BetaGroupsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
+	global := fs.Bool("global", false, "List beta groups across all apps (top-level endpoint)")
 	output := fs.String("output", shared.DefaultOutputFormat(), "Output format: json (default), table, markdown")
 	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
@@ -64,13 +67,15 @@ func BetaGroupsListCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "list",
 		ShortUsage: "asc testflight beta-groups list [flags]",
-		ShortHelp:  "List TestFlight beta groups for an app.",
-		LongHelp: `List TestFlight beta groups for an app.
+		ShortHelp:  "List TestFlight beta groups for an app or globally.",
+		LongHelp: `List TestFlight beta groups for an app or globally.
 
 Examples:
   asc testflight beta-groups list --app "APP_ID"
   asc testflight beta-groups list --app "APP_ID" --limit 10
-  asc testflight beta-groups list --app "APP_ID" --paginate`,
+  asc testflight beta-groups list --app "APP_ID" --paginate
+  asc testflight beta-groups list --global
+  asc testflight beta-groups list --global --limit 50`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -82,8 +87,16 @@ Examples:
 			}
 
 			resolvedAppID := shared.ResolveAppID(*appID)
-			if resolvedAppID == "" && strings.TrimSpace(*next) == "" {
-				fmt.Fprintf(os.Stderr, "Error: --app is required (or set ASC_APP_ID)\n\n")
+
+			// Reject --global + --app combination (check explicit flag, not resolved value)
+			if *global && strings.TrimSpace(*appID) != "" {
+				fmt.Fprintln(os.Stderr, "Error: --global and --app are mutually exclusive")
+				return flag.ErrHelp
+			}
+
+			// Require one of --app or --global (unless --next is provided)
+			if !*global && resolvedAppID == "" && strings.TrimSpace(*next) == "" {
+				fmt.Fprintf(os.Stderr, "Error: --app or --global is required (or set ASC_APP_ID)\n\n")
 				return flag.ErrHelp
 			}
 
@@ -98,6 +111,32 @@ Examples:
 			opts := []asc.BetaGroupsOption{
 				asc.WithBetaGroupsLimit(*limit),
 				asc.WithBetaGroupsNextURL(*next),
+			}
+
+			if *global {
+				if *paginate {
+					paginateOpts := append(opts, asc.WithBetaGroupsLimit(200))
+					firstPage, err := client.ListBetaGroups(requestCtx, paginateOpts...)
+					if err != nil {
+						return fmt.Errorf("beta-groups list: failed to fetch: %w", err)
+					}
+
+					groups, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+						return client.ListBetaGroups(ctx, asc.WithBetaGroupsNextURL(nextURL))
+					})
+					if err != nil {
+						return fmt.Errorf("beta-groups list: %w", err)
+					}
+
+					return shared.PrintOutput(groups, *output, *pretty)
+				}
+
+				groups, err := client.ListBetaGroups(requestCtx, opts...)
+				if err != nil {
+					return fmt.Errorf("beta-groups list: failed to fetch: %w", err)
+				}
+
+				return shared.PrintOutput(groups, *output, *pretty)
 			}
 
 			if *paginate {

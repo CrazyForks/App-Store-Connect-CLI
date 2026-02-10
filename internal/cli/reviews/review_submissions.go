@@ -18,6 +18,7 @@ func ReviewSubmissionsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("submissions-list", flag.ExitOnError)
 
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID)")
+	global := fs.Bool("global", false, "Use top-level /v1/reviewSubmissions endpoint")
 	platform := fs.String("platform", "", "Filter by platform: IOS, MAC_OS, TV_OS, VISION_OS (comma-separated)")
 	state := fs.String("state", "", "Filter by state (comma-separated)")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
@@ -29,13 +30,15 @@ func ReviewSubmissionsListCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "submissions-list",
 		ShortUsage: "asc review submissions-list [flags]",
-		ShortHelp:  "List review submissions for an app.",
-		LongHelp: `List review submissions for an app.
+		ShortHelp:  "List review submissions for an app or globally.",
+		LongHelp: `List review submissions for an app or globally.
 
 Examples:
   asc review submissions-list --app "123456789"
   asc review submissions-list --app "123456789" --platform IOS --state READY_FOR_REVIEW
-  asc review submissions-list --app "123456789" --paginate`,
+  asc review submissions-list --app "123456789" --paginate
+  asc review submissions-list --global --app "123456789"
+  asc review submissions-list --global --app "123456789" --platform IOS --state READY_FOR_REVIEW`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -53,8 +56,16 @@ Examples:
 			states := shared.SplitCSVUpper(*state)
 
 			resolvedAppID := shared.ResolveAppID(*appID)
-			if resolvedAppID == "" && strings.TrimSpace(*next) == "" {
-				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
+			nextURL := strings.TrimSpace(*next)
+
+			// Require one of --app or --global (unless --next is provided)
+			if !*global && resolvedAppID == "" && nextURL == "" {
+				fmt.Fprintln(os.Stderr, "Error: --app or --global is required (or set ASC_APP_ID)")
+				return flag.ErrHelp
+			}
+			// Top-level /v1/reviewSubmissions requires filter[app].
+			if *global && resolvedAppID == "" && nextURL == "" {
+				fmt.Fprintln(os.Stderr, "Error: --app is required with --global (or set ASC_APP_ID)")
 				return flag.ErrHelp
 			}
 
@@ -71,6 +82,35 @@ Examples:
 				asc.WithReviewSubmissionsNextURL(*next),
 				asc.WithReviewSubmissionsPlatforms(platforms),
 				asc.WithReviewSubmissionsStates(states),
+			}
+			if *global && resolvedAppID != "" {
+				opts = append(opts, asc.WithReviewSubmissionsApps([]string{resolvedAppID}))
+			}
+
+			if *global {
+				if *paginate {
+					paginateOpts := append(opts, asc.WithReviewSubmissionsLimit(200))
+					firstPage, err := client.ListReviewSubmissions(requestCtx, paginateOpts...)
+					if err != nil {
+						return fmt.Errorf("review submissions-list: failed to fetch: %w", err)
+					}
+
+					resp, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+						return client.ListReviewSubmissions(ctx, asc.WithReviewSubmissionsNextURL(nextURL))
+					})
+					if err != nil {
+						return fmt.Errorf("review submissions-list: %w", err)
+					}
+
+					return shared.PrintOutput(resp, *output, *pretty)
+				}
+
+				resp, err := client.ListReviewSubmissions(requestCtx, opts...)
+				if err != nil {
+					return fmt.Errorf("review submissions-list: failed to fetch: %w", err)
+				}
+
+				return shared.PrintOutput(resp, *output, *pretty)
 			}
 
 			if *paginate {

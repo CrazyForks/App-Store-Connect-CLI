@@ -564,6 +564,36 @@ func (c *Client) GetBetaGroups(ctx context.Context, appID string, opts ...BetaGr
 	return &response, nil
 }
 
+// ListBetaGroups retrieves beta groups using the top-level /v1/betaGroups endpoint (global list).
+func (c *Client) ListBetaGroups(ctx context.Context, opts ...BetaGroupsOption) (*BetaGroupsResponse, error) {
+	query := &betaGroupsQuery{}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	path := "/v1/betaGroups"
+	if query.nextURL != "" {
+		if err := validateNextURL(query.nextURL); err != nil {
+			return nil, fmt.Errorf("betaGroups: %w", err)
+		}
+		path = query.nextURL
+	} else if queryString := buildBetaGroupsQuery(query); queryString != "" {
+		path += "?" + queryString
+	}
+
+	data, err := c.do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response BetaGroupsResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
 // GetBetaGroupBuilds retrieves builds assigned to a beta group.
 func (c *Client) GetBetaGroupBuilds(ctx context.Context, groupID string, opts ...BetaGroupBuildsOption) (*BuildsResponse, error) {
 	query := &betaGroupBuildsQuery{}
@@ -1214,6 +1244,36 @@ func (c *Client) GetBetaBuildLocalizations(ctx context.Context, buildID string, 
 	}
 
 	path := fmt.Sprintf("/v1/builds/%s/betaBuildLocalizations", buildID)
+	if query.nextURL != "" {
+		if err := validateNextURL(query.nextURL); err != nil {
+			return nil, fmt.Errorf("betaBuildLocalizations: %w", err)
+		}
+		path = query.nextURL
+	} else if queryString := buildBetaBuildLocalizationsQuery(query); queryString != "" {
+		path += "?" + queryString
+	}
+
+	data, err := c.do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response BetaBuildLocalizationsResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &response, nil
+}
+
+// ListBetaBuildLocalizations retrieves beta build localizations using the top-level /v1/betaBuildLocalizations endpoint (global list).
+func (c *Client) ListBetaBuildLocalizations(ctx context.Context, opts ...BetaBuildLocalizationsOption) (*BetaBuildLocalizationsResponse, error) {
+	query := &betaBuildLocalizationsQuery{}
+	for _, opt := range opts {
+		opt(query)
+	}
+
+	path := "/v1/betaBuildLocalizations"
 	if query.nextURL != "" {
 		if err := validateNextURL(query.nextURL); err != nil {
 			return nil, fmt.Errorf("betaBuildLocalizations: %w", err)

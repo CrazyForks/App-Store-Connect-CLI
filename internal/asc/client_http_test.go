@@ -8944,3 +8944,198 @@ func TestDeletePromotedPurchase_SendsRequest(t *testing.T) {
 		t.Fatalf("DeletePromotedPurchase() error: %v", err)
 	}
 }
+
+// --- Global list endpoint tests ---
+
+func TestListBetaGroupsGlobal_UsesV1BetaGroupsPath(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaGroups","id":"bg-1","attributes":{"name":"Global Beta"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaGroups" {
+			t.Fatalf("expected path /v1/betaGroups, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("limit") != "50" {
+			t.Fatalf("expected limit=50, got %q", values.Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	resp, err := client.ListBetaGroups(context.Background(), WithBetaGroupsLimit(50))
+	if err != nil {
+		t.Fatalf("ListBetaGroups() error: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 beta group, got %d", len(resp.Data))
+	}
+	if resp.Data[0].ID != "bg-1" {
+		t.Fatalf("expected id bg-1, got %s", resp.Data[0].ID)
+	}
+}
+
+func TestListBetaGroupsGlobal_UsesNextURL(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/betaGroups?cursor=abc"
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.String() != next {
+			t.Fatalf("expected next URL %q, got %q", next, req.URL.String())
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.ListBetaGroups(context.Background(), WithBetaGroupsNextURL(next)); err != nil {
+		t.Fatalf("ListBetaGroups() error: %v", err)
+	}
+}
+
+func TestListBetaGroupsGlobal_NoOptions(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.Path != "/v1/betaGroups" {
+			t.Fatalf("expected path /v1/betaGroups, got %s", req.URL.Path)
+		}
+		if req.URL.RawQuery != "" {
+			t.Fatalf("expected empty query string, got %q", req.URL.RawQuery)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.ListBetaGroups(context.Background()); err != nil {
+		t.Fatalf("ListBetaGroups() error: %v", err)
+	}
+}
+
+func TestListBetaBuildLocalizationsGlobal_UsesV1BetaBuildLocalizationsPath(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaBuildLocalizations","id":"bbl-1","attributes":{"locale":"en-US","whatsNew":"Test"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/betaBuildLocalizations" {
+			t.Fatalf("expected path /v1/betaBuildLocalizations, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("limit") != "25" {
+			t.Fatalf("expected limit=25, got %q", values.Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	resp, err := client.ListBetaBuildLocalizations(context.Background(), WithBetaBuildLocalizationsLimit(25))
+	if err != nil {
+		t.Fatalf("ListBetaBuildLocalizations() error: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 localization, got %d", len(resp.Data))
+	}
+	if resp.Data[0].ID != "bbl-1" {
+		t.Fatalf("expected id bbl-1, got %s", resp.Data[0].ID)
+	}
+}
+
+func TestListBetaBuildLocalizationsGlobal_WithLocaleFilter(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.Path != "/v1/betaBuildLocalizations" {
+			t.Fatalf("expected path /v1/betaBuildLocalizations, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[locale]") != "en-US,ja" {
+			t.Fatalf("expected filter[locale]=en-US,ja, got %q", values.Get("filter[locale]"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.ListBetaBuildLocalizations(context.Background(), WithBetaBuildLocalizationLocales([]string{"en-US", "ja"})); err != nil {
+		t.Fatalf("ListBetaBuildLocalizations() error: %v", err)
+	}
+}
+
+func TestListBetaBuildLocalizationsGlobal_UsesNextURL(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/betaBuildLocalizations?cursor=xyz"
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.String() != next {
+			t.Fatalf("expected next URL %q, got %q", next, req.URL.String())
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.ListBetaBuildLocalizations(context.Background(), WithBetaBuildLocalizationsNextURL(next)); err != nil {
+		t.Fatalf("ListBetaBuildLocalizations() error: %v", err)
+	}
+}
+
+func TestListReviewSubmissionsGlobal_UsesV1ReviewSubmissionsPath(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"reviewSubmissions","id":"rs-1","attributes":{"platform":"IOS","state":"READY_FOR_REVIEW"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/reviewSubmissions" {
+			t.Fatalf("expected path /v1/reviewSubmissions, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("limit") != "10" {
+			t.Fatalf("expected limit=10, got %q", values.Get("limit"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	resp, err := client.ListReviewSubmissions(context.Background(), WithReviewSubmissionsLimit(10))
+	if err != nil {
+		t.Fatalf("ListReviewSubmissions() error: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 submission, got %d", len(resp.Data))
+	}
+	if resp.Data[0].ID != "rs-1" {
+		t.Fatalf("expected id rs-1, got %s", resp.Data[0].ID)
+	}
+}
+
+func TestListReviewSubmissionsGlobal_WithFilters(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.Path != "/v1/reviewSubmissions" {
+			t.Fatalf("expected path /v1/reviewSubmissions, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[app]") != "app-1" {
+			t.Fatalf("expected filter[app]=app-1, got %q", values.Get("filter[app]"))
+		}
+		if values.Get("filter[platform]") != "IOS" {
+			t.Fatalf("expected filter[platform]=IOS, got %q", values.Get("filter[platform]"))
+		}
+		if values.Get("filter[state]") != "READY_FOR_REVIEW" {
+			t.Fatalf("expected filter[state]=READY_FOR_REVIEW, got %q", values.Get("filter[state]"))
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.ListReviewSubmissions(
+		context.Background(),
+		WithReviewSubmissionsApps([]string{"app-1"}),
+		WithReviewSubmissionsPlatforms([]string{"IOS"}),
+		WithReviewSubmissionsStates([]string{"READY_FOR_REVIEW"}),
+	); err != nil {
+		t.Fatalf("ListReviewSubmissions() error: %v", err)
+	}
+}
+
+func TestListReviewSubmissionsGlobal_UsesNextURL(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/reviewSubmissions?cursor=def"
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.String() != next {
+			t.Fatalf("expected next URL %q, got %q", next, req.URL.String())
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.ListReviewSubmissions(context.Background(), WithReviewSubmissionsNextURL(next)); err != nil {
+		t.Fatalf("ListReviewSubmissions() error: %v", err)
+	}
+}
