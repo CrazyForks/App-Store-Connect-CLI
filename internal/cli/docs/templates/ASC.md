@@ -133,6 +133,7 @@ Use `asc <command> --help` for subcommands and flags.
 - `beta-build-localizations` - Manage TestFlight beta build localizations.
 - `sandbox` - Manage App Store Connect sandbox testers.
 - `signing` - Manage signing certificates and profiles.
+- `notarization` - Manage macOS notarization submissions.
 - `iap` - Manage in-app purchases in App Store Connect.
 - `app-events` - Manage App Store in-app events.
 - `subscriptions` - Manage subscription groups and subscriptions.
@@ -155,6 +156,8 @@ Use `asc <command> --help` for subcommands and flags.
 - `--debug` - Debug logging
 - `--no-update` - Disable update checks and auto-update
 - `--profile` - Use a named authentication profile
+- `--report` - Report format for CI output
+- `--report-file` - Path to write CI report file
 - `--retry-log` - Enable retry logging
 - `--strict-auth` - Fail on mixed credential sources
 - `--version` - Print version and exit
