@@ -70,7 +70,7 @@ func inspectMigrationHints(resolver MigrationSuggestionResolver) (DoctorSection,
 			Status:  DoctorInfo,
 			Message: fmt.Sprintf("Migration scan skipped: %v", err),
 		})
-		return section, &DoctorMigrationHints{}
+		return section, buildMigrationHints(migrationSignals{}, nil)
 	}
 
 	signals := scanMigrationSignals(root)
