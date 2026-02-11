@@ -290,10 +290,22 @@ func normalizeScreenshotDisplayType(input string) (string, error) {
 	if !strings.HasPrefix(value, "APP_") && !strings.HasPrefix(value, "IMESSAGE_") {
 		value = "APP_" + value
 	}
+	value = normalizeScreenshotDisplayTypeAlias(value)
 	if !asc.IsValidScreenshotDisplayType(value) {
 		return "", fmt.Errorf("unsupported screenshot display type %q", value)
 	}
 	return value, nil
+}
+
+func normalizeScreenshotDisplayTypeAlias(value string) string {
+	switch value {
+	case "APP_IPHONE_69":
+		return "APP_IPHONE_67"
+	case "IMESSAGE_APP_IPHONE_69":
+		return "IMESSAGE_APP_IPHONE_67"
+	default:
+		return value
+	}
 }
 
 func validateScreenshotDimensions(files []string, displayType string) error {

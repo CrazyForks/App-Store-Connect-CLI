@@ -70,7 +70,9 @@ func uniqueSortedDimensions(dims []ScreenshotDimension) []ScreenshotDimension {
 
 var (
 	iphone67Dimensions = combineDimensions(
+		portraitLandscape(1260, 2736),
 		portraitLandscape(1290, 2796),
+		portraitLandscape(1320, 2868),
 		portraitLandscape(1284, 2778),
 	)
 	iphone61Dimensions = combineDimensions(
