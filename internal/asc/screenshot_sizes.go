@@ -86,18 +86,26 @@ var (
 	iphone40Dimensions = portraitLandscape(640, 1136)
 	iphone35Dimensions = portraitLandscape(640, 960)
 
-	ipadPro129Dimensions    = portraitLandscape(2048, 2732)
-	ipadPro11Dimensions     = portraitLandscape(1668, 2388)
-	ipad105Dimensions       = portraitLandscape(1668, 2224)
-	ipad97Dimensions        = portraitLandscape(1536, 2048)
-	desktopDimensions       = combineDimensions(singleOrientation(1280, 800), singleOrientation(2560, 1600))
-	appleTVDimensions       = combineDimensions(singleOrientation(1920, 1080), singleOrientation(3840, 2160))
-	visionProDimensions     = singleOrientation(3840, 2160)
-	watchUltraDimensions    = singleOrientation(410, 502)
-	watchSeries10Dimensions = combineDimensions(singleOrientation(374, 446), singleOrientation(416, 496))
-	watchSeries7Dimensions  = combineDimensions(singleOrientation(352, 430), singleOrientation(396, 484))
-	watchSeries4Dimensions  = combineDimensions(singleOrientation(324, 394), singleOrientation(368, 448))
-	watchSeries3Dimensions  = combineDimensions(singleOrientation(272, 340), singleOrientation(312, 390))
+	ipadPro129Dimensions = portraitLandscape(2048, 2732)
+	ipadPro11Dimensions  = portraitLandscape(1668, 2388)
+	ipad105Dimensions    = portraitLandscape(1668, 2224)
+	ipad97Dimensions     = portraitLandscape(1536, 2048)
+	desktopDimensions    = combineDimensions(
+		singleOrientation(1280, 800),
+		singleOrientation(1440, 900),
+		singleOrientation(2560, 1600),
+		singleOrientation(2880, 1800),
+	)
+	appleTVDimensions    = combineDimensions(singleOrientation(1920, 1080), singleOrientation(3840, 2160))
+	visionProDimensions  = singleOrientation(3840, 2160)
+	watchUltraDimensions = combineDimensions(
+		singleOrientation(422, 514),
+		singleOrientation(410, 502),
+	)
+	watchSeries10Dimensions = singleOrientation(416, 496)
+	watchSeries7Dimensions  = singleOrientation(396, 484)
+	watchSeries4Dimensions  = singleOrientation(368, 448)
+	watchSeries3Dimensions  = singleOrientation(312, 390)
 )
 
 var screenshotSizeRegistry = map[string][]ScreenshotDimension{

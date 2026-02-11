@@ -100,6 +100,159 @@ func TestScreenshotSizeEntryIncludesLatestLargeIPhoneDimensions(t *testing.T) {
 	}
 }
 
+func TestScreenshotSizeEntryIncludesMacDesktopDimensions(t *testing.T) {
+	entry, ok := ScreenshotSizeEntryForDisplayType("APP_DESKTOP")
+	if !ok {
+		t.Fatal("expected APP_DESKTOP entry in screenshot size catalog")
+	}
+
+	expected := []ScreenshotDimension{
+		{Width: 1280, Height: 800},
+		{Width: 1440, Height: 900},
+		{Width: 2560, Height: 1600},
+		{Width: 2880, Height: 1800},
+	}
+	for _, dim := range expected {
+		if !containsScreenshotDimension(entry.Dimensions, dim) {
+			t.Fatalf("expected APP_DESKTOP to include %s, got %v", dim.String(), entry.Dimensions)
+		}
+	}
+}
+
+func TestScreenshotSizeEntryIncludesAppleWatchDimensions(t *testing.T) {
+	testCases := []struct {
+		displayType string
+		expected    []ScreenshotDimension
+	}{
+		{
+			displayType: "APP_WATCH_ULTRA",
+			expected: []ScreenshotDimension{
+				{Width: 422, Height: 514},
+				{Width: 410, Height: 502},
+			},
+		},
+		{
+			displayType: "APP_WATCH_SERIES_10",
+			expected: []ScreenshotDimension{
+				{Width: 416, Height: 496},
+			},
+		},
+		{
+			displayType: "APP_WATCH_SERIES_7",
+			expected: []ScreenshotDimension{
+				{Width: 396, Height: 484},
+			},
+		},
+		{
+			displayType: "APP_WATCH_SERIES_4",
+			expected: []ScreenshotDimension{
+				{Width: 368, Height: 448},
+			},
+		},
+		{
+			displayType: "APP_WATCH_SERIES_3",
+			expected: []ScreenshotDimension{
+				{Width: 312, Height: 390},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.displayType, func(t *testing.T) {
+			entry, ok := ScreenshotSizeEntryForDisplayType(tc.displayType)
+			if !ok {
+				t.Fatalf("expected %s entry in screenshot size catalog", tc.displayType)
+			}
+			for _, dim := range tc.expected {
+				if !containsScreenshotDimension(entry.Dimensions, dim) {
+					t.Fatalf("expected %s to include %s, got %v", tc.displayType, dim.String(), entry.Dimensions)
+				}
+			}
+		})
+	}
+}
+
+func TestScreenshotSizeEntryIncludesAppleTVAndVisionDimensions(t *testing.T) {
+	tv, ok := ScreenshotSizeEntryForDisplayType("APP_APPLE_TV")
+	if !ok {
+		t.Fatal("expected APP_APPLE_TV entry in screenshot size catalog")
+	}
+	tvExpected := []ScreenshotDimension{
+		{Width: 1920, Height: 1080},
+		{Width: 3840, Height: 2160},
+	}
+	for _, dim := range tvExpected {
+		if !containsScreenshotDimension(tv.Dimensions, dim) {
+			t.Fatalf("expected APP_APPLE_TV to include %s, got %v", dim.String(), tv.Dimensions)
+		}
+	}
+
+	vision, ok := ScreenshotSizeEntryForDisplayType("APP_APPLE_VISION_PRO")
+	if !ok {
+		t.Fatal("expected APP_APPLE_VISION_PRO entry in screenshot size catalog")
+	}
+	if !containsScreenshotDimension(vision.Dimensions, ScreenshotDimension{Width: 3840, Height: 2160}) {
+		t.Fatalf("expected APP_APPLE_VISION_PRO to include 3840x2160, got %v", vision.Dimensions)
+	}
+}
+
+func TestValidateScreenshotDimensionsAcceptsMacWatchTVVisionSizes(t *testing.T) {
+	testCases := []struct {
+		name        string
+		displayType string
+		width       int
+		height      int
+	}{
+		{name: "mac desktop 2880x1800", displayType: "APP_DESKTOP", width: 2880, height: 1800},
+		{name: "watch ultra 422x514", displayType: "APP_WATCH_ULTRA", width: 422, height: 514},
+		{name: "watch series 10 416x496", displayType: "APP_WATCH_SERIES_10", width: 416, height: 496},
+		{name: "watch series 7 396x484", displayType: "APP_WATCH_SERIES_7", width: 396, height: 484},
+		{name: "watch series 4 368x448", displayType: "APP_WATCH_SERIES_4", width: 368, height: 448},
+		{name: "watch series 3 312x390", displayType: "APP_WATCH_SERIES_3", width: 312, height: 390},
+		{name: "apple tv 3840x2160", displayType: "APP_APPLE_TV", width: 3840, height: 2160},
+		{name: "vision pro 3840x2160", displayType: "APP_APPLE_VISION_PRO", width: 3840, height: 2160},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "platform-size.png")
+			writePNG(t, path, tc.width, tc.height)
+
+			if err := ValidateScreenshotDimensions(path, tc.displayType); err != nil {
+				t.Fatalf("expected dimensions %dx%d to be valid for %s, got %v", tc.width, tc.height, tc.displayType, err)
+			}
+		})
+	}
+}
+
+func TestValidateScreenshotDimensionsRejectsLegacyWatchSizes(t *testing.T) {
+	testCases := []struct {
+		name        string
+		displayType string
+		width       int
+		height      int
+	}{
+		{name: "legacy series 10 374x446", displayType: "APP_WATCH_SERIES_10", width: 374, height: 446},
+		{name: "legacy series 7 352x430", displayType: "APP_WATCH_SERIES_7", width: 352, height: 430},
+		{name: "legacy series 4 324x394", displayType: "APP_WATCH_SERIES_4", width: 324, height: 394},
+		{name: "legacy series 3 272x340", displayType: "APP_WATCH_SERIES_3", width: 272, height: 340},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "legacy-watch.png")
+			writePNG(t, path, tc.width, tc.height)
+
+			err := ValidateScreenshotDimensions(path, tc.displayType)
+			if err == nil {
+				t.Fatalf("expected dimensions %dx%d to be rejected for %s", tc.width, tc.height, tc.displayType)
+			}
+		})
+	}
+}
+
 func openAPIScreenshotDisplayTypes(t *testing.T) []string {
 	t.Helper()
 
