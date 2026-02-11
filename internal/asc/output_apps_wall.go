@@ -9,7 +9,6 @@ type AppWallEntry struct {
 	Platform    []string `json:"platform,omitempty"`
 	Creator     string   `json:"creator,omitempty"`
 	AppStoreURL string   `json:"appStoreUrl"`
-	IconURL     string   `json:"iconUrl,omitempty"`
 	ReleaseDate string   `json:"releaseDate,omitempty"`
 }
 
@@ -19,7 +18,7 @@ type AppsWallResult struct {
 }
 
 func appsWallRows(resp *AppsWallResult) ([]string, [][]string) {
-	headers := []string{"App", "Link", "Creator", "Platform", "Icon"}
+	headers := []string{"App", "Link", "Creator", "Platform"}
 	rows := make([][]string, 0, len(resp.Data))
 	for _, item := range resp.Data {
 		rows = append(rows, []string{
@@ -27,7 +26,6 @@ func appsWallRows(resp *AppsWallResult) ([]string, [][]string) {
 			item.AppStoreURL,
 			compactWhitespace(item.Creator),
 			strings.Join(formatWallPlatformsForDisplay(item.Platform), ", "),
-			item.IconURL,
 		})
 	}
 	return headers, rows

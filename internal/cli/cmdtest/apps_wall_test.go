@@ -2,10 +2,11 @@ package cmdtest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
-	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,108 +56,45 @@ func TestAppsWallFlagDefaults(t *testing.T) {
 	}
 }
 
-func TestAppsWallIncludePlatformsValidationError(t *testing.T) {
+func TestAppsShowcaseRemoved(t *testing.T) {
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
 
+	var runErr error
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"apps", "wall", "--include-platforms", "ANDROID"}); err != nil {
+		if err := root.Parse([]string{"apps", "showcase"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
-		err := root.Run(context.Background())
-		if !errors.Is(err, flag.ErrHelp) {
-			t.Fatalf("expected ErrHelp, got %v", err)
-		}
+		runErr = root.Run(context.Background())
 	})
 
+	if !errors.Is(runErr, flag.ErrHelp) {
+		t.Fatalf("expected ErrHelp for removed subcommand, got %v", runErr)
+	}
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "Error: --include-platforms must be one of: IOS, MAC_OS, TV_OS, VISION_OS") {
-		t.Fatalf("expected invalid platform error, got %q", stderr)
+	if !strings.Contains(stderr, `unknown subcommand "showcase"`) {
+		t.Fatalf("expected unknown subcommand error, got %q", stderr)
 	}
 }
 
-func TestAppsWallDefaultTableOutputSortedByName(t *testing.T) {
-	setupAuth(t)
-	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
-
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
-	requestCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requestCount++
-		switch req.Host {
-		case "api.appstoreconnect.apple.com":
-			if req.Method != http.MethodGet {
-				t.Fatalf("expected GET for apps, got %s", req.Method)
-			}
-			if req.URL.Path != "/v1/apps" {
-				t.Fatalf("expected /v1/apps, got %s", req.URL.Path)
-			}
-			if got := req.URL.Query().Get("limit"); got != "200" {
-				t.Fatalf("expected limit=200, got %q", got)
-			}
-			if got := req.URL.Query().Get("sort"); got != "name" {
-				t.Fatalf("expected sort=name, got %q", got)
-			}
-			body := `{
-				"data":[
-					{"type":"apps","id":"2","attributes":{"name":"Zulu App","bundleId":"com.example.zulu","sku":"SKU-Z"}},
-					{"type":"apps","id":"1","attributes":{"name":"Alpha App","bundleId":"com.example.alpha","sku":"SKU-A"}}
-				],
-				"links":{"next":""}
-			}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-			}, nil
-		case "itunes.apple.com":
-			if req.Method != http.MethodGet {
-				t.Fatalf("expected GET for lookup, got %s", req.Method)
-			}
-			if req.URL.Path != "/lookup" {
-				t.Fatalf("expected /lookup path, got %s", req.URL.Path)
-			}
-			body := `{
-				"resultCount":2,
-				"results":[
-					{
-						"trackId":1,
-						"sellerName":"Creator Alpha",
-						"trackViewUrl":"https://apps.apple.com/app/id1",
-						"artworkUrl512":"https://example.com/alpha.png",
-						"supportedDevices":["iPhone15,3"]
-					},
-					{
-						"trackId":2,
-						"sellerName":"Creator Zulu",
-						"trackViewUrl":"https://apps.apple.com/app/id2",
-						"artworkUrl512":"https://example.com/zulu.png",
-						"supportedDevices":["AppleTV6,2"]
-					}
-				]
-			}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-			}, nil
-		default:
-			t.Fatalf("unexpected host: %s", req.Host)
-			return nil, nil
-		}
-	})
+func TestAppsWallMarkdownColumnsExcludeIcon(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "wall.json")
+	sourceJSON := `[
+		{"app":"Alpha App","link":"https://example.com/alpha","creator":"Alpha Creator","platform":["iOS"]},
+		{"app":"Beta Mac","link":"https://example.com/beta","creator":"Beta Creator","platform":["macOS"]}
+	]`
+	if err := os.WriteFile(sourcePath, []byte(sourceJSON), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	t.Setenv("ASC_WALL_SOURCE", sourcePath)
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"apps", "wall"}); err != nil {
+		if err := root.Parse([]string{"apps", "wall", "--output", "markdown"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -167,87 +105,25 @@ func TestAppsWallDefaultTableOutputSortedByName(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, "App") || !strings.Contains(stdout, "Link") || !strings.Contains(stdout, "Creator") || !strings.Contains(stdout, "Platform") || !strings.Contains(stdout, "Icon") {
-		t.Fatalf("expected table headers, got %q", stdout)
+	if !strings.Contains(stdout, "| App") || !strings.Contains(stdout, "| Link") || !strings.Contains(stdout, "| Creator") || !strings.Contains(stdout, "| Platform") {
+		t.Fatalf("expected markdown columns App/Link/Creator/Platform, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "Creator Alpha") || !strings.Contains(stdout, "Creator Zulu") {
-		t.Fatalf("expected creator names in output, got %q", stdout)
-	}
-	alphaIdx := strings.Index(stdout, "Alpha App")
-	zuluIdx := strings.Index(stdout, "Zulu App")
-	if alphaIdx == -1 || zuluIdx == -1 {
-		t.Fatalf("expected both app names in output, got %q", stdout)
-	}
-	if alphaIdx > zuluIdx {
-		t.Fatalf("expected Alpha App before Zulu App, got %q", stdout)
+	if strings.Contains(stdout, "| Icon |") {
+		t.Fatalf("did not expect icon column, got %q", stdout)
 	}
 }
 
-func TestAppsWallMarkdownIncludePlatformsLimitAndSort(t *testing.T) {
-	setupAuth(t)
-	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
-
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		switch req.Host {
-		case "api.appstoreconnect.apple.com":
-			body := `{
-				"data":[
-					{"type":"apps","id":"10","attributes":{"name":"Older Mac App","bundleId":"com.example.mac.old","sku":"SKU-M1"}},
-					{"type":"apps","id":"11","attributes":{"name":"Newer Mac App","bundleId":"com.example.mac.new","sku":"SKU-M2"}},
-					{"type":"apps","id":"12","attributes":{"name":"iOS App","bundleId":"com.example.ios","sku":"SKU-I"}}
-				],
-				"links":{"next":""}
-			}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-			}, nil
-		case "itunes.apple.com":
-			body := `{
-				"resultCount":3,
-				"results":[
-					{
-						"trackId":10,
-						"sellerName":"Creator Old Mac",
-						"trackViewUrl":"https://apps.apple.com/app/id10",
-						"artworkUrl512":"https://example.com/old-mac.png",
-						"supportedDevices":["Mac14,7"],
-						"currentVersionReleaseDate":"2024-01-02T00:00:00Z"
-					},
-					{
-						"trackId":11,
-						"sellerName":"Creator New Mac",
-						"trackViewUrl":"https://apps.apple.com/app/id11",
-						"artworkUrl512":"https://example.com/new-mac.png",
-						"supportedDevices":["Mac14,7"],
-						"currentVersionReleaseDate":"2025-01-02T00:00:00Z"
-					},
-					{
-						"trackId":12,
-						"sellerName":"Creator iOS",
-						"trackViewUrl":"https://apps.apple.com/app/id12",
-						"artworkUrl512":"https://example.com/ios.png",
-						"supportedDevices":["iPhone15,3"],
-						"currentVersionReleaseDate":"2026-01-02T00:00:00Z"
-					}
-				]
-			}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-			}, nil
-		default:
-			t.Fatalf("unexpected host: %s", req.Host)
-			return nil, nil
-		}
-	})
+func TestAppsWallCommunityUsesConfiguredSource(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "wall.json")
+	sourceJSON := `[
+		{"app":"Alpha App","link":"https://example.com/alpha","creator":"Alpha Creator","platform":["iOS"]},
+		{"app":"Zeta App","link":"https://example.com/zeta","creator":"Zeta Creator","platform":["iOS"]},
+		{"app":"Beta Mac","link":"https://example.com/beta","creator":"Beta Creator","platform":["macOS"]}
+	]`
+	if err := os.WriteFile(sourcePath, []byte(sourceJSON), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	t.Setenv("ASC_WALL_SOURCE", sourcePath)
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
@@ -255,9 +131,9 @@ func TestAppsWallMarkdownIncludePlatformsLimitAndSort(t *testing.T) {
 	stdout, stderr := captureOutput(t, func() {
 		if err := root.Parse([]string{
 			"apps", "wall",
-			"--output", "markdown",
-			"--include-platforms", "MAC_OS",
-			"--sort", "-releaseDate",
+			"--output", "json",
+			"--include-platforms", "iOS",
+			"--sort", "-name",
 			"--limit", "1",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
@@ -270,16 +146,59 @@ func TestAppsWallMarkdownIncludePlatformsLimitAndSort(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, "| App") || !strings.Contains(stdout, "| Link") || !strings.Contains(stdout, "| Creator") || !strings.Contains(stdout, "| Platform") || !strings.Contains(stdout, "| Icon") {
-		t.Fatalf("expected markdown header, got %q", stdout)
+
+	var out struct {
+		Data []struct {
+			Name        string   `json:"name"`
+			Creator     string   `json:"creator"`
+			AppStoreURL string   `json:"appStoreUrl"`
+			Platform    []string `json:"platform"`
+		} `json:"data"`
 	}
-	if strings.Contains(stdout, "Older Mac App") || strings.Contains(stdout, "iOS App") {
-		t.Fatalf("expected filtered/limited output, got %q", stdout)
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("parse json output: %v\nstdout: %s", err, stdout)
 	}
-	if !strings.Contains(stdout, "Newer Mac App") {
-		t.Fatalf("expected newest mac app in output, got %q", stdout)
+	if len(out.Data) != 1 {
+		t.Fatalf("expected one filtered entry, got %d", len(out.Data))
 	}
-	if !strings.Contains(stdout, "Creator New Mac") {
-		t.Fatalf("expected creator in output, got %q", stdout)
+	if out.Data[0].Name != "Zeta App" {
+		t.Fatalf("expected Zeta App after -name sort with limit 1, got %q", out.Data[0].Name)
+	}
+	if out.Data[0].Creator != "Zeta Creator" {
+		t.Fatalf("expected creator Zeta Creator, got %q", out.Data[0].Creator)
+	}
+	if out.Data[0].AppStoreURL != "https://example.com/zeta" {
+		t.Fatalf("expected zeta link, got %q", out.Data[0].AppStoreURL)
+	}
+	if len(out.Data[0].Platform) != 1 || out.Data[0].Platform[0] != "IOS" {
+		t.Fatalf("expected normalized IOS platform, got %+v", out.Data[0].Platform)
+	}
+}
+
+func TestAppsWallCommunityMissingSourceError(t *testing.T) {
+	t.Setenv("ASC_WALL_SOURCE", filepath.Join(t.TempDir(), "missing-wall.json"))
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"apps", "wall"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if runErr == nil {
+		t.Fatal("expected command error, got nil")
+	}
+	if !strings.Contains(runErr.Error(), "apps wall: failed to read community wall source") {
+		t.Fatalf("expected source read error, got %v", runErr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
 }

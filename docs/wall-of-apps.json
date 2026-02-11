@@ -22,5 +22,17 @@
     "link": "https://apps.apple.com/app/id6502549140",
     "creator": "adamjhf",
     "platform": ["iOS"]
+  },
+  {
+    "app": "Repetti",
+    "link": "https://apps.apple.com/us/app/repetti-the-chores-list-app/id6758055413",
+    "creator": "rursache",
+    "platform": ["iOS"]
+  },
+  {
+    "app": "TV Show Tracker",
+    "link": "https://apps.apple.com/us/app/tv-show-tracker-tv-club/id6497563903",
+    "creator": "rursache",
+    "platform": ["iOS"]
   }
 ]

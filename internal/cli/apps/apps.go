@@ -42,7 +42,6 @@ Examples:
   asc apps
   asc apps list --bundle-id "com.example.app"
   asc apps wall
-  asc apps wall --output markdown
   asc apps get --id "APP_ID"
   asc apps ci-product get --id "APP_ID"
   asc apps update --id "APP_ID" --bundle-id "com.example.app"
@@ -67,6 +66,10 @@ Examples:
 			AppEncryptionDeclarationsCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
+			if len(args) > 0 {
+				fmt.Fprintf(os.Stderr, "Error: unknown subcommand %q\n", strings.TrimSpace(args[0]))
+				return flag.ErrHelp
+			}
 			return appsList(ctx, *output, *pretty, *bundleID, *name, *sku, *sort, *limit, *next, *paginate)
 		},
 	}

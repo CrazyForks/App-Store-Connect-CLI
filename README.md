@@ -1257,14 +1257,14 @@ Notes:
 # List apps (useful for finding app IDs)
 asc apps
 
-# Generate a wall of your apps (app/link/creator/platform, table by default)
+# View the community Wall of Apps
 asc apps wall
 
-# Generate markdown for README/docs embedding
+# Generate markdown wall output
 asc apps wall --output markdown
 
 # Filter and sort wall output
-asc apps wall --include-platforms IOS,MAC_OS --sort -releaseDate --limit 20
+asc apps wall --include-platforms iOS,macOS --sort -name --limit 20
 
 # Sort apps by name or bundle ID
 asc apps --sort name
