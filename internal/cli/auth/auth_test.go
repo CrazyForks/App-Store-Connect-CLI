@@ -271,12 +271,12 @@ func TestLoginStorageMessage_BypassModes(t *testing.T) {
 
 func TestAuthLoginCommand(t *testing.T) {
 	t.Run("local requires bypass", func(t *testing.T) {
-		// Save original value BEFORE unsetting
-		origValue := os.Getenv("ASC_BYPASS_KEYCHAIN")
+		// Use LookupEnv to capture exact original state (including "set but empty")
+		_, origPresent := os.LookupEnv("ASC_BYPASS_KEYCHAIN")
 		os.Unsetenv("ASC_BYPASS_KEYCHAIN")
 		t.Cleanup(func() {
-			if origValue != "" {
-				os.Setenv("ASC_BYPASS_KEYCHAIN", origValue)
+			if origPresent {
+				os.Setenv("ASC_BYPASS_KEYCHAIN", "") // restore to empty string as it was
 			} else {
 				os.Unsetenv("ASC_BYPASS_KEYCHAIN")
 			}
@@ -507,31 +507,19 @@ func TestAuthLogoutCommand(t *testing.T) {
 		}
 		execErr := cmd.Exec(context.Background(), []string{})
 
-		// Check if we got a keychain interaction error (common in CI)
-		if execErr != nil {
-			errStr := execErr.Error()
-			// errSecInteractionNotAllowed (-25301): user interaction required but not allowed
-			// This is expected in CI environments where keychain is locked
-			if strings.Contains(errStr, "errSecInteractionNotAllowed") ||
-				strings.Contains(errStr, "(-25301)") {
-				t.Skipf("skipping: keychain interaction not allowed - %v", execErr)
-			}
-			// For other errors, continue to verify config state
+		// Only skip on specific keychain interaction errors (errSecInteractionNotAllowed = -25301)
+		// This is expected in CI environments where keychain is locked
+		if execErr != nil && (strings.Contains(execErr.Error(), "errSecInteractionNotAllowed") ||
+			strings.Contains(execErr.Error(), "(-25301)")) {
+			t.Skipf("skipping: keychain interaction not allowed - %v", execErr)
 		}
 
-		// Verify config was cleared (or at least attempted)
+		// Verify: either no error (success) or config was cleared
 		cfg, err := config.LoadAt(cfgPath)
 		if err != nil {
 			t.Fatalf("LoadAt() error: %v", err)
 		}
-		// Config should be cleared unless we got a keychain error that prevented it
-		// In that case, we accept partial success (keychain failed but config attempted)
 		if len(cfg.Keys) != 0 || cfg.DefaultKeyName != "" || cfg.KeyID != "" {
-			if execErr != nil && strings.Contains(execErr.Error(), "Keychain Error") {
-				// Partial success: config clear attempted but keychain failed
-				// This is acceptable in CI with locked keychain
-				t.Skipf("skipping: keychain error prevented full cleanup - %v", execErr)
-			}
 			t.Fatalf("expected cleared credentials, got %+v", cfg)
 		}
 	})
