@@ -414,15 +414,24 @@ func RemoveCredentials(name string) error {
 
 // RemoveAllCredentials removes all stored credentials
 func RemoveAllCredentials() error {
-	if err := removeAllFromKeychain(); err == nil {
+	// Always attempt to clear config credentials first, regardless of keychain state
+	// This ensures config is cleaned even if keychain has issues (e.g., locked, read-only)
+	configErr := clearConfigCredentials()
+
+	// Try to clear keychain as well, but don't fail if keychain has issues
+	keychainErr := removeAllFromKeychain()
+	if keychainErr == nil {
 		_ = removeAllFromLegacyKeychain()
-		// Clear config credentials but preserve other settings (app_id, timeout, etc.)
-		return clearConfigCredentials()
-	} else if !isKeyringUnavailable(err) {
-		return err
+		return configErr // Return config error if any
 	}
-	// Clear config credentials but preserve other settings
-	return clearConfigCredentials()
+
+	// If keychain failed but config succeeded, that's acceptable
+	if configErr == nil {
+		return nil
+	}
+
+	// Both failed - return keychain error as primary
+	return keychainErr
 }
 
 func sameConfigPath(left, right string) bool {
