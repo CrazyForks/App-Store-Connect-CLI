@@ -383,12 +383,8 @@ func TestOutputRegistryRowsWithSingleResourceHelperNoPartialRegistrationOnPanic(
 	}
 
 	listKey := reflect.TypeOf(&Response[attrs]{})
-	singleKey := reflect.TypeOf(&SingleResponse[attrs]{})
-	cleanupRegistryTypes(t, listKey, singleKey)
-
-	registerRows(func(v *SingleResponse[attrs]) ([]string, [][]string) {
-		return []string{"ID"}, [][]string{{v.Data.ID}}
-	})
+	preregisterRowsForConflict[SingleResponse[attrs]](t, "ID")
+	cleanupRegistryTypes(t, listKey)
 
 	expectPanic(t, "expected conflict panic when single handler is already registered", func() {
 		registerRowsWithSingleResourceAdapter(func(v *Response[attrs]) ([]string, [][]string) {
@@ -404,13 +400,9 @@ func TestOutputRegistryRowsWithSingleResourceHelperNoPartialRegistrationWhenList
 		Name string `json:"name"`
 	}
 
-	listKey := reflect.TypeOf(&Response[attrs]{})
+	preregisterRowsForConflict[Response[attrs]](t, "ID")
 	singleKey := reflect.TypeOf(&SingleResponse[attrs]{})
-	cleanupRegistryTypes(t, listKey, singleKey)
-
-	registerRows(func(v *Response[attrs]) ([]string, [][]string) {
-		return []string{"ID"}, nil
-	})
+	cleanupRegistryTypes(t, singleKey)
 
 	expectPanic(t, "expected conflict panic when list handler is already registered", func() {
 		registerRowsWithSingleResourceAdapter(func(v *Response[attrs]) ([]string, [][]string) {
@@ -430,9 +422,7 @@ func TestOutputRegistryRowsWithSingleResourceHelperNoPartialRegistrationWhenSing
 	singleKey := reflect.TypeOf(&SingleResponse[attrs]{})
 	cleanupRegistryTypes(t, listKey, singleKey)
 
-	registerDirect(func(v *SingleResponse[attrs], render func([]string, [][]string)) error {
-		return nil
-	})
+	preregisterDirectForConflict[SingleResponse[attrs]](t)
 
 	expectPanic(t, "expected conflict panic when single direct handler is already registered", func() {
 		registerRowsWithSingleResourceAdapter(func(v *Response[attrs]) ([]string, [][]string) {
@@ -452,9 +442,7 @@ func TestOutputRegistryRowsWithSingleResourceHelperNoPartialRegistrationWhenList
 	singleKey := reflect.TypeOf(&SingleResponse[attrs]{})
 	cleanupRegistryTypes(t, listKey, singleKey)
 
-	registerDirect(func(v *Response[attrs], render func([]string, [][]string)) error {
-		return nil
-	})
+	preregisterDirectForConflict[Response[attrs]](t)
 
 	expectPanic(t, "expected conflict panic when list direct handler is already registered", func() {
 		registerRowsWithSingleResourceAdapter(func(v *Response[attrs]) ([]string, [][]string) {
@@ -576,13 +564,9 @@ func TestOutputRegistryRowsWithSingleToListHelperNoPartialRegistrationOnPanic(t 
 		Data []string
 	}
 
-	singleKey := reflect.TypeOf(&single{})
+	preregisterRowsForConflict[single](t, "value")
 	listKey := reflect.TypeOf(&list{})
-	cleanupRegistryTypes(t, singleKey, listKey)
-
-	registerRows(func(v *single) ([]string, [][]string) {
-		return []string{"value"}, [][]string{{v.Data}}
-	})
+	cleanupRegistryTypes(t, listKey)
 
 	expectPanic(t, "expected conflict panic when single handler is already registered", func() {
 		registerRowsWithSingleToListAdapter[single, list](func(v *list) ([]string, [][]string) {
@@ -602,12 +586,8 @@ func TestOutputRegistryRowsWithSingleToListHelperNoPartialRegistrationWhenListRe
 	}
 
 	singleKey := reflect.TypeOf(&single{})
-	listKey := reflect.TypeOf(&list{})
-	cleanupRegistryTypes(t, singleKey, listKey)
-
-	registerRows(func(v *list) ([]string, [][]string) {
-		return []string{"value"}, nil
-	})
+	preregisterRowsForConflict[list](t, "value")
+	cleanupRegistryTypes(t, singleKey)
 
 	expectPanic(t, "expected conflict panic when list handler is already registered", func() {
 		registerRowsWithSingleToListAdapter[single, list](func(v *list) ([]string, [][]string) {
@@ -630,9 +610,7 @@ func TestOutputRegistryRowsWithSingleToListHelperNoPartialRegistrationWhenSingle
 	listKey := reflect.TypeOf(&list{})
 	cleanupRegistryTypes(t, singleKey, listKey)
 
-	registerDirect(func(v *single, render func([]string, [][]string)) error {
-		return nil
-	})
+	preregisterDirectForConflict[single](t)
 
 	expectPanic(t, "expected conflict panic when single direct handler is already registered", func() {
 		registerRowsWithSingleToListAdapter[single, list](func(v *list) ([]string, [][]string) {
@@ -655,9 +633,7 @@ func TestOutputRegistryRowsWithSingleToListHelperNoPartialRegistrationWhenListDi
 	listKey := reflect.TypeOf(&list{})
 	cleanupRegistryTypes(t, singleKey, listKey)
 
-	registerDirect(func(v *list, render func([]string, [][]string)) error {
-		return nil
-	})
+	preregisterDirectForConflict[list](t)
 
 	expectPanic(t, "expected conflict panic when list direct handler is already registered", func() {
 		registerRowsWithSingleToListAdapter[single, list](func(v *list) ([]string, [][]string) {
@@ -854,12 +830,7 @@ func TestOutputRegistrySingleToListHelperNilRowsPanicsBeforeConflictChecks(t *te
 
 func TestOutputRegistryRegisterRowsPanicsOnDuplicate(t *testing.T) {
 	type duplicate struct{}
-	key := reflect.TypeOf(&duplicate{})
-	cleanupRegistryTypes(t, key)
-
-	registerRows(func(v *duplicate) ([]string, [][]string) {
-		return []string{"value"}, [][]string{{"first"}}
-	})
+	preregisterRowsForConflict[duplicate](t, "value")
 
 	expectPanic(t, "expected duplicate registration panic", func() {
 		registerRows(func(v *duplicate) ([]string, [][]string) {
@@ -891,12 +862,7 @@ func TestOutputRegistryRegisterRowsNilFunctionPanicsBeforeConflictChecks(t *test
 
 func TestOutputRegistryRegisterRowsErrPanicsWhenDirectRegistered(t *testing.T) {
 	type conflict struct{}
-	key := reflect.TypeOf(&conflict{})
-	cleanupRegistryTypes(t, key)
-
-	registerDirect(func(v *conflict, render func([]string, [][]string)) error {
-		return nil
-	})
+	preregisterDirectForConflict[conflict](t)
 
 	expectPanic(t, "expected conflict panic when rowsErr registers after direct", func() {
 		registerRowsErr(func(v *conflict) ([]string, [][]string, error) {
@@ -919,12 +885,7 @@ func TestOutputRegistryRegisterRowsErrPanicsOnNilFunction(t *testing.T) {
 
 func TestOutputRegistryRegisterRowsErrNilFunctionPanicsBeforeConflictChecks(t *testing.T) {
 	type nilRowsErr struct{}
-	key := reflect.TypeOf(&nilRowsErr{})
-	cleanupRegistryTypes(t, key)
-
-	registerRowsErr(func(v *nilRowsErr) ([]string, [][]string, error) {
-		return nil, nil, nil
-	})
+	preregisterRowsErrForConflict[nilRowsErr](t)
 
 	expectPanicContains(t, "nil rows function", func() {
 		registerRowsErr[nilRowsErr](nil)
@@ -933,12 +894,7 @@ func TestOutputRegistryRegisterRowsErrNilFunctionPanicsBeforeConflictChecks(t *t
 
 func TestOutputRegistryRegisterDirectPanicsWhenRowsRegistered(t *testing.T) {
 	type conflict struct{}
-	key := reflect.TypeOf(&conflict{})
-	cleanupRegistryTypes(t, key)
-
-	registerRows(func(v *conflict) ([]string, [][]string) {
-		return []string{"value"}, [][]string{{"rows"}}
-	})
+	preregisterRowsForConflict[conflict](t, "value")
 
 	expectPanic(t, "expected conflict panic when direct registers after rows", func() {
 		registerDirect(func(v *conflict, render func([]string, [][]string)) error {
@@ -961,12 +917,7 @@ func TestOutputRegistryRegisterDirectPanicsOnNilFunction(t *testing.T) {
 
 func TestOutputRegistryRegisterDirectNilFunctionPanicsBeforeConflictChecks(t *testing.T) {
 	type nilDirect struct{}
-	key := reflect.TypeOf(&nilDirect{})
-	cleanupRegistryTypes(t, key)
-
-	registerDirect(func(v *nilDirect, render func([]string, [][]string)) error {
-		return nil
-	})
+	preregisterDirectForConflict[nilDirect](t)
 
 	expectPanicContains(t, "nil direct render function", func() {
 		registerDirect[nilDirect](nil)
@@ -1134,8 +1085,40 @@ func registerRowsForConflict[T any](headers ...string) {
 func preregisterRowsForConflict[T any](t *testing.T, headers ...string) reflect.Type {
 	t.Helper()
 
+	return preregisterConflictType[T](t, func() {
+		registerRowsForConflict[T](headers...)
+	})
+}
+
+func registerRowsErrForConflict[T any]() {
+	registerRowsErr(func(*T) ([]string, [][]string, error) {
+		return nil, nil, nil
+	})
+}
+
+func preregisterRowsErrForConflict[T any](t *testing.T) reflect.Type {
+	t.Helper()
+
+	return preregisterConflictType[T](t, registerRowsErrForConflict[T])
+}
+
+func registerDirectForConflict[T any]() {
+	registerDirect(func(*T, func([]string, [][]string)) error {
+		return nil
+	})
+}
+
+func preregisterDirectForConflict[T any](t *testing.T) reflect.Type {
+	t.Helper()
+
+	return preregisterConflictType[T](t, registerDirectForConflict[T])
+}
+
+func preregisterConflictType[T any](t *testing.T, register func()) reflect.Type {
+	t.Helper()
+
 	key := reflect.TypeFor[*T]()
 	cleanupRegistryTypes(t, key)
-	registerRowsForConflict[T](headers...)
+	register()
 	return key
 }
