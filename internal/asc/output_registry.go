@@ -27,6 +27,12 @@ func ensureRegistryTypeAvailable(t reflect.Type) {
 	}
 }
 
+func ensureRegistryTypesAvailable(types ...reflect.Type) {
+	for _, t := range types {
+		ensureRegistryTypeAvailable(t)
+	}
+}
+
 // registerRows registers a rows function for the given pointer type.
 // The function must accept a pointer and return (headers, rows).
 func registerRows[T any](fn func(*T) ([]string, [][]string)) {
@@ -45,13 +51,6 @@ func registerRowsErr[T any](fn func(*T) ([]string, [][]string, error)) {
 	outputRegistry[t] = func(data any) ([]string, [][]string, error) {
 		return fn(data.(*T))
 	}
-}
-
-// registerRowsAdapter registers rows rendering by adapting one pointer type to another.
-func registerRowsAdapter[T any, U any](adapter func(*T) *U, rows func(*U) ([]string, [][]string)) {
-	registerRows(func(v *T) ([]string, [][]string) {
-		return rows(adapter(v))
-	})
 }
 
 func registerSingleLinkageRows[T any](extract func(*T) ResourceData) {
@@ -83,14 +82,18 @@ func registerResponseDataRows[T any](rows func([]Resource[T]) ([]string, [][]str
 // registerSingleResourceRowsAdapter registers rows rendering for list renderers
 // by adapting SingleResponse[T] into Response[T] with one item in Data.
 func registerSingleResourceRowsAdapter[T any](rows func(*Response[T]) ([]string, [][]string)) {
-	registerRowsAdapter(func(v *SingleResponse[T]) *Response[T] {
-		return &Response[T]{Data: []Resource[T]{v.Data}}
-	}, rows)
+	registerRows(func(v *SingleResponse[T]) ([]string, [][]string) {
+		return rows(&Response[T]{Data: []Resource[T]{v.Data}})
+	})
 }
 
 // registerRowsWithSingleResourceAdapter registers both list and single handlers
 // for row renderers that operate on Response[T].
 func registerRowsWithSingleResourceAdapter[T any](rows func(*Response[T]) ([]string, [][]string)) {
+	ensureRegistryTypesAvailable(
+		reflect.TypeFor[*Response[T]](),
+		reflect.TypeFor[*SingleResponse[T]](),
+	)
 	registerRows(rows)
 	registerSingleResourceRowsAdapter(rows)
 }
@@ -102,6 +105,12 @@ func registerRowsWithSingleResourceAdapter[T any](rows func(*Response[T]) ([]str
 func registerSingleToListRowsAdapter[T any, U any](rows func(*U) ([]string, [][]string)) {
 	sourceType := reflect.TypeFor[T]()
 	targetType := reflect.TypeFor[U]()
+	if sourceType.Kind() != reflect.Struct {
+		panic(fmt.Sprintf("output registry: single/list adapter source type must be a struct: %s", sourceType))
+	}
+	if targetType.Kind() != reflect.Struct {
+		panic(fmt.Sprintf("output registry: single/list adapter target type must be a struct: %s", targetType))
+	}
 
 	sourceDataField, sourceHasData := sourceType.FieldByName("Data")
 	targetDataField, targetHasData := targetType.FieldByName("Data")
@@ -151,6 +160,10 @@ func registerSingleToListRowsAdapter[T any, U any](rows func(*U) ([]string, [][]
 // registerRowsWithSingleToListAdapter registers both list and single handlers
 // when list rendering expects a concrete list response type.
 func registerRowsWithSingleToListAdapter[T any, U any](rows func(*U) ([]string, [][]string)) {
+	ensureRegistryTypesAvailable(
+		reflect.TypeFor[*U](),
+		reflect.TypeFor[*T](),
+	)
 	registerRows(rows)
 	registerSingleToListRowsAdapter[T, U](rows)
 }

@@ -1,6 +1,7 @@
 package asc
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -69,16 +70,7 @@ func TestOutputRegistrySingleLinkageHelperRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
-	if len(headers) == 0 || len(rows) == 0 {
-		t.Fatalf("expected non-empty headers/rows, got headers=%v rows=%v", headers, rows)
-	}
-	if len(rows[0]) < 2 {
-		t.Fatalf("expected at least 2 columns in row, got row=%v", rows[0])
-	}
-	joined := rows[0][0] + " " + rows[0][1]
-	if !contains(joined, "submission-123") {
-		t.Fatalf("expected linkage row to contain ID, got row=%v", rows[0])
-	}
+	assertRowContains(t, headers, rows, 2, "submission-123")
 }
 
 func TestOutputRegistryIDStateHelperRegistration(t *testing.T) {
@@ -96,16 +88,7 @@ func TestOutputRegistryIDStateHelperRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
-	if len(headers) == 0 || len(rows) == 0 {
-		t.Fatalf("expected non-empty headers/rows, got headers=%v rows=%v", headers, rows)
-	}
-	if len(rows[0]) < 2 {
-		t.Fatalf("expected at least 2 columns in row, got row=%v", rows[0])
-	}
-	joined := rows[0][0] + " " + rows[0][1]
-	if !contains(joined, "release-1") || !contains(joined, "READY_FOR_SALE") {
-		t.Fatalf("expected row to contain ID/state, got row=%v", rows[0])
-	}
+	assertRowContains(t, headers, rows, 2, "release-1", "READY_FOR_SALE")
 }
 
 func TestOutputRegistryIDBoolHelperRegistration(t *testing.T) {
@@ -121,16 +104,7 @@ func TestOutputRegistryIDBoolHelperRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
-	if len(headers) == 0 || len(rows) == 0 {
-		t.Fatalf("expected non-empty headers/rows, got headers=%v rows=%v", headers, rows)
-	}
-	if len(rows[0]) < 2 {
-		t.Fatalf("expected at least 2 columns in row, got row=%v", rows[0])
-	}
-	joined := rows[0][0] + " " + rows[0][1]
-	if !contains(joined, "domain-1") || !contains(joined, "true") {
-		t.Fatalf("expected row to contain ID/deleted, got row=%v", rows[0])
-	}
+	assertRowContains(t, headers, rows, 2, "domain-1", "true")
 }
 
 func TestOutputRegistryResponseDataHelperRegistration(t *testing.T) {
@@ -150,13 +124,7 @@ func TestOutputRegistryResponseDataHelperRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
-	if len(headers) == 0 || len(rows) == 0 || len(rows[0]) < 2 {
-		t.Fatalf("expected headers/rows with 2 columns, got headers=%v rows=%v", headers, rows)
-	}
-	joined := rows[0][0] + " " + rows[0][1]
-	if !contains(joined, "metric-1") || !contains(joined, "installs=12") {
-		t.Fatalf("expected row to contain metric data, got row=%v", rows[0])
-	}
+	assertRowContains(t, headers, rows, 2, "metric-1", "installs=12")
 }
 
 func TestOutputRegistrySingleResourceHelperRegistration(t *testing.T) {
@@ -250,6 +218,33 @@ func TestOutputRegistryRowsWithSingleResourceHelperRegistration(t *testing.T) {
 	}
 }
 
+func TestOutputRegistryRowsWithSingleResourceHelperNoPartialRegistrationOnPanic(t *testing.T) {
+	type attrs struct {
+		Name string `json:"name"`
+	}
+
+	listKey := reflect.TypeOf(&Response[attrs]{})
+	singleKey := reflect.TypeOf(&SingleResponse[attrs]{})
+	t.Cleanup(func() {
+		delete(outputRegistry, listKey)
+		delete(outputRegistry, singleKey)
+	})
+
+	registerRows(func(v *SingleResponse[attrs]) ([]string, [][]string) {
+		return []string{"ID"}, [][]string{{v.Data.ID}}
+	})
+
+	expectPanic(t, "expected conflict panic when single handler is already registered", func() {
+		registerRowsWithSingleResourceAdapter(func(v *Response[attrs]) ([]string, [][]string) {
+			return []string{"ID"}, nil
+		})
+	})
+
+	if _, exists := outputRegistry[listKey]; exists {
+		t.Fatal("list handler should not be registered after helper panic")
+	}
+}
+
 func TestOutputRegistrySingleToListHelperRegistration(t *testing.T) {
 	type single struct {
 		Data string
@@ -335,6 +330,36 @@ func TestOutputRegistryRowsWithSingleToListHelperRegistration(t *testing.T) {
 	}
 }
 
+func TestOutputRegistryRowsWithSingleToListHelperNoPartialRegistrationOnPanic(t *testing.T) {
+	type single struct {
+		Data string
+	}
+	type list struct {
+		Data []string
+	}
+
+	singleKey := reflect.TypeOf(&single{})
+	listKey := reflect.TypeOf(&list{})
+	t.Cleanup(func() {
+		delete(outputRegistry, singleKey)
+		delete(outputRegistry, listKey)
+	})
+
+	registerRows(func(v *single) ([]string, [][]string) {
+		return []string{"value"}, [][]string{{v.Data}}
+	})
+
+	expectPanic(t, "expected conflict panic when single handler is already registered", func() {
+		registerRowsWithSingleToListAdapter[single, list](func(v *list) ([]string, [][]string) {
+			return []string{"value"}, nil
+		})
+	})
+
+	if _, exists := outputRegistry[listKey]; exists {
+		t.Fatal("list handler should not be registered after helper panic")
+	}
+}
+
 func TestOutputRegistrySingleToListHelperCopiesLinks(t *testing.T) {
 	type single struct {
 		Data  ResourceData
@@ -393,6 +418,32 @@ func TestOutputRegistrySingleToListHelperPanicsWithoutDataField(t *testing.T) {
 	expectPanic(t, "expected panic when source Data field is missing", func() {
 		registerSingleToListRowsAdapter[single, list](func(v *list) ([]string, [][]string) {
 			return []string{"value"}, [][]string{{v.Data[0]}}
+		})
+	})
+}
+
+func TestOutputRegistrySingleToListHelperPanicsWhenSourceIsNotStruct(t *testing.T) {
+	type single string
+	type list struct {
+		Data []string
+	}
+
+	expectPanicContains(t, "source type must be a struct", func() {
+		registerSingleToListRowsAdapter[single, list](func(v *list) ([]string, [][]string) {
+			return nil, nil
+		})
+	})
+}
+
+func TestOutputRegistrySingleToListHelperPanicsWhenTargetIsNotStruct(t *testing.T) {
+	type single struct {
+		Data string
+	}
+	type list []string
+
+	expectPanicContains(t, "target type must be a struct", func() {
+		registerSingleToListRowsAdapter[single, list](func(v *list) ([]string, [][]string) {
+			return nil, nil
 		})
 	})
 }
@@ -496,4 +547,35 @@ func expectPanic(t *testing.T, message string, fn func()) {
 		}
 	}()
 	fn()
+}
+
+func expectPanicContains(t *testing.T, want string, fn func()) {
+	t.Helper()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("expected panic containing %q", want)
+		}
+		got := fmt.Sprint(r)
+		if !strings.Contains(got, want) {
+			t.Fatalf("panic %q does not contain %q", r, want)
+		}
+	}()
+	fn()
+}
+
+func assertRowContains(t *testing.T, headers []string, rows [][]string, minColumns int, expected ...string) {
+	t.Helper()
+	if len(headers) == 0 || len(rows) == 0 {
+		t.Fatalf("expected non-empty headers/rows, got headers=%v rows=%v", headers, rows)
+	}
+	if len(rows[0]) < minColumns {
+		t.Fatalf("expected at least %d columns in row, got row=%v", minColumns, rows[0])
+	}
+	joined := strings.Join(rows[0], " ")
+	for _, want := range expected {
+		if !contains(joined, want) {
+			t.Fatalf("expected row to contain %q, got row=%v", want, rows[0])
+		}
+	}
 }
