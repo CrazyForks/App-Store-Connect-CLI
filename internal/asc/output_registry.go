@@ -65,12 +65,21 @@ func registerRowsErr[T any](fn func(*T) ([]string, [][]string, error)) {
 }
 
 func registerSingleLinkageRows[T any](extract func(*T) ResourceData) {
+	if extract == nil {
+		panic(fmt.Sprintf("output registry: nil linkage extractor for %s", reflect.TypeFor[*T]()))
+	}
 	registerRows(func(v *T) ([]string, [][]string) {
 		return linkagesRows(&LinkagesResponse{Data: []ResourceData{extract(v)}})
 	})
 }
 
 func registerIDStateRows[T any](extract func(*T) (string, string), rows func(string, string) ([]string, [][]string)) {
+	if extract == nil {
+		panic(fmt.Sprintf("output registry: nil id/state extractor for %s", reflect.TypeFor[*T]()))
+	}
+	if rows == nil {
+		panic(fmt.Sprintf("output registry: nil id/state rows function for %s", reflect.TypeFor[*T]()))
+	}
 	registerRows(func(v *T) ([]string, [][]string) {
 		id, state := extract(v)
 		return rows(id, state)
@@ -78,6 +87,12 @@ func registerIDStateRows[T any](extract func(*T) (string, string), rows func(str
 }
 
 func registerIDBoolRows[T any](extract func(*T) (string, bool), rows func(string, bool) ([]string, [][]string)) {
+	if extract == nil {
+		panic(fmt.Sprintf("output registry: nil id/bool extractor for %s", reflect.TypeFor[*T]()))
+	}
+	if rows == nil {
+		panic(fmt.Sprintf("output registry: nil id/bool rows function for %s", reflect.TypeFor[*T]()))
+	}
 	registerRows(func(v *T) ([]string, [][]string) {
 		id, deleted := extract(v)
 		return rows(id, deleted)
@@ -85,6 +100,9 @@ func registerIDBoolRows[T any](extract func(*T) (string, bool), rows func(string
 }
 
 func registerResponseDataRows[T any](rows func([]Resource[T]) ([]string, [][]string)) {
+	if rows == nil {
+		panic(fmt.Sprintf("output registry: nil response-data rows function for %s", reflect.TypeFor[*Response[T]]()))
+	}
 	registerRows(func(v *Response[T]) ([]string, [][]string) {
 		return rows(v.Data)
 	})
@@ -104,6 +122,9 @@ func registerSingleResourceRowsAdapter[T any](rows func(*Response[T]) ([]string,
 // registerRowsWithSingleResourceAdapter registers both list and single handlers
 // for row renderers that operate on Response[T].
 func registerRowsWithSingleResourceAdapter[T any](rows func(*Response[T]) ([]string, [][]string)) {
+	if rows == nil {
+		panic(fmt.Sprintf("output registry: nil rows function for %s", reflect.TypeFor[*Response[T]]()))
+	}
 	ensureRegistryTypesAvailable(
 		reflect.TypeFor[*Response[T]](),
 		reflect.TypeFor[*SingleResponse[T]](),
@@ -182,6 +203,9 @@ func singleToListRowsAdapter[T any, U any](rows func(*U) ([]string, [][]string))
 // registerRowsWithSingleToListAdapter registers both list and single handlers
 // when list rendering expects a concrete list response type.
 func registerRowsWithSingleToListAdapter[T any, U any](rows func(*U) ([]string, [][]string)) {
+	if rows == nil {
+		panic(fmt.Sprintf("output registry: nil rows function for %s", reflect.TypeFor[*U]()))
+	}
 	ensureRegistryTypesAvailable(
 		reflect.TypeFor[*U](),
 		reflect.TypeFor[*T](),
