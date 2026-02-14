@@ -943,7 +943,7 @@ func TestOutputRegistrySingleToListHelperPanicsWhenTargetDataIsNotSlice(t *testi
 		Data string
 	}
 
-	expectPanic(t, "expected panic when target Data field is not slice", func() {
+	expectPanicContains(t, "target Data field must be a slice", func() {
 		registerSingleToListRowsAdapter[single, list](func(v *list) ([]string, [][]string) {
 			return []string{"value"}, [][]string{{v.Data}}
 		})
@@ -958,7 +958,7 @@ func TestOutputRegistrySingleToListHelperPanicsOnDataTypeMismatch(t *testing.T) 
 		Data []string
 	}
 
-	expectPanic(t, "expected panic when Data element types mismatch", func() {
+	expectPanicContains(t, "Data type mismatch source=int target=string", func() {
 		registerSingleToListRowsAdapter[single, list](func(v *list) ([]string, [][]string) {
 			return []string{"value"}, nil
 		})
@@ -1221,7 +1221,7 @@ func TestOutputRegistryRowsWithSingleToListHelperAdapterValidationPanicsBeforeCo
 
 func TestEnsureRegistryTypesAvailablePanicsOnDuplicateTypes(t *testing.T) {
 	type duplicate struct{}
-	key := reflect.TypeOf(&duplicate{})
+	key := typeKey[duplicate]()
 	cleanupRegistryTypes(t, key)
 
 	expectDuplicateRegistrationPanic(t, func() {
@@ -1231,13 +1231,25 @@ func TestEnsureRegistryTypesAvailablePanicsOnDuplicateTypes(t *testing.T) {
 	assertRegistryTypeAbsent(t, key)
 }
 
+func TestEnsureRegistryTypeAvailablePanicsOnNilType(t *testing.T) {
+	expectPanicContains(t, "invalid nil registration type", func() {
+		ensureRegistryTypeAvailable(nil)
+	})
+}
+
 func TestEnsureRegistryTypesAvailableDuplicatePanicIncludesType(t *testing.T) {
 	type duplicate struct{}
-	key := reflect.TypeOf(&duplicate{})
+	key := typeKey[duplicate]()
 	cleanupRegistryTypes(t, key)
 
 	expectPanicContains(t, key.String(), func() {
 		ensureRegistryTypesAvailable(key, key)
+	})
+}
+
+func TestEnsureRegistryTypesAvailablePanicsOnNilType(t *testing.T) {
+	expectPanicContains(t, "invalid nil registration type", func() {
+		ensureRegistryTypesAvailable(nil)
 	})
 }
 
@@ -1270,7 +1282,7 @@ func TestIsRegistryTypeRegistered(t *testing.T) {
 
 	outputKey := preregisterRowsForConflict[outputRegistered](t, "value")
 	directKey := preregisterDirectForConflict[directRegistered](t)
-	missingKey := reflect.TypeOf(&missing{})
+	missingKey := typeKey[missing]()
 	cleanupRegistryTypes(t, missingKey)
 
 	if !isRegistryTypeRegistered(outputKey) {
@@ -1281,6 +1293,12 @@ func TestIsRegistryTypeRegistered(t *testing.T) {
 	}
 	if isRegistryTypeRegistered(missingKey) {
 		t.Fatalf("expected unregistered type %v to be absent", missingKey)
+	}
+}
+
+func TestIsRegistryTypeRegisteredWithNilType(t *testing.T) {
+	if isRegistryTypeRegistered(nil) {
+		t.Fatal("expected nil type to be treated as unregistered")
 	}
 }
 
@@ -1459,8 +1477,12 @@ func preregisterDirectForConflict[T any](t *testing.T) reflect.Type {
 func preregisterConflictType[T any](t *testing.T, register func()) reflect.Type {
 	t.Helper()
 
-	key := reflect.TypeFor[*T]()
+	key := typeKey[T]()
 	cleanupRegistryTypes(t, key)
 	register()
 	return key
+}
+
+func typeKey[T any]() reflect.Type {
+	return reflect.TypeFor[*T]()
 }

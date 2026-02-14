@@ -34,6 +34,10 @@ func panicDuplicateRegistration(t reflect.Type) {
 	panic(fmt.Sprintf("output registry: duplicate registration for %s", t))
 }
 
+func panicInvalidRegistryType() {
+	panic("output registry: invalid nil registration type")
+}
+
 func panicSingleListAdapterStructRequirement(kind string, t reflect.Type) {
 	panic(fmt.Sprintf("output registry: single/list adapter %s type must be a struct: %s", kind, t))
 }
@@ -61,6 +65,9 @@ func isRegistryTypeRegistered(t reflect.Type) bool {
 }
 
 func ensureRegistryTypeAvailable(t reflect.Type) {
+	if t == nil {
+		panicInvalidRegistryType()
+	}
 	if isRegistryTypeRegistered(t) {
 		panicDuplicateRegistration(t)
 	}
