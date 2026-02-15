@@ -52,5 +52,17 @@
     "link": "https://apps.apple.com/us/app/dandelion-write-and-let-go/id6757363901",
     "creator": "joeycast",
     "platform": ["iOS", "macOS"]
+  },
+  {
+    "app": "Lumical: Scan to Calendar",
+    "link": "https://apps.apple.com/us/app/lumical-scan-to-calendar/id6753274309",
+    "creator": "arunavo4",
+    "platform": ["iOS"]
+  },
+  {
+    "app": "XO: Have I Ever",
+    "link": "https://apps.apple.com/us/app/xo-have-i-ever/id6757594745",
+    "creator": "arunavo4",
+    "platform": ["iOS"]
   }
 ]
