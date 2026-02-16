@@ -382,7 +382,7 @@ Examples:
 				}
 				if appliedGroupID != "" {
 					groupIDs = append(groupIDs, appliedGroupID)
-					groupIDs = uniqueSorted(groupIDs)
+					groupIDs = uniqueSortedStrings(groupIDs)
 				}
 
 				if testerID, ok := existingByEmail[emailLower]; ok {
@@ -392,14 +392,15 @@ Examples:
 						continue
 					}
 
-					summary.Updated++
 					if *dryRun {
+						summary.Updated++
 						continue
 					}
 
 					if err := client.AddBetaTesterToGroups(requestCtx, testerID, groupIDs); err != nil {
 						if errors.Is(err, asc.ErrConflict) {
 							// Relationship already exists; treat as idempotent success.
+							summary.Updated++
 							continue
 						}
 						summary.Failed++
@@ -411,12 +412,14 @@ Examples:
 						if !*continueOnError {
 							break
 						}
+						continue
 					}
+					summary.Updated++
 					continue
 				}
 
-				summary.Created++
 				if *dryRun {
+					summary.Created++
 					continue
 				}
 
@@ -447,10 +450,10 @@ Examples:
 					}
 					continue
 				}
+				summary.Created++
 				existingByEmail[emailLower] = testerID
 
 				if *invite {
-					summary.Invited++
 					invitation, err := client.CreateBetaTesterInvitation(requestCtx, resolvedAppID, testerID)
 					if err != nil {
 						summary.Failed++
@@ -474,7 +477,9 @@ Examples:
 						if !*continueOnError {
 							break
 						}
+						continue
 					}
+					summary.Invited++
 				}
 			}
 
@@ -642,7 +647,7 @@ func (r *betaGroupResolver) ResolveAll(values []string) ([]string, error) {
 		}
 		out = append(out, id)
 	}
-	return uniqueSorted(out), nil
+	return uniqueSortedStrings(out), nil
 }
 
 func (r *betaGroupResolver) exportValueForID(groupID string) string {
@@ -725,7 +730,7 @@ func fetchTesterGroupMemberships(ctx context.Context, client *asc.Client, resolv
 	}
 
 	for testerID := range membership {
-		membership[testerID] = uniqueSorted(membership[testerID])
+		membership[testerID] = uniqueSortedStrings(membership[testerID])
 	}
 
 	return membership, nil
@@ -830,27 +835,6 @@ func validateBetaTestersCSVHeader(header []string) (map[string]int, error) {
 		return nil, shared.UsageError("CSV header must include required column \"email\"")
 	}
 	return idx, nil
-}
-
-func uniqueSorted(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		trimmed := strings.TrimSpace(v)
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := seen[trimmed]; ok {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		out = append(out, trimmed)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func writeCSVFileAtomicNoSymlink(outputPath string, header []string, rows [][]string) error {
