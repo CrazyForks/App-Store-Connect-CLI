@@ -480,11 +480,27 @@ func scanLocalProfiles(installDir string, now time.Time) ([]localProfile, []loca
 
 		fullPath := filepath.Join(installDir, entry.Name())
 
-		// Do not follow symlinks; skip and report instead of failing the whole command.
-		if entry.Type()&os.ModeSymlink != 0 {
+		// Treat the install directory as untrusted disk state. Refuse non-regular files
+		// (FIFOs/devices/sockets) to avoid blocking reads, and refuse symlinks.
+		info, err := os.Lstat(fullPath)
+		if err != nil {
+			skipped = append(skipped, localSkippedItem{
+				Path:   fullPath,
+				Reason: fmt.Sprintf("stat: %v", err),
+			})
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
 			skipped = append(skipped, localSkippedItem{
 				Path:   fullPath,
 				Reason: "refusing to follow symlink",
+			})
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			skipped = append(skipped, localSkippedItem{
+				Path:   fullPath,
+				Reason: "refusing to read non-regular file",
 			})
 			continue
 		}
