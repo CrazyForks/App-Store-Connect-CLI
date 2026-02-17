@@ -129,14 +129,15 @@ Examples:
 			var appInfoLocs []AppInfoFastlaneLocalization
 			var reviewInfo *ReviewInformation
 			if metadataDir != "" {
-				localizations, err = readFastlaneMetadata(metadataDir)
+				localeDirs, metadataSkipped, err := scanFastlaneMetadataLocaleDirs(metadataDir)
 				if err != nil {
 					return fmt.Errorf("migrate import: %w", err)
 				}
-				appInfoLocs, err = readFastlaneAppInfoMetadata(metadataDir)
-				if err != nil {
-					return fmt.Errorf("migrate import: %w", err)
-				}
+				skipped = append(skipped, metadataSkipped...)
+
+				localizations = readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
+				appInfoLocs = readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
+
 				reviewInfo, err = readFastlaneReviewInformation(metadataDir)
 				if err != nil {
 					return fmt.Errorf("migrate import: %w", err)
@@ -447,94 +448,20 @@ type MigrateExportResult struct {
 
 // readFastlaneMetadata reads metadata from a fastlane metadata directory.
 func readFastlaneMetadata(metadataDir string) ([]FastlaneLocalization, error) {
-	entries, err := os.ReadDir(metadataDir)
+	localeDirs, _, err := scanFastlaneMetadataLocaleDirs(metadataDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read metadata directory: %w", err)
+		return nil, err
 	}
-
-	seen := make(map[string]bool)
-	var localizations []FastlaneLocalization
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		locale := entry.Name()
-		if locale == "review_information" || locale == "default" {
-			continue // Skip special directories
-		}
-
-		normalized, err := normalizeLocale(locale)
-		if err != nil {
-			continue // Skip non-locale directories (e.g. trade_representative_contact_information)
-		}
-		if seen[normalized] {
-			return nil, fmt.Errorf("duplicate locale %q in metadata", normalized)
-		}
-		seen[normalized] = true
-
-		localeDir := filepath.Join(metadataDir, locale)
-		loc := FastlaneLocalization{Locale: normalized}
-
-		// Read each metadata file (version-level localization fields only)
-		loc.Description = readFileIfExists(filepath.Join(localeDir, "description.txt"))
-		loc.Keywords = readFileIfExists(filepath.Join(localeDir, "keywords.txt"))
-		loc.WhatsNew = readFileIfExists(filepath.Join(localeDir, "release_notes.txt"))
-		loc.PromotionalText = readFileIfExists(filepath.Join(localeDir, "promotional_text.txt"))
-		loc.SupportURL = readFileIfExists(filepath.Join(localeDir, "support_url.txt"))
-		loc.MarketingURL = readFileIfExists(filepath.Join(localeDir, "marketing_url.txt"))
-
-		localizations = append(localizations, loc)
-	}
-
-	return localizations, nil
+	return readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs), nil
 }
 
 // readFastlaneAppInfoMetadata reads app-level metadata (name, subtitle) from fastlane structure.
 func readFastlaneAppInfoMetadata(metadataDir string) ([]AppInfoFastlaneLocalization, error) {
-	entries, err := os.ReadDir(metadataDir)
+	localeDirs, _, err := scanFastlaneMetadataLocaleDirs(metadataDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read metadata directory: %w", err)
+		return nil, err
 	}
-
-	seen := make(map[string]bool)
-	var localizations []AppInfoFastlaneLocalization
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		locale := entry.Name()
-		if locale == "review_information" || locale == "default" {
-			continue
-		}
-
-		normalized, err := normalizeLocale(locale)
-		if err != nil {
-			continue // Skip non-locale directories (e.g. trade_representative_contact_information)
-		}
-		if seen[normalized] {
-			return nil, fmt.Errorf("duplicate locale %q in metadata", normalized)
-		}
-		seen[normalized] = true
-
-		localeDir := filepath.Join(metadataDir, locale)
-		name := readFileIfExists(filepath.Join(localeDir, "name.txt"))
-		subtitle := readFileIfExists(filepath.Join(localeDir, "subtitle.txt"))
-		privacyURL := readFileIfExists(filepath.Join(localeDir, "privacy_url.txt"))
-
-		// Only include if at least one field has content
-		if name != "" || subtitle != "" || privacyURL != "" {
-			localizations = append(localizations, AppInfoFastlaneLocalization{
-				Locale:     normalized,
-				Name:       name,
-				Subtitle:   subtitle,
-				PrivacyURL: privacyURL,
-			})
-		}
-	}
-
-	return localizations, nil
+	return readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs), nil
 }
 
 // readFileIfExists reads a file's contents if it exists, returning empty string otherwise.
@@ -676,9 +603,98 @@ type MigrateValidateResult struct {
 	FastlaneDir string            `json:"fastlaneDir"`
 	Locales     []string          `json:"locales"`
 	Issues      []ValidationIssue `json:"issues"`
+	Skipped     []SkippedItem     `json:"skipped,omitempty"`
 	ErrorCount  int               `json:"errorCount"`
 	WarnCount   int               `json:"warnCount"`
 	Valid       bool              `json:"valid"`
+}
+
+type fastlaneLocaleDir struct {
+	DirName string
+	Locale  string
+}
+
+func scanFastlaneMetadataLocaleDirs(metadataDir string) ([]fastlaneLocaleDir, []SkippedItem, error) {
+	entries, err := os.ReadDir(metadataDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read metadata directory: %w", err)
+	}
+
+	seen := make(map[string]string)
+	dirs := make([]fastlaneLocaleDir, 0, len(entries))
+	skipped := []SkippedItem{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		dirName := entry.Name()
+		if dirName == "review_information" || dirName == "default" {
+			continue // Skip special directories
+		}
+
+		normalized, err := normalizeLocale(dirName)
+		if err != nil {
+			// Keep import/validate running, but surface a warning via structured output.
+			skipped = append(skipped, SkippedItem{
+				Path:   filepath.Join(metadataDir, dirName),
+				Reason: fmt.Sprintf("skipped non-locale directory %q: %v", dirName, err),
+			})
+			continue
+		}
+
+		if other, ok := seen[normalized]; ok {
+			return nil, nil, fmt.Errorf("duplicate locale %q in metadata (dirs: %q, %q)", normalized, other, dirName)
+		}
+		seen[normalized] = dirName
+
+		dirs = append(dirs, fastlaneLocaleDir{
+			DirName: dirName,
+			Locale:  normalized,
+		})
+	}
+
+	return dirs, skipped, nil
+}
+
+func readFastlaneMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) []FastlaneLocalization {
+	localizations := make([]FastlaneLocalization, 0, len(localeDirs))
+	for _, ld := range localeDirs {
+		localeDir := filepath.Join(metadataDir, ld.DirName)
+		loc := FastlaneLocalization{Locale: ld.Locale}
+
+		// Read each metadata file (version-level localization fields only)
+		loc.Description = readFileIfExists(filepath.Join(localeDir, "description.txt"))
+		loc.Keywords = readFileIfExists(filepath.Join(localeDir, "keywords.txt"))
+		loc.WhatsNew = readFileIfExists(filepath.Join(localeDir, "release_notes.txt"))
+		loc.PromotionalText = readFileIfExists(filepath.Join(localeDir, "promotional_text.txt"))
+		loc.SupportURL = readFileIfExists(filepath.Join(localeDir, "support_url.txt"))
+		loc.MarketingURL = readFileIfExists(filepath.Join(localeDir, "marketing_url.txt"))
+
+		localizations = append(localizations, loc)
+	}
+	return localizations
+}
+
+func readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) []AppInfoFastlaneLocalization {
+	localizations := make([]AppInfoFastlaneLocalization, 0, len(localeDirs))
+	for _, ld := range localeDirs {
+		localeDir := filepath.Join(metadataDir, ld.DirName)
+		name := readFileIfExists(filepath.Join(localeDir, "name.txt"))
+		subtitle := readFileIfExists(filepath.Join(localeDir, "subtitle.txt"))
+		privacyURL := readFileIfExists(filepath.Join(localeDir, "privacy_url.txt"))
+
+		// Only include if at least one field has content
+		if name != "" || subtitle != "" || privacyURL != "" {
+			localizations = append(localizations, AppInfoFastlaneLocalization{
+				Locale:     ld.Locale,
+				Name:       name,
+				Subtitle:   subtitle,
+				PrivacyURL: privacyURL,
+			})
+		}
+	}
+	return localizations
 }
 
 // MigrateValidateCommand returns the migrate validate subcommand.
@@ -716,22 +732,17 @@ Examples:
 			metadataDir := filepath.Join(*fastlaneDir, "metadata")
 
 			// Read metadata from fastlane structure
-			localizations, err := readFastlaneMetadata(metadataDir)
+			localeDirs, skipped, err := scanFastlaneMetadataLocaleDirs(metadataDir)
 			if err != nil {
 				if os.IsNotExist(err) {
 					return fmt.Errorf("migrate validate: metadata directory not found: %s", metadataDir)
 				}
 				return fmt.Errorf("migrate validate: %w", err)
 			}
+			localizations := readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
 
 			// Read App Info metadata (name, subtitle)
-			appInfoLocs, err := readFastlaneAppInfoMetadata(metadataDir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return fmt.Errorf("migrate validate: metadata directory not found: %s", metadataDir)
-				}
-				return fmt.Errorf("migrate validate: %w", err)
-			}
+			appInfoLocs := readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
 
 			// Validate and collect issues
 			var issues []ValidationIssue
@@ -761,6 +772,7 @@ Examples:
 				FastlaneDir: *fastlaneDir,
 				Locales:     locales,
 				Issues:      issues,
+				Skipped:     skipped,
 				ErrorCount:  errorCount,
 				WarnCount:   warnCount,
 				Valid:       errorCount == 0,

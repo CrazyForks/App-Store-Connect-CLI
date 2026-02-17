@@ -339,6 +339,18 @@ func printMigrateValidateResultMarkdown(result *MigrateValidateResult) error {
 		asc.RenderMarkdown(headers, rows)
 	}
 
+	if len(result.Skipped) > 0 {
+		fmt.Println()
+		fmt.Println("### Skipped")
+		fmt.Println()
+		headers := []string{"Path", "Reason"}
+		rows := make([][]string, 0, len(result.Skipped))
+		for _, item := range result.Skipped {
+			rows = append(rows, []string{item.Path, item.Reason})
+		}
+		asc.RenderMarkdown(headers, rows)
+	}
+
 	return nil
 }
 
@@ -367,6 +379,17 @@ func printMigrateValidateResultTable(result *MigrateValidateResult) error {
 				limit = fmt.Sprintf("%d", issue.Limit)
 			}
 			rows = append(rows, []string{issue.Locale, issue.Field, issue.Severity, issue.Message, length, limit})
+		}
+		asc.RenderTable(headers, rows)
+	}
+
+	if len(result.Skipped) > 0 {
+		fmt.Println()
+		fmt.Println("Skipped:")
+		headers := []string{"Path", "Reason"}
+		rows := make([][]string, 0, len(result.Skipped))
+		for _, item := range result.Skipped {
+			rows = append(rows, []string{item.Path, item.Reason})
 		}
 		asc.RenderTable(headers, rows)
 	}

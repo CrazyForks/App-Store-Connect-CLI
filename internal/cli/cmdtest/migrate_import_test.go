@@ -94,6 +94,75 @@ func TestMigrateImportDryRunPlan(t *testing.T) {
 	}
 }
 
+func TestMigrateImportDryRunReportsSkippedNonLocaleMetadataDirs(t *testing.T) {
+	root := t.TempDir()
+	metadataDir := filepath.Join(root, "metadata", "en-US")
+	if err := os.MkdirAll(metadataDir, 0o755); err != nil {
+		t.Fatalf("mkdir metadata: %v", err)
+	}
+	writeFile(t, filepath.Join(metadataDir, "description.txt"), "English description")
+
+	// Mimic a common fastlane deliver subdirectory that is not a locale.
+	nonLocaleDir := filepath.Join(root, "metadata", "trade_representative_contact_information")
+	if err := os.MkdirAll(nonLocaleDir, 0o755); err != nil {
+		t.Fatalf("mkdir non-locale dir: %v", err)
+	}
+	writeFile(t, filepath.Join(nonLocaleDir, "first_name.txt"), "Rita")
+
+	// Ensure default screenshots directory exists so it isn't reported as skipped.
+	if err := os.MkdirAll(filepath.Join(root, "screenshots"), 0o755); err != nil {
+		t.Fatalf("mkdir screenshots: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	rootCmd := RootCommand("1.2.3")
+	rootCmd.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := rootCmd.Parse([]string{
+			"migrate", "import",
+			"--app", "APP_ID",
+			"--version-id", "VERSION_ID",
+			"--dry-run",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := rootCmd.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	var result migrate.MigrateImportResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	found := false
+	for _, item := range result.Skipped {
+		if item.Path == nonLocaleDir && strings.Contains(item.Reason, "skipped non-locale directory") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected skipped to include %q (got %+v)", nonLocaleDir, result.Skipped)
+	}
+}
+
 func TestMigrateImportDryRunSupportsIPhone69AliasAsAppIPhone67(t *testing.T) {
 	root := t.TempDir()
 	metadataDir := filepath.Join(root, "metadata", "en-US")
