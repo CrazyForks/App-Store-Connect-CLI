@@ -3,6 +3,7 @@ package workflow
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -782,5 +783,121 @@ func TestRun_NilStdoutStderr(t *testing.T) {
 	}
 	if result.Status != "ok" {
 		t.Fatalf("expected ok, got %q", result.Status)
+	}
+}
+
+func TestRun_MaxCallDepth_ExactLimit(t *testing.T) {
+	// Create a chain of exactly MaxCallDepth levels — should succeed.
+	// depth=0 is the entry workflow, so we need MaxCallDepth workflows
+	// chained together to hit depth MaxCallDepth-1 (the last allowed).
+	workflows := make(map[string]Workflow)
+	for i := 0; i < MaxCallDepth; i++ {
+		name := fmt.Sprintf("w%d", i)
+		nextName := fmt.Sprintf("w%d", i+1)
+		if i == MaxCallDepth-1 {
+			workflows[name] = Workflow{Steps: []Step{{Run: "echo leaf"}}}
+		} else {
+			workflows[name] = Workflow{Steps: []Step{{Workflow: nextName}}}
+		}
+	}
+	def := &Definition{Workflows: workflows}
+	opts := runOpts("w0")
+
+	result, err := Run(context.Background(), def, opts)
+	if err != nil {
+		t.Fatalf("expected success at exact max depth, got: %v", err)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("expected ok, got %q", result.Status)
+	}
+	stdout := opts.Stdout.(*bytes.Buffer).String()
+	if !strings.Contains(stdout, "leaf") {
+		t.Fatalf("expected leaf output, got %q", stdout)
+	}
+}
+
+func TestRun_ErrorHookFailure_OriginalErrorReturned(t *testing.T) {
+	// When the error hook itself fails, the original step error should
+	// still be returned (error hook failure is silently swallowed).
+	def := &Definition{
+		Error: "exit 42",
+		Workflows: map[string]Workflow{
+			"test": {Steps: []Step{{Run: "echo fail && exit 1"}}},
+		},
+	}
+	opts := runOpts("test")
+
+	_, err := Run(context.Background(), def, opts)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	// The error should be about the step failure, not the error hook failure.
+	if strings.Contains(err.Error(), "exit status 42") {
+		t.Fatalf("expected original step error, not error hook failure; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "step 1") {
+		t.Fatalf("expected step 1 error, got %v", err)
+	}
+}
+
+func TestRun_SubWorkflow_EnvIsolation(t *testing.T) {
+	// Sub-workflow env should not leak back to parent.
+	// Parent sets X=parent, sub overrides X=child.
+	// A step after the sub-workflow call should see X=parent.
+	def := &Definition{
+		Workflows: map[string]Workflow{
+			"main": {
+				Env: map[string]string{"X": "parent"},
+				Steps: []Step{
+					{Workflow: "child"},
+					{Run: "echo X_IS_$X"},
+				},
+			},
+			"child": {
+				Env:   map[string]string{"X": "child"},
+				Steps: []Step{{Run: "echo CHILD_X_IS_$X"}},
+			},
+		},
+	}
+	opts := runOpts("main")
+
+	result, err := Run(context.Background(), def, opts)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Status != "ok" {
+		t.Fatalf("expected ok, got %q", result.Status)
+	}
+	stdout := opts.Stdout.(*bytes.Buffer).String()
+	// Child should see X=child (child env overrides parent)
+	if !strings.Contains(stdout, "CHILD_X_IS_child") {
+		t.Fatalf("expected child to see X=child, got %q", stdout)
+	}
+	// Parent step after sub-workflow should still see X=parent
+	if !strings.Contains(stdout, "X_IS_parent") {
+		t.Fatalf("expected parent to see X=parent after sub-workflow, got %q", stdout)
+	}
+}
+
+func TestRun_DurationMS_Populated(t *testing.T) {
+	def := &Definition{
+		Workflows: map[string]Workflow{
+			"test": {Steps: []Step{{Run: "echo fast"}}},
+		},
+	}
+	opts := runOpts("test")
+
+	result, err := Run(context.Background(), def, opts)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.DurationMS < 0 {
+		t.Fatalf("expected non-negative DurationMS, got %d", result.DurationMS)
+	}
+	if len(result.Steps) == 0 {
+		t.Fatal("expected at least one step")
+	}
+	if result.Steps[0].DurationMS < 0 {
+		t.Fatalf("expected non-negative step DurationMS, got %d", result.Steps[0].DurationMS)
 	}
 }

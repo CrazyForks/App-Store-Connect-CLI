@@ -233,3 +233,17 @@ func TestParseParams_DuplicateKey(t *testing.T) {
 		t.Fatalf("expected last-wins A='2', got %q", params["A"])
 	}
 }
+
+func TestParseParams_EqualsAtStart(t *testing.T) {
+	_, err := ParseParams([]string{"=value"})
+	if err == nil {
+		t.Fatal("expected error for key starting with '='")
+	}
+}
+
+func TestParseParams_ColonAtStart(t *testing.T) {
+	_, err := ParseParams([]string{":value"})
+	if err == nil {
+		t.Fatal("expected error for key starting with ':'")
+	}
+}
