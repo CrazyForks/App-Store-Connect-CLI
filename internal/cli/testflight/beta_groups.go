@@ -153,6 +153,37 @@ Examples:
 				return shared.PrintOutput(groups, *output.Output, *output.Pretty)
 			}
 
+			// NOTE: The app-scoped endpoint /v1/apps/{id}/betaGroups does not accept
+			// filter[isInternalGroup]. When filtering, use the global endpoint with
+			// filter[apps]=APP_ID instead.
+			if *internal || *external {
+				opts = append(opts, asc.WithBetaGroupsAppID(resolvedAppID))
+
+				if *paginate {
+					paginateOpts := append(opts, asc.WithBetaGroupsLimit(200))
+					groups, err := shared.PaginateWithSpinner(requestCtx,
+						func(ctx context.Context) (asc.PaginatedResponse, error) {
+							return client.ListBetaGroups(ctx, paginateOpts...)
+						},
+						func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+							return client.ListBetaGroups(ctx, asc.WithBetaGroupsNextURL(nextURL))
+						},
+					)
+					if err != nil {
+						return fmt.Errorf("beta-groups list: %w", err)
+					}
+
+					return shared.PrintOutput(groups, *output.Output, *output.Pretty)
+				}
+
+				groups, err := client.ListBetaGroups(requestCtx, opts...)
+				if err != nil {
+					return fmt.Errorf("beta-groups list: failed to fetch: %w", err)
+				}
+
+				return shared.PrintOutput(groups, *output.Output, *output.Pretty)
+			}
+
 			if *paginate {
 				paginateOpts := append(opts, asc.WithBetaGroupsLimit(200))
 				groups, err := shared.PaginateWithSpinner(requestCtx,

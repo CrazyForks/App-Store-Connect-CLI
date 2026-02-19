@@ -329,8 +329,11 @@ func TestBetaGroupsListScopedWithExternalFilter(t *testing.T) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
 		}
-		if req.URL.Path != "/v1/apps/app-1/betaGroups" {
-			t.Fatalf("expected path /v1/apps/app-1/betaGroups, got %s", req.URL.Path)
+		if req.URL.Path != "/v1/betaGroups" {
+			t.Fatalf("expected path /v1/betaGroups, got %s", req.URL.Path)
+		}
+		if req.URL.Query().Get("filter[apps]") != "app-1" {
+			t.Fatalf("expected filter[apps]=app-1, got %q", req.URL.Query().Get("filter[apps]"))
 		}
 		if req.URL.Query().Get("filter[isInternalGroup]") != "false" {
 			t.Fatalf("expected filter[isInternalGroup]=false, got %q", req.URL.Query().Get("filter[isInternalGroup]"))
