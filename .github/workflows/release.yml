@@ -91,7 +91,10 @@ jobs:
           SHA256=$(shasum -a 256 release/asc_${VERSION}_macOS_arm64 | cut -d ' ' -f 1)
 
           # Clone the tap repo
-          git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/rudrankriyam/tap.git homebrew-tap
+          git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/rudrankriyam/homebrew-tap.git homebrew-tap || {
+            echo "Homebrew tap update failed (auth/permissions). Skipping."
+            exit 0
+          }
           cd homebrew-tap
 
           # Update the formula
@@ -124,4 +127,7 @@ jobs:
           git config user.email "rudrankriyam@gmail.com"
           git add Formula/asc.rb
           git commit -m "Update asc to ${VERSION}" || echo "No changes to commit"
-          git push
+          git push || {
+            echo "Homebrew tap push failed (auth/permissions). Skipping."
+            exit 0
+          }
