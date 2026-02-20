@@ -48,6 +48,13 @@
     "platform": ["iOS"]
   },
   {
+    "app": "Goshuin Atlas",
+    "link": "https://apps.apple.com/app/goshuin-atlas-japan/id6746737093",
+    "creator": "thedaviddias",
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/2d/9d/e0/2d9de059-9ce5-c003-50e8-0dcb07c23b1b/AppIcon-0-1x_U007ephone-0-1-85-220-0.jpeg/512x512bb.jpg",
+    "platform": ["iOS"]
+  },
+  {
     "app": "Inkput",
     "link": "https://apps.apple.com/app/id6758570182",
     "creator": "funclosure",

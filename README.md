@@ -1800,6 +1800,12 @@ Grouped alphabetically. Click any tile to open the app.
 |:--:|:--:|:--:|:--:|
 | [<img src="https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/f1/f9/ea/f1f9ea55-8410-9a4e-4316-eee4553386df/AppIcon-0-0-1x_U007epad-0-11-0-85-220.png/512x512bb.jpg" alt="Fisherman SMS Filtering icon" width="64" height="64" /><br/>Fisherman SMS Filtering<br/><sub>by MGidnian</sub>](https://apps.apple.com/app/id6449192504) |   |   |   |
 
+#### G
+
+|   |   |   |   |
+|:--:|:--:|:--:|:--:|
+| [<img src="https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/2d/9d/e0/2d9de059-9ce5-c003-50e8-0dcb07c23b1b/AppIcon-0-1x_U007ephone-0-1-85-220-0.jpeg/512x512bb.jpg" alt="Goshuin Atlas icon" width="64" height="64" /><br/>Goshuin Atlas<br/><sub>by thedaviddias</sub>](https://apps.apple.com/app/goshuin-atlas-japan/id6746737093) |   |   |   |
+
 #### I
 
 |   |   |   |   |
@@ -1883,6 +1889,7 @@ Grouped alphabetically. Click any tile to open the app.
 | DoubleMemory | [Open](https://apps.apple.com/app/id6737529034) | randomor | iOS, macOS |
 | Dripped | [Open](https://apps.apple.com/app/id6749790183) | mithileshchellapan | iOS |
 | Fisherman SMS Filtering | [Open](https://apps.apple.com/app/id6449192504) | MGidnian | iOS |
+| Goshuin Atlas | [Open](https://apps.apple.com/app/goshuin-atlas-japan/id6746737093) | thedaviddias | iOS |
 | Inkput | [Open](https://apps.apple.com/app/id6758570182) | funclosure | iOS, macOS |
 | kora: Music Reviews & Ratings | [Open](https://apps.apple.com/app/id6502549140) | adamjhf | iOS |
 | Lumical: Scan to Calendar | [Open](https://apps.apple.com/us/app/lumical-scan-to-calendar/id6753274309) | arunavo4 | iOS |
