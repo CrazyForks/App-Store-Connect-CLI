@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -294,7 +295,11 @@ func prepareWebhookServeDirectory(value string) (string, error) {
 func readWebhookServeJSONPayload(body io.ReadCloser, maxBodyBytes int64) ([]byte, error) {
 	defer body.Close()
 
-	limited := io.LimitReader(body, maxBodyBytes+1)
+	limit := maxBodyBytes
+	if maxBodyBytes < math.MaxInt64 {
+		limit = maxBodyBytes + 1
+	}
+	limited := io.LimitReader(body, limit)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, err
@@ -306,11 +311,6 @@ func readWebhookServeJSONPayload(body io.ReadCloser, maxBodyBytes int64) ([]byte
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("empty request body")
-	}
-
-	var decoded any
-	if err := json.Unmarshal(trimmed, &decoded); err != nil {
-		return nil, err
 	}
 
 	compact := bytes.NewBuffer(nil)

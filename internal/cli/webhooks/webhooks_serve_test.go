@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -88,6 +89,19 @@ func TestWebhooksServeExecReceivesPayload(t *testing.T) {
 	}
 	if !strings.Contains(string(content), `"id":"evt-exec-1"`) {
 		t.Fatalf("expected payload file to contain event id, got %q", string(content))
+	}
+}
+
+func TestReadWebhookServeJSONPayloadAllowsMaxInt64Limit(t *testing.T) {
+	payload, err := readWebhookServeJSONPayload(
+		io.NopCloser(strings.NewReader(`{"id":"evt-max-int","eventType":"TEST_EVENT"}`)),
+		math.MaxInt64,
+	)
+	if err != nil {
+		t.Fatalf("expected payload to be accepted with max int64 limit, got error: %v", err)
+	}
+	if got, want := string(payload), `{"id":"evt-max-int","eventType":"TEST_EVENT"}`; got != want {
+		t.Fatalf("expected compact payload %q, got %q", want, got)
 	}
 }
 
