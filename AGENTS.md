@@ -50,9 +50,11 @@ make format     # Format code
 make install-hooks  # Install local pre-commit hook (.githooks/pre-commit)
 ```
 
+Testing rule: ALWAYS run tests with `ASC_BYPASS_KEYCHAIN=1` to avoid host keychain prompts and profile bleed-through.
+
 ## PR Guardrails
 
-- Before opening or merging a PR, run `make format`, `make lint`, and `make test`.
+- Before opening or merging a PR, run `make format`, `make lint`, and `ASC_BYPASS_KEYCHAIN=1 make test`.
 - Use `make install-hooks` once per clone to enforce local pre-commit checks.
 - CI must enforce formatting + lint + tests on both PR and `main` workflows.
 - Remove unused shared wrappers/helpers when commands are refactored.
@@ -80,6 +82,7 @@ make install-hooks  # Install local pre-commit hook (.githooks/pre-commit)
 - **Avoid broad skip logic**: Don't skip tests with generic string matches (e.g., "Keychain Error") that can hide regressions. Match specific error codes instead.
 - **Isolate test auth/env state**: Tests that touch auth must set/clear relevant env vars (`ASC_BYPASS_KEYCHAIN`, `ASC_PROFILE`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY_PATH`, `ASC_PRIVATE_KEY`, `ASC_PRIVATE_KEY_B64`, `ASC_STRICT_AUTH`) locally and restore exact original state.
 - **Local test command**: When running repository tests manually, use `ASC_BYPASS_KEYCHAIN=1 make test` to prevent macOS keychain profile prompts from host environment bleed-through.
+- **Always bypass keychain for tests**: For all test runs (`make test`, targeted `go test`, and pre-commit test hooks), set `ASC_BYPASS_KEYCHAIN=1`.
 - **Strict skip policy**: `t.Skip` is allowed only for specific, documented, reproducible conditions (exact error code/condition). Generic skip patterns are not allowed.
 - **Use proper workflow**: Branch → change → test → PR. Not: main → change → push.
 
