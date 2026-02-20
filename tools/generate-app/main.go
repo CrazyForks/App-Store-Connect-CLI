@@ -7,12 +7,23 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/wallgen"
+)
+
+var (
+	appStoreIDPattern         = regexp.MustCompile(`/id(\d+)`)
+	appStoreLookupURL         = "https://itunes.apple.com/lookup"
+	appStoreLookupHTTPClient  = &http.Client{Timeout: 15 * time.Second}
+	lookupAppStoreArtworkURLs = fetchAppStoreArtworkURLs
 )
 
 func main() {
@@ -61,6 +72,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 		return err
 	}
 	entries, action := upsertByApp(entries, entry)
+	entries = enrichEntriesWithAppStoreIcons(entries, stderr)
 
 	if err := writeEntries(jsonPath, entries); err != nil {
 		return err
@@ -136,11 +148,17 @@ func readEntries(path string) ([]wallgen.WallEntry, error) {
 func upsertByApp(entries []wallgen.WallEntry, candidate wallgen.WallEntry) ([]wallgen.WallEntry, string) {
 	for i := range entries {
 		if strings.EqualFold(strings.TrimSpace(entries[i].App), candidate.App) {
+			if strings.TrimSpace(candidate.Icon) == "" {
+				candidate.Icon = strings.TrimSpace(entries[i].Icon)
+			}
 			entries[i] = candidate
+			wallgen.SortEntriesByApp(entries)
 			return entries, "Updated"
 		}
 	}
-	return append(entries, candidate), "Added"
+	entries = append(entries, candidate)
+	wallgen.SortEntriesByApp(entries)
+	return entries, "Added"
 }
 
 func writeEntries(path string, entries []wallgen.WallEntry) error {
@@ -170,6 +188,7 @@ func renderEntries(entries []wallgen.WallEntry) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		icon := strings.TrimSpace(entry.Icon)
 
 		builder.WriteString("  {\n")
 		builder.WriteString("    \"app\": ")
@@ -181,6 +200,15 @@ func renderEntries(entries []wallgen.WallEntry) (string, error) {
 		builder.WriteString("    \"creator\": ")
 		builder.WriteString(creator)
 		builder.WriteString(",\n")
+		if icon != "" {
+			quotedIcon, iconErr := quoteJSON(icon)
+			if iconErr != nil {
+				return "", iconErr
+			}
+			builder.WriteString("    \"icon\": ")
+			builder.WriteString(quotedIcon)
+			builder.WriteString(",\n")
+		}
 		builder.WriteString("    \"platform\": [")
 		for platformIndex, platform := range entry.Platform {
 			quotedPlatform, err := quoteJSON(platform)
@@ -247,4 +275,103 @@ func validateHTTPURL(value string) error {
 		return fmt.Errorf("invalid URL scheme")
 	}
 	return nil
+}
+
+func enrichEntriesWithAppStoreIcons(entries []wallgen.WallEntry, stderr io.Writer) []wallgen.WallEntry {
+	entryAppStoreIDs := make(map[int]string)
+	ids := make([]string, 0, len(entries))
+	seen := make(map[string]struct{})
+
+	for index, entry := range entries {
+		appStoreID := extractAppStoreID(entry.Link)
+		if appStoreID == "" {
+			continue
+		}
+		entryAppStoreIDs[index] = appStoreID
+		if _, exists := seen[appStoreID]; !exists {
+			seen[appStoreID] = struct{}{}
+			ids = append(ids, appStoreID)
+		}
+	}
+
+	if len(ids) == 0 {
+		return entries
+	}
+
+	iconByAppStoreID, err := lookupAppStoreArtworkURLs(ids)
+	if err != nil {
+		fmt.Fprintf(stderr, "Warning: unable to refresh App Store icons: %v\n", err)
+		return entries
+	}
+
+	for index, appStoreID := range entryAppStoreIDs {
+		if iconURL, ok := iconByAppStoreID[appStoreID]; ok && strings.TrimSpace(iconURL) != "" {
+			entries[index].Icon = strings.TrimSpace(iconURL)
+		}
+	}
+
+	return entries
+}
+
+func extractAppStoreID(link string) string {
+	matches := appStoreIDPattern.FindStringSubmatch(strings.TrimSpace(link))
+	if len(matches) != 2 {
+		return ""
+	}
+	return matches[1]
+}
+
+func fetchAppStoreArtworkURLs(ids []string) (map[string]string, error) {
+	query := url.Values{}
+	query.Set("id", strings.Join(ids, ","))
+	query.Set("country", "us")
+
+	requestURL := appStoreLookupURL + "?" + query.Encode()
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build app store lookup request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := appStoreLookupHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("app store lookup request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		if strings.TrimSpace(string(body)) == "" {
+			return nil, fmt.Errorf("app store lookup request failed with status %s", resp.Status)
+		}
+		return nil, fmt.Errorf("app store lookup request failed with status %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var payload struct {
+		Results []struct {
+			TrackID       int64  `json:"trackId"`
+			ArtworkURL512 string `json:"artworkUrl512"`
+			ArtworkURL100 string `json:"artworkUrl100"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode app store lookup response: %w", err)
+	}
+
+	iconByAppStoreID := make(map[string]string, len(payload.Results))
+	for _, result := range payload.Results {
+		if result.TrackID == 0 {
+			continue
+		}
+		iconURL := strings.TrimSpace(result.ArtworkURL512)
+		if iconURL == "" {
+			iconURL = strings.TrimSpace(result.ArtworkURL100)
+		}
+		if iconURL == "" {
+			continue
+		}
+		iconByAppStoreID[strconv.FormatInt(result.TrackID, 10)] = iconURL
+	}
+
+	return iconByAppStoreID, nil
 }

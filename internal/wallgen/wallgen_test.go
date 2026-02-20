@@ -76,6 +76,91 @@ After.
 	}
 }
 
+func TestGenerateRendersIconWallSection(t *testing.T) {
+	tmpRepo := t.TempDir()
+
+	writeFile(t, filepath.Join(tmpRepo, "docs", "wall-of-apps.json"), `[
+  {
+    "app": "Alpha App",
+    "link": "https://example.com/alpha",
+    "creator": "Alpha Creator",
+    "icon": "https://example.com/alpha-icon.png",
+    "platform": ["iOS"]
+  },
+  {
+    "app": "Zulu App",
+    "link": "https://example.com/zulu",
+    "creator": "Zulu Creator",
+    "platform": ["iOS"]
+  }
+]`)
+
+	writeFile(t, filepath.Join(tmpRepo, "README.md"), `# Demo
+<!-- WALL-OF-APPS:START -->
+Old content.
+<!-- WALL-OF-APPS:END -->
+`)
+
+	result, err := Generate(tmpRepo)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+
+	readmeBytes, err := os.ReadFile(result.ReadmePath)
+	if err != nil {
+		t.Fatalf("read generated README: %v", err)
+	}
+	readme := string(readmeBytes)
+
+	if !strings.Contains(readme, "### App Icons") {
+		t.Fatalf("expected icon wall heading in README, got:\n%s", readme)
+	}
+	if !strings.Contains(readme, "#### A") || !strings.Contains(readme, "#### Z") {
+		t.Fatalf("expected alphabetical icon group headings in README, got:\n%s", readme)
+	}
+
+	iconCell := `[<img src="https://example.com/alpha-icon.png" alt="Alpha App icon" width="64" height="64" /><br/>Alpha App<br/><sub>by Alpha Creator</sub>](https://example.com/alpha)`
+	if !strings.Contains(readme, iconCell) {
+		t.Fatalf("expected icon wall markdown cell in README, got:\n%s", readme)
+	}
+}
+
+func TestGenerateEscapesBracketsInIconLinkText(t *testing.T) {
+	tmpRepo := t.TempDir()
+
+	writeFile(t, filepath.Join(tmpRepo, "docs", "wall-of-apps.json"), `[
+  {
+    "app": "App [Beta]",
+    "link": "https://example.com/brackets",
+    "creator": "Team [Core]",
+    "icon": "https://example.com/icon.png",
+    "platform": ["iOS"]
+  }
+]`)
+
+	writeFile(t, filepath.Join(tmpRepo, "README.md"), `# Demo
+<!-- WALL-OF-APPS:START -->
+Old content.
+<!-- WALL-OF-APPS:END -->
+`)
+
+	result, err := Generate(tmpRepo)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+
+	readmeBytes, err := os.ReadFile(result.ReadmePath)
+	if err != nil {
+		t.Fatalf("read generated README: %v", err)
+	}
+	readme := string(readmeBytes)
+
+	expectedIconCell := `[<img src="https://example.com/icon.png" alt="App [Beta] icon" width="64" height="64" /><br/>App \[Beta\]<br/><sub>by Team \[Core\]</sub>](https://example.com/brackets)`
+	if !strings.Contains(readme, expectedIconCell) {
+		t.Fatalf("expected escaped icon link text in README, got:\n%s", readme)
+	}
+}
+
 func TestGenerateFailsWhenCreatorMissing(t *testing.T) {
 	tmpRepo := t.TempDir()
 
