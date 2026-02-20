@@ -49,6 +49,31 @@ func TestSelectLatestAppStoreVersion_DeterministicTieBreak(t *testing.T) {
 	}
 }
 
+func TestSelectLatestAppStoreVersion_ParsesRFC3339Offsets(t *testing.T) {
+	versions := []asc.Resource[asc.AppStoreVersionAttributes]{
+		{
+			ID: "ver-older",
+			Attributes: asc.AppStoreVersionAttributes{
+				CreatedDate: "2026-02-20T01:00:00+01:00",
+			},
+		},
+		{
+			ID: "ver-newer",
+			Attributes: asc.AppStoreVersionAttributes{
+				CreatedDate: "2026-02-20T00:30:00Z",
+			},
+		},
+	}
+
+	selected := selectLatestAppStoreVersion(versions)
+	if selected == nil {
+		t.Fatal("expected selected version, got nil")
+	}
+	if selected.ID != "ver-newer" {
+		t.Fatalf("expected ver-newer to be selected, got %q", selected.ID)
+	}
+}
+
 func TestSelectLatestReviewSubmission_DeterministicTieBreak(t *testing.T) {
 	submissions := []asc.ReviewSubmissionResource{
 		{
@@ -71,6 +96,56 @@ func TestSelectLatestReviewSubmission_DeterministicTieBreak(t *testing.T) {
 	}
 	if selected.ID != "sub-2" {
 		t.Fatalf("expected deterministic tie-break to choose sub-2, got %q", selected.ID)
+	}
+}
+
+func TestSelectLatestReviewSubmission_ParsesRFC3339Offsets(t *testing.T) {
+	submissions := []asc.ReviewSubmissionResource{
+		{
+			ID: "sub-older",
+			Attributes: asc.ReviewSubmissionAttributes{
+				SubmittedDate: "2026-02-20T01:00:00+01:00",
+			},
+		},
+		{
+			ID: "sub-newer",
+			Attributes: asc.ReviewSubmissionAttributes{
+				SubmittedDate: "2026-02-20T00:30:00Z",
+			},
+		},
+	}
+
+	selected := selectLatestReviewSubmission(submissions)
+	if selected == nil {
+		t.Fatal("expected selected submission, got nil")
+	}
+	if selected.ID != "sub-newer" {
+		t.Fatalf("expected sub-newer to be selected, got %q", selected.ID)
+	}
+}
+
+func TestSelectLatestBetaReviewSubmission_ParsesRFC3339Offsets(t *testing.T) {
+	submissions := []asc.Resource[asc.BetaAppReviewSubmissionAttributes]{
+		{
+			ID: "beta-sub-older",
+			Attributes: asc.BetaAppReviewSubmissionAttributes{
+				SubmittedDate: "2026-02-20T01:00:00+01:00",
+			},
+		},
+		{
+			ID: "beta-sub-newer",
+			Attributes: asc.BetaAppReviewSubmissionAttributes{
+				SubmittedDate: "2026-02-20T00:30:00Z",
+			},
+		},
+	}
+
+	selected := selectLatestBetaReviewSubmission(submissions)
+	if selected == nil {
+		t.Fatal("expected selected submission, got nil")
+	}
+	if selected.ID != "beta-sub-newer" {
+		t.Fatalf("expected beta-sub-newer to be selected, got %q", selected.ID)
 	}
 }
 

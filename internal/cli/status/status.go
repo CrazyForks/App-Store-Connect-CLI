@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
@@ -544,11 +545,12 @@ func selectLatestAppStoreVersion(versions []asc.Resource[asc.AppStoreVersionAttr
 
 	best := versions[0]
 	for _, current := range versions[1:] {
-		if current.Attributes.CreatedDate > best.Attributes.CreatedDate {
+		dateOrder := compareRFC3339DateStrings(current.Attributes.CreatedDate, best.Attributes.CreatedDate)
+		if dateOrder > 0 {
 			best = current
 			continue
 		}
-		if current.Attributes.CreatedDate == best.Attributes.CreatedDate && current.ID > best.ID {
+		if dateOrder == 0 && current.ID > best.ID {
 			best = current
 		}
 	}
@@ -562,11 +564,12 @@ func selectLatestReviewSubmission(submissions []asc.ReviewSubmissionResource) *a
 
 	best := submissions[0]
 	for _, current := range submissions[1:] {
-		if current.Attributes.SubmittedDate > best.Attributes.SubmittedDate {
+		dateOrder := compareRFC3339DateStrings(current.Attributes.SubmittedDate, best.Attributes.SubmittedDate)
+		if dateOrder > 0 {
 			best = current
 			continue
 		}
-		if current.Attributes.SubmittedDate == best.Attributes.SubmittedDate && current.ID > best.ID {
+		if dateOrder == 0 && current.ID > best.ID {
 			best = current
 		}
 	}
@@ -580,15 +583,60 @@ func selectLatestBetaReviewSubmission(submissions []asc.Resource[asc.BetaAppRevi
 
 	best := submissions[0]
 	for _, current := range submissions[1:] {
-		if current.Attributes.SubmittedDate > best.Attributes.SubmittedDate {
+		dateOrder := compareRFC3339DateStrings(current.Attributes.SubmittedDate, best.Attributes.SubmittedDate)
+		if dateOrder > 0 {
 			best = current
 			continue
 		}
-		if current.Attributes.SubmittedDate == best.Attributes.SubmittedDate && current.ID > best.ID {
+		if dateOrder == 0 && current.ID > best.ID {
 			best = current
 		}
 	}
 	return &best
+}
+
+func compareRFC3339DateStrings(current, best string) int {
+	currentTime, currentValid := parseRFC3339Date(current)
+	bestTime, bestValid := parseRFC3339Date(best)
+
+	switch {
+	case currentValid && bestValid:
+		if currentTime.After(bestTime) {
+			return 1
+		}
+		if currentTime.Before(bestTime) {
+			return -1
+		}
+		return 0
+	case currentValid:
+		return 1
+	case bestValid:
+		return -1
+	default:
+		current = strings.TrimSpace(current)
+		best = strings.TrimSpace(best)
+		if current > best {
+			return 1
+		}
+		if current < best {
+			return -1
+		}
+		return 0
+	}
+}
+
+func parseRFC3339Date(value string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, false
+	}
+	if parsed, err := time.Parse(time.RFC3339, trimmed); err == nil {
+		return parsed, true
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
+		return parsed, true
+	}
+	return time.Time{}, false
 }
 
 func isDistributedState(state string) bool {
