@@ -18,7 +18,7 @@ for (const line of lines) {
   // BenchmarkName-N   100.0n ± 5%   102.0n ± 3%   +2.00% (p=0.041)
   // BenchmarkName-N   100.0n ± 5%   99.0n ± 3%    ~ (p=0.310)
   const match = line.match(
-    /^(\S+?)(?:-\d+)?\s+[\d.]+[nµm]?s?\s*±\s*\d+%\s+[\d.]+[nµm]?s?\s*±\s*\d+%\s+([~+-][\d.]*%?)\s*\(p=([\d.]+)\)/
+    /^(\S+?)(?:-\d+)?\s+[\d.]+[nµm]?s?\s*±\s*\d+%\s+[\d.]+[nµm]?s?\s*±\s*\d+%\s+([~+-][\d.]*%?)\s*\(p=([\d.]+)[^)]*\)/
   );
   if (!match) continue;
 
