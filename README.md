@@ -1831,7 +1831,7 @@ Grouped alphabetically. Click any tile to open the app.
 
 |   |   |   |   |
 |:--:|:--:|:--:|:--:|
-| [Parsely<br/><sub>by sambitcreate</sub>](https://testflight.apple.com/join/HjUZtzVm) | [<img src="https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/22/d3/2a/22d32adc-7513-2a04-438a-570d6ad8602e/App_Icon__U0028Primary_U0029-0-1x_U007epad-0-1-4-85-220-0.png/512x512bb.jpg" alt="Plinky icon" width="64" height="64" /><br/>Plinky<br/><sub>by mergesort</sub>](https://apps.apple.com/us/app/plinky-easily-save-links/id1597187737) |   |   |
+| [Parsely<br/><sub>by sambitcreate</sub>](https://testflight.apple.com/join/HjUZtzVm) | [<img src="https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/22/d3/2a/22d32adc-7513-2a04-438a-570d6ad8602e/App_Icon__U0028Primary_U0029-0-1x_U007epad-0-1-4-85-220-0.png/512x512bb.jpg" alt="Plinky icon" width="64" height="64" /><br/>Plinky<br/><sub>by mergesort</sub>](https://apps.apple.com/us/app/plinky-easily-save-links/id1597187737) | [<img src="https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/4e/76/02/4e76028d-5ff0-61e0-9c52-98946b87a3df/AppIcon-0-0-1x_U007epad-0-0-0-1-0-0-P3-85-220.png/512x512bb.jpg" alt="Positive icon" width="64" height="64" /><br/>Positive<br/><sub>by DanielStormApps</sub>](https://apps.apple.com/us/app/positive/id653287635) |   |
 
 #### R
 

@@ -124,6 +124,13 @@
     "platform": ["iOS", "macOS"]
   },
   {
+    "app": "Positive",
+    "link": "https://apps.apple.com/us/app/positive/id653287635",
+    "creator": "DanielStormApps",
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/4e/76/02/4e76028d-5ff0-61e0-9c52-98946b87a3df/AppIcon-0-0-1x_U007epad-0-0-0-1-0-0-P3-85-220.png/512x512bb.jpg",
+    "platform": ["iOS"]
+  },
+  {
     "app": "Repetti",
     "link": "https://apps.apple.com/us/app/repetti-the-chores-list-app/id6758055413",
     "creator": "rursache",
