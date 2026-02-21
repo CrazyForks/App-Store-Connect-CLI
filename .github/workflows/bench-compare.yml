@@ -37,7 +37,7 @@ jobs:
 
       - name: Skip if no baseline
         if: steps.check-baseline.outputs.has_baseline != 'true'
-        run: echo "Base branch does not have bench-ci.sh yet. Skipping comparison (nothing to compare against)."
+        run: echo "Base branch does not have bench-ci.sh yet. Skipping."
 
       - name: Install benchstat
         if: steps.check-baseline.outputs.has_baseline == 'true'
@@ -55,21 +55,11 @@ jobs:
           git checkout ${{ github.event.pull_request.head.sha }}
           bash scripts/bench-ci.sh .perf/pr.txt 5
 
-      - name: Compare with benchstat
+      - name: Generate comparison comment
         if: steps.check-baseline.outputs.has_baseline == 'true'
         run: |
           export PATH="$(go env GOPATH)/bin:$PATH"
-          DIFF="$(benchstat .perf/base.txt .perf/pr.txt 2>&1)" || true
-
-          {
-            echo "## Benchmark Comparison"
-            echo ""
-            echo '```'
-            echo "${DIFF}"
-            echo '```'
-            echo ""
-            echo "_Compared \`${{ github.event.pull_request.base.ref }}\` (\`$(echo ${{ github.event.pull_request.base.sha }} | head -c 7)\`) vs this PR. CI runners have variance; look for changes >5% with p<0.05._"
-          } > .perf/comment.md
+          node scripts/bench-comment.js .perf/base.txt .perf/pr.txt .perf/comment.md
 
       - name: Post or update PR comment
         if: steps.check-baseline.outputs.has_baseline == 'true'
