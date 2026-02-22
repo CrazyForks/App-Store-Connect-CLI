@@ -3,6 +3,7 @@ package errfmt
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
@@ -30,6 +31,45 @@ func TestClassify_Timeout(t *testing.T) {
 	ce := Classify(context.DeadlineExceeded)
 	if ce.Hint == "" {
 		t.Fatalf("expected hint, got empty")
+	}
+}
+
+func TestClassify_PrivacyDataUsages(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantHit bool
+	}{
+		{
+			name:    "associated error with appDataUsages path",
+			err:     errors.New("submit create: failed to submit for review: Associated errors for /v1/appDataUsages/: missing required data"),
+			wantHit: true,
+		},
+		{
+			name:    "associated error with appDataUsagesPublications",
+			err:     errors.New("submit create: /v1/appDataUsagesPublications/ not published"),
+			wantHit: true,
+		},
+		{
+			name:    "unrelated error",
+			err:     errors.New("submit create: failed to attach build"),
+			wantHit: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ce := Classify(tt.err)
+			if tt.wantHit && ce.Hint == "" {
+				t.Fatalf("expected privacy hint, got empty")
+			}
+			if tt.wantHit && !strings.Contains(ce.Hint, "App Store Connect web UI") {
+				t.Fatalf("expected web UI hint, got: %s", ce.Hint)
+			}
+			if !tt.wantHit && strings.Contains(ce.Hint, "privacy") {
+				t.Fatalf("did not expect privacy hint for unrelated error, got: %s", ce.Hint)
+			}
+		})
 	}
 }
 
