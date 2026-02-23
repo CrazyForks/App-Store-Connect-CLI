@@ -200,6 +200,26 @@ func TestCanonicalScreenshotDisplayTypeForAPI(t *testing.T) {
 	}
 }
 
+func TestCanonicalIPhone69HasSameDimensionsAsIPhone67(t *testing.T) {
+	iphone69, ok := ScreenshotDimensions("APP_IPHONE_69")
+	if !ok {
+		t.Fatal("expected APP_IPHONE_69 dimensions")
+	}
+	iphone67, ok := ScreenshotDimensions("APP_IPHONE_67")
+	if !ok {
+		t.Fatal("expected APP_IPHONE_67 dimensions")
+	}
+
+	if len(iphone69) != len(iphone67) {
+		t.Fatalf("expected APP_IPHONE_69 and APP_IPHONE_67 to have same number of dimensions, got %d and %d", len(iphone69), len(iphone67))
+	}
+	for i := range iphone67 {
+		if iphone69[i] != iphone67[i] {
+			t.Fatalf("expected APP_IPHONE_69 dimensions to match APP_IPHONE_67, got %v and %v", iphone69, iphone67)
+		}
+	}
+}
+
 func TestScreenshotSizeEntryIncludesLatestIPhone67Dimensions(t *testing.T) {
 	entry, ok := ScreenshotSizeEntryForDisplayType("APP_IPHONE_67")
 	if !ok {

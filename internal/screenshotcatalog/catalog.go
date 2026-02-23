@@ -56,7 +56,6 @@ var (
 		portraitLandscape(1260, 2736),
 		portraitLandscape(1290, 2796),
 		portraitLandscape(1320, 2868),
-		portraitLandscape(1284, 2778),
 	)
 	iphone67Dimensions = combineDimensions(
 		portraitLandscape(1260, 2736),
