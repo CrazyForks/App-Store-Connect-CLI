@@ -222,6 +222,13 @@
     "platform": ["iOS"]
   },
   {
+    "app": "Wozi Vocabulary Builder",
+    "link": "https://apps.apple.com/app/id1536585848",
+    "creator": "wozi-x",
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/0d/cb/21/0dcb21e1-afe0-6281-3c31-3e2049d70a0f/WoziAppIcon-0-0-1x_U007epad-0-1-P3-85-220.png/512x512bb.jpg",
+    "platform": ["iOS"]
+  },
+  {
     "app": "XO: Have I Ever",
     "link": "https://apps.apple.com/us/app/xo-have-i-ever/id6757594745",
     "creator": "arunavo4",
