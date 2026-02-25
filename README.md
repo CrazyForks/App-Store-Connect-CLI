@@ -69,6 +69,7 @@ asc apps list --output table
 ## Wall of Apps
 
 **38 apps ship with asc.** [See the Wall of Apps →](https://asccli.sh/#wall-of-apps)
+
 Want to add yours? [Open a PR](https://github.com/rudrankriyam/App-Store-Connect-CLI/pulls).
 <!-- WALL-OF-APPS:END -->
 
