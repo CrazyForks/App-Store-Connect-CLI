@@ -16,8 +16,10 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/1Password/srp"
@@ -35,6 +37,11 @@ const (
 	// Apple currently uses RFC5054 group 2048 + 32-byte derived password.
 	srpClientSecretBytes  = 256
 	srpDerivedPasswordLen = 32
+
+	// Guardrails for unofficial web/iris calls.
+	webMinRequestIntervalEnv     = "ASC_WEB_MIN_REQUEST_INTERVAL"
+	defaultWebMinRequestInterval = 350 * time.Millisecond
+	minimumWebMinRequestInterval = 200 * time.Millisecond
 )
 
 var errTwoFactorRequired = errors.New("two-factor authentication required")
@@ -72,6 +79,12 @@ func (e *TwoFactorRequiredError) Error() string {
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
+
+	// Requests are intentionally throttled to reduce pressure on fragile, unofficial
+	// web-session endpoints and avoid bursty behavior against user accounts.
+	minRequestInterval time.Duration
+	rateLimitMu        sync.Mutex
+	nextAllowedAt      time.Time
 }
 
 // APIError wraps non-2xx internal web API responses.
@@ -164,6 +177,28 @@ func newWebHTTPClient(jar http.CookieJar) *http.Client {
 	}
 }
 
+func resolveWebMinRequestInterval() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(webMinRequestIntervalEnv))
+	if raw == "" {
+		return defaultWebMinRequestInterval
+	}
+	if millis, err := strconv.Atoi(raw); err == nil {
+		interval := time.Duration(millis) * time.Millisecond
+		if interval < minimumWebMinRequestInterval {
+			return minimumWebMinRequestInterval
+		}
+		return interval
+	}
+	interval, err := time.ParseDuration(raw)
+	if err != nil {
+		return defaultWebMinRequestInterval
+	}
+	if interval < minimumWebMinRequestInterval {
+		return minimumWebMinRequestInterval
+	}
+	return interval
+}
+
 func parseSigninInitResponse(data []byte) (*signinInitResponse, error) {
 	var result signinInitResponse
 	if err := json.Unmarshal(data, &result); err != nil {
@@ -178,8 +213,9 @@ func parseSigninInitResponse(data []byte) (*signinInitResponse, error) {
 // NewClient creates an internal web API client from an authenticated session.
 func NewClient(session *AuthSession) *Client {
 	return &Client{
-		httpClient: session.Client,
-		baseURL:    appStoreBaseURL + "/iris/v1",
+		httpClient:         session.Client,
+		baseURL:            appStoreBaseURL + "/iris/v1",
+		minRequestInterval: resolveWebMinRequestInterval(),
 	}
 }
 
@@ -933,9 +969,42 @@ func extractServiceErrorCodes(respBody []byte) []string {
 	return codes
 }
 
+func (c *Client) waitForRateLimit(ctx context.Context) error {
+	if c == nil || c.minRequestInterval <= 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		c.rateLimitMu.Lock()
+		now := time.Now()
+		if c.nextAllowedAt.IsZero() || !now.Before(c.nextAllowedAt) {
+			c.nextAllowedAt = now.Add(c.minRequestInterval)
+			c.rateLimitMu.Unlock()
+			return nil
+		}
+		wait := time.Until(c.nextAllowedAt)
+		c.rateLimitMu.Unlock()
+
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 func (c *Client) doRequest(ctx context.Context, method, path string, body any) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := c.waitForRateLimit(ctx); err != nil {
+		return nil, err
 	}
 
 	var reqBody io.Reader

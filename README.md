@@ -79,6 +79,11 @@ asc web apps create \
 
 `asc web` is **experimental**, **unofficial**, and **discouraged** for production-critical automation.
 It is intentionally detached from official API-key-based `asc` workflows and may break without notice.
+Safety guardrails in `asc web`:
+- Low-rate request pacing for unofficial web/iris calls.
+- User-owned auth: commands scope cache by `--apple-id` to avoid accidental cross-account reuse.
+- Signed URLs/tokens are redacted from default output and error messages.
+- Signed attachment URLs are only emitted when explicitly requested (for example `--include-url`).
 
 ### First command
 

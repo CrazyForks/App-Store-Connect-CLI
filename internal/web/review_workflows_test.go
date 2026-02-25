@@ -292,3 +292,21 @@ func TestDownloadAttachmentReturnsStatusAndBody(t *testing.T) {
 		t.Fatalf("expected gone status, got %d", status)
 	}
 }
+
+func TestDownloadAttachmentErrorDoesNotLeakSignedURLTokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	client := testWebClient(server)
+	signedURL := server.URL + "/download?token=very-secret&X-Amz-Signature=abc123"
+	server.Close()
+
+	_, _, err := client.DownloadAttachment(context.Background(), signedURL)
+	if err == nil {
+		t.Fatal("expected download error after server close")
+	}
+	if strings.Contains(err.Error(), "very-secret") || strings.Contains(err.Error(), "X-Amz-Signature") || strings.Contains(err.Error(), "?token=") {
+		t.Fatalf("expected redacted error message, got %q", err.Error())
+	}
+}

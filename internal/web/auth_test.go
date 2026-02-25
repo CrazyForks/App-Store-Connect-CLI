@@ -124,3 +124,55 @@ func TestClientDoRequestHonorsCanceledContext(t *testing.T) {
 		t.Fatalf("expected context canceled in error, got %v", err)
 	}
 }
+
+func TestResolveWebMinRequestInterval(t *testing.T) {
+	t.Run("default interval", func(t *testing.T) {
+		t.Setenv(webMinRequestIntervalEnv, "")
+		if got := resolveWebMinRequestInterval(); got != defaultWebMinRequestInterval {
+			t.Fatalf("expected default interval %v, got %v", defaultWebMinRequestInterval, got)
+		}
+	})
+
+	t.Run("invalid interval falls back to default", func(t *testing.T) {
+		t.Setenv(webMinRequestIntervalEnv, "not-a-duration")
+		if got := resolveWebMinRequestInterval(); got != defaultWebMinRequestInterval {
+			t.Fatalf("expected default interval %v, got %v", defaultWebMinRequestInterval, got)
+		}
+	})
+
+	t.Run("too low interval is clamped", func(t *testing.T) {
+		t.Setenv(webMinRequestIntervalEnv, "5ms")
+		if got := resolveWebMinRequestInterval(); got != minimumWebMinRequestInterval {
+			t.Fatalf("expected clamped interval %v, got %v", minimumWebMinRequestInterval, got)
+		}
+	})
+}
+
+func TestClientDoRequestAppliesRateLimit(t *testing.T) {
+	servedAt := make(chan time.Time, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		servedAt <- time.Now()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		httpClient:         server.Client(),
+		baseURL:            server.URL,
+		minRequestInterval: 80 * time.Millisecond,
+	}
+
+	if _, err := client.doRequest(context.Background(), "GET", "/apps", nil); err != nil {
+		t.Fatalf("first doRequest error: %v", err)
+	}
+	if _, err := client.doRequest(context.Background(), "GET", "/apps", nil); err != nil {
+		t.Fatalf("second doRequest error: %v", err)
+	}
+
+	first := <-servedAt
+	second := <-servedAt
+	if diff := second.Sub(first); diff < 55*time.Millisecond {
+		t.Fatalf("expected low-rate gap between calls, got %v", diff)
+	}
+}

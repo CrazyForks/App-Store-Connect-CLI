@@ -133,7 +133,7 @@ Authentication:
   --apple-id with either:
     - --password-stdin
     - ASC_WEB_PASSWORD environment variable
-  Cached web sessions may be reused automatically.
+  Cached web sessions may be reused only for the matching --apple-id.
 
 ` + webWarningText + `
 
@@ -167,7 +167,7 @@ Examples:
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
-			session, source, err := resolveSession(requestCtx, *appleID, password, *twoFactorCode, *passwordStdin, true)
+			session, source, err := resolveSession(requestCtx, *appleID, password, *twoFactorCode, *passwordStdin, false)
 			if err != nil {
 				return err
 			}

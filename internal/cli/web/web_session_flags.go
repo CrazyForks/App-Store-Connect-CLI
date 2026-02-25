@@ -17,7 +17,7 @@ type webSessionFlags struct {
 
 func bindWebSessionFlags(fs *flag.FlagSet) webSessionFlags {
 	return webSessionFlags{
-		appleID:       fs.String("apple-id", "", "Apple ID email (required when no cache is available)"),
+		appleID:       fs.String("apple-id", "", "Apple ID email used to scope a user-owned session cache"),
 		passwordStdin: fs.Bool("password-stdin", false, "Read Apple ID password from stdin"),
 		twoFactorCode: fs.String("two-factor-code", "", "2FA code if your account requires verification"),
 	}
@@ -34,7 +34,7 @@ func resolveWebSessionForCommand(ctx context.Context, flags webSessionFlags) (*w
 		password,
 		*flags.twoFactorCode,
 		*flags.passwordStdin,
-		true,
+		false,
 	)
 	if err != nil {
 		return nil, err

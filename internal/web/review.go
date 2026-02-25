@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -860,17 +861,34 @@ func (c *Client) DownloadAttachment(ctx context.Context, signedURL string) ([]by
 	if c == nil || c.httpClient == nil {
 		return nil, 0, fmt.Errorf("web client is not initialized")
 	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, signedURL, nil)
+	if err := c.waitForRateLimit(ctx); err != nil {
+		return nil, 0, err
+	}
+	parsedURL, err := url.ParseRequestURI(signedURL)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to create download request: %w", err)
+		return nil, 0, fmt.Errorf("invalid download url")
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to create download request")
 	}
 	request.Header.Set("Accept", "*/*")
 	setModifiedCookieHeader(c.httpClient, request)
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return nil, 0, fmt.Errorf("download request failed: %w", err)
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			if errors.Is(urlErr.Err, context.Canceled) || errors.Is(urlErr.Err, context.DeadlineExceeded) {
+				return nil, 0, urlErr.Err
+			}
+			return nil, 0, fmt.Errorf("download request failed: %s", strings.TrimSpace(urlErr.Err.Error()))
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, 0, err
+		}
+		return nil, 0, fmt.Errorf("download request failed")
 	}
 	defer func() { _ = response.Body.Close() }()
 
