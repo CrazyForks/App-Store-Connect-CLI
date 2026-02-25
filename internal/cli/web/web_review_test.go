@@ -1,6 +1,7 @@
 package web
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -28,6 +29,32 @@ func TestNormalizeAttachmentFilenameFallsBackWhenBasenameIsInvalid(t *testing.T)
 	got := normalizeAttachmentFilename(attachment)
 	if got != "attachment-id.bin" {
 		t.Fatalf("expected fallback filename %q, got %q", "attachment-id.bin", got)
+	}
+}
+
+func TestNormalizeAttachmentFilenameSanitizesFallbackAttachmentID(t *testing.T) {
+	attachment := webcore.ReviewAttachment{
+		AttachmentID: "../../nested/path",
+		FileName:     "../",
+	}
+
+	got := normalizeAttachmentFilename(attachment)
+	if filepath.Base(got) != got {
+		t.Fatalf("expected basename-only filename, got %q", got)
+	}
+	if strings.Contains(got, "..") || strings.Contains(got, "/") || strings.Contains(got, "\\") {
+		t.Fatalf("expected sanitized fallback filename, got %q", got)
+	}
+}
+
+func TestResolveDownloadPathRejectsEscapingOutDir(t *testing.T) {
+	outDir := t.TempDir()
+	_, err := resolveDownloadPath(outDir, "../outside.txt", true)
+	if err == nil {
+		t.Fatal("expected path escape error")
+	}
+	if !strings.Contains(err.Error(), "escapes output directory") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

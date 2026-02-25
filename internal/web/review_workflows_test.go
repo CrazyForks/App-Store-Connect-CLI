@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -261,7 +262,7 @@ func TestListReviewAttachmentsByThreadCollectsMessageAndRejectionAttachments(t *
 }
 
 func TestDownloadAttachmentReturnsStatusAndBody(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/ok":
 			w.WriteHeader(http.StatusOK)
@@ -274,6 +275,11 @@ func TestDownloadAttachmentReturnsStatusAndBody(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	t.Setenv(attachmentHostsEnv, parsedURL.Hostname())
 
 	client := testWebClient(server)
 	body, status, err := client.DownloadAttachment(context.Background(), server.URL+"/ok")
@@ -294,19 +300,49 @@ func TestDownloadAttachmentReturnsStatusAndBody(t *testing.T) {
 }
 
 func TestDownloadAttachmentErrorDoesNotLeakSignedURLTokens(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	t.Setenv(attachmentHostsEnv, parsedURL.Hostname())
+
 	client := testWebClient(server)
 	signedURL := server.URL + "/download?token=very-secret&X-Amz-Signature=abc123"
 	server.Close()
 
-	_, _, err := client.DownloadAttachment(context.Background(), signedURL)
+	_, _, err = client.DownloadAttachment(context.Background(), signedURL)
 	if err == nil {
 		t.Fatal("expected download error after server close")
 	}
 	if strings.Contains(err.Error(), "very-secret") || strings.Contains(err.Error(), "X-Amz-Signature") || strings.Contains(err.Error(), "?token=") {
 		t.Fatalf("expected redacted error message, got %q", err.Error())
+	}
+}
+
+func TestDownloadAttachmentRejectsNonHTTPS(t *testing.T) {
+	client := &Client{httpClient: &http.Client{}}
+
+	_, _, err := client.DownloadAttachment(context.Background(), "http://appstoreconnect.apple.com/download")
+	if err == nil {
+		t.Fatal("expected non-https URL to fail")
+	}
+	if !strings.Contains(err.Error(), "must use https") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDownloadAttachmentRejectsUntrustedHost(t *testing.T) {
+	client := &Client{httpClient: &http.Client{}}
+
+	_, _, err := client.DownloadAttachment(context.Background(), "https://example.invalid/download")
+	if err == nil {
+		t.Fatal("expected untrusted host URL to fail")
+	}
+	if !strings.Contains(err.Error(), "host is not allowed") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

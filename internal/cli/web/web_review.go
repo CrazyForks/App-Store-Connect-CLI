@@ -442,23 +442,70 @@ func resolveShowOutDir(appID, submissionID, out string) string {
 	return filepath.Join(".asc", "web-review", sanitizePathPart(appID), sanitizePathPart(submissionID))
 }
 
+func sanitizeFilenamePart(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(trimmed))
+	for _, r := range trimmed {
+		isASCIIAlpha := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		isDigit := r >= '0' && r <= '9'
+		switch {
+		case isASCIIAlpha || isDigit || r == '.' || r == '-' || r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	sanitized := strings.TrimSpace(b.String())
+	sanitized = strings.Trim(sanitized, "._-")
+	if sanitized == "" || sanitized == "." || sanitized == ".." {
+		return ""
+	}
+	return sanitized
+}
+
 func normalizeAttachmentFilename(attachment webcore.ReviewAttachment) string {
 	name := strings.TrimSpace(attachment.FileName)
 	if name != "" {
-		base := filepath.Base(name)
-		if base != "" && base != "." && base != string(filepath.Separator) && base != ".." {
+		base := sanitizeFilenamePart(filepath.Base(name))
+		if base != "" {
 			return base
 		}
 	}
-	id := strings.TrimSpace(attachment.AttachmentID)
+	id := sanitizeFilenamePart(strings.TrimSpace(attachment.AttachmentID))
 	if id == "" {
 		id = "attachment"
 	}
 	return id + ".bin"
 }
 
+func ensurePathWithinDir(root, candidate string) error {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("failed to resolve output directory %q: %w", root, err)
+	}
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return fmt.Errorf("failed to resolve destination path %q: %w", candidate, err)
+	}
+	rel, err := filepath.Rel(absRoot, absCandidate)
+	if err != nil {
+		return fmt.Errorf("failed to compare destination path %q: %w", candidate, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("destination path escapes output directory")
+	}
+	return nil
+}
+
 func resolveDownloadPath(outDir, fileName string, overwrite bool) (string, error) {
 	base := filepath.Join(outDir, fileName)
+	if err := ensurePathWithinDir(outDir, base); err != nil {
+		return "", err
+	}
 	if overwrite {
 		return base, nil
 	}
@@ -470,6 +517,9 @@ func resolveDownloadPath(outDir, fileName string, overwrite bool) (string, error
 		}
 		for i := 1; i <= 10_000; i++ {
 			candidate := filepath.Join(outDir, fmt.Sprintf("%s-%d%s", stem, i, ext))
+			if err := ensurePathWithinDir(outDir, candidate); err != nil {
+				return "", err
+			}
 			if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
 				return candidate, nil
 			}

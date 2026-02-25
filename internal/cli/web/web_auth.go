@@ -23,6 +23,7 @@ var (
 	promptTwoFactorCodeFn = promptTwoFactorCodeInteractive
 	webLoginFn            = webcore.Login
 	submitTwoFactorCodeFn = webcore.SubmitTwoFactorCode
+	termReadPasswordFn    = term.ReadPassword
 )
 
 type webAuthStatus struct {
@@ -62,13 +63,32 @@ func readTwoFactorCodeFrom(reader io.Reader, writer io.Writer) (string, error) {
 	return code, nil
 }
 
+func readTwoFactorCodeFromTerminalFD(fd int, writer io.Writer) (string, error) {
+	if writer == nil {
+		return "", fmt.Errorf("2fa required: unable to prompt for code")
+	}
+	if _, err := fmt.Fprint(writer, "Two-factor code required. Enter 2FA code: "); err != nil {
+		return "", fmt.Errorf("2fa required: unable to prompt for code")
+	}
+	codeBytes, err := termReadPasswordFn(fd)
+	_, _ = fmt.Fprintln(writer)
+	if err != nil {
+		return "", fmt.Errorf("2fa required: failed to read 2fa code")
+	}
+	code := strings.TrimSpace(string(codeBytes))
+	if code == "" {
+		return "", fmt.Errorf("2fa required: empty 2fa code")
+	}
+	return code, nil
+}
+
 func promptTwoFactorCodeInteractive() (string, error) {
 	if tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
 		defer func() { _ = tty.Close() }()
-		return readTwoFactorCodeFrom(tty, tty)
+		return readTwoFactorCodeFromTerminalFD(int(tty.Fd()), tty)
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		return readTwoFactorCodeFrom(os.Stdin, os.Stderr)
+		return readTwoFactorCodeFromTerminalFD(int(os.Stdin.Fd()), os.Stderr)
 	}
 	return "", fmt.Errorf("2fa required: re-run with --two-factor-code")
 }

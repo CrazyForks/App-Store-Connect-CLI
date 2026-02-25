@@ -208,6 +208,25 @@ func TestLoadWebRootCAPoolFromPaths(t *testing.T) {
 	}
 }
 
+func TestLoadWebRootCAPoolFromPathsWithBaseKeepsBaseWhenNoFallbackCerts(t *testing.T) {
+	basePEM, cert := generateSelfSignedCertPEM(t)
+	base := x509.NewCertPool()
+	if !base.AppendCertsFromPEM(basePEM) {
+		t.Fatal("expected base cert to be appended")
+	}
+
+	pool := loadWebRootCAPoolFromPathsWithBase(base, []string{filepath.Join(t.TempDir(), "missing.pem")})
+	if pool == nil {
+		t.Fatal("expected non-nil pool")
+	}
+	if _, err := cert.Verify(x509.VerifyOptions{
+		Roots:       pool,
+		CurrentTime: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("expected base cert to remain trusted: %v", err)
+	}
+}
+
 func TestLoadWebRootCAPoolFromPathsReturnsNilWhenNoValidPEM(t *testing.T) {
 	invalidPath := filepath.Join(t.TempDir(), "invalid.pem")
 	if err := os.WriteFile(invalidPath, []byte("not-a-pem"), 0o600); err != nil {

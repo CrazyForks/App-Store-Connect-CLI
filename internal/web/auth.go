@@ -189,10 +189,20 @@ func newWebHTTPClient(jar http.CookieJar) *http.Client {
 }
 
 func loadWebRootCAPoolFromPaths(paths []string) *x509.CertPool {
+	return loadWebRootCAPoolFromPathsWithBase(nil, paths)
+}
+
+func loadWebRootCAPoolFromPathsWithBase(base *x509.CertPool, paths []string) *x509.CertPool {
 	if len(paths) == 0 {
-		return nil
+		if base == nil {
+			return nil
+		}
+		return base
 	}
-	pool := x509.NewCertPool()
+	pool := base
+	if pool == nil {
+		pool = x509.NewCertPool()
+	}
 	appended := false
 	for _, path := range paths {
 		path = strings.TrimSpace(path)
@@ -207,17 +217,28 @@ func loadWebRootCAPoolFromPaths(paths []string) *x509.CertPool {
 			appended = true
 		}
 	}
-	if !appended {
+	if !appended && base == nil {
 		return nil
 	}
 	return pool
+}
+
+func resolveDarwinTLSRootPool() *x509.CertPool {
+	systemPool, err := x509.SystemCertPool()
+	if err == nil && systemPool != nil {
+		return loadWebRootCAPoolFromPathsWithBase(systemPool.Clone(), webTLSRootBundlePaths)
+	}
+	return loadWebRootCAPoolFromPaths(webTLSRootBundlePaths)
 }
 
 func applyDarwinTLSRootFallback(transport *http.Transport) {
 	if transport == nil || runtime.GOOS != "darwin" {
 		return
 	}
-	rootPool := loadWebRootCAPoolFromPaths(webTLSRootBundlePaths)
+	if transport.TLSClientConfig != nil && transport.TLSClientConfig.RootCAs != nil {
+		return
+	}
+	rootPool := resolveDarwinTLSRootPool()
 	if rootPool == nil {
 		return
 	}

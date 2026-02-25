@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -19,9 +20,17 @@ const (
 	reviewSubmissionsItemsInclude = "appCustomProductPageVersion,appEvent,appStoreVersion,appStoreVersionExperiment,backgroundAssetVersion,gameCenterAchievementVersion,gameCenterLeaderboardVersion,gameCenterLeaderboardSetVersion,gameCenterChallengeVersion,gameCenterActivityVersion"
 	reviewMessagesInclude         = "fromActor,rejections,resolutionCenterMessageAttachments"
 	reviewRejectionsInclude       = "appCustomProductPageVersion,appEvent,appStoreVersion,appStoreVersionExperiment,backgroundAssetVersions,gameCenterAchievementVersions,gameCenterLeaderboardVersions,gameCenterLeaderboardSetVersions,gameCenterChallengeVersions,gameCenterActivityVersions,build,appBundleVersion,rejectionAttachments"
+	attachmentHostsEnv            = "ASC_WEB_ALLOWED_ATTACHMENT_HOSTS"
 )
 
 var htmlTagPattern = regexp.MustCompile(`(?s)<[^>]*>`)
+
+var defaultAttachmentHostSuffixes = []string{
+	".apple.com",
+	".mzstatic.com",
+	".amazonaws.com",
+	".cloudfront.net",
+}
 
 type jsonAPIRelationship struct {
 	Data json.RawMessage `json:"data"`
@@ -618,6 +627,39 @@ func attachmentFromResource(resource jsonAPIResource, includeURL bool) ReviewAtt
 	return attachment
 }
 
+func hostMatchesPattern(host, pattern string) bool {
+	pattern = strings.TrimSpace(strings.ToLower(pattern))
+	if pattern == "" {
+		return false
+	}
+	pattern = strings.TrimPrefix(pattern, "*")
+	host = strings.TrimSpace(strings.ToLower(host))
+	host = strings.TrimSuffix(host, ".")
+	if host == "" {
+		return false
+	}
+	if strings.HasPrefix(pattern, ".") {
+		trimmed := strings.TrimPrefix(pattern, ".")
+		return host == trimmed || strings.HasSuffix(host, pattern)
+	}
+	return host == pattern
+}
+
+func isAllowedAttachmentHost(host string) bool {
+	for _, pattern := range defaultAttachmentHostSuffixes {
+		if hostMatchesPattern(host, pattern) {
+			return true
+		}
+	}
+	extraHosts := strings.Split(os.Getenv(attachmentHostsEnv), ",")
+	for _, pattern := range extraHosts {
+		if hostMatchesPattern(host, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 func appendAttachmentUnique(attachments []ReviewAttachment, seen map[string]struct{}, attachment ReviewAttachment) []ReviewAttachment {
 	key := strings.Join([]string{
 		attachment.SourceType,
@@ -748,6 +790,16 @@ func (c *Client) DownloadAttachment(ctx context.Context, signedURL string) ([]by
 	parsedURL, err := url.ParseRequestURI(signedURL)
 	if err != nil {
 		return nil, 0, fmt.Errorf("invalid download url")
+	}
+	if !strings.EqualFold(parsedURL.Scheme, "https") {
+		return nil, 0, fmt.Errorf("download url must use https")
+	}
+	host := strings.ToLower(strings.TrimSpace(parsedURL.Hostname()))
+	if host == "" {
+		return nil, 0, fmt.Errorf("download url host is required")
+	}
+	if !isAllowedAttachmentHost(host) {
+		return nil, 0, fmt.Errorf("download url host is not allowed")
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
