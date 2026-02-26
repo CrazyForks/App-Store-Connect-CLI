@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"os"
 	"strings"
 	"testing"
@@ -13,12 +14,15 @@ import (
 
 func TestReadPasswordFromInput(t *testing.T) {
 	origPromptPassword := promptPasswordFn
+	origIsTerminal := termIsTerminalFn
 	t.Cleanup(func() {
 		promptPasswordFn = origPromptPassword
+		termIsTerminalFn = origIsTerminal
 	})
 
 	t.Run("reads from stdin when requested", func(t *testing.T) {
 		t.Setenv(webPasswordEnv, "")
+		termIsTerminalFn = func(fd int) bool { return false }
 
 		readEnd, writeEnd, err := os.Pipe()
 		if err != nil {
@@ -53,6 +57,7 @@ func TestReadPasswordFromInput(t *testing.T) {
 
 	t.Run("uses environment variable before prompt fallback", func(t *testing.T) {
 		t.Setenv(webPasswordEnv, " env-password ")
+		termIsTerminalFn = func(fd int) bool { return false }
 		promptPasswordFn = func() (string, error) {
 			t.Fatal("did not expect prompt fallback when env password is set")
 			return "", nil
@@ -69,6 +74,7 @@ func TestReadPasswordFromInput(t *testing.T) {
 
 	t.Run("falls back to interactive prompt when stdin/env are not provided", func(t *testing.T) {
 		t.Setenv(webPasswordEnv, "")
+		termIsTerminalFn = func(fd int) bool { return false }
 		called := false
 		promptPasswordFn = func() (string, error) {
 			called = true
@@ -84,6 +90,23 @@ func TestReadPasswordFromInput(t *testing.T) {
 		}
 		if password != "prompted-password" {
 			t.Fatalf("expected prompted password %q, got %q", "prompted-password", password)
+		}
+	})
+
+	t.Run("rejects password-stdin when stdin is an interactive terminal", func(t *testing.T) {
+		t.Setenv(webPasswordEnv, "")
+		termIsTerminalFn = func(fd int) bool { return true }
+		promptPasswordFn = func() (string, error) {
+			t.Fatal("did not expect prompt fallback for --password-stdin")
+			return "", nil
+		}
+
+		password, err := readPasswordFromInput(true)
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected ErrHelp, got %v", err)
+		}
+		if password != "" {
+			t.Fatalf("expected empty password, got %q", password)
 		}
 	})
 }

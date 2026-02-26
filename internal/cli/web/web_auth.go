@@ -25,6 +25,7 @@ var (
 	webLoginFn            = webcore.Login
 	submitTwoFactorCodeFn = webcore.SubmitTwoFactorCode
 	termReadPasswordFn    = term.ReadPassword
+	termIsTerminalFn      = term.IsTerminal
 )
 
 type webAuthStatus struct {
@@ -37,6 +38,9 @@ type webAuthStatus struct {
 
 func readPasswordFromInput(useStdin bool) (string, error) {
 	if useStdin {
+		if termIsTerminalFn(int(os.Stdin.Fd())) {
+			return "", shared.UsageError("--password-stdin requires piped input; omit it to use the interactive password prompt")
+		}
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return "", fmt.Errorf("failed to read stdin: %w", err)
@@ -74,7 +78,7 @@ func promptPasswordInteractive() (string, error) {
 		defer func() { _ = tty.Close() }()
 		return readPasswordFromTerminalFD(int(tty.Fd()), tty)
 	}
-	if term.IsTerminal(int(os.Stdin.Fd())) {
+	if termIsTerminalFn(int(os.Stdin.Fd())) {
 		return readPasswordFromTerminalFD(int(os.Stdin.Fd()), os.Stderr)
 	}
 	return "", nil
@@ -122,7 +126,7 @@ func promptTwoFactorCodeInteractive() (string, error) {
 		defer func() { _ = tty.Close() }()
 		return readTwoFactorCodeFromTerminalFD(int(tty.Fd()), tty)
 	}
-	if term.IsTerminal(int(os.Stdin.Fd())) {
+	if termIsTerminalFn(int(os.Stdin.Fd())) {
 		return readTwoFactorCodeFromTerminalFD(int(os.Stdin.Fd()), os.Stderr)
 	}
 	return "", fmt.Errorf("2fa required: re-run with --two-factor-code")
@@ -178,7 +182,7 @@ func resolveSession(ctx context.Context, appleID, password, twoFactorCode string
 		}
 	}
 	if password == "" {
-		return nil, "", shared.UsageError("password is required: provide --password-stdin or set ASC_WEB_PASSWORD")
+		return nil, "", shared.UsageError("password is required: run in a terminal for an interactive prompt, provide --password-stdin, or set ASC_WEB_PASSWORD")
 	}
 
 	session, err := loginWithOptionalTwoFactor(ctx, appleID, password, twoFactorCode)
@@ -236,8 +240,8 @@ func WebAuthLoginCommand() *ffcli.Command {
 Authenticate using Apple web-session behavior for detached "asc web" workflows.
 
 Password input options:
-  - secure interactive prompt (default when running in a terminal)
-  - --password-stdin (recommended for automation)
+  - secure interactive prompt (default and recommended for local use)
+  - --password-stdin (automation/CI)
   - ASC_WEB_PASSWORD environment variable
 
 ` + webWarningText + `
