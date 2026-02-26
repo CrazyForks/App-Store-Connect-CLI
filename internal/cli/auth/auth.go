@@ -424,7 +424,8 @@ Examples:
   asc auth login --network --name "MyKey" --key-id "ABC123" --issuer-id "DEF456" --private-key /path/to/AuthKey.p8
   asc auth login --skip-validation --name "MyKey" --key-id "ABC123" --issuer-id "DEF456" --private-key /path/to/AuthKey.p8
 
-The private key file path is stored securely. The key content is never saved.`,
+When using system keychain storage, the encrypted key material is stored in keychain
+so commands continue to work even if the original .p8 file is removed.`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {

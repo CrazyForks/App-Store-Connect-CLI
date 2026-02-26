@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/99designs/keyring"
 
@@ -37,6 +38,7 @@ type Credential struct {
 	KeyID          string `json:"key_id"`
 	IssuerID       string `json:"issuer_id"`
 	PrivateKeyPath string `json:"private_key_path"`
+	PrivateKeyPEM  string `json:"-"`
 	IsDefault      bool   `json:"is_default"`
 	Source         string `json:"source,omitempty"`
 	SourcePath     string `json:"source_path,omitempty"`
@@ -66,6 +68,7 @@ type credentialPayload struct {
 	KeyID          string `json:"key_id"`
 	IssuerID       string `json:"issuer_id"`
 	PrivateKeyPath string `json:"private_key_path"`
+	PrivateKeyPEM  string `json:"private_key_pem,omitempty"`
 }
 
 func keyringConfig(keychainName string) keyring.Config {
@@ -131,6 +134,11 @@ var keyringOpener = func() (keyring.Keyring, error) {
 var legacyKeyringOpener = func() (keyring.Keyring, error) {
 	return keyring.Open(keyringConfig(legacyKeychain))
 }
+
+var (
+	privateKeyTempMu    sync.Mutex
+	privateKeyTempPaths []string
+)
 
 // ValidateKeyFile validates that the private key file exists and is valid
 func ValidateKeyFile(path string) error {
@@ -209,12 +217,53 @@ func LoadPrivateKey(path string) (*ecdsa.PrivateKey, error) {
 	return ecdsaKey, nil
 }
 
+func writeTempPrivateKey(data []byte) (string, error) {
+	file, err := os.CreateTemp("", "asc-keychain-key-*.p8")
+	if err != nil {
+		return "", err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return "", err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	registerTempPrivateKeyPath(file.Name())
+	return file.Name(), nil
+}
+
+func registerTempPrivateKeyPath(path string) {
+	privateKeyTempMu.Lock()
+	defer privateKeyTempMu.Unlock()
+	privateKeyTempPaths = append(privateKeyTempPaths, path)
+}
+
+// CleanupTempPrivateKeys removes temporary private key files materialized from keychain data.
+func CleanupTempPrivateKeys() {
+	privateKeyTempMu.Lock()
+	paths := privateKeyTempPaths
+	privateKeyTempPaths = nil
+	privateKeyTempMu.Unlock()
+
+	for _, path := range paths {
+		_ = os.Remove(path)
+	}
+}
+
 // StoreCredentials stores credentials in the keychain when available.
 func StoreCredentials(name, keyID, issuerID, keyPath string) error {
 	payload := credentialPayload{
 		KeyID:          keyID,
 		IssuerID:       issuerID,
 		PrivateKeyPath: keyPath,
+	}
+	if privateKeyPEM, err := loadPrivateKeyPEMForStorage(keyPath); err == nil && strings.TrimSpace(privateKeyPEM) != "" {
+		payload.PrivateKeyPEM = privateKeyPEM
 	}
 
 	if err := storeInKeychain(name, payload); err == nil {
@@ -229,6 +278,18 @@ func StoreCredentials(name, keyID, issuerID, keyPath string) error {
 	}
 
 	return storeInConfig(name, payload)
+}
+
+func loadPrivateKeyPEMForStorage(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // StoreCredentialsConfig stores credentials in the config file only.
@@ -465,7 +526,10 @@ func GetCredentialsWithSource(profile string) (*config.Config, string, error) {
 			defaultKey = strings.TrimSpace(defaultKey)
 			resolvedProfile = defaultKey
 		}
-		cfg, found := selectCredential(resolvedProfile, credentials)
+		cfg, found, selectErr := selectCredential(resolvedProfile, credentials)
+		if selectErr != nil {
+			return nil, "", selectErr
+		}
 		if found {
 			return cfg, "keychain", nil
 		}
@@ -555,31 +619,49 @@ func GetCredentials(profile string) (*config.Config, error) {
 	return cfg, err
 }
 
-func selectCredential(profile string, credentials []Credential) (*config.Config, bool) {
+func selectCredential(profile string, credentials []Credential) (*config.Config, bool, error) {
 	name := strings.TrimSpace(profile)
 	if name != "" {
 		for _, cred := range credentials {
 			if cred.Name == name {
-				return &config.Config{
-					KeyID:          cred.KeyID,
-					IssuerID:       cred.IssuerID,
-					PrivateKeyPath: cred.PrivateKeyPath,
-					DefaultKeyName: cred.Name,
-				}, true
+				cfg, err := configFromCredential(cred)
+				if err != nil {
+					return nil, false, err
+				}
+				return cfg, true, nil
 			}
 		}
-		return nil, false
+		return nil, false, nil
 	}
 	if len(credentials) == 1 {
 		cred := credentials[0]
-		return &config.Config{
-			KeyID:          cred.KeyID,
-			IssuerID:       cred.IssuerID,
-			PrivateKeyPath: cred.PrivateKeyPath,
-			DefaultKeyName: cred.Name,
-		}, true
+		cfg, err := configFromCredential(cred)
+		if err != nil {
+			return nil, false, err
+		}
+		return cfg, true, nil
 	}
-	return nil, false
+	return nil, false, nil
+}
+
+func configFromCredential(cred Credential) (*config.Config, error) {
+	resolvedKeyPath, err := resolveCredentialPrivateKeyPath(cred)
+	if err != nil {
+		return nil, err
+	}
+	return &config.Config{
+		KeyID:          cred.KeyID,
+		IssuerID:       cred.IssuerID,
+		PrivateKeyPath: resolvedKeyPath,
+		DefaultKeyName: cred.Name,
+	}, nil
+}
+
+func resolveCredentialPrivateKeyPath(cred Credential) (string, error) {
+	if strings.TrimSpace(cred.PrivateKeyPEM) == "" {
+		return cred.PrivateKeyPath, nil
+	}
+	return writeTempPrivateKey([]byte(cred.PrivateKeyPEM))
 }
 
 func getCredentialsFromConfig(profile string) (*config.Config, error) {
@@ -707,12 +789,26 @@ func listFromKeyring(kr keyring.Keyring) ([]Credential, error) {
 		if err := json.Unmarshal(item.Data, &payload); err != nil {
 			return nil, fmt.Errorf("invalid keychain entry %q: %w", key, err)
 		}
+		if strings.TrimSpace(payload.PrivateKeyPEM) == "" {
+			if privateKeyPEM, err := loadPrivateKeyPEMForStorage(payload.PrivateKeyPath); err == nil && strings.TrimSpace(privateKeyPEM) != "" {
+				payload.PrivateKeyPEM = privateKeyPEM
+				data, marshalErr := json.Marshal(payload)
+				if marshalErr == nil {
+					_ = kr.Set(keyring.Item{
+						Key:   key,
+						Data:  data,
+						Label: fmt.Sprintf("ASC API Key (%s)", strings.TrimPrefix(key, keyringItemPrefix)),
+					})
+				}
+			}
+		}
 		name := strings.TrimPrefix(key, keyringItemPrefix)
 		credentials = append(credentials, Credential{
 			Name:           name,
 			KeyID:          payload.KeyID,
 			IssuerID:       payload.IssuerID,
 			PrivateKeyPath: payload.PrivateKeyPath,
+			PrivateKeyPEM:  payload.PrivateKeyPEM,
 			IsDefault:      name == defaultName,
 			Source:         "keychain",
 		})
@@ -727,6 +823,7 @@ func migrateLegacyCredentials(credentials []Credential) {
 			KeyID:          cred.KeyID,
 			IssuerID:       cred.IssuerID,
 			PrivateKeyPath: cred.PrivateKeyPath,
+			PrivateKeyPEM:  cred.PrivateKeyPEM,
 		}
 		if err := storeInKeychain(cred.Name, payload); err != nil {
 			continue

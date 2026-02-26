@@ -519,6 +519,7 @@ func CleanupTempPrivateKeys() {
 	for _, path := range paths {
 		_ = os.Remove(path)
 	}
+	auth.CleanupTempPrivateKeys()
 }
 
 func resolveProfileName() string {
