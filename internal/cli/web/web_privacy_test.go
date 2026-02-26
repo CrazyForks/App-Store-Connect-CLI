@@ -226,6 +226,49 @@ func TestDeclarationFromRemoteDataUsagesEmptyDefaultsNotCollected(t *testing.T) 
 	}
 }
 
+func TestDeclarationFromRemoteDataUsagesMalformedOnlyDefaultsNotCollected(t *testing.T) {
+	declaration := declarationFromRemoteDataUsages([]webcore.AppDataUsage{
+		{
+			ID:       "usage-malformed-1",
+			Category: "PURCHASE_HISTORY",
+			Purpose:  "APP_FUNCTIONALITY",
+		},
+	})
+
+	if len(declaration.DataUsages) != 1 {
+		t.Fatalf("expected one default data usage, got %#v", declaration.DataUsages)
+	}
+	if !reflect.DeepEqual(declaration.DataUsages[0].DataProtections, []string{dataProtectionNotCollected}) {
+		t.Fatalf("unexpected default declaration for malformed-only usages: %#v", declaration.DataUsages[0])
+	}
+}
+
+func TestDeclarationFromRemoteDataUsagesSkipsMalformedWhenValidPresent(t *testing.T) {
+	declaration := declarationFromRemoteDataUsages([]webcore.AppDataUsage{
+		{
+			ID:       "usage-malformed-1",
+			Category: "PURCHASE_HISTORY",
+			Purpose:  "APP_FUNCTIONALITY",
+		},
+		{
+			ID:             "usage-valid-1",
+			Category:       "PURCHASE_HISTORY",
+			Purpose:        "APP_FUNCTIONALITY",
+			DataProtection: dataProtectionLinked,
+		},
+	})
+
+	if len(declaration.DataUsages) != 1 {
+		t.Fatalf("expected one valid usage group, got %#v", declaration.DataUsages)
+	}
+	if declaration.DataUsages[0].Category != "PURCHASE_HISTORY" {
+		t.Fatalf("unexpected declaration category: %#v", declaration.DataUsages[0])
+	}
+	if !reflect.DeepEqual(declaration.DataUsages[0].DataProtections, []string{dataProtectionLinked}) {
+		t.Fatalf("unexpected declaration protections: %#v", declaration.DataUsages[0])
+	}
+}
+
 func TestPlanFromDesiredAndRemoteIncludesDuplicateRemoteDeletes(t *testing.T) {
 	desired := map[string]privacyTuple{
 		privacyTupleKey(privacyTuple{
@@ -294,6 +337,47 @@ func TestPlanFromDesiredAndRemoteSkipsDeletesWithoutUsageID(t *testing.T) {
 	}
 	if len(plan.APICalls) != 0 {
 		t.Fatalf("expected no delete api calls for remote tuples without usage IDs, got %#v", plan.APICalls)
+	}
+}
+
+func TestPlanFromDesiredAndRemoteIncludesDeleteForMalformedRemoteUsage(t *testing.T) {
+	desired := map[string]privacyTuple{
+		privacyTupleKey(privacyTuple{
+			Category:       "PURCHASE_HISTORY",
+			Purpose:        "APP_FUNCTIONALITY",
+			DataProtection: dataProtectionLinked,
+		}): {
+			Category:       "PURCHASE_HISTORY",
+			Purpose:        "APP_FUNCTIONALITY",
+			DataProtection: dataProtectionLinked,
+		},
+	}
+	remote := remoteStateFromDataUsages([]webcore.AppDataUsage{
+		{
+			ID:             "usage-valid-1",
+			Category:       "PURCHASE_HISTORY",
+			Purpose:        "APP_FUNCTIONALITY",
+			DataProtection: dataProtectionLinked,
+		},
+		{
+			ID:       "usage-malformed-1",
+			Category: "PURCHASE_HISTORY",
+			Purpose:  "APP_FUNCTIONALITY",
+		},
+	})
+
+	plan := planFromDesiredAndRemote("123", "./privacy.json", desired, remote)
+	if len(plan.Adds) != 0 || len(plan.Updates) != 0 {
+		t.Fatalf("expected no adds/updates, got adds=%#v updates=%#v", plan.Adds, plan.Updates)
+	}
+	if len(plan.Deletes) != 1 {
+		t.Fatalf("expected one delete for malformed remote usage, got %#v", plan.Deletes)
+	}
+	if plan.Deletes[0].UsageID != "usage-malformed-1" || plan.Deletes[0].DataProtection != dataProtectionUnknown {
+		t.Fatalf("unexpected delete for malformed usage: %#v", plan.Deletes[0])
+	}
+	if len(plan.APICalls) != 1 || plan.APICalls[0].Operation != "delete_data_usage" || plan.APICalls[0].Count != 1 {
+		t.Fatalf("unexpected api call summary: %#v", plan.APICalls)
 	}
 }
 

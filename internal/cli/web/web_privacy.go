@@ -27,6 +27,7 @@ const (
 	dataProtectionLinked       = "DATA_LINKED_TO_YOU"
 	dataProtectionNotLinked    = "DATA_NOT_LINKED_TO_YOU"
 	dataProtectionTracking     = "DATA_USED_TO_TRACK_YOU"
+	dataProtectionUnknown      = "UNKNOWN_OR_MISSING"
 )
 
 var (
@@ -350,7 +351,8 @@ func remoteStateFromDataUsages(usages []webcore.AppDataUsage) map[string]privacy
 			DataProtection: normalizeToken(usage.DataProtection),
 		}
 		if tuple.DataProtection == "" {
-			continue
+			// Preserve malformed usages so plan/apply can explicitly delete them.
+			tuple.DataProtection = dataProtectionUnknown
 		}
 		key := privacyTupleKey(tuple)
 		current := state[key]
@@ -383,7 +385,20 @@ func declarationFromRemoteDataUsages(usages []webcore.AppDataUsage) privacyDecla
 
 	tuples := make(map[string]privacyTuple)
 	for key, value := range remoteStateFromDataUsages(usages) {
+		if _, known := knownDataProtections[value.Tuple.DataProtection]; !known {
+			continue
+		}
 		tuples[key] = value.Tuple
+	}
+	if len(tuples) == 0 {
+		return privacyDeclarationFile{
+			SchemaVersion: privacySchemaVersion,
+			DataUsages: []privacyUsage{
+				{
+					DataProtections: []string{dataProtectionNotCollected},
+				},
+			},
+		}
 	}
 	return declarationFromTupleSet(tuples)
 }
