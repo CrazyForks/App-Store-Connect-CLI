@@ -73,7 +73,7 @@ var supportedFrameDevices = []FrameDevice{
 
 type frameDeviceKoubouSpec struct {
 	FrameName   string
-	OutputSize  string // Koubou named size (e.g. "iPhone6_9") or asc Mac size (e.g. "mac2880")
+	OutputSize  string // Koubou named size (e.g. "iPhone6_9" or "AppDesktop_2880")
 	DisplayType string
 	Canvas      bool // true = plain canvas, no device bezel; screenshot scaled to fill
 }
@@ -107,7 +107,7 @@ var frameDeviceKoubouSpecs = map[FrameDevice]frameDeviceKoubouSpec{
 	},
 	FrameDeviceMac: {
 		FrameName:   "Mac",
-		OutputSize:  "mac2880",
+		OutputSize:  "AppDesktop_2880",
 		DisplayType: "APP_DESKTOP",
 		Canvas:      true,
 	},
@@ -644,8 +644,11 @@ func resolveKoubouOutputSize(value any) (int, int, bool) {
 		"iphone6_1": {Width: 1179, Height: 2556},
 		"iphone5_8": {Width: 1170, Height: 2532},
 		"iphone5_5": {Width: 1242, Height: 2208},
-		// Mac canvas (2880×1800 is the only size used by FrameDeviceMac)
-		"mac2880": {Width: 2880, Height: 1800},
+		// Mac App Store desktop (16:10)
+		"appdesktop_1280": {Width: 1280, Height: 800},
+		"appdesktop_1440": {Width: 1440, Height: 900},
+		"appdesktop_2560": {Width: 2560, Height: 1600},
+		"appdesktop_2880": {Width: 2880, Height: 1800},
 	}
 
 	switch typed := value.(type) {

@@ -88,7 +88,7 @@ func TestResolveKoubouOutputSize(t *testing.T) {
 		wantOK     bool
 	}{
 		{name: "named size", value: "iPhone6_9", wantWidth: 1320, wantHeight: 2868, wantOK: true},
-		{name: "mac named size", value: "mac2880", wantWidth: 2880, wantHeight: 1800, wantOK: true},
+		{name: "desktop named size", value: "AppDesktop_2880", wantWidth: 2880, wantHeight: 1800, wantOK: true},
 		{name: "custom list", value: []any{1200, 2500}, wantWidth: 1200, wantHeight: 2500, wantOK: true},
 		{name: "unknown name", value: "iphone7_2", wantOK: false},
 		{name: "invalid list", value: []any{"bad", 2}, wantOK: false},
