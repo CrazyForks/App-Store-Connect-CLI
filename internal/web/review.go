@@ -46,6 +46,7 @@ type jsonAPIResource struct {
 type jsonAPIListPayload struct {
 	Data     []jsonAPIResource `json:"data"`
 	Included []jsonAPIResource `json:"included"`
+	Links    map[string]any    `json:"links"`
 }
 
 type resourceRef struct {

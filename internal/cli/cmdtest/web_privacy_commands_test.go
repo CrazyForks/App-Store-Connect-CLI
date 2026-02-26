@@ -14,6 +14,7 @@ func TestWebPrivacyCommandsAreRegistered(t *testing.T) {
 
 	for _, path := range [][]string{
 		{"web", "privacy"},
+		{"web", "privacy", "catalog"},
 		{"web", "privacy", "pull"},
 		{"web", "privacy", "plan"},
 		{"web", "privacy", "apply"},
@@ -44,6 +45,26 @@ func TestWebPrivacyPullRequiresApp(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "--app is required") {
 		t.Fatalf("expected missing --app message, got %q", stderr)
+	}
+}
+
+func TestWebPrivacyCatalogRejectsPositionalArgs(t *testing.T) {
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	_, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"web", "privacy", "catalog", "extra"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if !errors.Is(runErr, flag.ErrHelp) {
+		t.Fatalf("expected ErrHelp, got %v", runErr)
+	}
+	if !strings.Contains(stderr, "does not accept positional arguments") {
+		t.Fatalf("expected positional args usage message, got %q", stderr)
 	}
 }
 

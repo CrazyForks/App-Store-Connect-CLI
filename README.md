@@ -68,6 +68,9 @@ asc web auth status
 # Login with Apple ID for detached experimental workflows
 asc web auth login --apple-id "user@example.com" --password-stdin
 
+# Inspect available declaration tokens (categories/purposes/protections)
+asc web privacy catalog --apple-id "user@example.com"
+
 # Pull app privacy declaration into canonical JSON
 asc web privacy pull --app "123456789" --out "./privacy.json"
 

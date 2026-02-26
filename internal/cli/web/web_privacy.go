@@ -67,17 +67,26 @@ type privacyPlanChange struct {
 	UsageID        string `json:"usageId,omitempty"`
 }
 
+type privacySkippedDelete struct {
+	Key            string `json:"key"`
+	Category       string `json:"category,omitempty"`
+	Purpose        string `json:"purpose,omitempty"`
+	DataProtection string `json:"dataProtection"`
+	Reason         string `json:"reason"`
+}
+
 type privacyAPICall struct {
 	Operation string `json:"operation"`
 	Count     int    `json:"count"`
 }
 
 type privacyPlanOutput struct {
-	AppID    string              `json:"appId"`
-	File     string              `json:"file"`
-	Adds     []privacyPlanChange `json:"adds"`
-	Deletes  []privacyPlanChange `json:"deletes"`
-	APICalls []privacyAPICall    `json:"apiCalls,omitempty"`
+	AppID          string                 `json:"appId"`
+	File           string                 `json:"file"`
+	Adds           []privacyPlanChange    `json:"adds"`
+	Deletes        []privacyPlanChange    `json:"deletes"`
+	SkippedDeletes []privacySkippedDelete `json:"skippedDeletes,omitempty"`
+	APICalls       []privacyAPICall       `json:"apiCalls,omitempty"`
 }
 
 type privacyApplyAction struct {
@@ -90,13 +99,14 @@ type privacyApplyAction struct {
 }
 
 type privacyApplyOutput struct {
-	AppID    string               `json:"appId"`
-	File     string               `json:"file"`
-	Adds     []privacyPlanChange  `json:"adds"`
-	Deletes  []privacyPlanChange  `json:"deletes"`
-	Applied  bool                 `json:"applied"`
-	Actions  []privacyApplyAction `json:"actions,omitempty"`
-	APICalls []privacyAPICall     `json:"apiCalls,omitempty"`
+	AppID          string                 `json:"appId"`
+	File           string                 `json:"file"`
+	Adds           []privacyPlanChange    `json:"adds"`
+	Deletes        []privacyPlanChange    `json:"deletes"`
+	SkippedDeletes []privacySkippedDelete `json:"skippedDeletes,omitempty"`
+	Applied        bool                   `json:"applied"`
+	Actions        []privacyApplyAction   `json:"actions,omitempty"`
+	APICalls       []privacyAPICall       `json:"apiCalls,omitempty"`
 }
 
 type privacyPublishState struct {
@@ -116,6 +126,12 @@ type privacyPublishOutput struct {
 	PublishState privacyPublishState `json:"publishState"`
 	WasPublished bool                `json:"wasPublished"`
 	Changed      bool                `json:"changed"`
+}
+
+type privacyCatalogOutput struct {
+	Categories      []webcore.AppDataUsageCategory       `json:"categories"`
+	Purposes        []webcore.AppDataUsagePurpose        `json:"purposes"`
+	DataProtections []webcore.AppDataUsageDataProtection `json:"dataProtections"`
 }
 
 func normalizeToken(value string) string {
@@ -351,6 +367,7 @@ func declarationFromRemoteDataUsages(usages []webcore.AppDataUsage) privacyDecla
 func planFromDesiredAndRemote(appID, file string, desired map[string]privacyTuple, remote map[string]privacyRemoteState) privacyPlanOutput {
 	adds := make([]privacyPlanChange, 0)
 	deletes := make([]privacyPlanChange, 0)
+	skippedDeletes := make([]privacySkippedDelete, 0)
 
 	for key, tuple := range desired {
 		if _, exists := remote[key]; exists {
@@ -366,6 +383,16 @@ func planFromDesiredAndRemote(appID, file string, desired map[string]privacyTupl
 
 	for key, state := range remote {
 		if _, exists := desired[key]; !exists {
+			if len(state.UsageIDs) == 0 {
+				skippedDeletes = append(skippedDeletes, privacySkippedDelete{
+					Key:            key,
+					Category:       state.Tuple.Category,
+					Purpose:        state.Tuple.Purpose,
+					DataProtection: state.Tuple.DataProtection,
+					Reason:         "missing_usage_id",
+				})
+				continue
+			}
 			for _, usageID := range state.UsageIDs {
 				deletes = append(deletes, privacyPlanChange{
 					Key:            key,
@@ -401,6 +428,12 @@ func planFromDesiredAndRemote(appID, file string, desired map[string]privacyTupl
 		}
 		return deletes[i].Key < deletes[j].Key
 	})
+	sort.Slice(skippedDeletes, func(i, j int) bool {
+		if skippedDeletes[i].Key == skippedDeletes[j].Key {
+			return skippedDeletes[i].Reason < skippedDeletes[j].Reason
+		}
+		return skippedDeletes[i].Key < skippedDeletes[j].Key
+	})
 
 	apiCalls := make([]privacyAPICall, 0, 2)
 	if len(adds) > 0 {
@@ -417,11 +450,12 @@ func planFromDesiredAndRemote(appID, file string, desired map[string]privacyTupl
 	}
 
 	return privacyPlanOutput{
-		AppID:    appID,
-		File:     file,
-		Adds:     adds,
-		Deletes:  deletes,
-		APICalls: apiCalls,
+		AppID:          appID,
+		File:           file,
+		Adds:           adds,
+		Deletes:        deletes,
+		SkippedDeletes: skippedDeletes,
+		APICalls:       apiCalls,
 	}
 }
 
@@ -521,6 +555,24 @@ func buildPrivacyPlanRows(adds []privacyPlanChange, deletes []privacyPlanChange)
 	return rows
 }
 
+func buildPrivacySkippedDeleteRows(skipped []privacySkippedDelete) [][]string {
+	if len(skipped) == 0 {
+		return [][]string{{"none", "", "", "", "", ""}}
+	}
+	rows := make([][]string, 0, len(skipped))
+	for _, item := range skipped {
+		rows = append(rows, []string{
+			item.Key,
+			valueOrNA(item.Category),
+			valueOrNA(item.Purpose),
+			item.DataProtection,
+			item.Reason,
+			"",
+		})
+	}
+	return rows
+}
+
 func buildPrivacyAPICallRows(calls []privacyAPICall) [][]string {
 	rows := make([][]string, 0, len(calls))
 	for _, call := range calls {
@@ -546,6 +598,40 @@ func buildPrivacyActionRows(actions []privacyApplyAction) [][]string {
 			action.DataProtection,
 			valueOrNA(action.UsageID),
 		})
+	}
+	return rows
+}
+
+func buildCatalogRows(categories []webcore.AppDataUsageCategory, purposes []webcore.AppDataUsagePurpose, protections []webcore.AppDataUsageDataProtection) [][]string {
+	rows := make([][]string, 0, len(categories)+len(purposes)+len(protections))
+
+	for _, category := range categories {
+		rows = append(rows, []string{
+			"category",
+			category.ID,
+			valueOrNA(category.Grouping),
+			fmt.Sprintf("%t", category.Deleted),
+		})
+	}
+	for _, purpose := range purposes {
+		rows = append(rows, []string{
+			"purpose",
+			purpose.ID,
+			"n/a",
+			fmt.Sprintf("%t", purpose.Deleted),
+		})
+	}
+	for _, protection := range protections {
+		rows = append(rows, []string{
+			"dataProtection",
+			protection.ID,
+			"n/a",
+			fmt.Sprintf("%t", protection.Deleted),
+		})
+	}
+
+	if len(rows) == 0 {
+		return [][]string{{"none", "n/a", "n/a", "n/a"}}
 	}
 	return rows
 }
@@ -589,11 +675,19 @@ func renderPrivacyPlanTable(payload privacyPlanOutput) error {
 	fmt.Printf("App ID: %s\n", payload.AppID)
 	fmt.Printf("File: %s\n", payload.File)
 	fmt.Printf("Adds: %d\n", len(payload.Adds))
-	fmt.Printf("Deletes: %d\n\n", len(payload.Deletes))
+	fmt.Printf("Deletes: %d\n", len(payload.Deletes))
+	fmt.Printf("Skipped Deletes: %d\n\n", len(payload.SkippedDeletes))
 	asc.RenderTable(
 		[]string{"Change", "Key", "Category", "Purpose", "Data Protection", "Usage ID"},
 		buildPrivacyPlanRows(payload.Adds, payload.Deletes),
 	)
+	if len(payload.SkippedDeletes) > 0 {
+		fmt.Println()
+		asc.RenderTable(
+			[]string{"Key", "Category", "Purpose", "Data Protection", "Reason", "Usage ID"},
+			buildPrivacySkippedDeleteRows(payload.SkippedDeletes),
+		)
+	}
 	if len(payload.APICalls) > 0 {
 		fmt.Println()
 		asc.RenderTable([]string{"Operation", "Count"}, buildPrivacyAPICallRows(payload.APICalls))
@@ -606,10 +700,18 @@ func renderPrivacyPlanMarkdown(payload privacyPlanOutput) error {
 	fmt.Printf("**File:** %s\n\n", payload.File)
 	fmt.Printf("**Adds:** %d\n\n", len(payload.Adds))
 	fmt.Printf("**Deletes:** %d\n\n", len(payload.Deletes))
+	fmt.Printf("**Skipped Deletes:** %d\n\n", len(payload.SkippedDeletes))
 	asc.RenderMarkdown(
 		[]string{"Change", "Key", "Category", "Purpose", "Data Protection", "Usage ID"},
 		buildPrivacyPlanRows(payload.Adds, payload.Deletes),
 	)
+	if len(payload.SkippedDeletes) > 0 {
+		fmt.Println()
+		asc.RenderMarkdown(
+			[]string{"Key", "Category", "Purpose", "Data Protection", "Reason", "Usage ID"},
+			buildPrivacySkippedDeleteRows(payload.SkippedDeletes),
+		)
+	}
 	if len(payload.APICalls) > 0 {
 		fmt.Println()
 		asc.RenderMarkdown([]string{"Operation", "Count"}, buildPrivacyAPICallRows(payload.APICalls))
@@ -622,11 +724,19 @@ func renderPrivacyApplyTable(payload privacyApplyOutput) error {
 	fmt.Printf("File: %s\n", payload.File)
 	fmt.Printf("Applied: %t\n", payload.Applied)
 	fmt.Printf("Adds: %d\n", len(payload.Adds))
-	fmt.Printf("Deletes: %d\n\n", len(payload.Deletes))
+	fmt.Printf("Deletes: %d\n", len(payload.Deletes))
+	fmt.Printf("Skipped Deletes: %d\n\n", len(payload.SkippedDeletes))
 	asc.RenderTable(
 		[]string{"Change", "Key", "Category", "Purpose", "Data Protection", "Usage ID"},
 		buildPrivacyPlanRows(payload.Adds, payload.Deletes),
 	)
+	if len(payload.SkippedDeletes) > 0 {
+		fmt.Println()
+		asc.RenderTable(
+			[]string{"Key", "Category", "Purpose", "Data Protection", "Reason", "Usage ID"},
+			buildPrivacySkippedDeleteRows(payload.SkippedDeletes),
+		)
+	}
 	if len(payload.Actions) > 0 {
 		fmt.Println()
 		asc.RenderTable(
@@ -647,10 +757,18 @@ func renderPrivacyApplyMarkdown(payload privacyApplyOutput) error {
 	fmt.Printf("**Applied:** %t\n\n", payload.Applied)
 	fmt.Printf("**Adds:** %d\n\n", len(payload.Adds))
 	fmt.Printf("**Deletes:** %d\n\n", len(payload.Deletes))
+	fmt.Printf("**Skipped Deletes:** %d\n\n", len(payload.SkippedDeletes))
 	asc.RenderMarkdown(
 		[]string{"Change", "Key", "Category", "Purpose", "Data Protection", "Usage ID"},
 		buildPrivacyPlanRows(payload.Adds, payload.Deletes),
 	)
+	if len(payload.SkippedDeletes) > 0 {
+		fmt.Println()
+		asc.RenderMarkdown(
+			[]string{"Key", "Category", "Purpose", "Data Protection", "Reason", "Usage ID"},
+			buildPrivacySkippedDeleteRows(payload.SkippedDeletes),
+		)
+	}
 	if len(payload.Actions) > 0 {
 		fmt.Println()
 		asc.RenderMarkdown(
@@ -687,6 +805,28 @@ func renderPrivacyPublishMarkdown(payload privacyPublishOutput) error {
 	return nil
 }
 
+func renderPrivacyCatalogTable(payload privacyCatalogOutput) error {
+	fmt.Printf("Categories: %d\n", len(payload.Categories))
+	fmt.Printf("Purposes: %d\n", len(payload.Purposes))
+	fmt.Printf("Data Protections: %d\n\n", len(payload.DataProtections))
+	asc.RenderTable(
+		[]string{"Kind", "ID", "Grouping", "Deleted"},
+		buildCatalogRows(payload.Categories, payload.Purposes, payload.DataProtections),
+	)
+	return nil
+}
+
+func renderPrivacyCatalogMarkdown(payload privacyCatalogOutput) error {
+	fmt.Printf("**Categories:** %d\n\n", len(payload.Categories))
+	fmt.Printf("**Purposes:** %d\n\n", len(payload.Purposes))
+	fmt.Printf("**Data Protections:** %d\n\n", len(payload.DataProtections))
+	asc.RenderMarkdown(
+		[]string{"Kind", "ID", "Grouping", "Deleted"},
+		buildCatalogRows(payload.Categories, payload.Purposes, payload.DataProtections),
+	)
+	return nil
+}
+
 // WebPrivacyCommand returns the detached web privacy command group.
 func WebPrivacyCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("web privacy", flag.ExitOnError)
@@ -701,6 +841,7 @@ Agent-friendly app privacy declaration workflows over Apple web-session /iris en
 Use pull/plan/apply/publish with explicit mutation controls.
 
 Subcommands:
+  catalog  List category/purpose/data-protection tokens for declaration authoring
   pull     Fetch current app data usage declarations as canonical JSON
   plan     Diff local declaration file against remote state
   apply    Apply planned changes (never publishes automatically)
@@ -710,6 +851,7 @@ Subcommands:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
+			WebPrivacyCatalogCommand(),
 			WebPrivacyPullCommand(),
 			WebPrivacyPlanCommand(),
 			WebPrivacyApplyCommand(),
@@ -717,6 +859,73 @@ Subcommands:
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
+		},
+	}
+}
+
+// WebPrivacyCatalogCommand lists available privacy declaration catalog values.
+func WebPrivacyCatalogCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("web privacy catalog", flag.ExitOnError)
+
+	authFlags := bindWebSessionFlags(fs)
+	output := shared.BindOutputFlags(fs)
+
+	return &ffcli.Command{
+		Name:       "catalog",
+		ShortUsage: "asc web privacy catalog [flags]",
+		ShortHelp:  "EXPERIMENTAL: List app privacy catalog values.",
+		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
+
+Fetch category, purpose, and data-protection tokens that can be used in
+privacy declaration files.
+
+Examples:
+  asc web privacy catalog --apple-id "user@example.com"`,
+		FlagSet:   fs,
+		UsageFunc: shared.DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			if len(args) > 0 {
+				return shared.UsageError("web privacy catalog does not accept positional arguments")
+			}
+
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
+
+			session, err := resolveWebSessionForCommand(requestCtx, authFlags)
+			if err != nil {
+				return err
+			}
+			client := webcore.NewClient(session)
+
+			categories, err := client.ListAppDataUsageCategories(requestCtx)
+			if err != nil {
+				return withWebAuthHint(err, "web privacy catalog")
+			}
+			purposes, err := client.ListAppDataUsagePurposes(requestCtx)
+			if err != nil {
+				return withWebAuthHint(err, "web privacy catalog")
+			}
+			protections, err := client.ListAppDataUsageDataProtections(requestCtx)
+			if err != nil {
+				return withWebAuthHint(err, "web privacy catalog")
+			}
+
+			sort.Slice(categories, func(i, j int) bool { return categories[i].ID < categories[j].ID })
+			sort.Slice(purposes, func(i, j int) bool { return purposes[i].ID < purposes[j].ID })
+			sort.Slice(protections, func(i, j int) bool { return protections[i].ID < protections[j].ID })
+
+			payload := privacyCatalogOutput{
+				Categories:      categories,
+				Purposes:        purposes,
+				DataProtections: protections,
+			}
+			return shared.PrintOutputWithRenderers(
+				payload,
+				*output.Output,
+				*output.Pretty,
+				func() error { return renderPrivacyCatalogTable(payload) },
+				func() error { return renderPrivacyCatalogMarkdown(payload) },
+			)
 		},
 	}
 }
@@ -978,13 +1187,14 @@ Examples:
 			}
 
 			payload := privacyApplyOutput{
-				AppID:    resolvedAppID,
-				File:     resolvedFilePath,
-				Adds:     plan.Adds,
-				Deletes:  plan.Deletes,
-				Applied:  true,
-				Actions:  actions,
-				APICalls: plan.APICalls,
+				AppID:          resolvedAppID,
+				File:           resolvedFilePath,
+				Adds:           plan.Adds,
+				Deletes:        plan.Deletes,
+				SkippedDeletes: plan.SkippedDeletes,
+				Applied:        true,
+				Actions:        actions,
+				APICalls:       plan.APICalls,
 			}
 			return shared.PrintOutputWithRenderers(
 				payload,

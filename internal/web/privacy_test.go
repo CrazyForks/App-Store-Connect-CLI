@@ -17,6 +17,9 @@ func TestListAppDataUsagesParsesRelationships(t *testing.T) {
 		if got := r.URL.Query().Get("include"); got != appDataUsagesInclude {
 			t.Fatalf("unexpected include query: %q", got)
 		}
+		if got := r.URL.Query().Get("limit"); got != defaultAppDataUsagePageLimit {
+			t.Fatalf("unexpected limit query: %q", got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"data": [
@@ -44,6 +47,144 @@ func TestListAppDataUsagesParsesRelationships(t *testing.T) {
 	}
 	if got[0].ID != "usage-1" || got[0].Category != "NAME" || got[0].Purpose != "APP_FUNCTIONALITY" || got[0].DataProtection != "DATA_LINKED_TO_YOU" {
 		t.Fatalf("unexpected usage payload: %#v", got[0])
+	}
+}
+
+func TestListAppDataUsagesFollowsPagination(t *testing.T) {
+	nextLink := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/iris/v1/apps/app-123/dataUsages" && r.URL.Path != "/apps/app-123/dataUsages" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("cursor") == "page-2" {
+			_, _ = w.Write([]byte(`{
+				"data": [{
+					"id": "usage-2",
+					"type": "appDataUsages",
+					"relationships": {
+						"category": {"data": {"type":"appDataUsageCategories","id":"EMAIL_ADDRESS"}},
+						"purpose": {"data": {"type":"appDataUsagePurposes","id":"ANALYTICS"}},
+						"dataProtection": {"data": {"type":"appDataUsageDataProtections","id":"DATA_NOT_LINKED_TO_YOU"}}
+					}
+				}]
+			}`))
+			return
+		}
+
+		_, _ = w.Write([]byte(strings.ReplaceAll(`{
+			"data": [{
+				"id": "usage-1",
+				"type": "appDataUsages",
+				"relationships": {
+					"category": {"data": {"type":"appDataUsageCategories","id":"NAME"}},
+					"purpose": {"data": {"type":"appDataUsagePurposes","id":"APP_FUNCTIONALITY"}},
+					"dataProtection": {"data": {"type":"appDataUsageDataProtections","id":"DATA_LINKED_TO_YOU"}}
+				}
+			}],
+			"links": {
+				"next": "__NEXT__"
+			}
+		}`, "__NEXT__", nextLink)))
+	}))
+	defer server.Close()
+
+	nextLink = server.URL + "/iris/v1/apps/app-123/dataUsages?cursor=page-2"
+
+	client := testWebClient(server)
+	client.baseURL = server.URL + "/iris/v1"
+
+	got, err := client.ListAppDataUsages(context.Background(), "app-123")
+	if err != nil {
+		t.Fatalf("ListAppDataUsages() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected two usages, got %d", len(got))
+	}
+}
+
+func TestListAppDataUsageCategories(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/appDataUsageCategories" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("include"); got != appDataUsageCategoriesInclude {
+			t.Fatalf("unexpected include query: %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != defaultCatalogPageLimit {
+			t.Fatalf("unexpected limit query: %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "NAME",
+				"type": "appDataUsageCategories",
+				"attributes": {"deleted": false},
+				"relationships": {"grouping": {"data": {"type":"appDataUsageGroupings","id":"CONTACT_INFO"}}}
+			}]
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, err := client.ListAppDataUsageCategories(context.Background())
+	if err != nil {
+		t.Fatalf("ListAppDataUsageCategories() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "NAME" || got[0].Grouping != "CONTACT_INFO" {
+		t.Fatalf("unexpected categories payload: %#v", got)
+	}
+}
+
+func TestListAppDataUsagePurposes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/appDataUsagePurposes" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "APP_FUNCTIONALITY",
+				"type": "appDataUsagePurposes",
+				"attributes": {"deleted": false}
+			}]
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, err := client.ListAppDataUsagePurposes(context.Background())
+	if err != nil {
+		t.Fatalf("ListAppDataUsagePurposes() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "APP_FUNCTIONALITY" {
+		t.Fatalf("unexpected purposes payload: %#v", got)
+	}
+}
+
+func TestListAppDataUsageDataProtections(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/appDataUsageDataProtections" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "DATA_NOT_LINKED_TO_YOU",
+				"type": "appDataUsageDataProtections",
+				"attributes": {"deleted": false}
+			}]
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, err := client.ListAppDataUsageDataProtections(context.Background())
+	if err != nil {
+		t.Fatalf("ListAppDataUsageDataProtections() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "DATA_NOT_LINKED_TO_YOU" {
+		t.Fatalf("unexpected protections payload: %#v", got)
 	}
 }
 

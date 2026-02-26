@@ -179,6 +179,12 @@ func TestPlanFromDesiredAndRemoteSkipsDeletesWithoutUsageID(t *testing.T) {
 	if len(plan.Deletes) != 0 {
 		t.Fatalf("expected no deletes for remote tuples without usage IDs, got %#v", plan.Deletes)
 	}
+	if len(plan.SkippedDeletes) != 1 {
+		t.Fatalf("expected one skipped delete for missing usage id, got %#v", plan.SkippedDeletes)
+	}
+	if plan.SkippedDeletes[0].Reason != "missing_usage_id" {
+		t.Fatalf("expected missing_usage_id reason, got %#v", plan.SkippedDeletes[0])
+	}
 	if len(plan.APICalls) != 0 {
 		t.Fatalf("expected no delete api calls for remote tuples without usage IDs, got %#v", plan.APICalls)
 	}
