@@ -749,7 +749,6 @@ func TestStoreAndListCredentials(t *testing.T) {
 
 func TestStoreCredentials_PersistsPrivateKeyPEMInKeychain(t *testing.T) {
 	newKr, _ := withSeparateKeyrings(t)
-	t.Cleanup(CleanupTempPrivateKeys)
 
 	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
 	writeECDSAPEM(t, keyPath, 0o600, true)
@@ -777,7 +776,6 @@ func TestStoreCredentials_PersistsPrivateKeyPEMInKeychain(t *testing.T) {
 
 func TestGetCredentialsWithSource_KeychainEntrySurvivesOriginalKeyDeletion(t *testing.T) {
 	withArrayKeyring(t)
-	t.Cleanup(CleanupTempPrivateKeys)
 
 	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
 	writeECDSAPEM(t, keyPath, 0o600, true)
@@ -796,20 +794,16 @@ func TestGetCredentialsWithSource_KeychainEntrySurvivesOriginalKeyDeletion(t *te
 	if source != "keychain" {
 		t.Fatalf("expected source keychain, got %q", source)
 	}
-	if strings.TrimSpace(creds.PrivateKeyPath) == "" {
-		t.Fatal("expected resolved private key path")
+	if creds.PrivateKeyPath != keyPath {
+		t.Fatalf("expected original private key path %q, got %q", keyPath, creds.PrivateKeyPath)
 	}
-	if creds.PrivateKeyPath == keyPath {
-		t.Fatalf("expected materialized temp key path, got original path %q", creds.PrivateKeyPath)
-	}
-	if err := ValidateKeyFile(creds.PrivateKeyPath); err != nil {
-		t.Fatalf("ValidateKeyFile(materialized key) error: %v", err)
+	if strings.TrimSpace(creds.PrivateKeyPEM) == "" {
+		t.Fatal("expected private key PEM from keychain entry")
 	}
 }
 
 func TestGetCredentialsWithSource_BackfillsLegacyKeychainPayload(t *testing.T) {
 	newKr, _ := withSeparateKeyrings(t)
-	t.Cleanup(CleanupTempPrivateKeys)
 
 	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
 	writeECDSAPEM(t, keyPath, 0o600, true)
@@ -822,8 +816,11 @@ func TestGetCredentialsWithSource_BackfillsLegacyKeychainPayload(t *testing.T) {
 	if source != "keychain" {
 		t.Fatalf("expected source keychain, got %q", source)
 	}
-	if first.PrivateKeyPath == keyPath {
-		t.Fatalf("expected materialized temp key path, got original path %q", first.PrivateKeyPath)
+	if first.PrivateKeyPath != keyPath {
+		t.Fatalf("expected original private key path %q, got %q", keyPath, first.PrivateKeyPath)
+	}
+	if strings.TrimSpace(first.PrivateKeyPEM) == "" {
+		t.Fatal("expected first resolution to include private key PEM")
 	}
 
 	item, err := newKr.Get(keyringKey("legacy"))
@@ -848,11 +845,11 @@ func TestGetCredentialsWithSource_BackfillsLegacyKeychainPayload(t *testing.T) {
 	if source != "keychain" {
 		t.Fatalf("expected source keychain, got %q", source)
 	}
-	if strings.TrimSpace(second.PrivateKeyPath) == "" {
-		t.Fatal("expected resolved private key path after deleting original file")
+	if second.PrivateKeyPath != keyPath {
+		t.Fatalf("expected original private key path %q, got %q", keyPath, second.PrivateKeyPath)
 	}
-	if err := ValidateKeyFile(second.PrivateKeyPath); err != nil {
-		t.Fatalf("ValidateKeyFile(materialized key) error: %v", err)
+	if strings.TrimSpace(second.PrivateKeyPEM) == "" {
+		t.Fatal("expected private key PEM after deleting original file")
 	}
 }
 

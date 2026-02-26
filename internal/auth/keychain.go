@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/99designs/keyring"
 
@@ -135,11 +134,6 @@ var legacyKeyringOpener = func() (keyring.Keyring, error) {
 	return keyring.Open(keyringConfig(legacyKeychain))
 }
 
-var (
-	privateKeyTempMu    sync.Mutex
-	privateKeyTempPaths []string
-)
-
 // ValidateKeyFile validates that the private key file exists and is valid
 func ValidateKeyFile(path string) error {
 	file, err := os.Open(path)
@@ -192,13 +186,17 @@ func LoadPrivateKey(path string) (*ecdsa.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read key file: %w", err)
 	}
+	return LoadPrivateKeyFromPEM(data)
+}
 
+// LoadPrivateKeyFromPEM loads an ECDSA private key from PEM bytes.
+func LoadPrivateKeyFromPEM(data []byte) (*ecdsa.PrivateKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("invalid PEM data")
 	}
 
-	// Try PKCS8 first
+	// Try PKCS8 first.
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err == nil {
 		ecdsaKey, ok := key.(*ecdsa.PrivateKey)
@@ -208,51 +206,13 @@ func LoadPrivateKey(path string) (*ecdsa.PrivateKey, error) {
 		return ecdsaKey, nil
 	}
 
-	// Try SEC1 EC private key as fallback
+	// Try SEC1 EC private key as fallback.
 	ecdsaKey, err := x509.ParseECPrivateKey(block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid private key: %w", err)
 	}
 
 	return ecdsaKey, nil
-}
-
-func writeTempPrivateKey(data []byte) (string, error) {
-	file, err := os.CreateTemp("", "asc-keychain-key-*.p8")
-	if err != nil {
-		return "", err
-	}
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return "", err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return "", err
-	}
-	if err := file.Close(); err != nil {
-		return "", err
-	}
-	registerTempPrivateKeyPath(file.Name())
-	return file.Name(), nil
-}
-
-func registerTempPrivateKeyPath(path string) {
-	privateKeyTempMu.Lock()
-	defer privateKeyTempMu.Unlock()
-	privateKeyTempPaths = append(privateKeyTempPaths, path)
-}
-
-// CleanupTempPrivateKeys removes temporary private key files materialized from keychain data.
-func CleanupTempPrivateKeys() {
-	privateKeyTempMu.Lock()
-	paths := privateKeyTempPaths
-	privateKeyTempPaths = nil
-	privateKeyTempMu.Unlock()
-
-	for _, path := range paths {
-		_ = os.Remove(path)
-	}
 }
 
 // StoreCredentials stores credentials in the keychain when available.
@@ -526,10 +486,7 @@ func GetCredentialsWithSource(profile string) (*config.Config, string, error) {
 			defaultKey = strings.TrimSpace(defaultKey)
 			resolvedProfile = defaultKey
 		}
-		cfg, found, selectErr := selectCredential(resolvedProfile, credentials)
-		if selectErr != nil {
-			return nil, "", selectErr
-		}
+		cfg, found := selectCredential(resolvedProfile, credentials)
 		if found {
 			return cfg, "keychain", nil
 		}
@@ -619,49 +576,31 @@ func GetCredentials(profile string) (*config.Config, error) {
 	return cfg, err
 }
 
-func selectCredential(profile string, credentials []Credential) (*config.Config, bool, error) {
+func selectCredential(profile string, credentials []Credential) (*config.Config, bool) {
 	name := strings.TrimSpace(profile)
 	if name != "" {
 		for _, cred := range credentials {
 			if cred.Name == name {
-				cfg, err := configFromCredential(cred)
-				if err != nil {
-					return nil, false, err
-				}
-				return cfg, true, nil
+				return configFromCredential(cred), true
 			}
 		}
-		return nil, false, nil
+		return nil, false
 	}
 	if len(credentials) == 1 {
 		cred := credentials[0]
-		cfg, err := configFromCredential(cred)
-		if err != nil {
-			return nil, false, err
-		}
-		return cfg, true, nil
+		return configFromCredential(cred), true
 	}
-	return nil, false, nil
+	return nil, false
 }
 
-func configFromCredential(cred Credential) (*config.Config, error) {
-	resolvedKeyPath, err := resolveCredentialPrivateKeyPath(cred)
-	if err != nil {
-		return nil, err
-	}
+func configFromCredential(cred Credential) *config.Config {
 	return &config.Config{
 		KeyID:          cred.KeyID,
 		IssuerID:       cred.IssuerID,
-		PrivateKeyPath: resolvedKeyPath,
+		PrivateKeyPath: cred.PrivateKeyPath,
+		PrivateKeyPEM:  cred.PrivateKeyPEM,
 		DefaultKeyName: cred.Name,
-	}, nil
-}
-
-func resolveCredentialPrivateKeyPath(cred Credential) (string, error) {
-	if strings.TrimSpace(cred.PrivateKeyPEM) == "" {
-		return cred.PrivateKeyPath, nil
 	}
-	return writeTempPrivateKey([]byte(cred.PrivateKeyPEM))
 }
 
 func getCredentialsFromConfig(profile string) (*config.Config, error) {

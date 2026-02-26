@@ -491,6 +491,20 @@ func NewClientWithHTTPClient(keyID, issuerID, privateKeyPath string, httpClient 
 	return newClientWithHTTPClient(keyID, issuerID, privateKeyPath, httpClient)
 }
 
+// NewClientFromPEM creates a new ASC client from in-memory private key PEM content.
+func NewClientFromPEM(keyID, issuerID, privateKeyPEM string) (*Client, error) {
+	return newClientFromPEMWithHTTPClient(keyID, issuerID, privateKeyPEM, newDefaultHTTPClient(ResolveTimeout()))
+}
+
+// NewClientFromPEMWithHTTPClient creates a new ASC client from in-memory private key PEM content
+// using the provided HTTP client. If httpClient is nil, a default client with ASC timeouts is used.
+func NewClientFromPEMWithHTTPClient(keyID, issuerID, privateKeyPEM string, httpClient *http.Client) (*Client, error) {
+	if httpClient == nil {
+		httpClient = newDefaultHTTPClient(ResolveTimeout())
+	}
+	return newClientFromPEMWithHTTPClient(keyID, issuerID, privateKeyPEM, httpClient)
+}
+
 func newDefaultHTTPClient(timeout time.Duration) *http.Client {
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
@@ -522,10 +536,23 @@ func newClientWithHTTPClient(keyID, issuerID, privateKeyPath string, httpClient 
 		return nil, fmt.Errorf("failed to load private key: %w", err)
 	}
 
+	return newClientWithPrivateKey(keyID, issuerID, key, httpClient), nil
+}
+
+func newClientFromPEMWithHTTPClient(keyID, issuerID, privateKeyPEM string, httpClient *http.Client) (*Client, error) {
+	key, err := auth.LoadPrivateKeyFromPEM([]byte(privateKeyPEM))
+	if err != nil {
+		return nil, fmt.Errorf("invalid private key: %w", err)
+	}
+
+	return newClientWithPrivateKey(keyID, issuerID, key, httpClient), nil
+}
+
+func newClientWithPrivateKey(keyID, issuerID string, privateKey *ecdsa.PrivateKey, httpClient *http.Client) *Client {
 	return &Client{
 		httpClient: httpClient,
 		keyID:      keyID,
 		issuerID:   issuerID,
-		privateKey: key,
-	}, nil
+		privateKey: privateKey,
+	}
 }
