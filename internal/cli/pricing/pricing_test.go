@@ -248,6 +248,7 @@ func TestPricingCommands_DefaultOutputJSON(t *testing.T) {
 		cmd  func() *ffcli.Command
 	}{
 		{"territories list", PricingTerritoriesListCommand},
+		{"tiers", PricingTiersCommand},
 		{"price-points", PricingPricePointsCommand},
 		{"price-points get", PricingPricePointsGetCommand},
 		{"price-points equalizations", PricingPricePointsEqualizationsCommand},
@@ -271,5 +272,18 @@ func TestPricingCommands_DefaultOutputJSON(t *testing.T) {
 				t.Fatalf("expected --output default to be 'json', got %q", f.DefValue)
 			}
 		})
+	}
+}
+
+func TestPricingTiersCommand_MissingApp(t *testing.T) {
+	t.Setenv("ASC_APP_ID", "")
+	cmd := PricingTiersCommand()
+
+	if err := cmd.FlagSet.Parse([]string{}); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	if err := cmd.Exec(context.Background(), []string{}); !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected flag.ErrHelp when --app is missing, got %v", err)
 	}
 }
