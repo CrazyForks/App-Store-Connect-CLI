@@ -793,7 +793,7 @@ func SubscriptionsPricesAddCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("prices add", flag.ExitOnError)
 
 	subID := fs.String("id", "", "Subscription ID")
-	appID := fs.String("app", "", "App ID (required when using --tier or --price, or ASC_APP_ID)")
+	appID := fs.String("app", "", "App ID (optional; retained for backward compatibility)")
 	pricePointID := fs.String("price-point", "", "Subscription price point ID")
 	tier := fs.Int("tier", 0, "Pricing tier number (mutually exclusive with --price-point and --price)")
 	price := fs.String("price", "", "Customer price to select price point (mutually exclusive with --price-point and --tier)")
@@ -812,8 +812,8 @@ func SubscriptionsPricesAddCommand() *ffcli.Command {
 Examples:
   asc subscriptions prices add --id "SUB_ID" --price-point "PRICE_POINT_ID"
   asc subscriptions prices add --id "SUB_ID" --price-point "PRICE_POINT_ID" --territory "USA"
-  asc subscriptions prices add --id "SUB_ID" --tier 5 --app "APP_ID" --territory "USA"
-  asc subscriptions prices add --id "SUB_ID" --price "4.99" --app "APP_ID" --territory "USA"`,
+  asc subscriptions prices add --id "SUB_ID" --tier 5 --territory "USA"
+  asc subscriptions prices add --id "SUB_ID" --price "4.99" --territory "USA"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -826,8 +826,13 @@ Examples:
 			pricePoint := strings.TrimSpace(*pricePointID)
 			tierValue := *tier
 			priceValue := strings.TrimSpace(*price)
+			_ = strings.TrimSpace(*appID)
 
 			if err := shared.ValidatePriceSelectionFlags(pricePoint, tierValue, priceValue); err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return flag.ErrHelp
+			}
+			if err := shared.ValidateFinitePriceFlag("--price", priceValue); err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)
 				return flag.ErrHelp
 			}
@@ -835,11 +840,6 @@ Examples:
 			territoryID := strings.ToUpper(strings.TrimSpace(*territory))
 
 			if tierValue > 0 || priceValue != "" {
-				resolvedAppID := shared.ResolveAppID(*appID)
-				if resolvedAppID == "" {
-					fmt.Fprintln(os.Stderr, "Error: --app is required when using --tier or --price (or set ASC_APP_ID)")
-					return flag.ErrHelp
-				}
 				if territoryID == "" {
 					fmt.Fprintln(os.Stderr, "Error: --territory is required when using --tier or --price")
 					return flag.ErrHelp
@@ -853,7 +853,7 @@ Examples:
 				requestCtx, cancel := shared.ContextWithTimeout(ctx)
 				defer cancel()
 
-				tiers, err := shared.ResolveTiers(requestCtx, client, resolvedAppID, territoryID, *refresh)
+				tiers, err := shared.ResolveSubscriptionTiers(requestCtx, client, id, territoryID, *refresh)
 				if err != nil {
 					return fmt.Errorf("subscriptions prices add: resolve tiers: %w", err)
 				}

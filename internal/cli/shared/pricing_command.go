@@ -2,7 +2,6 @@ package shared
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -62,15 +61,9 @@ func NewPricingSetCommand(config PricingSetCommandConfig) *ffcli.Command {
 				fmt.Fprintln(os.Stderr, "Error:", err)
 				return flag.ErrHelp
 			}
-			if priceValue != "" {
-				if _, err := parseFinitePrice(priceValue); err != nil {
-					if errors.Is(err, errNonFinitePrice) {
-						fmt.Fprintln(os.Stderr, "Error: --price must be a finite number")
-					} else {
-						fmt.Fprintln(os.Stderr, "Error: --price must be a number")
-					}
-					return flag.ErrHelp
-				}
+			if err := ValidateFinitePriceFlag("--price", priceValue); err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return flag.ErrHelp
 			}
 
 			baseTerritoryValue := strings.TrimSpace(*baseTerritory)

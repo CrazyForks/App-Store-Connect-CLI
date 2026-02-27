@@ -15,6 +15,17 @@ func TestValidatePriceSelectionFlags_NoneSet(t *testing.T) {
 	}
 }
 
+func TestValidatePriceSelectionFlags_NegativeTier(t *testing.T) {
+	err := ValidatePriceSelectionFlags("", -1, "")
+	if err == nil {
+		t.Fatal("expected error for negative tier")
+	}
+	expected := "--tier must be a positive integer"
+	if err.Error() != expected {
+		t.Fatalf("expected %q, got %q", expected, err.Error())
+	}
+}
+
 func TestValidatePriceSelectionFlags_OneSet(t *testing.T) {
 	tests := []struct {
 		name       string
