@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -62,6 +63,8 @@ type webhookServeRuntime struct {
 	eventQueue   chan webhookServeEvent
 	workerCount  int
 	execTimeout  time.Duration
+	queueMu      sync.RWMutex
+	workersWG    sync.WaitGroup
 	fileCounter  uint64
 }
 
@@ -152,7 +155,7 @@ Examples:
 			}
 			runtime.startWorkers(ctx)
 			server := &http.Server{
-				Handler:           runtime.newHandler(ctx),
+				Handler:           runtime.newHandler(),
 				ReadHeaderTimeout: 5 * time.Second,
 				ReadTimeout:       15 * time.Second,
 				WriteTimeout:      15 * time.Second,
@@ -179,6 +182,7 @@ Examples:
 
 			select {
 			case err := <-serveErrCh:
+				runtime.stopWorkers()
 				if err != nil {
 					return fmt.Errorf("webhooks serve: %w", err)
 				}
@@ -188,15 +192,17 @@ Examples:
 				defer cancel()
 				_ = server.Shutdown(shutdownCtx)
 				if err := <-serveErrCh; err != nil {
+					runtime.stopWorkers()
 					return fmt.Errorf("webhooks serve: %w", err)
 				}
+				runtime.stopWorkers()
 				return nil
 			}
 		},
 	}
 }
 
-func (r *webhookServeRuntime) newHandler(ctx context.Context) http.Handler {
+func (r *webhookServeRuntime) newHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			writeWebhookServeJSON(w, http.StatusMethodNotAllowed, map[string]any{
@@ -235,7 +241,7 @@ func (r *webhookServeRuntime) newHandler(ctx context.Context) http.Handler {
 			len(payload),
 		)
 
-		if !r.enqueueEvent(ctx, event) {
+		if !r.enqueueEvent(event) {
 			writeWebhookServeJSON(w, http.StatusServiceUnavailable, map[string]any{
 				"error": "event queue full",
 			})
@@ -248,7 +254,7 @@ func (r *webhookServeRuntime) newHandler(ctx context.Context) http.Handler {
 	})
 }
 
-func (r *webhookServeRuntime) startWorkers(ctx context.Context) {
+func (r *webhookServeRuntime) startWorkers(_ context.Context) {
 	if r.eventQueue == nil {
 		return
 	}
@@ -257,26 +263,33 @@ func (r *webhookServeRuntime) startWorkers(ctx context.Context) {
 	if workerCount < 1 {
 		workerCount = 1
 	}
+	r.workersWG.Add(workerCount)
 	for i := 0; i < workerCount; i++ {
 		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case event := <-r.eventQueue:
-					r.processEvent(ctx, event)
-				}
+			defer r.workersWG.Done()
+			for event := range r.eventQueue {
+				r.processEvent(event)
 			}
 		}()
 	}
 }
 
-func (r *webhookServeRuntime) enqueueEvent(ctx context.Context, event webhookServeEvent) bool {
-	if r.eventQueue == nil {
-		r.processEvent(ctx, event)
-		return true
+func (r *webhookServeRuntime) stopWorkers() {
+	r.queueMu.Lock()
+	if r.eventQueue != nil {
+		close(r.eventQueue)
+		r.eventQueue = nil
 	}
+	r.queueMu.Unlock()
+	r.workersWG.Wait()
+}
 
+func (r *webhookServeRuntime) enqueueEvent(event webhookServeEvent) bool {
+	r.queueMu.RLock()
+	defer r.queueMu.RUnlock()
+	if r.eventQueue == nil {
+		return false
+	}
 	select {
 	case r.eventQueue <- event:
 		return true
@@ -285,7 +298,7 @@ func (r *webhookServeRuntime) enqueueEvent(ctx context.Context, event webhookSer
 	}
 }
 
-func (r *webhookServeRuntime) processEvent(ctx context.Context, event webhookServeEvent) {
+func (r *webhookServeRuntime) processEvent(event webhookServeEvent) {
 	if r.dir != "" {
 		path, err := r.writeEventFile(event)
 		if err != nil {
@@ -296,10 +309,10 @@ func (r *webhookServeRuntime) processEvent(ctx context.Context, event webhookSer
 	}
 
 	if r.execCommand != "" {
-		execCtx := ctx
+		execCtx := context.Background()
 		cancel := func() {}
 		if r.execTimeout > 0 {
-			execCtx, cancel = context.WithTimeout(ctx, r.execTimeout)
+			execCtx, cancel = context.WithTimeout(context.Background(), r.execTimeout)
 		}
 		err := runWebhookExecCommand(execCtx, r.execCommand, event.Payload)
 		cancel()
