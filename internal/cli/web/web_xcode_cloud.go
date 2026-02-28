@@ -36,7 +36,7 @@ Examples:
   asc web xcode-cloud usage summary --apple-id "user@example.com"
   asc web xcode-cloud products --apple-id "user@example.com" --output table
   asc web xcode-cloud usage months --apple-id "user@example.com" --output table
-  asc web xcode-cloud usage days --product-id "UUID" --apple-id "user@example.com"`,
+  asc web xcode-cloud usage days --product-ids "UUID" --apple-id "user@example.com"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -203,32 +203,39 @@ func webXcodeCloudUsageDaysCommand() *ffcli.Command {
 	defaultEnd := now.Format("2006-01-02")
 	defaultStart := now.AddDate(0, 0, -30).Format("2006-01-02")
 
-	productID := fs.String("product-id", "", "Xcode Cloud product ID (required)")
+	productIDs := fs.String("product-ids", "", "Comma-separated Xcode Cloud product IDs (required)")
 	start := fs.String("start", defaultStart, "Start date (YYYY-MM-DD)")
 	end := fs.String("end", defaultEnd, "End date (YYYY-MM-DD)")
 
 	return &ffcli.Command{
 		Name:       "days",
-		ShortUsage: "asc web xcode-cloud usage days --product-id ID [flags]",
-		ShortHelp:  "EXPERIMENTAL: Show daily Xcode Cloud usage for a product.",
+		ShortUsage: "asc web xcode-cloud usage days --product-ids IDS [flags]",
+		ShortHelp:  "EXPERIMENTAL: Show daily Xcode Cloud usage for products.",
 		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
 
-Show daily Xcode Cloud compute usage for a specific product with per-workflow breakdown.
+Show daily Xcode Cloud compute usage for one or more products with per-workflow breakdown.
+The first product ID drives the daily/workflow tables; all product IDs are shown in the scope comparison table.
 Defaults to the last 30 days.
 
 ` + webWarningText + `
 
 Examples:
-  asc web xcode-cloud usage days --product-id "UUID" --apple-id "user@example.com"
-  asc web xcode-cloud usage days --product-id "UUID" --start 2025-01-01 --end 2025-01-31 --apple-id "user@example.com" --output table`,
+  asc web xcode-cloud usage days --product-ids "UUID" --apple-id "user@example.com"
+  asc web xcode-cloud usage days --product-ids "UUID" --start 2025-01-01 --end 2025-01-31 --apple-id "user@example.com" --output table
+  asc web xcode-cloud usage days --product-ids "UUID,OTHER_ID,ANOTHER_ID" --apple-id "user@example.com" --output table`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			pid := strings.TrimSpace(*productID)
-			if pid == "" {
-				fmt.Fprintln(os.Stderr, "Error: --product-id is required")
+			requestedProductIDs, err := parseProductIDs(*productIDs)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 				return flag.ErrHelp
 			}
+			if len(requestedProductIDs) == 0 {
+				fmt.Fprintln(os.Stderr, "Error: --product-ids is required")
+				return flag.ErrHelp
+			}
+			primaryProductID := requestedProductIDs[0]
 			if err := validateDateFlag("--start", *start); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 				return flag.ErrHelp
@@ -251,7 +258,7 @@ Examples:
 			}
 
 			client := newCIClientFn(session)
-			result, err := client.GetCIUsageDays(requestCtx, teamID, pid, *start, *end)
+			result, err := client.GetCIUsageDays(requestCtx, teamID, primaryProductID, *start, *end)
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage days")
 			}
@@ -263,6 +270,15 @@ Examples:
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage days")
 			}
+			productNames := map[string]string{}
+			switch shared.NormalizeOutputFormat(*output.Output) {
+			case "table", "markdown":
+				products, err := client.ListCIProducts(requestCtx, teamID)
+				if err != nil {
+					return withWebAuthHint(err, "xcode-cloud usage days")
+				}
+				productNames = buildProductNameByID(products)
+			}
 			planTotal := 0
 			if summary != nil {
 				planTotal = summary.Plan.Total
@@ -271,8 +287,24 @@ Examples:
 				result,
 				*output.Output,
 				*output.Pretty,
-				func() error { return renderCIUsageDaysTable(result, overall, pid, planTotal) },
-				func() error { return renderCIUsageDaysMarkdown(result, overall, pid, planTotal) },
+				func() error {
+					return renderCIUsageDaysTable(
+						result,
+						overall,
+						requestedProductIDs,
+						productNames,
+						planTotal,
+					)
+				},
+				func() error {
+					return renderCIUsageDaysMarkdown(
+						result,
+						overall,
+						requestedProductIDs,
+						productNames,
+						planTotal,
+					)
+				},
 			)
 		},
 	}
@@ -440,7 +472,12 @@ func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage, maxMi
 	return rows
 }
 
-func renderCIUsageDaysTable(result, overall *webcore.CIUsageDays, productID string, planTotal int) error {
+func renderCIUsageDaysTable(
+	result, overall *webcore.CIUsageDays,
+	productIDs []string,
+	productNames map[string]string,
+	planTotal int,
+) error {
 	if result == nil {
 		result = &webcore.CIUsageDays{}
 	}
@@ -449,18 +486,21 @@ func renderCIUsageDaysTable(result, overall *webcore.CIUsageDays, productID stri
 	}
 	maxDayMinutes := maxDayUsageMinutes(result.Usage)
 	maxWorkflowMinutes := maxWorkflowUsageMinutes(result.WorkflowUsage)
-	appCurrent, appPrevious := resolveAppUsageSummary(result, overall, productID)
 	overallCurrent := overall.Info.Current
 	overallPrevious := overall.Info.Previous
 
 	fmt.Printf("Range: %s\n", formatCIDayRange(result.Usage, result.Info))
-	fmt.Printf("Selected app current: %d minutes (%d builds), avg30=%d\n", appCurrent.Used, appCurrent.Builds, appCurrent.Average30Days)
-	fmt.Printf("Selected app previous: %d minutes (%d builds), avg30=%d\n", appPrevious.Used, appPrevious.Builds, appPrevious.Average30Days)
 	fmt.Printf("Overall current: %d minutes (%d builds), avg30=%d\n", overallCurrent.Used, overallCurrent.Builds, overallCurrent.Average30Days)
 	fmt.Printf("Overall previous: %d minutes (%d builds), avg30=%d\n\n", overallPrevious.Used, overallPrevious.Builds, overallPrevious.Average30Days)
 	asc.RenderTable(
 		[]string{"Scope", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar (Plan)"},
-		buildCIUsageScopeRows(appCurrent, appPrevious, overallCurrent, overallPrevious, planTotal),
+		buildCIUsageScopeRows(
+			result,
+			overall,
+			productIDs,
+			productNames,
+			planTotal,
+		),
 	)
 	fmt.Println()
 	asc.RenderTable([]string{"Date", "Minutes", "Builds", "Usage Bar"}, buildCIDayUsageRows(result.Usage, maxDayMinutes))
@@ -476,7 +516,12 @@ func renderCIUsageDaysTable(result, overall *webcore.CIUsageDays, productID stri
 	return nil
 }
 
-func renderCIUsageDaysMarkdown(result, overall *webcore.CIUsageDays, productID string, planTotal int) error {
+func renderCIUsageDaysMarkdown(
+	result, overall *webcore.CIUsageDays,
+	productIDs []string,
+	productNames map[string]string,
+	planTotal int,
+) error {
 	if result == nil {
 		result = &webcore.CIUsageDays{}
 	}
@@ -485,18 +530,21 @@ func renderCIUsageDaysMarkdown(result, overall *webcore.CIUsageDays, productID s
 	}
 	maxDayMinutes := maxDayUsageMinutes(result.Usage)
 	maxWorkflowMinutes := maxWorkflowUsageMinutes(result.WorkflowUsage)
-	appCurrent, appPrevious := resolveAppUsageSummary(result, overall, productID)
 	overallCurrent := overall.Info.Current
 	overallPrevious := overall.Info.Previous
 
 	fmt.Printf("**Range:** %s\n\n", formatCIDayRange(result.Usage, result.Info))
-	fmt.Printf("**Selected app current:** %d minutes (%d builds), avg30=%d\n\n", appCurrent.Used, appCurrent.Builds, appCurrent.Average30Days)
-	fmt.Printf("**Selected app previous:** %d minutes (%d builds), avg30=%d\n\n", appPrevious.Used, appPrevious.Builds, appPrevious.Average30Days)
 	fmt.Printf("**Overall current:** %d minutes (%d builds), avg30=%d\n\n", overallCurrent.Used, overallCurrent.Builds, overallCurrent.Average30Days)
 	fmt.Printf("**Overall previous:** %d minutes (%d builds), avg30=%d\n\n", overallPrevious.Used, overallPrevious.Builds, overallPrevious.Average30Days)
 	asc.RenderMarkdown(
 		[]string{"Scope", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar (Plan)"},
-		buildCIUsageScopeRows(appCurrent, appPrevious, overallCurrent, overallPrevious, planTotal),
+		buildCIUsageScopeRows(
+			result,
+			overall,
+			productIDs,
+			productNames,
+			planTotal,
+		),
 	)
 	fmt.Println()
 	asc.RenderMarkdown([]string{"Date", "Minutes", "Builds", "Usage Bar"}, buildCIDayUsageRows(result.Usage, maxDayMinutes))
@@ -590,22 +638,78 @@ func formatCIDayRange(usage []webcore.CIDayUsage, info webcore.CIUsageInfo) stri
 	return fmt.Sprintf("%s to %s", valueOrNA(usage[0].Date), valueOrNA(usage[len(usage)-1].Date))
 }
 
-func resolveAppUsageSummary(app, overall *webcore.CIUsageDays, productID string) (webcore.CIUsageInfoCurrent, webcore.CIUsageInfoCurrent) {
-	current := app.Info.Current
-	previous := app.Info.Previous
+func parseProductIDs(value string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	seen := map[string]struct{}{}
+	ids := make([]string, 0)
+	for _, part := range strings.Split(value, ",") {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			return nil, fmt.Errorf("--product-ids must be a comma-separated list of non-empty product IDs")
+		}
+		canonical := strings.ToLower(trimmed)
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		ids = append(ids, trimmed)
+	}
+	return ids, nil
+}
 
+func buildProductNameByID(products *webcore.CIProductListResponse) map[string]string {
+	names := map[string]string{}
+	if products == nil {
+		return names
+	}
+	for _, product := range products.Items {
+		canonical := strings.ToLower(strings.TrimSpace(product.ID))
+		name := strings.TrimSpace(product.Name)
+		if canonical == "" || name == "" {
+			continue
+		}
+		names[canonical] = name
+	}
+	return names
+}
+
+func displayNameForProductID(productID string, names map[string]string) string {
 	productID = strings.TrimSpace(productID)
-	if overall == nil || productID == "" {
-		return current, previous
+	if productID == "" {
+		return "n/a"
 	}
-	if productUsage := findCIProductUsageByID(overall.ProductUsage, productID); productUsage != nil {
-		current.Used = productUsage.UsageInMinutes
-		current.Builds = productUsage.NumberOfBuilds
-		previous.Used = productUsage.PreviousUsageInMinutes
-		previous.Builds = productUsage.PreviousNumberOfBuilds
+	if name := strings.TrimSpace(names[strings.ToLower(productID)]); name != "" {
+		return name
 	}
+	return productID
+}
 
-	return current, previous
+func resolveProductUsageSummary(
+	productID, primaryProductID string,
+	app, overall *webcore.CIUsageDays,
+) (webcore.CIUsageInfoCurrent, webcore.CIUsageInfoCurrent) {
+	productID = strings.TrimSpace(productID)
+	primaryProductID = strings.TrimSpace(primaryProductID)
+	if overall != nil {
+		if productUsage := findCIProductUsageByID(overall.ProductUsage, productID); productUsage != nil {
+			current := webcore.CIUsageInfoCurrent{
+				Used:   productUsage.UsageInMinutes,
+				Builds: productUsage.NumberOfBuilds,
+			}
+			previous := webcore.CIUsageInfoCurrent{
+				Used:   productUsage.PreviousUsageInMinutes,
+				Builds: productUsage.PreviousNumberOfBuilds,
+			}
+			return current, previous
+		}
+	}
+	if strings.EqualFold(productID, primaryProductID) && app != nil {
+		return app.Info.Current, app.Info.Previous
+	}
+	return webcore.CIUsageInfoCurrent{}, webcore.CIUsageInfoCurrent{}
 }
 
 func findCIProductUsageByID(productUsage []webcore.CIProductUsage, productID string) *webcore.CIProductUsage {
@@ -622,36 +726,73 @@ func findCIProductUsageByID(productUsage []webcore.CIProductUsage, productID str
 }
 
 func buildCIUsageScopeRows(
-	appCurrent, appPrevious webcore.CIUsageInfoCurrent,
-	overallCurrent, overallPrevious webcore.CIUsageInfoCurrent,
+	app, overall *webcore.CIUsageDays,
+	productIDs []string,
+	productNames map[string]string,
 	planTotal int,
 ) [][]string {
+	if overall == nil {
+		overall = &webcore.CIUsageDays{}
+	}
+	if app == nil {
+		app = &webcore.CIUsageDays{}
+	}
+	primaryProductID := ""
+	if len(productIDs) > 0 {
+		primaryProductID = productIDs[0]
+	}
+	type productScope struct {
+		Label    string
+		Current  webcore.CIUsageInfoCurrent
+		Previous webcore.CIUsageInfoCurrent
+	}
+	scopes := make([]productScope, 0, len(productIDs))
+	for _, productID := range productIDs {
+		productID = strings.TrimSpace(productID)
+		if productID == "" {
+			continue
+		}
+		current, previous := resolveProductUsageSummary(productID, primaryProductID, app, overall)
+		scopes = append(scopes, productScope{
+			Label:    displayNameForProductID(productID, productNames),
+			Current:  current,
+			Previous: previous,
+		})
+	}
+
+	overallCurrent := overall.Info.Current
+	overallPrevious := overall.Info.Previous
+
 	absoluteTotal := planTotal
 	if absoluteTotal <= 0 {
 		absoluteTotal = overallCurrent.Used
-		if appCurrent.Used > absoluteTotal {
-			absoluteTotal = appCurrent.Used
+		for _, scope := range scopes {
+			if scope.Current.Used > absoluteTotal {
+				absoluteTotal = scope.Current.Used
+			}
 		}
 	}
 
-	return [][]string{
-		{
-			"Selected App",
-			fmt.Sprintf("%d", appCurrent.Used),
-			fmt.Sprintf("%d", appCurrent.Builds),
-			fmt.Sprintf("%d", appPrevious.Used),
-			fmt.Sprintf("%d", appPrevious.Builds),
-			formatUsageBarWithValues(appCurrent.Used, absoluteTotal, "m"),
-		},
-		{
-			"Overall Team",
-			fmt.Sprintf("%d", overallCurrent.Used),
-			fmt.Sprintf("%d", overallCurrent.Builds),
-			fmt.Sprintf("%d", overallPrevious.Used),
-			fmt.Sprintf("%d", overallPrevious.Builds),
-			formatUsageBarWithValues(overallCurrent.Used, absoluteTotal, "m"),
-		},
+	rows := make([][]string, 0, len(scopes)+1)
+	for _, scope := range scopes {
+		rows = append(rows, []string{
+			scope.Label,
+			fmt.Sprintf("%d", scope.Current.Used),
+			fmt.Sprintf("%d", scope.Current.Builds),
+			fmt.Sprintf("%d", scope.Previous.Used),
+			fmt.Sprintf("%d", scope.Previous.Builds),
+			formatUsageBarWithValues(scope.Current.Used, absoluteTotal, "m"),
+		})
 	}
+	rows = append(rows, []string{
+		"Overall Team",
+		fmt.Sprintf("%d", overallCurrent.Used),
+		fmt.Sprintf("%d", overallCurrent.Builds),
+		fmt.Sprintf("%d", overallPrevious.Used),
+		fmt.Sprintf("%d", overallPrevious.Builds),
+		formatUsageBarWithValues(overallCurrent.Used, absoluteTotal, "m"),
+	})
+	return rows
 }
 
 func normalizeProductUsage(product webcore.CIProductUsage) (minutes int, builds int) {

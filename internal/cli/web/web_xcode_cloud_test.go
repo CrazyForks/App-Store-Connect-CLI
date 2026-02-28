@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"io"
 	"net/http"
 	"os"
@@ -123,7 +124,7 @@ func TestWebXcodeCloudSubcommandsResolveSessionWithinTimeoutContext(t *testing.T
 		{
 			name:  "usage days",
 			build: webXcodeCloudUsageDaysCommand,
-			args:  []string{"--apple-id", "user@example.com", "--product-id", "product-123"},
+			args:  []string{"--apple-id", "user@example.com", "--product-ids", "product-123"},
 		},
 		{
 			name:  "products",
@@ -254,7 +255,7 @@ func TestFormatUsageBar(t *testing.T) {
 	}
 }
 
-func TestResolveAppUsageSummaryPrefersOverallProductUsage(t *testing.T) {
+func TestResolveProductUsageSummaryPrefersOverallProductUsage(t *testing.T) {
 	app := &webcore.CIUsageDays{
 		Info: webcore.CIUsageInfo{
 			Current:  webcore.CIUsageInfoCurrent{Used: 1, Builds: 1, Average30Days: 1},
@@ -273,7 +274,7 @@ func TestResolveAppUsageSummaryPrefersOverallProductUsage(t *testing.T) {
 		},
 	}
 
-	current, previous := resolveAppUsageSummary(app, overall, "prod-1")
+	current, previous := resolveProductUsageSummary("prod-1", "prod-1", app, overall)
 	if current.Used != 56 || current.Builds != 7 {
 		t.Fatalf("expected current from overall product usage, got %+v", current)
 	}
@@ -283,21 +284,128 @@ func TestResolveAppUsageSummaryPrefersOverallProductUsage(t *testing.T) {
 }
 
 func TestBuildCIUsageScopeRowsIncludesBothScopes(t *testing.T) {
-	appCurrent := webcore.CIUsageInfoCurrent{Used: 7, Builds: 1}
-	appPrevious := webcore.CIUsageInfoCurrent{Used: 12, Builds: 2}
-	overallCurrent := webcore.CIUsageInfoCurrent{Used: 103, Builds: 11}
-	overallPrevious := webcore.CIUsageInfoCurrent{Used: 187, Builds: 25}
-
-	rows := buildCIUsageScopeRows(appCurrent, appPrevious, overallCurrent, overallPrevious, 1500)
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 scope rows, got %d", len(rows))
+	app := &webcore.CIUsageDays{
+		Info: webcore.CIUsageInfo{
+			Current:  webcore.CIUsageInfoCurrent{Used: 7, Builds: 1},
+			Previous: webcore.CIUsageInfoCurrent{Used: 12, Builds: 2},
+		},
 	}
-	if rows[0][0] != "Selected App" || rows[1][0] != "Overall Team" {
+	overall := &webcore.CIUsageDays{
+		Info: webcore.CIUsageInfo{
+			Current:  webcore.CIUsageInfoCurrent{Used: 103, Builds: 11},
+			Previous: webcore.CIUsageInfoCurrent{Used: 187, Builds: 25},
+		},
+		ProductUsage: []webcore.CIProductUsage{
+			{ProductID: "prod-1", UsageInMinutes: 7, NumberOfBuilds: 1, PreviousUsageInMinutes: 12, PreviousNumberOfBuilds: 2},
+			{ProductID: "prod-2", UsageInMinutes: 44, NumberOfBuilds: 3, PreviousUsageInMinutes: 22, PreviousNumberOfBuilds: 1},
+		},
+	}
+	productNames := map[string]string{
+		"prod-1": "Chroma",
+		"prod-2": "Gradients",
+	}
+
+	rows := buildCIUsageScopeRows(app, overall, []string{"prod-1", "prod-2"}, productNames, 1500)
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 scope rows, got %d", len(rows))
+	}
+	if rows[0][0] != "Chroma" || rows[1][0] != "Gradients" || rows[2][0] != "Overall Team" {
 		t.Fatalf("unexpected scope labels: %v", rows)
 	}
 	if !strings.Contains(rows[0][5], "/1500m") || !strings.Contains(rows[1][5], "/1500m") {
 		t.Fatalf("expected absolute plan denominator in usage bars, got %v", rows)
 	}
+}
+
+func TestParseProductIDs(t *testing.T) {
+	t.Run("valid csv dedupes while preserving order", func(t *testing.T) {
+		ids, err := parseProductIDs("prod-1, prod-2, prod-3, prod-2")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(ids) != 3 || ids[0] != "prod-1" || ids[1] != "prod-2" || ids[2] != "prod-3" {
+			t.Fatalf("unexpected ids: %v", ids)
+		}
+	})
+
+	t.Run("rejects empty entries", func(t *testing.T) {
+		_, err := parseProductIDs("prod-2,,prod-3")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "--product-ids") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestWebXcodeCloudUsageDaysProductIDsValidation(t *testing.T) {
+	t.Run("accepts valid product IDs", func(t *testing.T) {
+		origResolveSession := resolveSessionFn
+		t.Cleanup(func() {
+			resolveSessionFn = origResolveSession
+		})
+		resolveErr := errors.New("stop after validation")
+		resolveSessionFn = func(
+			ctx context.Context,
+			appleID, password, twoFactorCode string,
+			usePasswordStdin bool,
+		) (*webcore.AuthSession, string, error) {
+			return nil, "", resolveErr
+		}
+
+		cmd := webXcodeCloudUsageDaysCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-ids", "prod-1,prod-2,prod-3",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		err := cmd.Exec(context.Background(), nil)
+		if !errors.Is(err, resolveErr) {
+			t.Fatalf("expected resolve session error %v, got %v", resolveErr, err)
+		}
+	})
+
+	t.Run("requires product IDs", func(t *testing.T) {
+		cmd := webXcodeCloudUsageDaysCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		_, stderr := captureOutput(t, func() {
+			err := cmd.Exec(context.Background(), nil)
+			if !errors.Is(err, flag.ErrHelp) {
+				t.Fatalf("expected ErrHelp, got %v", err)
+			}
+		})
+		if !strings.Contains(stderr, "Error: --product-ids is required") {
+			t.Fatalf("unexpected stderr: %q", stderr)
+		}
+	})
+
+	t.Run("rejects invalid product IDs", func(t *testing.T) {
+		cmd := webXcodeCloudUsageDaysCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-ids", "prod-2,,prod-3",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		_, stderr := captureOutput(t, func() {
+			err := cmd.Exec(context.Background(), nil)
+			if !errors.Is(err, flag.ErrHelp) {
+				t.Fatalf("expected ErrHelp, got %v", err)
+			}
+		})
+		if !strings.Contains(stderr, "Error: --product-ids must be a comma-separated list of non-empty product IDs") {
+			t.Fatalf("unexpected stderr: %q", stderr)
+		}
+	})
 }
 
 func TestWebXcodeCloudUsageDaysFlagSet(t *testing.T) {
@@ -312,7 +420,7 @@ func TestWebXcodeCloudUsageDaysFlagSet(t *testing.T) {
 		t.Fatal("expected flag set on days command")
 	}
 
-	for _, name := range []string{"product-id", "start", "end"} {
+	for _, name := range []string{"product-ids", "start", "end"} {
 		if fs.Lookup(name) == nil {
 			t.Fatalf("expected --%s flag", name)
 		}
