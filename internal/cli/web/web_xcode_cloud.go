@@ -193,16 +193,19 @@ Examples:
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage months")
 			}
-			summary, err := client.GetCIUsageSummary(requestCtx, teamID)
-			if err != nil {
-				return withWebAuthHint(err, "xcode-cloud usage months")
-			}
-			planTotal := 0
-			if summary != nil {
-				planTotal = summary.Plan.Total
-			}
 			if len(requestedProductIDs) > 0 {
 				result.ProductUsage = filterProductUsageByIDs(result.ProductUsage, requestedProductIDs)
+			}
+			planTotal := 0
+			switch shared.NormalizeOutputFormat(*output.Output) {
+			case "table", "markdown":
+				summary, err := client.GetCIUsageSummary(requestCtx, teamID)
+				if err != nil {
+					return withWebAuthHint(err, "xcode-cloud usage months")
+				}
+				if summary != nil {
+					planTotal = summary.Plan.Total
+				}
 			}
 			return shared.PrintOutputWithRenderers(
 				result,
@@ -283,26 +286,26 @@ Examples:
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage days")
 			}
-			overall, err := client.GetCIUsageDaysOverall(requestCtx, teamID, *start, *end)
-			if err != nil {
-				return withWebAuthHint(err, "xcode-cloud usage days")
-			}
-			summary, err := client.GetCIUsageSummary(requestCtx, teamID)
-			if err != nil {
-				return withWebAuthHint(err, "xcode-cloud usage days")
-			}
+			var overall *webcore.CIUsageDays
 			productNames := map[string]string{}
+			planTotal := 0
 			switch shared.NormalizeOutputFormat(*output.Output) {
 			case "table", "markdown":
-				products, err := client.ListCIProducts(requestCtx, teamID)
+				overall, err = client.GetCIUsageDaysOverall(requestCtx, teamID, *start, *end)
 				if err != nil {
 					return withWebAuthHint(err, "xcode-cloud usage days")
 				}
-				productNames = buildProductNameByID(products)
-			}
-			planTotal := 0
-			if summary != nil {
-				planTotal = summary.Plan.Total
+				summary, err := client.GetCIUsageSummary(requestCtx, teamID)
+				if err != nil {
+					return withWebAuthHint(err, "xcode-cloud usage days")
+				}
+				if summary != nil {
+					planTotal = summary.Plan.Total
+				}
+				products, err := client.ListCIProducts(requestCtx, teamID)
+				if err == nil {
+					productNames = buildProductNameByID(products)
+				}
 			}
 			return shared.PrintOutputWithRenderers(
 				result,
@@ -508,7 +511,7 @@ func renderCIWorkflowsListTable(result *CIWorkflowsResult, planTotal int) error 
 			m, _ := normalizeWorkflowUsage(wf)
 			totalMinutes += m
 		}
-		fmt.Printf("\nProduct total: %s\n", formatUsageBarWithValues(totalMinutes, planTotal, "m"))
+		fmt.Printf("\nProduct total: %s\n", formatUsageBarWithValues(totalMinutes, planTotal))
 	}
 	return nil
 }
@@ -532,7 +535,7 @@ func renderCIWorkflowsListMarkdown(result *CIWorkflowsResult, planTotal int) err
 			m, _ := normalizeWorkflowUsage(wf)
 			totalMinutes += m
 		}
-		fmt.Printf("\n**Product total:** %s\n", formatUsageBarWithValues(totalMinutes, planTotal, "m"))
+		fmt.Printf("\n**Product total:** %s\n", formatUsageBarWithValues(totalMinutes, planTotal))
 	}
 	return nil
 }
@@ -654,7 +657,7 @@ func buildCIUsageSummaryRows(result *webcore.CIUsageSummary) [][]string {
 	return [][]string{
 		{
 			valueOrNA(result.Plan.Name),
-			formatUsageBarWithValues(result.Plan.Used, result.Plan.Total, "m"),
+			formatUsageBarWithValues(result.Plan.Used, result.Plan.Total),
 			fmt.Sprintf("%d", result.Plan.Used),
 			fmt.Sprintf("%d", result.Plan.Available),
 			fmt.Sprintf("%d", result.Plan.Total),
@@ -735,7 +738,7 @@ func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage, planT
 			fmt.Sprintf("%d", builds),
 			fmt.Sprintf("%d", product.PreviousUsageInMinutes),
 			fmt.Sprintf("%d", product.PreviousNumberOfBuilds),
-			formatUsageBarWithValues(minutes, planTotal, "m"),
+			formatUsageBarWithValues(minutes, planTotal),
 		})
 	}
 	return rows
@@ -981,9 +984,10 @@ func resolveProductUsageSummary(
 	primaryProductID = strings.TrimSpace(primaryProductID)
 	if overall != nil {
 		if productUsage := findCIProductUsageByID(overall.ProductUsage, productID); productUsage != nil {
+			minutes, builds := normalizeProductUsage(*productUsage)
 			current := webcore.CIUsageInfoCurrent{
-				Used:   productUsage.UsageInMinutes,
-				Builds: productUsage.NumberOfBuilds,
+				Used:   minutes,
+				Builds: builds,
 			}
 			previous := webcore.CIUsageInfoCurrent{
 				Used:   productUsage.PreviousUsageInMinutes,
@@ -1067,7 +1071,7 @@ func buildCIUsageScopeRows(
 			fmt.Sprintf("%d", scope.Current.Builds),
 			fmt.Sprintf("%d", scope.Previous.Used),
 			fmt.Sprintf("%d", scope.Previous.Builds),
-			formatUsageBarWithValues(scope.Current.Used, absoluteTotal, "m"),
+			formatUsageBarWithValues(scope.Current.Used, absoluteTotal),
 		})
 	}
 	rows = append(rows, []string{
@@ -1076,7 +1080,7 @@ func buildCIUsageScopeRows(
 		fmt.Sprintf("%d", overallCurrent.Builds),
 		fmt.Sprintf("%d", overallPrevious.Used),
 		fmt.Sprintf("%d", overallPrevious.Builds),
-		formatUsageBarWithValues(overallCurrent.Used, absoluteTotal, "m"),
+		formatUsageBarWithValues(overallCurrent.Used, absoluteTotal),
 	})
 	return rows
 }
@@ -1138,11 +1142,11 @@ func maxWorkflowUsageMinutes(workflows []webcore.CIWorkflowUsage) int {
 	return max
 }
 
-func formatUsageBarWithValues(value, total int, unitSuffix string) string {
+func formatUsageBarWithValues(value, total int) string {
 	if total <= 0 {
 		return formatUsageBar(value, total)
 	}
-	return fmt.Sprintf("%s (%d/%d%s)", formatUsageBar(value, total), value, total, unitSuffix)
+	return fmt.Sprintf("%s (%d/%dm)", formatUsageBar(value, total), value, total)
 }
 
 func formatUsageBar(value, total int) string {

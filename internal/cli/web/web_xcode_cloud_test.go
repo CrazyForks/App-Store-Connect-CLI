@@ -288,6 +288,30 @@ func TestResolveProductUsageSummaryPrefersOverallProductUsage(t *testing.T) {
 	}
 }
 
+func TestResolveProductUsageSummaryFallsBackToNestedUsage(t *testing.T) {
+	overall := &webcore.CIUsageDays{
+		ProductUsage: []webcore.CIProductUsage{
+			{
+				ProductID: "prod-1",
+				Usage: []webcore.CIMonthUsage{
+					{Month: 1, Year: 2026, Duration: 9, NumberOfBuilds: 3},
+					{Month: 2, Year: 2026, Duration: 6, NumberOfBuilds: 2},
+				},
+				PreviousUsageInMinutes: 4,
+				PreviousNumberOfBuilds: 1,
+			},
+		},
+	}
+
+	current, previous := resolveProductUsageSummary("prod-1", "prod-1", nil, overall)
+	if current.Used != 15 || current.Builds != 5 {
+		t.Fatalf("expected current usage derived from nested usage, got %+v", current)
+	}
+	if previous.Used != 4 || previous.Builds != 1 {
+		t.Fatalf("expected previous usage from explicit fields, got %+v", previous)
+	}
+}
+
 func TestBuildCIUsageScopeRowsIncludesBothScopes(t *testing.T) {
 	app := &webcore.CIUsageDays{
 		Info: webcore.CIUsageInfo{
@@ -596,6 +620,195 @@ func TestWebXcodeCloudUsageMonthsOutputTableWithProductFilter(t *testing.T) {
 		}
 		if strings.Contains(stdout, "App Two") {
 			t.Fatalf("expected prod-2 to be filtered out, got %q", stdout)
+		}
+	})
+
+	t.Run("json output skips summary fetch", func(t *testing.T) {
+		requestCount = 0
+		cmd := webXcodeCloudUsageMonthsCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		stdout, _ := captureOutput(t, func() {
+			if err := cmd.Exec(context.Background(), nil); err != nil {
+				t.Fatalf("exec error: %v", err)
+			}
+		})
+		if !strings.Contains(stdout, `"usage"`) {
+			t.Fatalf("expected json usage payload, got %q", stdout)
+		}
+		if requestCount != 1 {
+			t.Fatalf("expected 1 API request (months only) for json output, got %d", requestCount)
+		}
+	})
+}
+
+func TestWebXcodeCloudUsageDaysOutputBehavior(t *testing.T) {
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+	})
+
+	t.Run("json output skips team-wide and lookup requests", func(t *testing.T) {
+		productCalls := 0
+		overallCalls := 0
+		summaryCalls := 0
+		productsCalls := 0
+
+		resolveSessionFn = func(
+			ctx context.Context,
+			appleID, password, twoFactorCode string,
+			usePasswordStdin bool,
+		) (*webcore.AuthSession, string, error) {
+			return &webcore.AuthSession{
+				PublicProviderID: "team-uuid",
+				Client: &http.Client{
+					Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+						path := req.URL.Path
+						body := "{}"
+						switch {
+						case strings.Contains(path, "/products/prod-1/usage/days"):
+							productCalls++
+							body = `{
+								"usage":[{"date":"2026-01-15","duration":5,"number_of_builds":1}],
+								"workflow_usage":[],
+								"info":{"current":{"builds":1,"used":5,"average_30_days":5},"previous":{"builds":0,"used":0,"average_30_days":0}}
+							}`
+						case strings.Contains(path, "/usage/days"):
+							overallCalls++
+							body = `{"usage":[],"workflow_usage":[],"info":{}}`
+						case strings.Contains(path, "/usage/summary"):
+							summaryCalls++
+							body = `{"plan":{"total":1500}}`
+						case strings.Contains(path, "/products-v4"):
+							productsCalls++
+							body = `{"items":[{"id":"prod-1","name":"App One"}]}`
+						}
+						return &http.Response{
+							StatusCode: http.StatusOK,
+							Header:     http.Header{"Content-Type": []string{"application/json"}},
+							Body:       io.NopCloser(strings.NewReader(body)),
+							Request:    req,
+						}, nil
+					}),
+				},
+			}, "cache", nil
+		}
+
+		cmd := webXcodeCloudUsageDaysCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-ids", "prod-1",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		stdout, _ := captureOutput(t, func() {
+			if err := cmd.Exec(context.Background(), nil); err != nil {
+				t.Fatalf("exec error: %v", err)
+			}
+		})
+		if !strings.Contains(stdout, `"usage"`) {
+			t.Fatalf("expected json usage payload, got %q", stdout)
+		}
+		if productCalls != 1 {
+			t.Fatalf("expected 1 product-days request, got %d", productCalls)
+		}
+		if overallCalls != 0 || summaryCalls != 0 || productsCalls != 0 {
+			t.Fatalf("expected no team-wide/summary/products requests in json mode, got overall=%d summary=%d products=%d", overallCalls, summaryCalls, productsCalls)
+		}
+	})
+
+	t.Run("table output falls back when product lookup fails", func(t *testing.T) {
+		resolveSessionFn = func(
+			ctx context.Context,
+			appleID, password, twoFactorCode string,
+			usePasswordStdin bool,
+		) (*webcore.AuthSession, string, error) {
+			return &webcore.AuthSession{
+				PublicProviderID: "team-uuid",
+				Client: &http.Client{
+					Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+						path := req.URL.Path
+						switch {
+						case strings.Contains(path, "/products/prod-1/usage/days"):
+							body := `{
+								"usage":[{"date":"2026-01-15","duration":5,"number_of_builds":1}],
+								"workflow_usage":[],
+								"info":{"current":{"builds":1,"used":5,"average_30_days":5},"previous":{"builds":0,"used":0,"average_30_days":0}}
+							}`
+							return &http.Response{
+								StatusCode: http.StatusOK,
+								Header:     http.Header{"Content-Type": []string{"application/json"}},
+								Body:       io.NopCloser(strings.NewReader(body)),
+								Request:    req,
+							}, nil
+						case strings.Contains(path, "/usage/days"):
+							body := `{
+								"usage":[],
+								"workflow_usage":[],
+								"product_usage":[{"product_id":"prod-1","usage_in_minutes":5,"number_of_builds":1,"previous_usage_in_minutes":0,"previous_number_of_builds":0}],
+								"info":{"current":{"builds":1,"used":5,"average_30_days":5},"previous":{"builds":0,"used":0,"average_30_days":0}}
+							}`
+							return &http.Response{
+								StatusCode: http.StatusOK,
+								Header:     http.Header{"Content-Type": []string{"application/json"}},
+								Body:       io.NopCloser(strings.NewReader(body)),
+								Request:    req,
+							}, nil
+						case strings.Contains(path, "/usage/summary"):
+							body := `{"plan":{"total":1500}}`
+							return &http.Response{
+								StatusCode: http.StatusOK,
+								Header:     http.Header{"Content-Type": []string{"application/json"}},
+								Body:       io.NopCloser(strings.NewReader(body)),
+								Request:    req,
+							}, nil
+						case strings.Contains(path, "/products-v4"):
+							// Product-name lookup should be best effort and not fail the command.
+							return &http.Response{
+								StatusCode: http.StatusForbidden,
+								Header:     http.Header{"Content-Type": []string{"application/json"}},
+								Body:       io.NopCloser(strings.NewReader(`{"errors":[{"status":"403","detail":"forbidden"}]}`)),
+								Request:    req,
+							}, nil
+						default:
+							return &http.Response{
+								StatusCode: http.StatusNotFound,
+								Header:     http.Header{"Content-Type": []string{"application/json"}},
+								Body:       io.NopCloser(strings.NewReader(`{"errors":[{"status":"404"}]}`)),
+								Request:    req,
+							}, nil
+						}
+					}),
+				},
+			}, "cache", nil
+		}
+
+		cmd := webXcodeCloudUsageDaysCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-ids", "prod-1",
+			"--output", "table",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		stdout, _ := captureOutput(t, func() {
+			if err := cmd.Exec(context.Background(), nil); err != nil {
+				t.Fatalf("exec error: %v", err)
+			}
+		})
+		if !strings.Contains(stdout, "prod-1") {
+			t.Fatalf("expected product-id fallback label in output, got %q", stdout)
+		}
+		if !strings.Contains(stdout, "Overall Team") {
+			t.Fatalf("expected overall row in output, got %q", stdout)
 		}
 	})
 }
