@@ -89,6 +89,7 @@ type CIUsageInfoCurrent struct {
 // CIUsageDays is the response from the daily usage endpoint.
 type CIUsageDays struct {
 	Usage         []CIDayUsage      `json:"usage"`
+	ProductUsage  []CIProductUsage  `json:"product_usage,omitempty"`
 	WorkflowUsage []CIWorkflowUsage `json:"workflow_usage"`
 	Info          CIUsageInfo       `json:"info"`
 }
@@ -245,6 +246,35 @@ func (c *Client) GetCIUsageDays(ctx context.Context, teamID, productID, start, e
 	var result CIUsageDays
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode ci usage days: %w", err)
+	}
+	return &result, nil
+}
+
+// GetCIUsageDaysOverall retrieves daily Xcode Cloud usage overview for a team.
+func (c *Client) GetCIUsageDaysOverall(ctx context.Context, teamID, start, end string) (*CIUsageDays, error) {
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return nil, fmt.Errorf("team id is required")
+	}
+	start = strings.TrimSpace(start)
+	if start == "" {
+		return nil, fmt.Errorf("start date is required")
+	}
+	end = strings.TrimSpace(end)
+	if end == "" {
+		return nil, fmt.Errorf("end date is required")
+	}
+	query := url.Values{}
+	query.Set("start", start)
+	query.Set("end", end)
+	path := queryPath("/teams/"+url.PathEscape(teamID)+"/usage/days", query)
+	body, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result CIUsageDays
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode ci usage days overview: %w", err)
 	}
 	return &result, nil
 }

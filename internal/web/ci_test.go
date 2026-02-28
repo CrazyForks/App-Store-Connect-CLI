@@ -192,6 +192,78 @@ func TestGetCIUsageDaysParsesWorkflowUsage(t *testing.T) {
 	}
 }
 
+func TestGetCIUsageDaysOverallParsesProductUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/teams/team-uuid/usage/days") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("start") != "2026-01-01" || r.URL.Query().Get("end") != "2026-01-31" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"usage": [{"date":"2026-01-01","minutes":90,"number_of_builds":4}],
+			"product_usage": [
+				{
+					"product_id":"prod-1",
+					"usage_in_minutes":60,
+					"number_of_builds":2,
+					"previous_usage_in_minutes":30,
+					"previous_number_of_builds":1
+				}
+			],
+			"info": {"current":{"builds":4,"used":90,"average_30_days":75}}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	result, err := client.GetCIUsageDaysOverall(context.Background(), "team-uuid", "2026-01-01", "2026-01-31")
+	if err != nil {
+		t.Fatalf("GetCIUsageDaysOverall() error = %v", err)
+	}
+	if len(result.Usage) != 1 || result.Usage[0].Duration != 90 {
+		t.Fatalf("unexpected usage: %+v", result.Usage)
+	}
+	if len(result.ProductUsage) != 1 {
+		t.Fatalf("expected 1 product usage row, got %d", len(result.ProductUsage))
+	}
+	pu := result.ProductUsage[0]
+	if pu.ProductID != "prod-1" || pu.UsageInMinutes != 60 || pu.NumberOfBuilds != 2 || pu.PreviousUsageInMinutes != 30 || pu.PreviousNumberOfBuilds != 1 {
+		t.Fatalf("unexpected product usage: %+v", pu)
+	}
+	if result.Info.Current.Used != 90 || result.Info.Current.Builds != 4 {
+		t.Fatalf("unexpected current info: %+v", result.Info.Current)
+	}
+}
+
+func TestGetCIUsageDaysOverallRejectsEmptyInputs(t *testing.T) {
+	client := &Client{httpClient: http.DefaultClient, baseURL: "http://localhost"}
+	tests := []struct {
+		name    string
+		teamID  string
+		start   string
+		end     string
+		wantErr string
+	}{
+		{"empty team", "", "2026-01-01", "2026-01-31", "team id is required"},
+		{"empty start", "team", "", "2026-01-31", "start date is required"},
+		{"empty end", "team", "2026-01-01", "", "end date is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.GetCIUsageDaysOverall(context.Background(), tt.teamID, tt.start, tt.end)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantErr, err.Error())
+			}
+		})
+	}
+}
+
 func TestCIMonthUsageUnmarshalSupportsDurationAlias(t *testing.T) {
 	var usage CIMonthUsage
 	if err := json.Unmarshal([]byte(`{"year":2026,"month":2,"duration":33}`), &usage); err != nil {

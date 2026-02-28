@@ -208,6 +208,96 @@ func TestWebXcodeCloudUsageSummaryOutputTableUsesHumanRenderer(t *testing.T) {
 			t.Fatalf("expected table output to include %q, got %q", token, stdout)
 		}
 	}
+	for _, token := range []string{"Usage Bar", "0/1500m"} {
+		if !strings.Contains(stdout, token) {
+			t.Fatalf("expected table output to include %q, got %q", token, stdout)
+		}
+	}
+}
+
+func TestFormatUsageBar(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    int
+		total    int
+		contains []string
+	}{
+		{
+			name:     "half usage",
+			value:    50,
+			total:    100,
+			contains: []string{"50%", "########"},
+		},
+		{
+			name:     "empty total",
+			value:    10,
+			total:    0,
+			contains: []string{"n/a"},
+		},
+		{
+			name:     "clamps over total",
+			value:    150,
+			total:    100,
+			contains: []string{"100%"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatUsageBar(tt.value, tt.total)
+			for _, token := range tt.contains {
+				if !strings.Contains(got, token) {
+					t.Fatalf("expected %q to contain %q", got, token)
+				}
+			}
+		})
+	}
+}
+
+func TestResolveAppUsageSummaryPrefersOverallProductUsage(t *testing.T) {
+	app := &webcore.CIUsageDays{
+		Info: webcore.CIUsageInfo{
+			Current:  webcore.CIUsageInfoCurrent{Used: 1, Builds: 1, Average30Days: 1},
+			Previous: webcore.CIUsageInfoCurrent{Used: 2, Builds: 2, Average30Days: 2},
+		},
+	}
+	overall := &webcore.CIUsageDays{
+		ProductUsage: []webcore.CIProductUsage{
+			{
+				ProductID:              "prod-1",
+				UsageInMinutes:         56,
+				NumberOfBuilds:         7,
+				PreviousUsageInMinutes: 134,
+				PreviousNumberOfBuilds: 15,
+			},
+		},
+	}
+
+	current, previous := resolveAppUsageSummary(app, overall, "prod-1")
+	if current.Used != 56 || current.Builds != 7 {
+		t.Fatalf("expected current from overall product usage, got %+v", current)
+	}
+	if previous.Used != 134 || previous.Builds != 15 {
+		t.Fatalf("expected previous from overall product usage, got %+v", previous)
+	}
+}
+
+func TestBuildCIUsageScopeRowsIncludesBothScopes(t *testing.T) {
+	appCurrent := webcore.CIUsageInfoCurrent{Used: 7, Builds: 1}
+	appPrevious := webcore.CIUsageInfoCurrent{Used: 12, Builds: 2}
+	overallCurrent := webcore.CIUsageInfoCurrent{Used: 103, Builds: 11}
+	overallPrevious := webcore.CIUsageInfoCurrent{Used: 187, Builds: 25}
+
+	rows := buildCIUsageScopeRows(appCurrent, appPrevious, overallCurrent, overallPrevious, 1500)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 scope rows, got %d", len(rows))
+	}
+	if rows[0][0] != "Selected App" || rows[1][0] != "Overall Team" {
+		t.Fatalf("unexpected scope labels: %v", rows)
+	}
+	if !strings.Contains(rows[0][5], "/1500m") || !strings.Contains(rows[1][5], "/1500m") {
+		t.Fatalf("expected absolute plan denominator in usage bars, got %v", rows)
+	}
 }
 
 func TestWebXcodeCloudUsageDaysFlagSet(t *testing.T) {

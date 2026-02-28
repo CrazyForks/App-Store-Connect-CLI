@@ -255,12 +255,24 @@ Examples:
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage days")
 			}
+			overall, err := client.GetCIUsageDaysOverall(requestCtx, teamID, *start, *end)
+			if err != nil {
+				return withWebAuthHint(err, "xcode-cloud usage days")
+			}
+			summary, err := client.GetCIUsageSummary(requestCtx, teamID)
+			if err != nil {
+				return withWebAuthHint(err, "xcode-cloud usage days")
+			}
+			planTotal := 0
+			if summary != nil {
+				planTotal = summary.Plan.Total
+			}
 			return shared.PrintOutputWithRenderers(
 				result,
 				*output.Output,
 				*output.Pretty,
-				func() error { return renderCIUsageDaysTable(result) },
-				func() error { return renderCIUsageDaysMarkdown(result) },
+				func() error { return renderCIUsageDaysTable(result, overall, pid, planTotal) },
+				func() error { return renderCIUsageDaysMarkdown(result, overall, pid, planTotal) },
 			)
 		},
 	}
@@ -318,7 +330,7 @@ Examples:
 
 func renderCIUsageSummaryTable(result *webcore.CIUsageSummary) error {
 	asc.RenderTable(
-		[]string{"Plan", "Used", "Available", "Total", "Reset Date", "Reset Date Time", "Manage URL"},
+		[]string{"Plan", "Usage Bar", "Used", "Available", "Total", "Reset Date", "Reset Date Time", "Manage URL"},
 		buildCIUsageSummaryRows(result),
 	)
 	return nil
@@ -326,7 +338,7 @@ func renderCIUsageSummaryTable(result *webcore.CIUsageSummary) error {
 
 func renderCIUsageSummaryMarkdown(result *webcore.CIUsageSummary) error {
 	asc.RenderMarkdown(
-		[]string{"Plan", "Used", "Available", "Total", "Reset Date", "Reset Date Time", "Manage URL"},
+		[]string{"Plan", "Usage Bar", "Used", "Available", "Total", "Reset Date", "Reset Date Time", "Manage URL"},
 		buildCIUsageSummaryRows(result),
 	)
 	return nil
@@ -339,6 +351,7 @@ func buildCIUsageSummaryRows(result *webcore.CIUsageSummary) [][]string {
 	return [][]string{
 		{
 			valueOrNA(result.Plan.Name),
+			formatUsageBarWithValues(result.Plan.Used, result.Plan.Total, "m"),
 			fmt.Sprintf("%d", result.Plan.Used),
 			fmt.Sprintf("%d", result.Plan.Available),
 			fmt.Sprintf("%d", result.Plan.Total),
@@ -353,17 +366,19 @@ func renderCIUsageMonthsTable(result *webcore.CIUsageMonths) error {
 	if result == nil {
 		result = &webcore.CIUsageMonths{}
 	}
+	maxMonthMinutes := maxMonthUsageMinutes(result.Usage)
+	maxProductMinutes := maxProductUsageMinutes(result.ProductUsage)
 
 	fmt.Printf("Range: %s\n", formatCIMonthRange(result.Usage, result.Info))
 	fmt.Printf("Current: %d minutes (%d builds), avg30=%d\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
 	fmt.Printf("Previous: %d minutes (%d builds), avg30=%d\n\n", result.Info.Previous.Used, result.Info.Previous.Builds, result.Info.Previous.Average30Days)
-	asc.RenderTable([]string{"Year", "Month", "Minutes", "Builds"}, buildCIMonthUsageRows(result.Usage))
+	asc.RenderTable([]string{"Year", "Month", "Minutes", "Builds", "Usage Bar"}, buildCIMonthUsageRows(result.Usage, maxMonthMinutes))
 
 	if len(result.ProductUsage) > 0 {
 		fmt.Println()
 		asc.RenderTable(
-			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds"},
-			buildCIProductUsageSummaryRows(result.ProductUsage),
+			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar"},
+			buildCIProductUsageSummaryRows(result.ProductUsage, maxProductMinutes),
 		)
 	}
 
@@ -374,24 +389,26 @@ func renderCIUsageMonthsMarkdown(result *webcore.CIUsageMonths) error {
 	if result == nil {
 		result = &webcore.CIUsageMonths{}
 	}
+	maxMonthMinutes := maxMonthUsageMinutes(result.Usage)
+	maxProductMinutes := maxProductUsageMinutes(result.ProductUsage)
 
 	fmt.Printf("**Range:** %s\n\n", formatCIMonthRange(result.Usage, result.Info))
 	fmt.Printf("**Current:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
 	fmt.Printf("**Previous:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Previous.Used, result.Info.Previous.Builds, result.Info.Previous.Average30Days)
-	asc.RenderMarkdown([]string{"Year", "Month", "Minutes", "Builds"}, buildCIMonthUsageRows(result.Usage))
+	asc.RenderMarkdown([]string{"Year", "Month", "Minutes", "Builds", "Usage Bar"}, buildCIMonthUsageRows(result.Usage, maxMonthMinutes))
 
 	if len(result.ProductUsage) > 0 {
 		fmt.Println()
 		asc.RenderMarkdown(
-			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds"},
-			buildCIProductUsageSummaryRows(result.ProductUsage),
+			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar"},
+			buildCIProductUsageSummaryRows(result.ProductUsage, maxProductMinutes),
 		)
 	}
 
 	return nil
 }
 
-func buildCIMonthUsageRows(usage []webcore.CIMonthUsage) [][]string {
+func buildCIMonthUsageRows(usage []webcore.CIMonthUsage, maxMinutes int) [][]string {
 	rows := make([][]string, 0, len(usage))
 	for _, monthUsage := range usage {
 		rows = append(rows, []string{
@@ -399,22 +416,16 @@ func buildCIMonthUsageRows(usage []webcore.CIMonthUsage) [][]string {
 			fmt.Sprintf("%d", monthUsage.Month),
 			fmt.Sprintf("%d", monthUsage.Duration),
 			fmt.Sprintf("%d", monthUsage.NumberOfBuilds),
+			formatUsageBar(monthUsage.Duration, maxMinutes),
 		})
 	}
 	return rows
 }
 
-func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage) [][]string {
+func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage, maxMinutes int) [][]string {
 	rows := make([][]string, 0)
 	for _, product := range productUsage {
-		minutes := product.UsageInMinutes
-		builds := product.NumberOfBuilds
-		if minutes == 0 && len(product.Usage) > 0 {
-			for _, monthUsage := range product.Usage {
-				minutes += monthUsage.Duration
-				builds += monthUsage.NumberOfBuilds
-			}
-		}
+		minutes, builds := normalizeProductUsage(product)
 		rows = append(rows, []string{
 			valueOrNA(product.ProductID),
 			valueOrNA(product.ProductName),
@@ -423,76 +434,101 @@ func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage) [][]s
 			fmt.Sprintf("%d", builds),
 			fmt.Sprintf("%d", product.PreviousUsageInMinutes),
 			fmt.Sprintf("%d", product.PreviousNumberOfBuilds),
+			formatUsageBar(minutes, maxMinutes),
 		})
 	}
 	return rows
 }
 
-func renderCIUsageDaysTable(result *webcore.CIUsageDays) error {
+func renderCIUsageDaysTable(result, overall *webcore.CIUsageDays, productID string, planTotal int) error {
 	if result == nil {
 		result = &webcore.CIUsageDays{}
 	}
+	if overall == nil {
+		overall = &webcore.CIUsageDays{}
+	}
+	maxDayMinutes := maxDayUsageMinutes(result.Usage)
+	maxWorkflowMinutes := maxWorkflowUsageMinutes(result.WorkflowUsage)
+	appCurrent, appPrevious := resolveAppUsageSummary(result, overall, productID)
+	overallCurrent := overall.Info.Current
+	overallPrevious := overall.Info.Previous
 
 	fmt.Printf("Range: %s\n", formatCIDayRange(result.Usage, result.Info))
-	fmt.Printf("Current: %d minutes (%d builds), avg30=%d\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
-	fmt.Printf("Previous: %d minutes (%d builds), avg30=%d\n\n", result.Info.Previous.Used, result.Info.Previous.Builds, result.Info.Previous.Average30Days)
-	asc.RenderTable([]string{"Date", "Minutes", "Builds"}, buildCIDayUsageRows(result.Usage))
+	fmt.Printf("Selected app current: %d minutes (%d builds), avg30=%d\n", appCurrent.Used, appCurrent.Builds, appCurrent.Average30Days)
+	fmt.Printf("Selected app previous: %d minutes (%d builds), avg30=%d\n", appPrevious.Used, appPrevious.Builds, appPrevious.Average30Days)
+	fmt.Printf("Overall current: %d minutes (%d builds), avg30=%d\n", overallCurrent.Used, overallCurrent.Builds, overallCurrent.Average30Days)
+	fmt.Printf("Overall previous: %d minutes (%d builds), avg30=%d\n\n", overallPrevious.Used, overallPrevious.Builds, overallPrevious.Average30Days)
+	asc.RenderTable(
+		[]string{"Scope", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar (Plan)"},
+		buildCIUsageScopeRows(appCurrent, appPrevious, overallCurrent, overallPrevious, planTotal),
+	)
+	fmt.Println()
+	asc.RenderTable([]string{"Date", "Minutes", "Builds", "Usage Bar"}, buildCIDayUsageRows(result.Usage, maxDayMinutes))
 
 	if len(result.WorkflowUsage) > 0 {
 		fmt.Println()
 		asc.RenderTable(
-			[]string{"Workflow ID", "Workflow Name", "Minutes", "Builds", "Prev Minutes", "Prev Builds"},
-			buildCIWorkflowUsageRows(result.WorkflowUsage),
+			[]string{"Workflow ID", "Workflow Name", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar"},
+			buildCIWorkflowUsageRows(result.WorkflowUsage, maxWorkflowMinutes),
 		)
 	}
 
 	return nil
 }
 
-func renderCIUsageDaysMarkdown(result *webcore.CIUsageDays) error {
+func renderCIUsageDaysMarkdown(result, overall *webcore.CIUsageDays, productID string, planTotal int) error {
 	if result == nil {
 		result = &webcore.CIUsageDays{}
 	}
+	if overall == nil {
+		overall = &webcore.CIUsageDays{}
+	}
+	maxDayMinutes := maxDayUsageMinutes(result.Usage)
+	maxWorkflowMinutes := maxWorkflowUsageMinutes(result.WorkflowUsage)
+	appCurrent, appPrevious := resolveAppUsageSummary(result, overall, productID)
+	overallCurrent := overall.Info.Current
+	overallPrevious := overall.Info.Previous
 
 	fmt.Printf("**Range:** %s\n\n", formatCIDayRange(result.Usage, result.Info))
-	fmt.Printf("**Current:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
-	fmt.Printf("**Previous:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Previous.Used, result.Info.Previous.Builds, result.Info.Previous.Average30Days)
-	asc.RenderMarkdown([]string{"Date", "Minutes", "Builds"}, buildCIDayUsageRows(result.Usage))
+	fmt.Printf("**Selected app current:** %d minutes (%d builds), avg30=%d\n\n", appCurrent.Used, appCurrent.Builds, appCurrent.Average30Days)
+	fmt.Printf("**Selected app previous:** %d minutes (%d builds), avg30=%d\n\n", appPrevious.Used, appPrevious.Builds, appPrevious.Average30Days)
+	fmt.Printf("**Overall current:** %d minutes (%d builds), avg30=%d\n\n", overallCurrent.Used, overallCurrent.Builds, overallCurrent.Average30Days)
+	fmt.Printf("**Overall previous:** %d minutes (%d builds), avg30=%d\n\n", overallPrevious.Used, overallPrevious.Builds, overallPrevious.Average30Days)
+	asc.RenderMarkdown(
+		[]string{"Scope", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar (Plan)"},
+		buildCIUsageScopeRows(appCurrent, appPrevious, overallCurrent, overallPrevious, planTotal),
+	)
+	fmt.Println()
+	asc.RenderMarkdown([]string{"Date", "Minutes", "Builds", "Usage Bar"}, buildCIDayUsageRows(result.Usage, maxDayMinutes))
 
 	if len(result.WorkflowUsage) > 0 {
 		fmt.Println()
 		asc.RenderMarkdown(
-			[]string{"Workflow ID", "Workflow Name", "Minutes", "Builds", "Prev Minutes", "Prev Builds"},
-			buildCIWorkflowUsageRows(result.WorkflowUsage),
+			[]string{"Workflow ID", "Workflow Name", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar"},
+			buildCIWorkflowUsageRows(result.WorkflowUsage, maxWorkflowMinutes),
 		)
 	}
 
 	return nil
 }
 
-func buildCIDayUsageRows(usage []webcore.CIDayUsage) [][]string {
+func buildCIDayUsageRows(usage []webcore.CIDayUsage, maxMinutes int) [][]string {
 	rows := make([][]string, 0, len(usage))
 	for _, dayUsage := range usage {
 		rows = append(rows, []string{
 			valueOrNA(dayUsage.Date),
 			fmt.Sprintf("%d", dayUsage.Duration),
 			fmt.Sprintf("%d", dayUsage.NumberOfBuilds),
+			formatUsageBar(dayUsage.Duration, maxMinutes),
 		})
 	}
 	return rows
 }
 
-func buildCIWorkflowUsageRows(workflowUsage []webcore.CIWorkflowUsage) [][]string {
+func buildCIWorkflowUsageRows(workflowUsage []webcore.CIWorkflowUsage, maxMinutes int) [][]string {
 	rows := make([][]string, 0)
 	for _, workflow := range workflowUsage {
-		minutes := workflow.UsageInMinutes
-		builds := workflow.NumberOfBuilds
-		if minutes == 0 && len(workflow.Usage) > 0 {
-			for _, dayUsage := range workflow.Usage {
-				minutes += dayUsage.Duration
-				builds += dayUsage.NumberOfBuilds
-			}
-		}
+		minutes, builds := normalizeWorkflowUsage(workflow)
 		rows = append(rows, []string{
 			valueOrNA(workflow.WorkflowID),
 			valueOrNA(workflow.WorkflowName),
@@ -500,6 +536,7 @@ func buildCIWorkflowUsageRows(workflowUsage []webcore.CIWorkflowUsage) [][]strin
 			fmt.Sprintf("%d", builds),
 			fmt.Sprintf("%d", workflow.PreviousUsageInMinutes),
 			fmt.Sprintf("%d", workflow.PreviousNumberOfBuilds),
+			formatUsageBar(minutes, maxMinutes),
 		})
 	}
 	return rows
@@ -551,6 +588,173 @@ func formatCIDayRange(usage []webcore.CIDayUsage, info webcore.CIUsageInfo) stri
 		return "n/a"
 	}
 	return fmt.Sprintf("%s to %s", valueOrNA(usage[0].Date), valueOrNA(usage[len(usage)-1].Date))
+}
+
+func resolveAppUsageSummary(app, overall *webcore.CIUsageDays, productID string) (webcore.CIUsageInfoCurrent, webcore.CIUsageInfoCurrent) {
+	current := app.Info.Current
+	previous := app.Info.Previous
+
+	productID = strings.TrimSpace(productID)
+	if overall == nil || productID == "" {
+		return current, previous
+	}
+	if productUsage := findCIProductUsageByID(overall.ProductUsage, productID); productUsage != nil {
+		current.Used = productUsage.UsageInMinutes
+		current.Builds = productUsage.NumberOfBuilds
+		previous.Used = productUsage.PreviousUsageInMinutes
+		previous.Builds = productUsage.PreviousNumberOfBuilds
+	}
+
+	return current, previous
+}
+
+func findCIProductUsageByID(productUsage []webcore.CIProductUsage, productID string) *webcore.CIProductUsage {
+	productID = strings.TrimSpace(productID)
+	if productID == "" {
+		return nil
+	}
+	for i := range productUsage {
+		if strings.EqualFold(strings.TrimSpace(productUsage[i].ProductID), productID) {
+			return &productUsage[i]
+		}
+	}
+	return nil
+}
+
+func buildCIUsageScopeRows(
+	appCurrent, appPrevious webcore.CIUsageInfoCurrent,
+	overallCurrent, overallPrevious webcore.CIUsageInfoCurrent,
+	planTotal int,
+) [][]string {
+	absoluteTotal := planTotal
+	if absoluteTotal <= 0 {
+		absoluteTotal = overallCurrent.Used
+		if appCurrent.Used > absoluteTotal {
+			absoluteTotal = appCurrent.Used
+		}
+	}
+
+	return [][]string{
+		{
+			"Selected App",
+			fmt.Sprintf("%d", appCurrent.Used),
+			fmt.Sprintf("%d", appCurrent.Builds),
+			fmt.Sprintf("%d", appPrevious.Used),
+			fmt.Sprintf("%d", appPrevious.Builds),
+			formatUsageBarWithValues(appCurrent.Used, absoluteTotal, "m"),
+		},
+		{
+			"Overall Team",
+			fmt.Sprintf("%d", overallCurrent.Used),
+			fmt.Sprintf("%d", overallCurrent.Builds),
+			fmt.Sprintf("%d", overallPrevious.Used),
+			fmt.Sprintf("%d", overallPrevious.Builds),
+			formatUsageBarWithValues(overallCurrent.Used, absoluteTotal, "m"),
+		},
+	}
+}
+
+func normalizeProductUsage(product webcore.CIProductUsage) (minutes int, builds int) {
+	minutes = product.UsageInMinutes
+	builds = product.NumberOfBuilds
+	if minutes != 0 || len(product.Usage) == 0 {
+		return minutes, builds
+	}
+	for _, monthUsage := range product.Usage {
+		minutes += monthUsage.Duration
+		builds += monthUsage.NumberOfBuilds
+	}
+	return minutes, builds
+}
+
+func normalizeWorkflowUsage(workflow webcore.CIWorkflowUsage) (minutes int, builds int) {
+	minutes = workflow.UsageInMinutes
+	builds = workflow.NumberOfBuilds
+	if minutes != 0 || len(workflow.Usage) == 0 {
+		return minutes, builds
+	}
+	for _, dayUsage := range workflow.Usage {
+		minutes += dayUsage.Duration
+		builds += dayUsage.NumberOfBuilds
+	}
+	return minutes, builds
+}
+
+func maxMonthUsageMinutes(usage []webcore.CIMonthUsage) int {
+	max := 0
+	for _, monthUsage := range usage {
+		if monthUsage.Duration > max {
+			max = monthUsage.Duration
+		}
+	}
+	return max
+}
+
+func maxProductUsageMinutes(products []webcore.CIProductUsage) int {
+	max := 0
+	for _, product := range products {
+		minutes, _ := normalizeProductUsage(product)
+		if minutes > max {
+			max = minutes
+		}
+	}
+	return max
+}
+
+func maxDayUsageMinutes(usage []webcore.CIDayUsage) int {
+	max := 0
+	for _, dayUsage := range usage {
+		if dayUsage.Duration > max {
+			max = dayUsage.Duration
+		}
+	}
+	return max
+}
+
+func maxWorkflowUsageMinutes(workflows []webcore.CIWorkflowUsage) int {
+	max := 0
+	for _, workflow := range workflows {
+		minutes, _ := normalizeWorkflowUsage(workflow)
+		if minutes > max {
+			max = minutes
+		}
+	}
+	return max
+}
+
+func formatUsageBarWithValues(value, total int, unitSuffix string) string {
+	if total <= 0 {
+		return formatUsageBar(value, total)
+	}
+	return fmt.Sprintf("%s (%d/%d%s)", formatUsageBar(value, total), value, total, unitSuffix)
+}
+
+func formatUsageBar(value, total int) string {
+	const barWidth = 16
+	if total <= 0 {
+		return "[................] n/a"
+	}
+	if value < 0 {
+		value = 0
+	}
+	if value > total {
+		value = total
+	}
+
+	percent := (value*100 + total/2) / total
+	filled := (value*barWidth + total/2) / total
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > barWidth {
+		filled = barWidth
+	}
+	return fmt.Sprintf(
+		"[%s%s] %3d%%",
+		strings.Repeat("#", filled),
+		strings.Repeat(".", barWidth-filled),
+		percent,
+	)
 }
 
 func validateDateFlag(name, value string) error {
