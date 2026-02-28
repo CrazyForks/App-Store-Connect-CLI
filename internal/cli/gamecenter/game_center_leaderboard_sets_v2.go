@@ -500,7 +500,7 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			ids := shared.SplitCSV(*leaderboardIDs)
+			ids := shared.SplitUniqueCSV(*leaderboardIDs)
 			client, err := shared.GetASCClient()
 			if err != nil {
 				return fmt.Errorf("game-center leaderboard-sets v2 members set: %w", err)
@@ -516,6 +516,7 @@ Examples:
 			result := &asc.GameCenterLeaderboardSetMembersUpdateResult{
 				SetID:       id,
 				MemberCount: len(ids),
+				MemberIDs:   ids,
 				Updated:     true,
 			}
 

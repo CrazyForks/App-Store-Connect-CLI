@@ -56,8 +56,12 @@ func TestGameCenterLeaderboardSetMembersSetAddsMembersToEmptySet(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read body error: %v", err)
 			}
-			if !strings.Contains(string(payload), `"id":"lb-1"`) || !strings.Contains(string(payload), `"id":"lb-2"`) {
-				t.Fatalf("expected leaderboard ids lb-1/lb-2 in POST payload, got %s", string(payload))
+			body := string(payload)
+			if !strings.Contains(body, `"id":"lb-1"`) || !strings.Contains(body, `"id":"lb-2"`) {
+				t.Fatalf("expected leaderboard ids lb-1/lb-2 in POST payload, got %s", body)
+			}
+			if strings.Count(body, `"id":"lb-1"`) != 1 || strings.Count(body, `"id":"lb-2"`) != 1 {
+				t.Fatalf("expected deduplicated POST payload, got %s", body)
 			}
 
 			return gcLeaderboardSetMembersJSONResponse(http.StatusNoContent, ""), nil
@@ -79,6 +83,9 @@ func TestGameCenterLeaderboardSetMembersSetAddsMembersToEmptySet(t *testing.T) {
 			if i1 == -1 || i2 == -1 || i1 > i2 {
 				t.Fatalf("expected PATCH payload order lb-1,lb-2; got %s", body)
 			}
+			if strings.Count(body, `"id":"lb-1"`) != 1 || strings.Count(body, `"id":"lb-2"`) != 1 {
+				t.Fatalf("expected deduplicated PATCH payload, got %s", body)
+			}
 
 			return gcLeaderboardSetMembersJSONResponse(http.StatusNoContent, ""), nil
 		default:
@@ -94,7 +101,7 @@ func TestGameCenterLeaderboardSetMembersSetAddsMembersToEmptySet(t *testing.T) {
 		if err := root.Parse([]string{
 			"game-center", "leaderboard-sets", "members", "set",
 			"--set-id", "set-1",
-			"--leaderboard-ids", "lb-1,lb-2",
+			"--leaderboard-ids", "lb-1,lb-1,lb-2",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
@@ -106,7 +113,7 @@ func TestGameCenterLeaderboardSetMembersSetAddsMembersToEmptySet(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, `"setId":"set-1"`) || !strings.Contains(stdout, `"memberCount":2`) || !strings.Contains(stdout, `"updated":true`) {
+	if !strings.Contains(stdout, `"setId":"set-1"`) || !strings.Contains(stdout, `"memberCount":2`) || !strings.Contains(stdout, `"memberIds":["lb-1","lb-2"]`) || !strings.Contains(stdout, `"updated":true`) {
 		t.Fatalf("expected update result JSON in stdout, got %q", stdout)
 	}
 	if callCount != 3 {
@@ -151,8 +158,12 @@ func TestGameCenterLeaderboardSetMembersV2SetAddsMembersToEmptySet(t *testing.T)
 			if err != nil {
 				t.Fatalf("read body error: %v", err)
 			}
-			if !strings.Contains(string(payload), `"id":"lb-1"`) || !strings.Contains(string(payload), `"id":"lb-2"`) {
-				t.Fatalf("expected leaderboard ids lb-1/lb-2 in POST payload, got %s", string(payload))
+			body := string(payload)
+			if !strings.Contains(body, `"id":"lb-1"`) || !strings.Contains(body, `"id":"lb-2"`) {
+				t.Fatalf("expected leaderboard ids lb-1/lb-2 in POST payload, got %s", body)
+			}
+			if strings.Count(body, `"id":"lb-1"`) != 1 || strings.Count(body, `"id":"lb-2"`) != 1 {
+				t.Fatalf("expected deduplicated POST payload, got %s", body)
 			}
 
 			return gcLeaderboardSetMembersJSONResponse(http.StatusNoContent, ""), nil
@@ -174,6 +185,9 @@ func TestGameCenterLeaderboardSetMembersV2SetAddsMembersToEmptySet(t *testing.T)
 			if i1 == -1 || i2 == -1 || i1 > i2 {
 				t.Fatalf("expected PATCH payload order lb-1,lb-2; got %s", body)
 			}
+			if strings.Count(body, `"id":"lb-1"`) != 1 || strings.Count(body, `"id":"lb-2"`) != 1 {
+				t.Fatalf("expected deduplicated PATCH payload, got %s", body)
+			}
 
 			return gcLeaderboardSetMembersJSONResponse(http.StatusNoContent, ""), nil
 		default:
@@ -189,7 +203,7 @@ func TestGameCenterLeaderboardSetMembersV2SetAddsMembersToEmptySet(t *testing.T)
 		if err := root.Parse([]string{
 			"game-center", "leaderboard-sets", "v2", "members", "set",
 			"--set-id", "set-1",
-			"--leaderboard-ids", "lb-1,lb-2",
+			"--leaderboard-ids", "lb-1,lb-1,lb-2",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
@@ -201,7 +215,7 @@ func TestGameCenterLeaderboardSetMembersV2SetAddsMembersToEmptySet(t *testing.T)
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, `"setId":"set-1"`) || !strings.Contains(stdout, `"memberCount":2`) || !strings.Contains(stdout, `"updated":true`) {
+	if !strings.Contains(stdout, `"setId":"set-1"`) || !strings.Contains(stdout, `"memberCount":2`) || !strings.Contains(stdout, `"memberIds":["lb-1","lb-2"]`) || !strings.Contains(stdout, `"updated":true`) {
 		t.Fatalf("expected update result JSON in stdout, got %q", stdout)
 	}
 	if callCount != 3 {

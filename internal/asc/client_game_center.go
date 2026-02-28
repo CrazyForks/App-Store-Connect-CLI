@@ -824,82 +824,12 @@ func (c *Client) UpdateGameCenterLeaderboardSetMembers(ctx context.Context, setI
 
 // SetGameCenterLeaderboardSetMembers sets leaderboard members for a leaderboard set.
 func (c *Client) SetGameCenterLeaderboardSetMembers(ctx context.Context, setID string, leaderboardIDs []string) error {
-	setID = strings.TrimSpace(setID)
-	if setID == "" {
-		return fmt.Errorf("setID is required")
-	}
-
-	desiredIDs := normalizeUniqueList(leaderboardIDs)
-	currentIDs := make([]string, 0)
-	nextURL := ""
-
-	for {
-		opts := []GCLeaderboardSetMembersOption{WithGCLeaderboardSetMembersLimit(200)}
-		if nextURL != "" {
-			opts = append(opts, WithGCLeaderboardSetMembersNextURL(nextURL))
-		}
-
-		resp, err := c.GetGameCenterLeaderboardSetMembers(ctx, setID, opts...)
-		if err != nil {
-			return err
-		}
-		for _, item := range resp.Data {
-			id := strings.TrimSpace(item.ID)
-			if id != "" {
-				currentIDs = append(currentIDs, id)
-			}
-		}
-
-		nextURL = strings.TrimSpace(resp.Links.Next)
-		if nextURL == "" {
-			break
-		}
-	}
-
-	currentSet := make(map[string]struct{}, len(currentIDs))
-	for _, id := range currentIDs {
-		currentSet[id] = struct{}{}
-	}
-
-	desiredSet := make(map[string]struct{}, len(desiredIDs))
-	for _, id := range desiredIDs {
-		desiredSet[id] = struct{}{}
-	}
-
-	toAdd := make([]string, 0, len(desiredIDs))
-	for _, id := range desiredIDs {
-		if _, exists := currentSet[id]; !exists {
-			toAdd = append(toAdd, id)
-		}
-	}
-
-	toRemove := make([]string, 0, len(currentIDs))
-	for _, id := range currentIDs {
-		if _, exists := desiredSet[id]; !exists {
-			toRemove = append(toRemove, id)
-		}
-	}
-
-	if len(toAdd) > 0 {
-		if err := c.AddGameCenterLeaderboardSetMembers(ctx, setID, toAdd); err != nil {
-			return err
-		}
-	}
-	if len(toRemove) > 0 {
-		if err := c.RemoveGameCenterLeaderboardSetMembers(ctx, setID, toRemove); err != nil {
-			return err
-		}
-	}
-
-	if len(desiredIDs) == 0 {
-		return nil
-	}
-
-	if len(toAdd) > 0 || len(toRemove) > 0 || !sameOrderedList(currentIDs, desiredIDs) {
-		return c.UpdateGameCenterLeaderboardSetMembers(ctx, setID, desiredIDs)
-	}
-
-	return nil
+	return setGameCenterLeaderboardSetMembers(ctx, setID, leaderboardIDs, leaderboardSetMembersOperations{
+		list:    c.GetGameCenterLeaderboardSetMembers,
+		add:     c.AddGameCenterLeaderboardSetMembers,
+		remove:  c.RemoveGameCenterLeaderboardSetMembers,
+		replace: c.UpdateGameCenterLeaderboardSetMembers,
+	})
 }
 
 // GetGameCenterLeaderboardSetReleases retrieves the list of releases for a Game Center leaderboard set.

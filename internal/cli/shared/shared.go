@@ -806,6 +806,24 @@ func splitCSV(value string) []string {
 	return cleaned
 }
 
+func splitUniqueCSV(value string) []string {
+	values := splitCSV(value)
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+	for _, item := range values {
+		if _, exists := seen[item]; exists {
+			continue
+		}
+		seen[item] = struct{}{}
+		unique = append(unique, item)
+	}
+	return unique
+}
+
 func splitCSVUpper(value string) []string {
 	values := splitCSV(value)
 	if len(values) == 0 {
@@ -904,6 +922,10 @@ func ContextWithUploadTimeout(ctx context.Context) (context.Context, context.Can
 
 func SplitCSV(value string) []string {
 	return splitCSV(value)
+}
+
+func SplitUniqueCSV(value string) []string {
+	return splitUniqueCSV(value)
 }
 
 func SplitCSVUpper(value string) []string {
