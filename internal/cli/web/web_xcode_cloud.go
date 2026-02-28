@@ -36,6 +36,7 @@ Examples:
   asc web xcode-cloud usage summary --apple-id "user@example.com"
   asc web xcode-cloud products --apple-id "user@example.com" --output table
   asc web xcode-cloud usage months --apple-id "user@example.com" --output table
+  asc web xcode-cloud usage months --product-ids "UUID" --apple-id "user@example.com" --output table
   asc web xcode-cloud usage days --product-ids "UUID" --apple-id "user@example.com"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -139,6 +140,7 @@ func webXcodeCloudUsageMonthsCommand() *ffcli.Command {
 	startYear := fs.Int("start-year", defaultStartYear, "Start year")
 	endMonth := fs.Int("end-month", defaultEndMonth, "End month (1-12)")
 	endYear := fs.Int("end-year", defaultEndYear, "End year")
+	productIDs := fs.String("product-ids", "", "Comma-separated Xcode Cloud product IDs to filter (optional)")
 
 	return &ffcli.Command{
 		Name:       "months",
@@ -147,13 +149,14 @@ func webXcodeCloudUsageMonthsCommand() *ffcli.Command {
 		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
 
 Show monthly Xcode Cloud compute usage with per-product breakdown.
-Defaults to the last 12 months.
+Defaults to the last 12 months. Use --product-ids to filter the product breakdown.
 
 ` + webWarningText + `
 
 Examples:
   asc web xcode-cloud usage months --apple-id "user@example.com"
-  asc web xcode-cloud usage months --apple-id "user@example.com" --start-month 1 --start-year 2025 --output table`,
+  asc web xcode-cloud usage months --apple-id "user@example.com" --start-month 1 --start-year 2025 --output table
+  asc web xcode-cloud usage months --product-ids "UUID,OTHER_UUID" --apple-id "user@example.com" --output table`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -163,6 +166,11 @@ Examples:
 			}
 			if *endMonth < 1 || *endMonth > 12 {
 				fmt.Fprintln(os.Stderr, "Error: --end-month must be between 1 and 12")
+				return flag.ErrHelp
+			}
+			requestedProductIDs, err := parseProductIDs(*productIDs)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 				return flag.ErrHelp
 			}
 
@@ -183,12 +191,23 @@ Examples:
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage months")
 			}
+			summary, err := client.GetCIUsageSummary(requestCtx, teamID)
+			if err != nil {
+				return withWebAuthHint(err, "xcode-cloud usage months")
+			}
+			planTotal := 0
+			if summary != nil {
+				planTotal = summary.Plan.Total
+			}
+			if len(requestedProductIDs) > 0 {
+				result.ProductUsage = filterProductUsageByIDs(result.ProductUsage, requestedProductIDs)
+			}
 			return shared.PrintOutputWithRenderers(
 				result,
 				*output.Output,
 				*output.Pretty,
-				func() error { return renderCIUsageMonthsTable(result) },
-				func() error { return renderCIUsageMonthsMarkdown(result) },
+				func() error { return renderCIUsageMonthsTable(result, planTotal) },
+				func() error { return renderCIUsageMonthsMarkdown(result, planTotal) },
 			)
 		},
 	}
@@ -394,12 +413,11 @@ func buildCIUsageSummaryRows(result *webcore.CIUsageSummary) [][]string {
 	}
 }
 
-func renderCIUsageMonthsTable(result *webcore.CIUsageMonths) error {
+func renderCIUsageMonthsTable(result *webcore.CIUsageMonths, planTotal int) error {
 	if result == nil {
 		result = &webcore.CIUsageMonths{}
 	}
 	maxMonthMinutes := maxMonthUsageMinutes(result.Usage)
-	maxProductMinutes := maxProductUsageMinutes(result.ProductUsage)
 
 	fmt.Printf("Range: %s\n", formatCIMonthRange(result.Usage, result.Info))
 	fmt.Printf("Current: %d minutes (%d builds), avg30=%d\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
@@ -409,20 +427,19 @@ func renderCIUsageMonthsTable(result *webcore.CIUsageMonths) error {
 	if len(result.ProductUsage) > 0 {
 		fmt.Println()
 		asc.RenderTable(
-			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar"},
-			buildCIProductUsageSummaryRows(result.ProductUsage, maxProductMinutes),
+			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar (Plan)"},
+			buildCIProductUsageSummaryRows(result.ProductUsage, planTotal),
 		)
 	}
 
 	return nil
 }
 
-func renderCIUsageMonthsMarkdown(result *webcore.CIUsageMonths) error {
+func renderCIUsageMonthsMarkdown(result *webcore.CIUsageMonths, planTotal int) error {
 	if result == nil {
 		result = &webcore.CIUsageMonths{}
 	}
 	maxMonthMinutes := maxMonthUsageMinutes(result.Usage)
-	maxProductMinutes := maxProductUsageMinutes(result.ProductUsage)
 
 	fmt.Printf("**Range:** %s\n\n", formatCIMonthRange(result.Usage, result.Info))
 	fmt.Printf("**Current:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
@@ -432,8 +449,8 @@ func renderCIUsageMonthsMarkdown(result *webcore.CIUsageMonths) error {
 	if len(result.ProductUsage) > 0 {
 		fmt.Println()
 		asc.RenderMarkdown(
-			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar"},
-			buildCIProductUsageSummaryRows(result.ProductUsage, maxProductMinutes),
+			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar (Plan)"},
+			buildCIProductUsageSummaryRows(result.ProductUsage, planTotal),
 		)
 	}
 
@@ -454,7 +471,7 @@ func buildCIMonthUsageRows(usage []webcore.CIMonthUsage, maxMinutes int) [][]str
 	return rows
 }
 
-func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage, maxMinutes int) [][]string {
+func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage, planTotal int) [][]string {
 	rows := make([][]string, 0)
 	for _, product := range productUsage {
 		minutes, builds := normalizeProductUsage(product)
@@ -466,10 +483,27 @@ func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage, maxMi
 			fmt.Sprintf("%d", builds),
 			fmt.Sprintf("%d", product.PreviousUsageInMinutes),
 			fmt.Sprintf("%d", product.PreviousNumberOfBuilds),
-			formatUsageBar(minutes, maxMinutes),
+			formatUsageBarWithValues(minutes, planTotal, "m"),
 		})
 	}
 	return rows
+}
+
+func filterProductUsageByIDs(productUsage []webcore.CIProductUsage, productIDs []string) []webcore.CIProductUsage {
+	if len(productIDs) == 0 {
+		return productUsage
+	}
+	wanted := map[string]struct{}{}
+	for _, id := range productIDs {
+		wanted[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
+	}
+	filtered := make([]webcore.CIProductUsage, 0, len(productIDs))
+	for _, pu := range productUsage {
+		if _, ok := wanted[strings.ToLower(strings.TrimSpace(pu.ProductID))]; ok {
+			filtered = append(filtered, pu)
+		}
+	}
+	return filtered
 }
 
 func renderCIUsageDaysTable(
@@ -826,17 +860,6 @@ func maxMonthUsageMinutes(usage []webcore.CIMonthUsage) int {
 	for _, monthUsage := range usage {
 		if monthUsage.Duration > max {
 			max = monthUsage.Duration
-		}
-	}
-	return max
-}
-
-func maxProductUsageMinutes(products []webcore.CIProductUsage) int {
-	max := 0
-	for _, product := range products {
-		minutes, _ := normalizeProductUsage(product)
-		if minutes > max {
-			max = minutes
 		}
 	}
 	return max

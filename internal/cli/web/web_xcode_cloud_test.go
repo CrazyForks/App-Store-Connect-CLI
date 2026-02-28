@@ -435,11 +435,164 @@ func TestWebXcodeCloudUsageMonthsFlagSet(t *testing.T) {
 	}
 
 	fs := monthsCmd.FlagSet
-	for _, name := range []string{"start-month", "start-year", "end-month", "end-year"} {
+	for _, name := range []string{"start-month", "start-year", "end-month", "end-year", "product-ids"} {
 		if fs.Lookup(name) == nil {
 			t.Fatalf("expected --%s flag", name)
 		}
 	}
+}
+
+func TestFilterProductUsageByIDs(t *testing.T) {
+	products := []webcore.CIProductUsage{
+		{ProductID: "prod-1", ProductName: "App One", UsageInMinutes: 10},
+		{ProductID: "prod-2", ProductName: "App Two", UsageInMinutes: 20},
+		{ProductID: "prod-3", ProductName: "App Three", UsageInMinutes: 30},
+	}
+
+	t.Run("empty filter returns all", func(t *testing.T) {
+		result := filterProductUsageByIDs(products, nil)
+		if len(result) != 3 {
+			t.Fatalf("expected 3 products, got %d", len(result))
+		}
+	})
+
+	t.Run("filters to matching IDs", func(t *testing.T) {
+		result := filterProductUsageByIDs(products, []string{"prod-1", "prod-3"})
+		if len(result) != 2 {
+			t.Fatalf("expected 2 products, got %d", len(result))
+		}
+		if result[0].ProductID != "prod-1" || result[1].ProductID != "prod-3" {
+			t.Fatalf("unexpected products: %+v", result)
+		}
+	})
+
+	t.Run("case insensitive matching", func(t *testing.T) {
+		result := filterProductUsageByIDs(products, []string{"PROD-2"})
+		if len(result) != 1 || result[0].ProductID != "prod-2" {
+			t.Fatalf("expected prod-2, got %+v", result)
+		}
+	})
+
+	t.Run("no matches returns empty", func(t *testing.T) {
+		result := filterProductUsageByIDs(products, []string{"nonexistent"})
+		if len(result) != 0 {
+			t.Fatalf("expected 0 products, got %d", len(result))
+		}
+	})
+}
+
+func TestWebXcodeCloudUsageMonthsProductIDsValidation(t *testing.T) {
+	t.Run("rejects invalid product IDs", func(t *testing.T) {
+		cmd := webXcodeCloudUsageMonthsCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-ids", "prod-2,,prod-3",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		_, stderr := captureOutput(t, func() {
+			err := cmd.Exec(context.Background(), nil)
+			if !errors.Is(err, flag.ErrHelp) {
+				t.Fatalf("expected ErrHelp, got %v", err)
+			}
+		})
+		if !strings.Contains(stderr, "Error: --product-ids must be a comma-separated list of non-empty product IDs") {
+			t.Fatalf("unexpected stderr: %q", stderr)
+		}
+	})
+}
+
+func TestWebXcodeCloudUsageMonthsOutputTableWithProductFilter(t *testing.T) {
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+	})
+
+	requestCount := 0
+	resolveSessionFn = func(
+		ctx context.Context,
+		appleID, password, twoFactorCode string,
+		usePasswordStdin bool,
+	) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			PublicProviderID: "team-uuid",
+			Client: &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					requestCount++
+					var body string
+					if strings.Contains(req.URL.Path, "/usage/summary") {
+						body = `{"plan":{"name":"Plan","total":1500,"used":130,"available":1370}}`
+					} else {
+						body = `{
+							"usage":[{"month":1,"year":2026,"duration":100,"number_of_builds":5},{"month":2,"year":2026,"duration":30,"number_of_builds":2}],
+							"product_usage":[
+								{"product_id":"prod-1","product_name":"App One","usage_in_minutes":80,"number_of_builds":4,"previous_usage_in_minutes":50,"previous_number_of_builds":3},
+								{"product_id":"prod-2","product_name":"App Two","usage_in_minutes":50,"number_of_builds":3,"previous_usage_in_minutes":20,"previous_number_of_builds":1}
+							],
+							"info":{"start_month":1,"start_year":2026,"end_month":2,"end_year":2026,"current":{"builds":7,"used":130,"average_30_days":65},"previous":{"builds":4,"used":70,"average_30_days":35}}
+						}`
+					}
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body:       io.NopCloser(strings.NewReader(body)),
+						Request:    req,
+					}, nil
+				}),
+			},
+		}, "cache", nil
+	}
+
+	t.Run("without product filter shows all products", func(t *testing.T) {
+		requestCount = 0
+		cmd := webXcodeCloudUsageMonthsCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--output", "table",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		stdout, _ := captureOutput(t, func() {
+			if err := cmd.Exec(context.Background(), nil); err != nil {
+				t.Fatalf("exec error: %v", err)
+			}
+		})
+		if !strings.Contains(stdout, "App One") || !strings.Contains(stdout, "App Two") {
+			t.Fatalf("expected both products in output, got %q", stdout)
+		}
+		if !strings.Contains(stdout, "/1500m") {
+			t.Fatalf("expected plan total in usage bar, got %q", stdout)
+		}
+		if requestCount != 2 {
+			t.Fatalf("expected 2 API requests (months + summary), got %d", requestCount)
+		}
+	})
+
+	t.Run("with product filter shows only matching products", func(t *testing.T) {
+		requestCount = 0
+		cmd := webXcodeCloudUsageMonthsCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-ids", "prod-1",
+			"--output", "table",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		stdout, _ := captureOutput(t, func() {
+			if err := cmd.Exec(context.Background(), nil); err != nil {
+				t.Fatalf("exec error: %v", err)
+			}
+		})
+		if !strings.Contains(stdout, "App One") {
+			t.Fatalf("expected prod-1 in output, got %q", stdout)
+		}
+		if strings.Contains(stdout, "App Two") {
+			t.Fatalf("expected prod-2 to be filtered out, got %q", stdout)
+		}
+	})
 }
 
 func TestWebXcodeCloudAllCommandsHaveUsageFunc(t *testing.T) {
