@@ -42,6 +42,7 @@ Examples:
 			WebAppsCommand(),
 			WebPrivacyCommand(),
 			WebReviewCommand(),
+			WebXcodeCloudCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			if len(args) == 0 {
