@@ -278,6 +278,13 @@
     "platform": ["iOS"]
   },
   {
+    "app": "Weather mini - Trip Forecasts",
+    "link": "https://apps.apple.com/us/app/weather-mini-trip-forecasts/id892589817",
+    "creator": "Kai Luo",
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/b7/eb/18/b7eb183c-9fcd-843d-ccfc-b1610c8ac1f2/AppIcon-0-0-1x_U007epad-0-1-0-sRGB-85-220.png/512x512bb.jpg",
+    "platform": ["iOS", "macOS", "visionOS"]
+  },
+  {
     "app": "Wozi Vocabulary Builder",
     "link": "https://apps.apple.com/app/id1536585848",
     "creator": "wozi-x",
