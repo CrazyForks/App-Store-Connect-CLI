@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -95,16 +96,22 @@ func TestGetCIUsageMonthsParsesProductUsage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"usage": [{"month":1,"year":2026,"duration":120}],
+			"usage": [{"month":1,"year":2026,"minutes":120,"number_of_builds":3}],
 			"product_usage": [
 				{
 					"product_id": "prod-1",
-					"product_name": "My App",
-					"bundle_id": "com.example.app",
-					"usage": [{"month":1,"year":2026,"duration":120}]
+					"usage_in_minutes": 120,
+					"usage_in_seconds": 7200,
+					"number_of_builds": 3,
+					"previous_usage_in_minutes": 80,
+					"previous_number_of_builds": 2
 				}
 			],
-			"info": {"start_month":1,"start_year":2026,"end_month":1,"end_year":2026}
+			"info": {
+				"can_view_all_products": true,
+				"current": {"builds":3,"used":120,"average_30_days":60},
+				"previous": {"builds":2,"used":80,"average_30_days":40}
+			}
 		}`))
 	}))
 	defer server.Close()
@@ -114,15 +121,18 @@ func TestGetCIUsageMonthsParsesProductUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCIUsageMonths() error = %v", err)
 	}
-	if len(result.Usage) != 1 || result.Usage[0].Duration != 120 {
+	if len(result.Usage) != 1 || result.Usage[0].Duration != 120 || result.Usage[0].NumberOfBuilds != 3 {
 		t.Fatalf("unexpected usage: %+v", result.Usage)
 	}
 	if len(result.ProductUsage) != 1 {
 		t.Fatalf("expected 1 product usage, got %d", len(result.ProductUsage))
 	}
 	pu := result.ProductUsage[0]
-	if pu.ProductID != "prod-1" || pu.ProductName != "My App" || pu.BundleID != "com.example.app" {
+	if pu.ProductID != "prod-1" || pu.UsageInMinutes != 120 || pu.NumberOfBuilds != 3 || pu.PreviousUsageInMinutes != 80 || pu.PreviousNumberOfBuilds != 2 {
 		t.Fatalf("unexpected product usage: %+v", pu)
+	}
+	if !result.Info.CanViewAllProducts || result.Info.Current.Used != 120 || result.Info.Previous.Used != 80 {
+		t.Fatalf("unexpected info: %+v", result.Info)
 	}
 }
 
@@ -147,15 +157,17 @@ func TestGetCIUsageDaysParsesWorkflowUsage(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"usage": [{"date":"2026-01-01","duration":60}],
+			"usage": [{"date":"2026-01-01","minutes":60,"number_of_builds":2}],
 			"workflow_usage": [
 				{
 					"workflow_id": "wf-1",
-					"workflow_name": "CI Workflow",
-					"usage": [{"date":"2026-01-01","duration":60}]
+					"usage_in_minutes": 60,
+					"number_of_builds": 2,
+					"previous_usage_in_minutes": 30,
+					"previous_number_of_builds": 1
 				}
 			],
-			"info": {}
+			"info": {"current":{"builds":2,"used":60,"average_30_days":45}}
 		}`))
 	}))
 	defer server.Close()
@@ -165,15 +177,38 @@ func TestGetCIUsageDaysParsesWorkflowUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCIUsageDays() error = %v", err)
 	}
-	if len(result.Usage) != 1 || result.Usage[0].Duration != 60 {
+	if len(result.Usage) != 1 || result.Usage[0].Duration != 60 || result.Usage[0].NumberOfBuilds != 2 {
 		t.Fatalf("unexpected usage: %+v", result.Usage)
 	}
 	if len(result.WorkflowUsage) != 1 {
 		t.Fatalf("expected 1 workflow usage, got %d", len(result.WorkflowUsage))
 	}
 	wf := result.WorkflowUsage[0]
-	if wf.WorkflowID != "wf-1" || wf.WorkflowName != "CI Workflow" {
+	if wf.WorkflowID != "wf-1" || wf.UsageInMinutes != 60 || wf.NumberOfBuilds != 2 || wf.PreviousUsageInMinutes != 30 || wf.PreviousNumberOfBuilds != 1 {
 		t.Fatalf("unexpected workflow usage: %+v", wf)
+	}
+	if result.Info.Current.Used != 60 {
+		t.Fatalf("unexpected current usage info: %+v", result.Info.Current)
+	}
+}
+
+func TestCIMonthUsageUnmarshalSupportsDurationAlias(t *testing.T) {
+	var usage CIMonthUsage
+	if err := json.Unmarshal([]byte(`{"year":2026,"month":2,"duration":33}`), &usage); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if usage.Duration != 33 {
+		t.Fatalf("expected duration 33, got %d", usage.Duration)
+	}
+}
+
+func TestCIDayUsageUnmarshalSupportsDurationAlias(t *testing.T) {
+	var usage CIDayUsage
+	if err := json.Unmarshal([]byte(`{"date":"2026-02-20","duration":17}`), &usage); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if usage.Duration != 17 {
+		t.Fatalf("expected duration 17, got %d", usage.Duration)
 	}
 }
 
@@ -263,7 +298,7 @@ func TestGetCIUsageSummaryHandles4xxError(t *testing.T) {
 		t.Fatal("expected error for 403 response")
 	}
 	var apiErr *APIError
-	if ok := errorAs(err, &apiErr); !ok {
+	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected APIError, got %T: %v", err, err)
 	}
 	if apiErr.Status != http.StatusForbidden {
@@ -299,21 +334,4 @@ func TestNewCIClientSetsBaseURL(t *testing.T) {
 	if !strings.HasSuffix(client.baseURL, "/ci/api") {
 		t.Fatalf("expected base URL ending in /ci/api, got %q", client.baseURL)
 	}
-}
-
-// errorAs is a test helper that wraps errors.As without importing errors
-// (already available via the APIError assertion pattern in this package).
-func errorAs(err error, target any) bool {
-	type unwrapper interface{ Unwrap() error }
-	switch v := target.(type) {
-	case **APIError:
-		if e, ok := err.(*APIError); ok {
-			*v = e
-			return true
-		}
-		if u, ok := err.(unwrapper); ok {
-			return errorAs(u.Unwrap(), target)
-		}
-	}
-	return false
 }

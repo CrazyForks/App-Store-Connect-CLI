@@ -48,25 +48,42 @@ type CIUsageMonths struct {
 
 // CIMonthUsage describes usage for a single month.
 type CIMonthUsage struct {
-	Month    int `json:"month"`
-	Year     int `json:"year"`
-	Duration int `json:"duration"`
+	Month          int `json:"month"`
+	Year           int `json:"year"`
+	Duration       int `json:"duration"`
+	NumberOfBuilds int `json:"number_of_builds,omitempty"`
 }
 
 // CIProductUsage describes per-product monthly usage.
 type CIProductUsage struct {
-	ProductID   string         `json:"product_id"`
-	ProductName string         `json:"product_name"`
-	BundleID    string         `json:"bundle_id"`
-	Usage       []CIMonthUsage `json:"usage"`
+	ProductID              string         `json:"product_id"`
+	ProductName            string         `json:"product_name,omitempty"`
+	BundleID               string         `json:"bundle_id,omitempty"`
+	Usage                  []CIMonthUsage `json:"usage,omitempty"`
+	UsageInMinutes         int            `json:"usage_in_minutes,omitempty"`
+	UsageInSeconds         int            `json:"usage_in_seconds,omitempty"`
+	NumberOfBuilds         int            `json:"number_of_builds,omitempty"`
+	PreviousUsageInMinutes int            `json:"previous_usage_in_minutes,omitempty"`
+	PreviousNumberOfBuilds int            `json:"previous_number_of_builds,omitempty"`
 }
 
 // CIUsageInfo holds metadata about the usage response.
 type CIUsageInfo struct {
-	StartMonth int `json:"start_month"`
-	StartYear  int `json:"start_year"`
-	EndMonth   int `json:"end_month"`
-	EndYear    int `json:"end_year"`
+	StartMonth         int                `json:"start_month,omitempty"`
+	StartYear          int                `json:"start_year,omitempty"`
+	EndMonth           int                `json:"end_month,omitempty"`
+	EndYear            int                `json:"end_year,omitempty"`
+	CanViewAllProducts bool               `json:"can_view_all_products,omitempty"`
+	Current            CIUsageInfoCurrent `json:"current,omitempty"`
+	Previous           CIUsageInfoCurrent `json:"previous,omitempty"`
+	Links              map[string]string  `json:"links,omitempty"`
+}
+
+// CIUsageInfoCurrent summarizes usage in the current/previous period.
+type CIUsageInfoCurrent struct {
+	Builds        int `json:"builds"`
+	Used          int `json:"used"`
+	Average30Days int `json:"average_30_days"`
 }
 
 // CIUsageDays is the response from the daily usage endpoint.
@@ -78,15 +95,20 @@ type CIUsageDays struct {
 
 // CIDayUsage describes usage for a single day.
 type CIDayUsage struct {
-	Date     string `json:"date"`
-	Duration int    `json:"duration"`
+	Date           string `json:"date"`
+	Duration       int    `json:"duration"`
+	NumberOfBuilds int    `json:"number_of_builds,omitempty"`
 }
 
 // CIWorkflowUsage describes per-workflow daily usage.
 type CIWorkflowUsage struct {
-	WorkflowID   string       `json:"workflow_id"`
-	WorkflowName string       `json:"workflow_name"`
-	Usage        []CIDayUsage `json:"usage"`
+	WorkflowID             string       `json:"workflow_id"`
+	WorkflowName           string       `json:"workflow_name,omitempty"`
+	Usage                  []CIDayUsage `json:"usage,omitempty"`
+	UsageInMinutes         int          `json:"usage_in_minutes,omitempty"`
+	NumberOfBuilds         int          `json:"number_of_builds,omitempty"`
+	PreviousUsageInMinutes int          `json:"previous_usage_in_minutes,omitempty"`
+	PreviousNumberOfBuilds int          `json:"previous_number_of_builds,omitempty"`
 }
 
 // CIProduct describes a Xcode Cloud product.
@@ -101,6 +123,56 @@ type CIProduct struct {
 // CIProductListResponse is the response from the products endpoint.
 type CIProductListResponse struct {
 	Items []CIProduct `json:"items"`
+}
+
+func (m *CIMonthUsage) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		Month          int  `json:"month"`
+		Year           int  `json:"year"`
+		Duration       *int `json:"duration"`
+		Minutes        *int `json:"minutes"`
+		NumberOfBuilds int  `json:"number_of_builds"`
+	}
+	var value alias
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	m.Month = value.Month
+	m.Year = value.Year
+	m.NumberOfBuilds = value.NumberOfBuilds
+	switch {
+	case value.Duration != nil:
+		m.Duration = *value.Duration
+	case value.Minutes != nil:
+		m.Duration = *value.Minutes
+	default:
+		m.Duration = 0
+	}
+	return nil
+}
+
+func (d *CIDayUsage) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		Date           string `json:"date"`
+		Duration       *int   `json:"duration"`
+		Minutes        *int   `json:"minutes"`
+		NumberOfBuilds int    `json:"number_of_builds"`
+	}
+	var value alias
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	d.Date = value.Date
+	d.NumberOfBuilds = value.NumberOfBuilds
+	switch {
+	case value.Duration != nil:
+		d.Duration = *value.Duration
+	case value.Minutes != nil:
+		d.Duration = *value.Minutes
+	default:
+		d.Duration = 0
+	}
+	return nil
 }
 
 // GetCIUsageSummary retrieves the Xcode Cloud plan usage summary.

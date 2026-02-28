@@ -1,10 +1,18 @@
 package web
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
+
+	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
 func TestValidateDateFlagValidDates(t *testing.T) {
@@ -90,6 +98,118 @@ func TestWebXcodeCloudUsageSubcommands(t *testing.T) {
 	}
 }
 
+func TestWebXcodeCloudSubcommandsResolveSessionWithinTimeoutContext(t *testing.T) {
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+	})
+
+	resolveErr := errors.New("stop before network call")
+	tests := []struct {
+		name  string
+		build func() *ffcli.Command
+		args  []string
+	}{
+		{
+			name:  "usage summary",
+			build: webXcodeCloudUsageSummaryCommand,
+			args:  []string{"--apple-id", "user@example.com"},
+		},
+		{
+			name:  "usage months",
+			build: webXcodeCloudUsageMonthsCommand,
+			args:  []string{"--apple-id", "user@example.com"},
+		},
+		{
+			name:  "usage days",
+			build: webXcodeCloudUsageDaysCommand,
+			args:  []string{"--apple-id", "user@example.com", "--product-id", "product-123"},
+		},
+		{
+			name:  "products",
+			build: webXcodeCloudProductsCommand,
+			args:  []string{"--apple-id", "user@example.com"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hadDeadline := false
+			resolveSessionFn = func(
+				ctx context.Context,
+				appleID, password, twoFactorCode string,
+				usePasswordStdin bool,
+			) (*webcore.AuthSession, string, error) {
+				_, hadDeadline = ctx.Deadline()
+				return nil, "", resolveErr
+			}
+
+			cmd := tt.build()
+			if err := cmd.FlagSet.Parse(tt.args); err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+
+			err := cmd.Exec(context.Background(), nil)
+			if !errors.Is(err, resolveErr) {
+				t.Fatalf("expected resolveSession error %v, got %v", resolveErr, err)
+			}
+			if !hadDeadline {
+				t.Fatal("expected resolveSession to receive a timeout context")
+			}
+		})
+	}
+}
+
+func TestWebXcodeCloudUsageSummaryOutputTableUsesHumanRenderer(t *testing.T) {
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+	})
+
+	resolveSessionFn = func(
+		ctx context.Context,
+		appleID, password, twoFactorCode string,
+		usePasswordStdin bool,
+	) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			PublicProviderID: "team-uuid",
+			Client: &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					body := `{"plan":{"name":"Plan","reset_date":"2026-03-27","reset_date_time":"2026-03-27T07:26:10Z","available":1500,"used":0,"total":1500},"links":{"manage":"https://developer.apple.com/xcode-cloud/"}}`
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body:       io.NopCloser(strings.NewReader(body)),
+						Request:    req,
+					}, nil
+				}),
+			},
+		}, "cache", nil
+	}
+
+	cmd := webXcodeCloudUsageSummaryCommand()
+	if err := cmd.FlagSet.Parse([]string{"--apple-id", "user@example.com", "--output", "table"}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := cmd.Exec(context.Background(), nil); err != nil {
+			t.Fatalf("exec error: %v", err)
+		}
+	})
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if strings.Contains(stdout, `"plan"`) {
+		t.Fatalf("expected table output, got json: %q", stdout)
+	}
+	for _, token := range []string{"Plan", "Available", "1500"} {
+		if !strings.Contains(stdout, token) {
+			t.Fatalf("expected table output to include %q, got %q", token, stdout)
+		}
+	}
+}
+
 func TestWebXcodeCloudUsageDaysFlagSet(t *testing.T) {
 	cmd := WebXcodeCloudCommand()
 	daysCmd := findSub(findSub(cmd, "usage"), "days")
@@ -151,4 +271,66 @@ func findSub(cmd *ffcli.Command, name string) *ffcli.Command {
 		}
 	}
 	return nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func captureOutput(t *testing.T, fn func()) (string, string) {
+	t.Helper()
+
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+
+	rOut, wOut, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stdout pipe: %v", err)
+	}
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stderr pipe: %v", err)
+	}
+
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	outC := make(chan string)
+	errC := make(chan string)
+
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rOut)
+		_ = rOut.Close()
+		outC <- buf.String()
+	}()
+
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rErr)
+		_ = rErr.Close()
+		errC <- buf.String()
+	}()
+
+	defer func() {
+		os.Stdout = oldStdout
+		os.Stderr = oldStderr
+		_ = wOut.Close()
+		_ = wErr.Close()
+	}()
+
+	fn()
+
+	_ = wOut.Close()
+	_ = wErr.Close()
+
+	stdout := <-outC
+	stderr := <-errC
+
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	return stdout, stderr
 }

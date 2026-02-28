@@ -10,6 +10,7 @@ import (
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
@@ -94,7 +95,10 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			session, err := resolveWebSessionForCommand(ctx, sessionFlags)
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
+
+			session, err := resolveWebSessionForCommand(requestCtx, sessionFlags)
 			if err != nil {
 				return err
 			}
@@ -103,15 +107,18 @@ Examples:
 				return fmt.Errorf("xcode-cloud usage summary failed: session has no public provider ID")
 			}
 
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
 			client := newCIClientFn(session)
 			result, err := client.GetCIUsageSummary(requestCtx, teamID)
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage summary")
 			}
-			return shared.PrintOutput(result, *output.Output, *output.Pretty)
+			return shared.PrintOutputWithRenderers(
+				result,
+				*output.Output,
+				*output.Pretty,
+				func() error { return renderCIUsageSummaryTable(result) },
+				func() error { return renderCIUsageSummaryMarkdown(result) },
+			)
 		},
 	}
 }
@@ -159,7 +166,10 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			session, err := resolveWebSessionForCommand(ctx, sessionFlags)
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
+
+			session, err := resolveWebSessionForCommand(requestCtx, sessionFlags)
 			if err != nil {
 				return err
 			}
@@ -168,15 +178,18 @@ Examples:
 				return fmt.Errorf("xcode-cloud usage months failed: session has no public provider ID")
 			}
 
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
 			client := newCIClientFn(session)
 			result, err := client.GetCIUsageMonths(requestCtx, teamID, *startMonth, *startYear, *endMonth, *endYear)
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage months")
 			}
-			return shared.PrintOutput(result, *output.Output, *output.Pretty)
+			return shared.PrintOutputWithRenderers(
+				result,
+				*output.Output,
+				*output.Pretty,
+				func() error { return renderCIUsageMonthsTable(result) },
+				func() error { return renderCIUsageMonthsMarkdown(result) },
+			)
 		},
 	}
 }
@@ -225,7 +238,10 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			session, err := resolveWebSessionForCommand(ctx, sessionFlags)
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
+
+			session, err := resolveWebSessionForCommand(requestCtx, sessionFlags)
 			if err != nil {
 				return err
 			}
@@ -234,15 +250,18 @@ Examples:
 				return fmt.Errorf("xcode-cloud usage days failed: session has no public provider ID")
 			}
 
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
 			client := newCIClientFn(session)
 			result, err := client.GetCIUsageDays(requestCtx, teamID, pid, *start, *end)
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud usage days")
 			}
-			return shared.PrintOutput(result, *output.Output, *output.Pretty)
+			return shared.PrintOutputWithRenderers(
+				result,
+				*output.Output,
+				*output.Pretty,
+				func() error { return renderCIUsageDaysTable(result) },
+				func() error { return renderCIUsageDaysMarkdown(result) },
+			)
 		},
 	}
 }
@@ -269,7 +288,10 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			session, err := resolveWebSessionForCommand(ctx, sessionFlags)
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
+
+			session, err := resolveWebSessionForCommand(requestCtx, sessionFlags)
 			if err != nil {
 				return err
 			}
@@ -278,17 +300,257 @@ Examples:
 				return fmt.Errorf("xcode-cloud products failed: session has no public provider ID")
 			}
 
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
 			client := newCIClientFn(session)
 			result, err := client.ListCIProducts(requestCtx, teamID)
 			if err != nil {
 				return withWebAuthHint(err, "xcode-cloud products")
 			}
-			return shared.PrintOutput(result, *output.Output, *output.Pretty)
+			return shared.PrintOutputWithRenderers(
+				result,
+				*output.Output,
+				*output.Pretty,
+				func() error { return renderCIProductsTable(result) },
+				func() error { return renderCIProductsMarkdown(result) },
+			)
 		},
 	}
+}
+
+func renderCIUsageSummaryTable(result *webcore.CIUsageSummary) error {
+	asc.RenderTable(
+		[]string{"Plan", "Used", "Available", "Total", "Reset Date", "Reset Date Time", "Manage URL"},
+		buildCIUsageSummaryRows(result),
+	)
+	return nil
+}
+
+func renderCIUsageSummaryMarkdown(result *webcore.CIUsageSummary) error {
+	asc.RenderMarkdown(
+		[]string{"Plan", "Used", "Available", "Total", "Reset Date", "Reset Date Time", "Manage URL"},
+		buildCIUsageSummaryRows(result),
+	)
+	return nil
+}
+
+func buildCIUsageSummaryRows(result *webcore.CIUsageSummary) [][]string {
+	if result == nil {
+		result = &webcore.CIUsageSummary{}
+	}
+	return [][]string{
+		{
+			valueOrNA(result.Plan.Name),
+			fmt.Sprintf("%d", result.Plan.Used),
+			fmt.Sprintf("%d", result.Plan.Available),
+			fmt.Sprintf("%d", result.Plan.Total),
+			valueOrNA(result.Plan.ResetDate),
+			valueOrNA(result.Plan.ResetDateTime),
+			valueOrNA(result.Links["manage"]),
+		},
+	}
+}
+
+func renderCIUsageMonthsTable(result *webcore.CIUsageMonths) error {
+	if result == nil {
+		result = &webcore.CIUsageMonths{}
+	}
+
+	fmt.Printf("Range: %s\n", formatCIMonthRange(result.Usage, result.Info))
+	fmt.Printf("Current: %d minutes (%d builds), avg30=%d\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
+	fmt.Printf("Previous: %d minutes (%d builds), avg30=%d\n\n", result.Info.Previous.Used, result.Info.Previous.Builds, result.Info.Previous.Average30Days)
+	asc.RenderTable([]string{"Year", "Month", "Minutes", "Builds"}, buildCIMonthUsageRows(result.Usage))
+
+	if len(result.ProductUsage) > 0 {
+		fmt.Println()
+		asc.RenderTable(
+			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds"},
+			buildCIProductUsageSummaryRows(result.ProductUsage),
+		)
+	}
+
+	return nil
+}
+
+func renderCIUsageMonthsMarkdown(result *webcore.CIUsageMonths) error {
+	if result == nil {
+		result = &webcore.CIUsageMonths{}
+	}
+
+	fmt.Printf("**Range:** %s\n\n", formatCIMonthRange(result.Usage, result.Info))
+	fmt.Printf("**Current:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
+	fmt.Printf("**Previous:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Previous.Used, result.Info.Previous.Builds, result.Info.Previous.Average30Days)
+	asc.RenderMarkdown([]string{"Year", "Month", "Minutes", "Builds"}, buildCIMonthUsageRows(result.Usage))
+
+	if len(result.ProductUsage) > 0 {
+		fmt.Println()
+		asc.RenderMarkdown(
+			[]string{"Product ID", "Product Name", "Bundle ID", "Minutes", "Builds", "Prev Minutes", "Prev Builds"},
+			buildCIProductUsageSummaryRows(result.ProductUsage),
+		)
+	}
+
+	return nil
+}
+
+func buildCIMonthUsageRows(usage []webcore.CIMonthUsage) [][]string {
+	rows := make([][]string, 0, len(usage))
+	for _, monthUsage := range usage {
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", monthUsage.Year),
+			fmt.Sprintf("%d", monthUsage.Month),
+			fmt.Sprintf("%d", monthUsage.Duration),
+			fmt.Sprintf("%d", monthUsage.NumberOfBuilds),
+		})
+	}
+	return rows
+}
+
+func buildCIProductUsageSummaryRows(productUsage []webcore.CIProductUsage) [][]string {
+	rows := make([][]string, 0)
+	for _, product := range productUsage {
+		minutes := product.UsageInMinutes
+		builds := product.NumberOfBuilds
+		if minutes == 0 && len(product.Usage) > 0 {
+			for _, monthUsage := range product.Usage {
+				minutes += monthUsage.Duration
+				builds += monthUsage.NumberOfBuilds
+			}
+		}
+		rows = append(rows, []string{
+			valueOrNA(product.ProductID),
+			valueOrNA(product.ProductName),
+			valueOrNA(product.BundleID),
+			fmt.Sprintf("%d", minutes),
+			fmt.Sprintf("%d", builds),
+			fmt.Sprintf("%d", product.PreviousUsageInMinutes),
+			fmt.Sprintf("%d", product.PreviousNumberOfBuilds),
+		})
+	}
+	return rows
+}
+
+func renderCIUsageDaysTable(result *webcore.CIUsageDays) error {
+	if result == nil {
+		result = &webcore.CIUsageDays{}
+	}
+
+	fmt.Printf("Range: %s\n", formatCIDayRange(result.Usage, result.Info))
+	fmt.Printf("Current: %d minutes (%d builds), avg30=%d\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
+	fmt.Printf("Previous: %d minutes (%d builds), avg30=%d\n\n", result.Info.Previous.Used, result.Info.Previous.Builds, result.Info.Previous.Average30Days)
+	asc.RenderTable([]string{"Date", "Minutes", "Builds"}, buildCIDayUsageRows(result.Usage))
+
+	if len(result.WorkflowUsage) > 0 {
+		fmt.Println()
+		asc.RenderTable(
+			[]string{"Workflow ID", "Workflow Name", "Minutes", "Builds", "Prev Minutes", "Prev Builds"},
+			buildCIWorkflowUsageRows(result.WorkflowUsage),
+		)
+	}
+
+	return nil
+}
+
+func renderCIUsageDaysMarkdown(result *webcore.CIUsageDays) error {
+	if result == nil {
+		result = &webcore.CIUsageDays{}
+	}
+
+	fmt.Printf("**Range:** %s\n\n", formatCIDayRange(result.Usage, result.Info))
+	fmt.Printf("**Current:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Current.Used, result.Info.Current.Builds, result.Info.Current.Average30Days)
+	fmt.Printf("**Previous:** %d minutes (%d builds), avg30=%d\n\n", result.Info.Previous.Used, result.Info.Previous.Builds, result.Info.Previous.Average30Days)
+	asc.RenderMarkdown([]string{"Date", "Minutes", "Builds"}, buildCIDayUsageRows(result.Usage))
+
+	if len(result.WorkflowUsage) > 0 {
+		fmt.Println()
+		asc.RenderMarkdown(
+			[]string{"Workflow ID", "Workflow Name", "Minutes", "Builds", "Prev Minutes", "Prev Builds"},
+			buildCIWorkflowUsageRows(result.WorkflowUsage),
+		)
+	}
+
+	return nil
+}
+
+func buildCIDayUsageRows(usage []webcore.CIDayUsage) [][]string {
+	rows := make([][]string, 0, len(usage))
+	for _, dayUsage := range usage {
+		rows = append(rows, []string{
+			valueOrNA(dayUsage.Date),
+			fmt.Sprintf("%d", dayUsage.Duration),
+			fmt.Sprintf("%d", dayUsage.NumberOfBuilds),
+		})
+	}
+	return rows
+}
+
+func buildCIWorkflowUsageRows(workflowUsage []webcore.CIWorkflowUsage) [][]string {
+	rows := make([][]string, 0)
+	for _, workflow := range workflowUsage {
+		minutes := workflow.UsageInMinutes
+		builds := workflow.NumberOfBuilds
+		if minutes == 0 && len(workflow.Usage) > 0 {
+			for _, dayUsage := range workflow.Usage {
+				minutes += dayUsage.Duration
+				builds += dayUsage.NumberOfBuilds
+			}
+		}
+		rows = append(rows, []string{
+			valueOrNA(workflow.WorkflowID),
+			valueOrNA(workflow.WorkflowName),
+			fmt.Sprintf("%d", minutes),
+			fmt.Sprintf("%d", builds),
+			fmt.Sprintf("%d", workflow.PreviousUsageInMinutes),
+			fmt.Sprintf("%d", workflow.PreviousNumberOfBuilds),
+		})
+	}
+	return rows
+}
+
+func renderCIProductsTable(result *webcore.CIProductListResponse) error {
+	asc.RenderTable([]string{"Product ID", "Name", "Bundle ID", "Type"}, buildCIProductRows(result))
+	return nil
+}
+
+func renderCIProductsMarkdown(result *webcore.CIProductListResponse) error {
+	asc.RenderMarkdown([]string{"Product ID", "Name", "Bundle ID", "Type"}, buildCIProductRows(result))
+	return nil
+}
+
+func buildCIProductRows(result *webcore.CIProductListResponse) [][]string {
+	if result == nil {
+		result = &webcore.CIProductListResponse{}
+	}
+	rows := make([][]string, 0, len(result.Items))
+	for _, item := range result.Items {
+		rows = append(rows, []string{
+			valueOrNA(item.ID),
+			valueOrNA(item.Name),
+			valueOrNA(item.BundleID),
+			valueOrNA(item.Type),
+		})
+	}
+	return rows
+}
+
+func formatCIMonthRange(usage []webcore.CIMonthUsage, info webcore.CIUsageInfo) string {
+	if info.StartMonth < 1 || info.StartYear < 1 || info.EndMonth < 1 || info.EndYear < 1 {
+		if len(usage) > 0 {
+			first := usage[0]
+			last := usage[len(usage)-1]
+			return fmt.Sprintf("%04d-%02d to %04d-%02d", first.Year, first.Month, last.Year, last.Month)
+		}
+		return "n/a"
+	}
+	return fmt.Sprintf("%04d-%02d to %04d-%02d", info.StartYear, info.StartMonth, info.EndYear, info.EndMonth)
+}
+
+func formatCIDayRange(usage []webcore.CIDayUsage, info webcore.CIUsageInfo) string {
+	if info.StartMonth > 0 && info.StartYear > 0 && info.EndMonth > 0 && info.EndYear > 0 {
+		return fmt.Sprintf("%04d-%02d to %04d-%02d", info.StartYear, info.StartMonth, info.EndYear, info.EndMonth)
+	}
+	if len(usage) == 0 {
+		return "n/a"
+	}
+	return fmt.Sprintf("%s to %s", valueOrNA(usage[0].Date), valueOrNA(usage[len(usage)-1].Date))
 }
 
 func validateDateFlag(name, value string) error {
