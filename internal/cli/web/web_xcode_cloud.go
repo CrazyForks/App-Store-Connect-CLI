@@ -200,10 +200,7 @@ Examples:
 			switch shared.NormalizeOutputFormat(*output.Output) {
 			case "table", "markdown":
 				summary, err := client.GetCIUsageSummary(requestCtx, teamID)
-				if err != nil {
-					return withWebAuthHint(err, "xcode-cloud usage months")
-				}
-				if summary != nil {
+				if err == nil && summary != nil {
 					planTotal = summary.Plan.Total
 				}
 			}
@@ -291,15 +288,9 @@ Examples:
 			planTotal := 0
 			switch shared.NormalizeOutputFormat(*output.Output) {
 			case "table", "markdown":
-				overall, err = client.GetCIUsageDaysOverall(requestCtx, teamID, *start, *end)
-				if err != nil {
-					return withWebAuthHint(err, "xcode-cloud usage days")
-				}
+				overall, _ = client.GetCIUsageDaysOverall(requestCtx, teamID, *start, *end)
 				summary, err := client.GetCIUsageSummary(requestCtx, teamID)
-				if err != nil {
-					return withWebAuthHint(err, "xcode-cloud usage days")
-				}
-				if summary != nil {
+				if err == nil && summary != nil {
 					planTotal = summary.Plan.Total
 				}
 				products, err := client.ListCIProducts(requestCtx, teamID)
@@ -435,10 +426,13 @@ Examples:
 				End:       *end,
 				Workflows: result.WorkflowUsage,
 			}
-			summary, _ := client.GetCIUsageSummary(requestCtx, teamID)
 			planTotal := 0
-			if summary != nil {
-				planTotal = summary.Plan.Total
+			switch shared.NormalizeOutputFormat(*output.Output) {
+			case "table", "markdown":
+				summary, _ := client.GetCIUsageSummary(requestCtx, teamID)
+				if summary != nil {
+					planTotal = summary.Plan.Total
+				}
 			}
 			return shared.PrintOutputWithRenderers(
 				out,
@@ -767,20 +761,26 @@ func renderCIUsageDaysTable(
 	productNames map[string]string,
 	planTotal int,
 ) error {
+	hasOverall := overall != nil
 	if result == nil {
 		result = &webcore.CIUsageDays{}
 	}
-	if overall == nil {
-		overall = &webcore.CIUsageDays{}
-	}
 	maxDayMinutes := maxDayUsageMinutes(result.Usage)
 	maxWorkflowMinutes := maxWorkflowUsageMinutes(result.WorkflowUsage)
-	overallCurrent := overall.Info.Current
-	overallPrevious := overall.Info.Previous
+	overallCurrent := webcore.CIUsageInfoCurrent{}
+	overallPrevious := webcore.CIUsageInfoCurrent{}
+	if hasOverall {
+		overallCurrent = overall.Info.Current
+		overallPrevious = overall.Info.Previous
+	}
 
 	fmt.Printf("Range: %s\n", formatCIDayRange(result.Usage, result.Info))
-	fmt.Printf("Overall current: %d minutes (%d builds), avg30=%d\n", overallCurrent.Used, overallCurrent.Builds, overallCurrent.Average30Days)
-	fmt.Printf("Overall previous: %d minutes (%d builds), avg30=%d\n\n", overallPrevious.Used, overallPrevious.Builds, overallPrevious.Average30Days)
+	if hasOverall {
+		fmt.Printf("Overall current: %d minutes (%d builds), avg30=%d\n", overallCurrent.Used, overallCurrent.Builds, overallCurrent.Average30Days)
+		fmt.Printf("Overall previous: %d minutes (%d builds), avg30=%d\n\n", overallPrevious.Used, overallPrevious.Builds, overallPrevious.Average30Days)
+	} else {
+		fmt.Printf("Overall usage unavailable; showing selected product scope only.\n\n")
+	}
 	asc.RenderTable(
 		[]string{"Scope", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar (Plan)"},
 		buildCIUsageScopeRows(
@@ -811,20 +811,26 @@ func renderCIUsageDaysMarkdown(
 	productNames map[string]string,
 	planTotal int,
 ) error {
+	hasOverall := overall != nil
 	if result == nil {
 		result = &webcore.CIUsageDays{}
 	}
-	if overall == nil {
-		overall = &webcore.CIUsageDays{}
-	}
 	maxDayMinutes := maxDayUsageMinutes(result.Usage)
 	maxWorkflowMinutes := maxWorkflowUsageMinutes(result.WorkflowUsage)
-	overallCurrent := overall.Info.Current
-	overallPrevious := overall.Info.Previous
+	overallCurrent := webcore.CIUsageInfoCurrent{}
+	overallPrevious := webcore.CIUsageInfoCurrent{}
+	if hasOverall {
+		overallCurrent = overall.Info.Current
+		overallPrevious = overall.Info.Previous
+	}
 
 	fmt.Printf("**Range:** %s\n\n", formatCIDayRange(result.Usage, result.Info))
-	fmt.Printf("**Overall current:** %d minutes (%d builds), avg30=%d\n\n", overallCurrent.Used, overallCurrent.Builds, overallCurrent.Average30Days)
-	fmt.Printf("**Overall previous:** %d minutes (%d builds), avg30=%d\n\n", overallPrevious.Used, overallPrevious.Builds, overallPrevious.Average30Days)
+	if hasOverall {
+		fmt.Printf("**Overall current:** %d minutes (%d builds), avg30=%d\n\n", overallCurrent.Used, overallCurrent.Builds, overallCurrent.Average30Days)
+		fmt.Printf("**Overall previous:** %d minutes (%d builds), avg30=%d\n\n", overallPrevious.Used, overallPrevious.Builds, overallPrevious.Average30Days)
+	} else {
+		fmt.Printf("**Overall usage unavailable; showing selected product scope only.**\n\n")
+	}
 	asc.RenderMarkdown(
 		[]string{"Scope", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar (Plan)"},
 		buildCIUsageScopeRows(
@@ -1021,11 +1027,16 @@ func buildCIUsageScopeRows(
 	productNames map[string]string,
 	planTotal int,
 ) [][]string {
+	hasOverall := overall != nil
 	if overall == nil {
 		overall = &webcore.CIUsageDays{}
 	}
 	if app == nil {
 		app = &webcore.CIUsageDays{}
+	}
+	if !hasOverall && len(productIDs) > 1 {
+		// Without overall data we cannot resolve additional products reliably.
+		productIDs = productIDs[:1]
 	}
 	primaryProductID := ""
 	if len(productIDs) > 0 {
@@ -1074,14 +1085,16 @@ func buildCIUsageScopeRows(
 			formatUsageBarWithValues(scope.Current.Used, absoluteTotal),
 		})
 	}
-	rows = append(rows, []string{
-		"Overall Team",
-		fmt.Sprintf("%d", overallCurrent.Used),
-		fmt.Sprintf("%d", overallCurrent.Builds),
-		fmt.Sprintf("%d", overallPrevious.Used),
-		fmt.Sprintf("%d", overallPrevious.Builds),
-		formatUsageBarWithValues(overallCurrent.Used, absoluteTotal),
-	})
+	if hasOverall {
+		rows = append(rows, []string{
+			"Overall Team",
+			fmt.Sprintf("%d", overallCurrent.Used),
+			fmt.Sprintf("%d", overallCurrent.Builds),
+			fmt.Sprintf("%d", overallPrevious.Used),
+			fmt.Sprintf("%d", overallPrevious.Builds),
+			formatUsageBarWithValues(overallCurrent.Used, absoluteTotal),
+		})
+	}
 	return rows
 }
 
