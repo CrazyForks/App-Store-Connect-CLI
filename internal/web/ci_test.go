@@ -407,3 +407,64 @@ func TestNewCIClientSetsBaseURL(t *testing.T) {
 		t.Fatalf("expected base URL ending in /ci/api, got %q", client.baseURL)
 	}
 }
+
+func TestListCIWorkflowsParsesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/products/prod-1/workflows-v15") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("limit") != "100" {
+			t.Fatalf("expected limit=100, got %q", r.URL.Query().Get("limit"))
+		}
+		if r.URL.Query().Get("include_deleted") != "false" {
+			t.Fatalf("expected include_deleted=false, got %q", r.URL.Query().Get("include_deleted"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"items": [
+				{"id":"wf-1","content":{"name":"TestFlight Deploy","description":"Build on main"}},
+				{"id":"wf-2","content":{"name":"PR Check"}}
+			]
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	result, err := client.ListCIWorkflows(context.Background(), "team-uuid", "prod-1")
+	if err != nil {
+		t.Fatalf("ListCIWorkflows() error = %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected 2 workflows, got %d", len(result.Items))
+	}
+	if result.Items[0].ID != "wf-1" || result.Items[0].Content.Name != "TestFlight Deploy" {
+		t.Fatalf("unexpected first workflow: %+v", result.Items[0])
+	}
+	if result.Items[1].Content.Name != "PR Check" {
+		t.Fatalf("unexpected second workflow name: %q", result.Items[1].Content.Name)
+	}
+}
+
+func TestListCIWorkflowsRejectsEmptyInputs(t *testing.T) {
+	client := &Client{httpClient: http.DefaultClient, baseURL: "http://localhost"}
+	tests := []struct {
+		name      string
+		teamID    string
+		productID string
+		wantErr   string
+	}{
+		{"empty team", "", "prod", "team id is required"},
+		{"empty product", "team", "", "product id is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.ListCIWorkflows(context.Background(), tt.teamID, tt.productID)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantErr, err.Error())
+			}
+		})
+	}
+}

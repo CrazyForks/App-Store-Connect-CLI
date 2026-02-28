@@ -405,6 +405,10 @@ Examples:
 				return withWebAuthHint(err, "xcode-cloud usage workflows")
 			}
 
+			// Resolve workflow names from the workflows endpoint.
+			wfNames := buildWorkflowNameByID(requestCtx, client, teamID, pid)
+			populateWorkflowNames(result.WorkflowUsage, wfNames)
+
 			wfID := strings.TrimSpace(*workflowID)
 			if wfID != "" {
 				// Drill into a specific workflow
@@ -441,6 +445,34 @@ Examples:
 				func() error { return renderCIWorkflowsListMarkdown(out, planTotal) },
 			)
 		},
+	}
+}
+
+func buildWorkflowNameByID(ctx context.Context, client *webcore.Client, teamID, productID string) map[string]string {
+	names := map[string]string{}
+	workflows, err := client.ListCIWorkflows(ctx, teamID, productID)
+	if err != nil || workflows == nil {
+		return names
+	}
+	for _, wf := range workflows.Items {
+		canonical := strings.ToLower(strings.TrimSpace(wf.ID))
+		name := strings.TrimSpace(wf.Content.Name)
+		if canonical != "" && name != "" {
+			names[canonical] = name
+		}
+	}
+	return names
+}
+
+func populateWorkflowNames(workflows []webcore.CIWorkflowUsage, names map[string]string) {
+	for i := range workflows {
+		if strings.TrimSpace(workflows[i].WorkflowName) != "" {
+			continue
+		}
+		canonical := strings.ToLower(strings.TrimSpace(workflows[i].WorkflowID))
+		if name, ok := names[canonical]; ok {
+			workflows[i].WorkflowName = name
+		}
 	}
 }
 

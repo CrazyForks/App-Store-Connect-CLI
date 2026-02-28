@@ -126,6 +126,23 @@ type CIProductListResponse struct {
 	Items []CIProduct `json:"items"`
 }
 
+// CIWorkflow describes a Xcode Cloud workflow.
+type CIWorkflow struct {
+	ID      string            `json:"id"`
+	Content CIWorkflowContent `json:"content"`
+}
+
+// CIWorkflowContent holds the workflow's configuration including its name.
+type CIWorkflowContent struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// CIWorkflowListResponse is the response from the workflows endpoint.
+type CIWorkflowListResponse struct {
+	Items []CIWorkflow `json:"items"`
+}
+
 func (m *CIMonthUsage) UnmarshalJSON(data []byte) error {
 	type alias struct {
 		Month          int  `json:"month"`
@@ -297,6 +314,31 @@ func (c *Client) ListCIProducts(ctx context.Context, teamID string) (*CIProductL
 	var result CIProductListResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode ci products: %w", err)
+	}
+	return &result, nil
+}
+
+// ListCIWorkflows lists Xcode Cloud workflows for a product.
+func (c *Client) ListCIWorkflows(ctx context.Context, teamID, productID string) (*CIWorkflowListResponse, error) {
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return nil, fmt.Errorf("team id is required")
+	}
+	productID = strings.TrimSpace(productID)
+	if productID == "" {
+		return nil, fmt.Errorf("product id is required")
+	}
+	query := url.Values{}
+	query.Set("limit", "100")
+	query.Set("include_deleted", "false")
+	path := queryPath("/teams/"+url.PathEscape(teamID)+"/products/"+url.PathEscape(productID)+"/workflows-v15", query)
+	body, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result CIWorkflowListResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode ci workflows: %w", err)
 	}
 	return &result, nil
 }

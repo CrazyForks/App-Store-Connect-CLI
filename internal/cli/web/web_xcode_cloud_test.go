@@ -788,6 +788,31 @@ func TestWebXcodeCloudUsageWorkflowsListOutput(t *testing.T) {
 	})
 }
 
+func TestPopulateWorkflowNames(t *testing.T) {
+	workflows := []webcore.CIWorkflowUsage{
+		{WorkflowID: "wf-1", WorkflowName: ""},
+		{WorkflowID: "wf-2", WorkflowName: "Already Named"},
+		{WorkflowID: "wf-3", WorkflowName: ""},
+	}
+	names := map[string]string{
+		"wf-1": "TestFlight Deploy",
+		"wf-2": "Should Not Override",
+		"wf-3": "PR Check",
+	}
+
+	populateWorkflowNames(workflows, names)
+
+	if workflows[0].WorkflowName != "TestFlight Deploy" {
+		t.Fatalf("expected wf-1 name to be populated, got %q", workflows[0].WorkflowName)
+	}
+	if workflows[1].WorkflowName != "Already Named" {
+		t.Fatalf("expected wf-2 name to be preserved, got %q", workflows[1].WorkflowName)
+	}
+	if workflows[2].WorkflowName != "PR Check" {
+		t.Fatalf("expected wf-3 name to be populated, got %q", workflows[2].WorkflowName)
+	}
+}
+
 func TestWebXcodeCloudAllCommandsHaveUsageFunc(t *testing.T) {
 	cmd := WebXcodeCloudCommand()
 	if cmd.UsageFunc == nil {
