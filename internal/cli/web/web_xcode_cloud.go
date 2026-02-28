@@ -37,7 +37,8 @@ Examples:
   asc web xcode-cloud products --apple-id "user@example.com" --output table
   asc web xcode-cloud usage months --apple-id "user@example.com" --output table
   asc web xcode-cloud usage months --product-ids "UUID" --apple-id "user@example.com" --output table
-  asc web xcode-cloud usage days --product-ids "UUID" --apple-id "user@example.com"`,
+  asc web xcode-cloud usage days --product-ids "UUID" --apple-id "user@example.com"
+  asc web xcode-cloud usage workflows --product-id "UUID" --apple-id "user@example.com" --output table`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -59,7 +60,7 @@ func webXcodeCloudUsageCommand() *ffcli.Command {
 		ShortHelp:  "EXPERIMENTAL: Xcode Cloud usage queries.",
 		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
 
-Query Xcode Cloud compute usage: plan summary, monthly history, daily breakdown.
+Query Xcode Cloud compute usage: plan summary, monthly history, daily breakdown, per-workflow usage.
 
 ` + webWarningText,
 		FlagSet:   fs,
@@ -68,6 +69,7 @@ Query Xcode Cloud compute usage: plan summary, monthly history, daily breakdown.
 			webXcodeCloudUsageSummaryCommand(),
 			webXcodeCloudUsageMonthsCommand(),
 			webXcodeCloudUsageDaysCommand(),
+			webXcodeCloudUsageWorkflowsCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
@@ -327,6 +329,224 @@ Examples:
 			)
 		},
 	}
+}
+
+// CIWorkflowsResult is the output type for the workflows command.
+// It wraps the workflow usage data with product context for clean JSON output.
+type CIWorkflowsResult struct {
+	ProductID string                    `json:"product_id"`
+	Start     string                    `json:"start"`
+	End       string                    `json:"end"`
+	Workflows []webcore.CIWorkflowUsage `json:"workflows"`
+}
+
+func webXcodeCloudUsageWorkflowsCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("web xcode-cloud usage workflows", flag.ExitOnError)
+	sessionFlags := bindWebSessionFlags(fs)
+	output := shared.BindOutputFlags(fs)
+
+	now := time.Now()
+	defaultEnd := now.Format("2006-01-02")
+	defaultStart := now.AddDate(0, 0, -30).Format("2006-01-02")
+
+	productID := fs.String("product-id", "", "Xcode Cloud product ID (required)")
+	workflowID := fs.String("workflow-id", "", "Specific workflow ID to drill into (optional)")
+	start := fs.String("start", defaultStart, "Start date (YYYY-MM-DD)")
+	end := fs.String("end", defaultEnd, "End date (YYYY-MM-DD)")
+
+	return &ffcli.Command{
+		Name:       "workflows",
+		ShortUsage: "asc web xcode-cloud usage workflows --product-id ID [flags]",
+		ShortHelp:  "EXPERIMENTAL: Show per-workflow Xcode Cloud usage.",
+		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
+
+Show Xcode Cloud compute usage broken down by workflow for a product.
+Without --workflow-id, lists all workflows and their usage.
+With --workflow-id, shows daily breakdown for that specific workflow.
+Defaults to the last 30 days.
+
+` + webWarningText + `
+
+Examples:
+  asc web xcode-cloud usage workflows --product-id "UUID" --apple-id "user@example.com" --output table
+  asc web xcode-cloud usage workflows --product-id "UUID" --workflow-id "WF-UUID" --apple-id "user@example.com" --output table`,
+		FlagSet:   fs,
+		UsageFunc: shared.DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			pid := strings.TrimSpace(*productID)
+			if pid == "" {
+				fmt.Fprintln(os.Stderr, "Error: --product-id is required")
+				return flag.ErrHelp
+			}
+			if err := validateDateFlag("--start", *start); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+				return flag.ErrHelp
+			}
+			if err := validateDateFlag("--end", *end); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+				return flag.ErrHelp
+			}
+
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
+
+			session, err := resolveWebSessionForCommand(requestCtx, sessionFlags)
+			if err != nil {
+				return err
+			}
+			teamID := strings.TrimSpace(session.PublicProviderID)
+			if teamID == "" {
+				return fmt.Errorf("xcode-cloud usage workflows failed: session has no public provider ID")
+			}
+
+			client := newCIClientFn(session)
+			result, err := client.GetCIUsageDays(requestCtx, teamID, pid, *start, *end)
+			if err != nil {
+				return withWebAuthHint(err, "xcode-cloud usage workflows")
+			}
+
+			wfID := strings.TrimSpace(*workflowID)
+			if wfID != "" {
+				// Drill into a specific workflow
+				wf := findWorkflowByID(result.WorkflowUsage, wfID)
+				if wf == nil {
+					return fmt.Errorf("workflow %q not found in product %q", wfID, pid)
+				}
+				return shared.PrintOutputWithRenderers(
+					wf,
+					*output.Output,
+					*output.Pretty,
+					func() error { return renderCIWorkflowDetailTable(wf) },
+					func() error { return renderCIWorkflowDetailMarkdown(wf) },
+				)
+			}
+
+			// List all workflows
+			out := &CIWorkflowsResult{
+				ProductID: pid,
+				Start:     *start,
+				End:       *end,
+				Workflows: result.WorkflowUsage,
+			}
+			summary, _ := client.GetCIUsageSummary(requestCtx, teamID)
+			planTotal := 0
+			if summary != nil {
+				planTotal = summary.Plan.Total
+			}
+			return shared.PrintOutputWithRenderers(
+				out,
+				*output.Output,
+				*output.Pretty,
+				func() error { return renderCIWorkflowsListTable(out, planTotal) },
+				func() error { return renderCIWorkflowsListMarkdown(out, planTotal) },
+			)
+		},
+	}
+}
+
+func findWorkflowByID(workflows []webcore.CIWorkflowUsage, id string) *webcore.CIWorkflowUsage {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	for i := range workflows {
+		if strings.EqualFold(strings.TrimSpace(workflows[i].WorkflowID), id) {
+			return &workflows[i]
+		}
+	}
+	return nil
+}
+
+func renderCIWorkflowsListTable(result *CIWorkflowsResult, planTotal int) error {
+	if result == nil || len(result.Workflows) == 0 {
+		fmt.Println("No workflow usage found.")
+		return nil
+	}
+	maxMinutes := maxWorkflowUsageMinutes(result.Workflows)
+	fmt.Printf("Product: %s\n", result.ProductID)
+	fmt.Printf("Range: %s to %s\n", result.Start, result.End)
+	fmt.Printf("Workflows: %d\n\n", len(result.Workflows))
+	asc.RenderTable(
+		[]string{"Workflow ID", "Workflow Name", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar"},
+		buildCIWorkflowUsageRows(result.Workflows, maxMinutes),
+	)
+	if planTotal > 0 {
+		totalMinutes := 0
+		for _, wf := range result.Workflows {
+			m, _ := normalizeWorkflowUsage(wf)
+			totalMinutes += m
+		}
+		fmt.Printf("\nProduct total: %s\n", formatUsageBarWithValues(totalMinutes, planTotal, "m"))
+	}
+	return nil
+}
+
+func renderCIWorkflowsListMarkdown(result *CIWorkflowsResult, planTotal int) error {
+	if result == nil || len(result.Workflows) == 0 {
+		fmt.Println("No workflow usage found.")
+		return nil
+	}
+	maxMinutes := maxWorkflowUsageMinutes(result.Workflows)
+	fmt.Printf("**Product:** %s\n\n", result.ProductID)
+	fmt.Printf("**Range:** %s to %s\n\n", result.Start, result.End)
+	fmt.Printf("**Workflows:** %d\n\n", len(result.Workflows))
+	asc.RenderMarkdown(
+		[]string{"Workflow ID", "Workflow Name", "Minutes", "Builds", "Prev Minutes", "Prev Builds", "Usage Bar"},
+		buildCIWorkflowUsageRows(result.Workflows, maxMinutes),
+	)
+	if planTotal > 0 {
+		totalMinutes := 0
+		for _, wf := range result.Workflows {
+			m, _ := normalizeWorkflowUsage(wf)
+			totalMinutes += m
+		}
+		fmt.Printf("\n**Product total:** %s\n", formatUsageBarWithValues(totalMinutes, planTotal, "m"))
+	}
+	return nil
+}
+
+func renderCIWorkflowDetailTable(wf *webcore.CIWorkflowUsage) error {
+	if wf == nil {
+		return nil
+	}
+	minutes, builds := normalizeWorkflowUsage(*wf)
+	maxDayMinutes := maxDayUsageMinutes(wf.Usage)
+
+	fmt.Printf("Workflow: %s (%s)\n", valueOrNA(wf.WorkflowName), wf.WorkflowID)
+	fmt.Printf("Current: %d minutes, %d builds\n", minutes, builds)
+	fmt.Printf("Previous: %d minutes, %d builds\n\n", wf.PreviousUsageInMinutes, wf.PreviousNumberOfBuilds)
+
+	if len(wf.Usage) == 0 {
+		fmt.Println("No daily usage data.")
+		return nil
+	}
+	asc.RenderTable(
+		[]string{"Date", "Minutes", "Builds", "Usage Bar"},
+		buildCIDayUsageRows(wf.Usage, maxDayMinutes),
+	)
+	return nil
+}
+
+func renderCIWorkflowDetailMarkdown(wf *webcore.CIWorkflowUsage) error {
+	if wf == nil {
+		return nil
+	}
+	minutes, builds := normalizeWorkflowUsage(*wf)
+	maxDayMinutes := maxDayUsageMinutes(wf.Usage)
+
+	fmt.Printf("**Workflow:** %s (%s)\n\n", valueOrNA(wf.WorkflowName), wf.WorkflowID)
+	fmt.Printf("**Current:** %d minutes, %d builds\n\n", minutes, builds)
+	fmt.Printf("**Previous:** %d minutes, %d builds\n\n", wf.PreviousUsageInMinutes, wf.PreviousNumberOfBuilds)
+
+	if len(wf.Usage) == 0 {
+		fmt.Println("No daily usage data.")
+		return nil
+	}
+	asc.RenderMarkdown(
+		[]string{"Date", "Minutes", "Builds", "Usage Bar"},
+		buildCIDayUsageRows(wf.Usage, maxDayMinutes),
+	)
+	return nil
 }
 
 func webXcodeCloudProductsCommand() *ffcli.Command {

@@ -85,14 +85,14 @@ func TestWebXcodeCloudUsageSubcommands(t *testing.T) {
 	if usageCmd == nil {
 		t.Fatal("could not find 'usage' subcommand")
 	}
-	if len(usageCmd.Subcommands) != 3 {
-		t.Fatalf("expected 3 usage subcommands, got %d", len(usageCmd.Subcommands))
+	if len(usageCmd.Subcommands) != 4 {
+		t.Fatalf("expected 4 usage subcommands, got %d", len(usageCmd.Subcommands))
 	}
 	usageNames := map[string]bool{}
 	for _, sub := range usageCmd.Subcommands {
 		usageNames[sub.Name] = true
 	}
-	for _, expected := range []string{"summary", "months", "days"} {
+	for _, expected := range []string{"summary", "months", "days", "workflows"} {
 		if !usageNames[expected] {
 			t.Fatalf("expected %q usage subcommand", expected)
 		}
@@ -125,6 +125,11 @@ func TestWebXcodeCloudSubcommandsResolveSessionWithinTimeoutContext(t *testing.T
 			name:  "usage days",
 			build: webXcodeCloudUsageDaysCommand,
 			args:  []string{"--apple-id", "user@example.com", "--product-ids", "product-123"},
+		},
+		{
+			name:  "usage workflows",
+			build: webXcodeCloudUsageWorkflowsCommand,
+			args:  []string{"--apple-id", "user@example.com", "--product-id", "prod-123"},
 		},
 		{
 			name:  "products",
@@ -591,6 +596,194 @@ func TestWebXcodeCloudUsageMonthsOutputTableWithProductFilter(t *testing.T) {
 		}
 		if strings.Contains(stdout, "App Two") {
 			t.Fatalf("expected prod-2 to be filtered out, got %q", stdout)
+		}
+	})
+}
+
+func TestWebXcodeCloudUsageWorkflowsFlagSet(t *testing.T) {
+	cmd := WebXcodeCloudCommand()
+	workflowsCmd := findSub(findSub(cmd, "usage"), "workflows")
+	if workflowsCmd == nil {
+		t.Fatal("could not find 'usage workflows' subcommand")
+	}
+
+	fs := workflowsCmd.FlagSet
+	for _, name := range []string{"product-id", "workflow-id", "start", "end"} {
+		if fs.Lookup(name) == nil {
+			t.Fatalf("expected --%s flag", name)
+		}
+	}
+}
+
+func TestWebXcodeCloudUsageWorkflowsRequiresProductID(t *testing.T) {
+	cmd := webXcodeCloudUsageWorkflowsCommand()
+	if err := cmd.FlagSet.Parse([]string{
+		"--apple-id", "user@example.com",
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	_, stderr := captureOutput(t, func() {
+		err := cmd.Exec(context.Background(), nil)
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected ErrHelp, got %v", err)
+		}
+	})
+	if !strings.Contains(stderr, "Error: --product-id is required") {
+		t.Fatalf("unexpected stderr: %q", stderr)
+	}
+}
+
+func TestFindWorkflowByID(t *testing.T) {
+	workflows := []webcore.CIWorkflowUsage{
+		{WorkflowID: "wf-1", WorkflowName: "Build"},
+		{WorkflowID: "wf-2", WorkflowName: "Test"},
+	}
+
+	t.Run("finds by exact ID", func(t *testing.T) {
+		wf := findWorkflowByID(workflows, "wf-1")
+		if wf == nil || wf.WorkflowName != "Build" {
+			t.Fatalf("expected Build workflow, got %+v", wf)
+		}
+	})
+
+	t.Run("case insensitive", func(t *testing.T) {
+		wf := findWorkflowByID(workflows, "WF-2")
+		if wf == nil || wf.WorkflowName != "Test" {
+			t.Fatalf("expected Test workflow, got %+v", wf)
+		}
+	})
+
+	t.Run("returns nil for missing", func(t *testing.T) {
+		wf := findWorkflowByID(workflows, "wf-999")
+		if wf != nil {
+			t.Fatalf("expected nil, got %+v", wf)
+		}
+	})
+
+	t.Run("returns nil for empty ID", func(t *testing.T) {
+		wf := findWorkflowByID(workflows, "")
+		if wf != nil {
+			t.Fatalf("expected nil, got %+v", wf)
+		}
+	})
+}
+
+func TestWebXcodeCloudUsageWorkflowsListOutput(t *testing.T) {
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+	})
+
+	resolveSessionFn = func(
+		ctx context.Context,
+		appleID, password, twoFactorCode string,
+		usePasswordStdin bool,
+	) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			PublicProviderID: "team-uuid",
+			Client: &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					var body string
+					if strings.Contains(req.URL.Path, "/usage/summary") {
+						body = `{"plan":{"name":"Plan","total":1500,"used":100,"available":1400}}`
+					} else {
+						body = `{
+							"usage":[{"date":"2026-01-15","duration":30,"number_of_builds":3}],
+							"workflow_usage":[
+								{"workflow_id":"wf-1","workflow_name":"Build","usage_in_minutes":20,"number_of_builds":2,"previous_usage_in_minutes":10,"previous_number_of_builds":1},
+								{"workflow_id":"wf-2","workflow_name":"Test","usage_in_minutes":10,"number_of_builds":1,"previous_usage_in_minutes":5,"previous_number_of_builds":1}
+							],
+							"info":{}
+						}`
+					}
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body:       io.NopCloser(strings.NewReader(body)),
+						Request:    req,
+					}, nil
+				}),
+			},
+		}, "cache", nil
+	}
+
+	t.Run("lists all workflows", func(t *testing.T) {
+		cmd := webXcodeCloudUsageWorkflowsCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-id", "prod-1",
+			"--output", "table",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		stdout, _ := captureOutput(t, func() {
+			if err := cmd.Exec(context.Background(), nil); err != nil {
+				t.Fatalf("exec error: %v", err)
+			}
+		})
+		if !strings.Contains(stdout, "Build") || !strings.Contains(stdout, "Test") {
+			t.Fatalf("expected both workflows in output, got %q", stdout)
+		}
+		if !strings.Contains(stdout, "wf-1") || !strings.Contains(stdout, "wf-2") {
+			t.Fatalf("expected workflow IDs in output, got %q", stdout)
+		}
+		if !strings.Contains(stdout, "Workflows: 2") {
+			t.Fatalf("expected workflow count, got %q", stdout)
+		}
+		if !strings.Contains(stdout, "/1500m") {
+			t.Fatalf("expected plan total in output, got %q", stdout)
+		}
+	})
+
+	t.Run("drills into specific workflow", func(t *testing.T) {
+		cmd := webXcodeCloudUsageWorkflowsCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-id", "prod-1",
+			"--workflow-id", "wf-1",
+			"--output", "table",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		stdout, _ := captureOutput(t, func() {
+			if err := cmd.Exec(context.Background(), nil); err != nil {
+				t.Fatalf("exec error: %v", err)
+			}
+		})
+		if !strings.Contains(stdout, "Build") {
+			t.Fatalf("expected workflow name in output, got %q", stdout)
+		}
+		if !strings.Contains(stdout, "Current: 20 minutes") {
+			t.Fatalf("expected current usage, got %q", stdout)
+		}
+		if !strings.Contains(stdout, "Previous: 10 minutes") {
+			t.Fatalf("expected previous usage, got %q", stdout)
+		}
+		// Should NOT show the other workflow
+		if strings.Contains(stdout, "Test") {
+			t.Fatalf("expected only Build workflow, got %q", stdout)
+		}
+	})
+
+	t.Run("workflow not found returns error", func(t *testing.T) {
+		cmd := webXcodeCloudUsageWorkflowsCommand()
+		if err := cmd.FlagSet.Parse([]string{
+			"--apple-id", "user@example.com",
+			"--product-id", "prod-1",
+			"--workflow-id", "nonexistent",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+
+		err := cmd.Exec(context.Background(), nil)
+		if err == nil {
+			t.Fatal("expected error for missing workflow")
+		}
+		if !strings.Contains(err.Error(), `workflow "nonexistent" not found`) {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }
