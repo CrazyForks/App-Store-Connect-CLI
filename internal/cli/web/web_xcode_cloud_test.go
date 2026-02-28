@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
@@ -468,6 +470,42 @@ func TestWebXcodeCloudUsageMonthsFlagSet(t *testing.T) {
 		if fs.Lookup(name) == nil {
 			t.Fatalf("expected --%s flag", name)
 		}
+	}
+}
+
+func TestWebXcodeCloudUsageMonthsDefaultsLast12Months(t *testing.T) {
+	origNowFn := webNowFn
+	t.Cleanup(func() {
+		webNowFn = origNowFn
+	})
+	fixedNow := time.Date(2026, time.March, 14, 12, 0, 0, 0, time.UTC)
+	webNowFn = func() time.Time { return fixedNow }
+
+	cmd := webXcodeCloudUsageMonthsCommand()
+	fs := cmd.FlagSet
+	if fs == nil {
+		t.Fatal("expected flag set on months command")
+	}
+	startMonth := fs.Lookup("start-month")
+	startYear := fs.Lookup("start-year")
+	endMonth := fs.Lookup("end-month")
+	endYear := fs.Lookup("end-year")
+	if startMonth == nil || startYear == nil || endMonth == nil || endYear == nil {
+		t.Fatal("expected start/end month/year flags")
+	}
+
+	expectedStart := fixedNow.AddDate(0, -11, 0)
+	if got := startMonth.DefValue; got != strconv.Itoa(int(expectedStart.Month())) {
+		t.Fatalf("start-month default = %s, want %d", got, int(expectedStart.Month()))
+	}
+	if got := startYear.DefValue; got != strconv.Itoa(expectedStart.Year()) {
+		t.Fatalf("start-year default = %s, want %d", got, expectedStart.Year())
+	}
+	if got := endMonth.DefValue; got != strconv.Itoa(int(fixedNow.Month())) {
+		t.Fatalf("end-month default = %s, want %d", got, int(fixedNow.Month()))
+	}
+	if got := endYear.DefValue; got != strconv.Itoa(fixedNow.Year()) {
+		t.Fatalf("end-year default = %s, want %d", got, fixedNow.Year())
 	}
 }
 

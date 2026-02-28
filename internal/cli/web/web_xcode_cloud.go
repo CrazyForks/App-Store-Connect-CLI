@@ -15,7 +15,10 @@ import (
 	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
-var newCIClientFn = webcore.NewCIClient
+var (
+	newCIClientFn = webcore.NewCIClient
+	webNowFn      = time.Now
+)
 
 // WebXcodeCloudCommand returns the xcode-cloud command group.
 func WebXcodeCloudCommand() *ffcli.Command {
@@ -131,12 +134,12 @@ func webXcodeCloudUsageMonthsCommand() *ffcli.Command {
 	sessionFlags := bindWebSessionFlags(fs)
 	output := shared.BindOutputFlags(fs)
 
-	now := time.Now()
+	now := webNowFn()
 	defaultEndMonth := int(now.Month())
 	defaultEndYear := now.Year()
-	past := now.AddDate(-1, 0, 0)
-	defaultStartMonth := int(past.Month())
-	defaultStartYear := past.Year()
+	startOfWindow := now.AddDate(0, -11, 0)
+	defaultStartMonth := int(startOfWindow.Month())
+	defaultStartYear := startOfWindow.Year()
 
 	startMonth := fs.Int("start-month", defaultStartMonth, "Start month (1-12)")
 	startYear := fs.Int("start-year", defaultStartYear, "Start year")
@@ -220,7 +223,7 @@ func webXcodeCloudUsageDaysCommand() *ffcli.Command {
 	sessionFlags := bindWebSessionFlags(fs)
 	output := shared.BindOutputFlags(fs)
 
-	now := time.Now()
+	now := webNowFn()
 	defaultEnd := now.Format("2006-01-02")
 	defaultStart := now.AddDate(0, 0, -30).Format("2006-01-02")
 
@@ -339,7 +342,7 @@ func webXcodeCloudUsageWorkflowsCommand() *ffcli.Command {
 	sessionFlags := bindWebSessionFlags(fs)
 	output := shared.BindOutputFlags(fs)
 
-	now := time.Now()
+	now := webNowFn()
 	defaultEnd := now.Format("2006-01-02")
 	defaultStart := now.AddDate(0, 0, -30).Format("2006-01-02")
 
