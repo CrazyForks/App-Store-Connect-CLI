@@ -509,7 +509,7 @@ Examples:
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
-			if err := client.UpdateGameCenterLeaderboardSetMembersV2(requestCtx, id, ids); err != nil {
+			if err := client.SetGameCenterLeaderboardSetMembersV2(requestCtx, id, ids); err != nil {
 				return fmt.Errorf("game-center leaderboard-sets v2 members set: failed to update: %w", err)
 			}
 

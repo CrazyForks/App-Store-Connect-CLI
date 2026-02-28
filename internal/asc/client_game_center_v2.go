@@ -1083,6 +1083,86 @@ func (c *Client) UpdateGameCenterLeaderboardSetMembersV2(ctx context.Context, se
 	return err
 }
 
+// SetGameCenterLeaderboardSetMembersV2 sets leaderboard members for a v2 leaderboard set.
+func (c *Client) SetGameCenterLeaderboardSetMembersV2(ctx context.Context, setID string, leaderboardIDs []string) error {
+	setID = strings.TrimSpace(setID)
+	if setID == "" {
+		return fmt.Errorf("setID is required")
+	}
+
+	desiredIDs := normalizeUniqueList(leaderboardIDs)
+	currentIDs := make([]string, 0)
+	nextURL := ""
+
+	for {
+		opts := []GCLeaderboardSetMembersOption{WithGCLeaderboardSetMembersLimit(200)}
+		if nextURL != "" {
+			opts = append(opts, WithGCLeaderboardSetMembersNextURL(nextURL))
+		}
+
+		resp, err := c.GetGameCenterLeaderboardSetMembersV2(ctx, setID, opts...)
+		if err != nil {
+			return err
+		}
+		for _, item := range resp.Data {
+			id := strings.TrimSpace(item.ID)
+			if id != "" {
+				currentIDs = append(currentIDs, id)
+			}
+		}
+
+		nextURL = strings.TrimSpace(resp.Links.Next)
+		if nextURL == "" {
+			break
+		}
+	}
+
+	currentSet := make(map[string]struct{}, len(currentIDs))
+	for _, id := range currentIDs {
+		currentSet[id] = struct{}{}
+	}
+
+	desiredSet := make(map[string]struct{}, len(desiredIDs))
+	for _, id := range desiredIDs {
+		desiredSet[id] = struct{}{}
+	}
+
+	toAdd := make([]string, 0, len(desiredIDs))
+	for _, id := range desiredIDs {
+		if _, exists := currentSet[id]; !exists {
+			toAdd = append(toAdd, id)
+		}
+	}
+
+	toRemove := make([]string, 0, len(currentIDs))
+	for _, id := range currentIDs {
+		if _, exists := desiredSet[id]; !exists {
+			toRemove = append(toRemove, id)
+		}
+	}
+
+	if len(toAdd) > 0 {
+		if err := c.AddGameCenterLeaderboardSetMembersV2(ctx, setID, toAdd); err != nil {
+			return err
+		}
+	}
+	if len(toRemove) > 0 {
+		if err := c.RemoveGameCenterLeaderboardSetMembersV2(ctx, setID, toRemove); err != nil {
+			return err
+		}
+	}
+
+	if len(desiredIDs) == 0 {
+		return nil
+	}
+
+	if len(toAdd) > 0 || len(toRemove) > 0 || !sameOrderedList(currentIDs, desiredIDs) {
+		return c.UpdateGameCenterLeaderboardSetMembersV2(ctx, setID, desiredIDs)
+	}
+
+	return nil
+}
+
 // GetGameCenterLeaderboardSetVersions retrieves versions for a v2 leaderboard set.
 func (c *Client) GetGameCenterLeaderboardSetVersions(ctx context.Context, setID string, opts ...GCLeaderboardSetVersionsOption) (*GameCenterLeaderboardSetVersionsResponse, error) {
 	query := &gcLeaderboardSetVersionsQuery{}
