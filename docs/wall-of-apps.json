@@ -166,6 +166,13 @@
     "platform": ["iOS", "macOS"]
   },
   {
+    "app": "Popcorn Stack: Track Watchlist",
+    "link": "https://apps.apple.com/app/id6759187614",
+    "creator": "maail",
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/4f/b6/ed/4fb6edea-943d-13e3-3753-b99ee1920c7b/AppIcon-0-0-1x_U007emarketing-0-11-0-85-220.png/512x512bb.jpg",
+    "platform": ["iOS"]
+  },
+  {
     "app": "Positive",
     "link": "https://apps.apple.com/us/app/positive/id653287635",
     "creator": "DanielStormApps",
