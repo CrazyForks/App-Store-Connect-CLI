@@ -271,6 +271,13 @@
     "platform": ["iOS", "macOS"]
   },
   {
+    "app": "Torqs",
+    "link": "https://apps.apple.com/us/app/torqs/id6754500631",
+    "creator": "jathadon",
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/bd/14/24/bd1424c2-2e5d-3607-e4dc-50b293d196d0/AppIcon-0-0-1x_U007epad-0-1-85-220.png/512x512bb.jpg",
+    "platform": ["iOS"]
+  },
+  {
     "app": "TV Show Tracker",
     "link": "https://apps.apple.com/us/app/tv-show-tracker-tv-club/id6497563903",
     "creator": "rursache",
