@@ -28,6 +28,9 @@ const (
 	webhooksServeDefaultHost         = "127.0.0.1"
 	webhooksServeDefaultPort         = 8787
 	webhooksServeDefaultMaxBodyBytes = 1 << 20 // 1 MiB
+	webhooksServeDefaultQueueSize    = 64
+	webhooksServeDefaultWorkerCount  = 4
+	webhooksServeDefaultExecTimeout  = 30 * time.Second
 )
 
 var errWebhookPayloadTooLarge = errors.New("payload exceeds max body size")
@@ -56,6 +59,9 @@ type webhookServeRuntime struct {
 	dir          string
 	execCommand  string
 	maxBodyBytes int64
+	eventQueue   chan webhookServeEvent
+	workerCount  int
+	execTimeout  time.Duration
 	fileCounter  uint64
 }
 
@@ -140,7 +146,11 @@ Examples:
 				dir:          eventsDir,
 				execCommand:  strings.TrimSpace(*execCommand),
 				maxBodyBytes: *maxBodyBytes,
+				eventQueue:   make(chan webhookServeEvent, webhooksServeDefaultQueueSize),
+				workerCount:  webhooksServeDefaultWorkerCount,
+				execTimeout:  webhooksServeDefaultExecTimeout,
 			}
+			runtime.startWorkers(ctx)
 			server := &http.Server{
 				Handler:           runtime.newHandler(ctx),
 				ReadHeaderTimeout: 5 * time.Second,
@@ -225,12 +235,54 @@ func (r *webhookServeRuntime) newHandler(ctx context.Context) http.Handler {
 			len(payload),
 		)
 
-		go r.processEvent(ctx, event)
+		if !r.enqueueEvent(ctx, event) {
+			writeWebhookServeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"error": "event queue full",
+			})
+			return
+		}
 
 		writeWebhookServeJSON(w, http.StatusAccepted, map[string]any{
 			"accepted": true,
 		})
 	})
+}
+
+func (r *webhookServeRuntime) startWorkers(ctx context.Context) {
+	if r.eventQueue == nil {
+		return
+	}
+
+	workerCount := r.workerCount
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case event := <-r.eventQueue:
+					r.processEvent(ctx, event)
+				}
+			}
+		}()
+	}
+}
+
+func (r *webhookServeRuntime) enqueueEvent(ctx context.Context, event webhookServeEvent) bool {
+	if r.eventQueue == nil {
+		r.processEvent(ctx, event)
+		return true
+	}
+
+	select {
+	case r.eventQueue <- event:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *webhookServeRuntime) processEvent(ctx context.Context, event webhookServeEvent) {
@@ -244,7 +296,14 @@ func (r *webhookServeRuntime) processEvent(ctx context.Context, event webhookSer
 	}
 
 	if r.execCommand != "" {
-		if err := runWebhookExecCommand(ctx, r.execCommand, event.Payload); err != nil {
+		execCtx := ctx
+		cancel := func() {}
+		if r.execTimeout > 0 {
+			execCtx, cancel = context.WithTimeout(ctx, r.execTimeout)
+		}
+		err := runWebhookExecCommand(execCtx, r.execCommand, event.Payload)
+		cancel()
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "webhooks serve: exec failed for event id=%s: %v\n", firstNonEmpty(event.EventID, "unknown"), err)
 		}
 	}
