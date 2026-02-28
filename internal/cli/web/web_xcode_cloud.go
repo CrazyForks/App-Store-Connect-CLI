@@ -1104,12 +1104,18 @@ func buildCIUsageScopeRows(
 func normalizeProductUsage(product webcore.CIProductUsage) (minutes int, builds int) {
 	minutes = product.UsageInMinutes
 	builds = product.NumberOfBuilds
-	if minutes != 0 || len(product.Usage) == 0 {
+	if len(product.Usage) == 0 {
 		return minutes, builds
 	}
-	for _, monthUsage := range product.Usage {
-		minutes += monthUsage.Duration
-		builds += monthUsage.NumberOfBuilds
+	if minutes == 0 {
+		for _, monthUsage := range product.Usage {
+			minutes += monthUsage.Duration
+		}
+	}
+	if builds == 0 {
+		for _, monthUsage := range product.Usage {
+			builds += monthUsage.NumberOfBuilds
+		}
 	}
 	return minutes, builds
 }
@@ -1117,12 +1123,18 @@ func normalizeProductUsage(product webcore.CIProductUsage) (minutes int, builds 
 func normalizeWorkflowUsage(workflow webcore.CIWorkflowUsage) (minutes int, builds int) {
 	minutes = workflow.UsageInMinutes
 	builds = workflow.NumberOfBuilds
-	if minutes != 0 || len(workflow.Usage) == 0 {
+	if len(workflow.Usage) == 0 {
 		return minutes, builds
 	}
-	for _, dayUsage := range workflow.Usage {
-		minutes += dayUsage.Duration
-		builds += dayUsage.NumberOfBuilds
+	if minutes == 0 {
+		for _, dayUsage := range workflow.Usage {
+			minutes += dayUsage.Duration
+		}
+	}
+	if builds == 0 {
+		for _, dayUsage := range workflow.Usage {
+			builds += dayUsage.NumberOfBuilds
+		}
 	}
 	return minutes, builds
 }

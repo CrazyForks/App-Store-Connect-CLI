@@ -314,6 +314,44 @@ func TestResolveProductUsageSummaryFallsBackToNestedUsage(t *testing.T) {
 	}
 }
 
+func TestNormalizeProductUsageMixedAggregatesDoesNotDoubleCountBuilds(t *testing.T) {
+	product := webcore.CIProductUsage{
+		UsageInMinutes: 0,
+		NumberOfBuilds: 7,
+		Usage: []webcore.CIMonthUsage{
+			{Month: 1, Year: 2026, Duration: 12, NumberOfBuilds: 3},
+			{Month: 2, Year: 2026, Duration: 8, NumberOfBuilds: 4},
+		},
+	}
+
+	minutes, builds := normalizeProductUsage(product)
+	if minutes != 20 {
+		t.Fatalf("minutes = %d, want 20", minutes)
+	}
+	if builds != 7 {
+		t.Fatalf("builds = %d, want 7 (no double-count)", builds)
+	}
+}
+
+func TestNormalizeWorkflowUsageMixedAggregatesDoesNotDoubleCountBuilds(t *testing.T) {
+	workflow := webcore.CIWorkflowUsage{
+		UsageInMinutes: 0,
+		NumberOfBuilds: 5,
+		Usage: []webcore.CIDayUsage{
+			{Date: "2026-01-01", Duration: 6, NumberOfBuilds: 2},
+			{Date: "2026-01-02", Duration: 4, NumberOfBuilds: 3},
+		},
+	}
+
+	minutes, builds := normalizeWorkflowUsage(workflow)
+	if minutes != 10 {
+		t.Fatalf("minutes = %d, want 10", minutes)
+	}
+	if builds != 5 {
+		t.Fatalf("builds = %d, want 5 (no double-count)", builds)
+	}
+}
+
 func TestBuildCIUsageScopeRowsIncludesBothScopes(t *testing.T) {
 	app := &webcore.CIUsageDays{
 		Info: webcore.CIUsageInfo{
