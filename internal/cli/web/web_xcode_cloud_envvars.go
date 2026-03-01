@@ -34,7 +34,7 @@ Examples:
   asc web xcode-cloud env-vars list --product-id "UUID" --workflow-id "WF-UUID" --apple-id "user@example.com"
   asc web xcode-cloud env-vars set --product-id "UUID" --workflow-id "WF-UUID" --name MY_VAR --value hello --apple-id "user@example.com"
   asc web xcode-cloud env-vars set --product-id "UUID" --workflow-id "WF-UUID" --name MY_SECRET --value s3cret --secret --apple-id "user@example.com"
-  asc web xcode-cloud env-vars delete --product-id "UUID" --workflow-id "WF-UUID" --name MY_VAR --apple-id "user@example.com"`,
+  asc web xcode-cloud env-vars delete --product-id "UUID" --workflow-id "WF-UUID" --name MY_VAR --confirm --apple-id "user@example.com"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -261,10 +261,11 @@ func webXcodeCloudEnvVarsDeleteCommand() *ffcli.Command {
 	productID := fs.String("product-id", "", "Xcode Cloud product ID (required)")
 	workflowID := fs.String("workflow-id", "", "Xcode Cloud workflow ID (required)")
 	name := fs.String("name", "", "Environment variable name to delete (required)")
+	confirm := fs.Bool("confirm", false, "Confirm deletion (required)")
 
 	return &ffcli.Command{
 		Name:       "delete",
-		ShortUsage: "asc web xcode-cloud env-vars delete --product-id ID --workflow-id ID --name NAME [flags]",
+		ShortUsage: "asc web xcode-cloud env-vars delete --product-id ID --workflow-id ID --name NAME --confirm [flags]",
 		ShortHelp:  "EXPERIMENTAL: Delete a workflow environment variable.",
 		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
 
@@ -273,7 +274,7 @@ Delete an environment variable from an Xcode Cloud workflow by name.
 ` + webWarningText + `
 
 Examples:
-  asc web xcode-cloud env-vars delete --product-id "UUID" --workflow-id "WF-UUID" --name MY_VAR --apple-id "user@example.com"`,
+  asc web xcode-cloud env-vars delete --product-id "UUID" --workflow-id "WF-UUID" --name MY_VAR --confirm --apple-id "user@example.com"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -290,6 +291,10 @@ Examples:
 			varName := strings.TrimSpace(*name)
 			if varName == "" {
 				fmt.Fprintln(os.Stderr, "Error: --name is required")
+				return flag.ErrHelp
+			}
+			if !*confirm {
+				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
 				return flag.ErrHelp
 			}
 

@@ -679,6 +679,7 @@ func TestEnvVarsDelete_Success(t *testing.T) {
 		"--product-id", "prod-1",
 		"--workflow-id", "wf-1",
 		"--name", "DELETE_ME",
+		"--confirm",
 	}); err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -736,6 +737,7 @@ func TestEnvVarsDelete_NotFound(t *testing.T) {
 		"--product-id", "prod-1",
 		"--workflow-id", "wf-1",
 		"--name", "NONEXISTENT",
+		"--confirm",
 	}); err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -769,8 +771,13 @@ func TestEnvVarsDelete_MissingFlags(t *testing.T) {
 		},
 		{
 			name:    "missing name",
-			args:    []string{"--product-id", "prod-1", "--workflow-id", "wf-1"},
+			args:    []string{"--product-id", "prod-1", "--workflow-id", "wf-1", "--confirm"},
 			wantErr: "--name is required",
+		},
+		{
+			name:    "missing confirm",
+			args:    []string{"--product-id", "prod-1", "--workflow-id", "wf-1", "--name", "X"},
+			wantErr: "--confirm is required",
 		},
 	}
 	for _, tt := range tests {
