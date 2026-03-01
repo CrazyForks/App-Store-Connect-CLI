@@ -6438,6 +6438,21 @@ func TestGetProfileCertificates_SendsRequest(t *testing.T) {
 	}
 }
 
+func TestGetProfileCertificates_UsesNextURL(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/profiles/p1/certificates?cursor=abc"
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.String() != next {
+			t.Fatalf("expected next URL %q, got %q", next, req.URL.String())
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetProfileCertificates(context.Background(), "p1", WithProfileCertificatesLimit(5), WithProfileCertificatesNextURL(next)); err != nil {
+		t.Fatalf("GetProfileCertificates() error: %v", err)
+	}
+}
+
 func TestGetProfileDevices_SendsRequest(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":[{"type":"devices","id":"d1","attributes":{"name":"Device","platform":"IOS","udid":"UDID","status":"ENABLED"}}]}`)
 	client := newTestClient(t, func(req *http.Request) {
@@ -6454,6 +6469,21 @@ func TestGetProfileDevices_SendsRequest(t *testing.T) {
 	}, response)
 
 	if _, err := client.GetProfileDevices(context.Background(), "p1", WithProfileDevicesLimit(10)); err != nil {
+		t.Fatalf("GetProfileDevices() error: %v", err)
+	}
+}
+
+func TestGetProfileDevices_UsesNextURL(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/profiles/p1/devices?cursor=abc"
+	response := jsonResponse(http.StatusOK, `{"data":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.URL.String() != next {
+			t.Fatalf("expected next URL %q, got %q", next, req.URL.String())
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetProfileDevices(context.Background(), "p1", WithProfileDevicesLimit(10), WithProfileDevicesNextURL(next)); err != nil {
 		t.Fatalf("GetProfileDevices() error: %v", err)
 	}
 }

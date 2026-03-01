@@ -74,6 +74,11 @@ func writeFileNoSymlinkOverwrite(path string, perm os.FileMode, tempPattern stri
 		}
 	}()
 
+	// Ensure final file permissions match caller intent rather than process umask.
+	if err := tempFile.Chmod(perm); err != nil {
+		return 0, err
+	}
+
 	written, err := write(tempFile)
 	if err != nil {
 		return 0, err

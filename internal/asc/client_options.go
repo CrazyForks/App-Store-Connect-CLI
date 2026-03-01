@@ -2447,11 +2447,29 @@ func WithProfileCertificatesLimit(limit int) ProfileCertificatesOption {
 	}
 }
 
+// WithProfileCertificatesNextURL uses a next page URL directly.
+func WithProfileCertificatesNextURL(next string) ProfileCertificatesOption {
+	return func(q *profileCertificatesQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
+		}
+	}
+}
+
 // WithProfileDevicesLimit sets the max number of profile devices to return.
 func WithProfileDevicesLimit(limit int) ProfileDevicesOption {
 	return func(q *profileDevicesQuery) {
 		if limit > 0 {
 			q.limit = limit
+		}
+	}
+}
+
+// WithProfileDevicesNextURL uses a next page URL directly.
+func WithProfileDevicesNextURL(next string) ProfileDevicesOption {
+	return func(q *profileDevicesQuery) {
+		if strings.TrimSpace(next) != "" {
+			q.nextURL = strings.TrimSpace(next)
 		}
 	}
 }
