@@ -217,44 +217,22 @@ Examples:
 
 // WinBackOffersGetCommand returns the win-back offers get subcommand.
 func WinBackOffersGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	id := fs.String("id", "", "Win-back offer ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc win-back-offers get --id OFFER_ID",
-		ShortHelp:  "Get a win-back offer by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc win-back-offers get --id OFFER_ID",
+		ShortHelp:   "Get a win-back offer by ID.",
 		LongHelp: `Get a win-back offer by ID.
 
 Examples:
   asc win-back-offers get --id "OFFER_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			trimmedID := strings.TrimSpace(*id)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("win-back-offers get: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			resp, err := client.GetWinBackOffer(requestCtx, trimmedID)
-			if err != nil {
-				return fmt.Errorf("win-back-offers get: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "Win-back offer ID",
+		ErrorPrefix: "win-back-offers get",
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetWinBackOffer(ctx, id)
 		},
-	}
+	})
 }
 
 // WinBackOffersCreateCommand returns the win-back offers create subcommand.
