@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
@@ -239,49 +238,31 @@ Examples:
 }
 
 func XcodeCloudProductsDeleteCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("delete", flag.ExitOnError)
-
-	id := fs.String("id", "", "Product ID")
-	confirm := fs.Bool("confirm", false, "Confirm deletion")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "delete",
-		ShortUsage: "asc xcode-cloud products delete --id \"PRODUCT_ID\" --confirm",
-		ShortHelp:  "Delete a product.",
+	return shared.NewConfirmDeleteCommand(shared.ConfirmDeleteCommandConfig{
+		FlagSetName: "delete",
+		Name:        "delete",
+		ShortUsage:  "asc xcode-cloud products delete --id \"PRODUCT_ID\" --confirm",
+		ShortHelp:   "Delete a product.",
 		LongHelp: `Delete a product.
 
 Examples:
   asc xcode-cloud products delete --id "PRODUCT_ID" --confirm`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-			if !*confirm {
-				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud products delete: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			if err := client.DeleteCiProduct(requestCtx, idValue); err != nil {
-				return fmt.Errorf("xcode-cloud products delete: failed to delete: %w", err)
-			}
-
-			result := &asc.CiProductDeleteResult{ID: idValue, Deleted: true}
-			return shared.PrintOutput(result, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "Product ID",
+		ErrorPrefix: "xcode-cloud products delete",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Delete: func(ctx context.Context, client *asc.Client, id string) error {
+			if err := client.DeleteCiProduct(ctx, id); err != nil {
+				return fmt.Errorf("failed to delete: %w", err)
+			}
+			return nil
+		},
+		Result: func(id string) any {
+			return &asc.CiProductDeleteResult{ID: id, Deleted: true}
+		},
+	})
 }
 
 func xcodeCloudProductsList(ctx context.Context, appID string, limit int, next string, paginate bool, output string, pretty bool) error {

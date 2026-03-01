@@ -185,3 +185,81 @@ func NewPaginatedListCommand(config PaginatedListCommandConfig) *ffcli.Command {
 		},
 	}
 }
+
+// ConfirmDeleteCommandConfig configures a standard delete command requiring
+// --id and --confirm.
+type ConfirmDeleteCommandConfig struct {
+	FlagSetName string
+	Name        string
+	ShortUsage  string
+	ShortHelp   string
+	LongHelp    string
+
+	IDFlag  string
+	IDUsage string
+
+	ErrorPrefix string
+
+	ContextTimeout func(context.Context) (context.Context, context.CancelFunc)
+	Delete         func(context.Context, *asc.Client, string) error
+	Result         func(string) any
+}
+
+// NewConfirmDeleteCommand builds a standard delete command requiring --id and
+// --confirm and printing a caller-provided result payload.
+func NewConfirmDeleteCommand(config ConfirmDeleteCommandConfig) *ffcli.Command {
+	fs := flag.NewFlagSet(config.FlagSetName, flag.ExitOnError)
+
+	idFlagName := strings.TrimSpace(config.IDFlag)
+	if idFlagName == "" {
+		idFlagName = "id"
+	}
+	idUsage := strings.TrimSpace(config.IDUsage)
+	if idUsage == "" {
+		idUsage = "Resource ID"
+	}
+
+	id := fs.String(idFlagName, "", idUsage)
+	confirm := fs.Bool("confirm", false, "Confirm deletion")
+	output := BindOutputFlags(fs)
+
+	timeout := config.ContextTimeout
+	if timeout == nil {
+		timeout = ContextWithTimeout
+	}
+
+	return &ffcli.Command{
+		Name:       config.Name,
+		ShortUsage: config.ShortUsage,
+		ShortHelp:  config.ShortHelp,
+		LongHelp:   config.LongHelp,
+		FlagSet:    fs,
+		UsageFunc:  DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			idValue := strings.TrimSpace(*id)
+			if idValue == "" {
+				fmt.Fprintf(os.Stderr, "Error: --%s is required\n", idFlagName)
+				return flag.ErrHelp
+			}
+			if !*confirm {
+				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
+				return flag.ErrHelp
+			}
+
+			client, err := GetASCClient()
+			if err != nil {
+				return fmt.Errorf("%s: %w", config.ErrorPrefix, err)
+			}
+
+			requestCtx, cancel := timeout(ctx)
+			defer cancel()
+
+			if err := config.Delete(requestCtx, client, idValue); err != nil {
+				return fmt.Errorf("%s: %w", config.ErrorPrefix, err)
+			}
+
+			result := config.Result(idValue)
+			return PrintOutput(result, *output.Output, *output.Pretty)
+		},
+	}
+}

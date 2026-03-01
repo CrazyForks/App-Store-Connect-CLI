@@ -231,49 +231,31 @@ Examples:
 }
 
 func XcodeCloudWorkflowsDeleteCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("delete", flag.ExitOnError)
-
-	id := fs.String("id", "", "Workflow ID")
-	confirm := fs.Bool("confirm", false, "Confirm deletion")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "delete",
-		ShortUsage: "asc xcode-cloud workflows delete --id \"WORKFLOW_ID\" --confirm",
-		ShortHelp:  "Delete a workflow.",
+	return shared.NewConfirmDeleteCommand(shared.ConfirmDeleteCommandConfig{
+		FlagSetName: "delete",
+		Name:        "delete",
+		ShortUsage:  "asc xcode-cloud workflows delete --id \"WORKFLOW_ID\" --confirm",
+		ShortHelp:   "Delete a workflow.",
 		LongHelp: `Delete a workflow.
 
 Examples:
   asc xcode-cloud workflows delete --id "WORKFLOW_ID" --confirm`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-			if !*confirm {
-				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud workflows delete: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			if err := client.DeleteCiWorkflow(requestCtx, idValue); err != nil {
-				return fmt.Errorf("xcode-cloud workflows delete: failed to delete: %w", err)
-			}
-
-			result := &asc.CiWorkflowDeleteResult{ID: idValue, Deleted: true}
-			return shared.PrintOutput(result, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "Workflow ID",
+		ErrorPrefix: "xcode-cloud workflows delete",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Delete: func(ctx context.Context, client *asc.Client, id string) error {
+			if err := client.DeleteCiWorkflow(ctx, id); err != nil {
+				return fmt.Errorf("failed to delete: %w", err)
+			}
+			return nil
+		},
+		Result: func(id string) any {
+			return &asc.CiWorkflowDeleteResult{ID: id, Deleted: true}
+		},
+	})
 }
 
 func xcodeCloudWorkflowsList(ctx context.Context, appID string, limit int, next string, paginate bool, output string, pretty bool) error {
