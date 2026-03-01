@@ -653,27 +653,6 @@ func WithWebhookDeliveriesCreatedBefore(values []string) WebhookDeliveriesOption
 	}
 }
 
-// WithWebhookDeliveriesFields sets fields[webhookDeliveries] for delivery responses.
-func WithWebhookDeliveriesFields(fields []string) WebhookDeliveriesOption {
-	return func(q *webhookDeliveriesQuery) {
-		q.fields = normalizeList(fields)
-	}
-}
-
-// WithWebhookDeliveriesEventFields sets fields[webhookEvents] for delivery responses.
-func WithWebhookDeliveriesEventFields(fields []string) WebhookDeliveriesOption {
-	return func(q *webhookDeliveriesQuery) {
-		q.eventFields = normalizeList(fields)
-	}
-}
-
-// WithWebhookDeliveriesInclude sets include for delivery responses.
-func WithWebhookDeliveriesInclude(include []string) WebhookDeliveriesOption {
-	return func(q *webhookDeliveriesQuery) {
-		q.include = normalizeList(include)
-	}
-}
-
 // WithBackgroundAssetsLimit sets the max number of background assets to return.
 func WithBackgroundAssetsLimit(limit int) BackgroundAssetsOption {
 	return func(q *backgroundAssetsQuery) {
@@ -1175,13 +1154,6 @@ func WithAppClipDefaultExperiencesNextURL(next string) AppClipDefaultExperiences
 		if strings.TrimSpace(next) != "" {
 			q.nextURL = strings.TrimSpace(next)
 		}
-	}
-}
-
-// WithAppClipDefaultExperiencesReleaseWithVersionExists filters by releaseWithAppStoreVersion existence.
-func WithAppClipDefaultExperiencesReleaseWithVersionExists(value bool) AppClipDefaultExperiencesOption {
-	return func(q *appClipDefaultExperiencesQuery) {
-		q.releaseWithVersionExists = &value
 	}
 }
 
@@ -2371,15 +2343,6 @@ func WithPassTypeIDCertificatesInclude(include []string) PassTypeIDCertificatesO
 	}
 }
 
-// WithBundleIDCapabilitiesLimit sets the max number of capabilities to return.
-func WithBundleIDCapabilitiesLimit(limit int) BundleIDCapabilitiesOption {
-	return func(q *bundleIDCapabilitiesQuery) {
-		if limit > 0 {
-			q.limit = limit
-		}
-	}
-}
-
 // WithBundleIDCapabilitiesNextURL uses a next page URL directly.
 func WithBundleIDCapabilitiesNextURL(next string) BundleIDCapabilitiesOption {
 	return func(q *bundleIDCapabilitiesQuery) {
@@ -2464,15 +2427,6 @@ func WithProfilesInclude(include []string) ProfilesOption {
 	}
 }
 
-// WithProfilesFilterBundleID filters profiles by bundle ID.
-func WithProfilesFilterBundleID(bundleID string) ProfilesOption {
-	return func(q *profilesQuery) {
-		if strings.TrimSpace(bundleID) != "" {
-			q.bundleID = strings.TrimSpace(bundleID)
-		}
-	}
-}
-
 // WithProfilesFilterType filters profiles by profile type (supports CSV).
 func WithProfilesFilterType(profileType string) ProfilesOption {
 	return func(q *profilesQuery) {
@@ -2493,29 +2447,11 @@ func WithProfileCertificatesLimit(limit int) ProfileCertificatesOption {
 	}
 }
 
-// WithProfileCertificatesNextURL uses a next page URL directly.
-func WithProfileCertificatesNextURL(next string) ProfileCertificatesOption {
-	return func(q *profileCertificatesQuery) {
-		if strings.TrimSpace(next) != "" {
-			q.nextURL = strings.TrimSpace(next)
-		}
-	}
-}
-
 // WithProfileDevicesLimit sets the max number of profile devices to return.
 func WithProfileDevicesLimit(limit int) ProfileDevicesOption {
 	return func(q *profileDevicesQuery) {
 		if limit > 0 {
 			q.limit = limit
-		}
-	}
-}
-
-// WithProfileDevicesNextURL uses a next page URL directly.
-func WithProfileDevicesNextURL(next string) ProfileDevicesOption {
-	return func(q *profileDevicesQuery) {
-		if strings.TrimSpace(next) != "" {
-			q.nextURL = strings.TrimSpace(next)
 		}
 	}
 }
