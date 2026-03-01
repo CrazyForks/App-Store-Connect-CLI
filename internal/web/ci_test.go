@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -467,4 +468,269 @@ func TestListCIWorkflowsRejectsEmptyInputs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetCIWorkflowParsesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/teams/team-uuid/products/prod-1/workflows-v15/wf-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id": "wf-1",
+			"content": {
+				"name": "TestFlight Deploy",
+				"environment_variables": [
+					{"id":"ev-1","name":"API_KEY","value":{"plaintext":"abc123"}},
+					{"id":"ev-2","name":"SECRET","value":{"redacted_value":"***"}}
+				]
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	result, err := client.GetCIWorkflow(context.Background(), "team-uuid", "prod-1", "wf-1")
+	if err != nil {
+		t.Fatalf("GetCIWorkflow() error = %v", err)
+	}
+	if result.ID != "wf-1" {
+		t.Fatalf("expected id %q, got %q", "wf-1", result.ID)
+	}
+	if result.Content == nil {
+		t.Fatal("expected content to be non-nil")
+	}
+	// Verify content is valid JSON that contains expected fields.
+	vars, err := ExtractEnvVars(result.Content)
+	if err != nil {
+		t.Fatalf("ExtractEnvVars() error = %v", err)
+	}
+	if len(vars) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(vars))
+	}
+	if vars[0].Name != "API_KEY" || vars[0].Value.Plaintext == nil || *vars[0].Value.Plaintext != "abc123" {
+		t.Fatalf("unexpected first env var: %+v", vars[0])
+	}
+	if vars[1].Name != "SECRET" || vars[1].Value.RedactedValue == nil || *vars[1].Value.RedactedValue != "***" {
+		t.Fatalf("unexpected second env var: %+v", vars[1])
+	}
+}
+
+func TestGetCIWorkflowRejectsEmptyInputs(t *testing.T) {
+	client := &Client{httpClient: http.DefaultClient, baseURL: "http://localhost"}
+	tests := []struct {
+		name       string
+		teamID     string
+		productID  string
+		workflowID string
+		wantErr    string
+	}{
+		{"empty team", "", "prod", "wf", "team id is required"},
+		{"empty product", "team", "", "wf", "product id is required"},
+		{"empty workflow", "team", "prod", "", "workflow id is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.GetCIWorkflow(context.Background(), tt.teamID, tt.productID, tt.workflowID)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantErr, err.Error())
+			}
+		})
+	}
+}
+
+func TestUpdateCIWorkflowSendsBody(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	var gotBody []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("failed to read body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	content := json.RawMessage(`{"name":"Updated","environment_variables":[]}`)
+	err := client.UpdateCIWorkflow(context.Background(), "team-uuid", "prod-1", "wf-1", content)
+	if err != nil {
+		t.Fatalf("UpdateCIWorkflow() error = %v", err)
+	}
+	if gotMethod != http.MethodPut {
+		t.Fatalf("expected PUT, got %s", gotMethod)
+	}
+	if gotPath != "/teams/team-uuid/products/prod-1/workflows-v15/wf-1" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	// Verify the body is just the content (not wrapped in {id, content})
+	if !strings.Contains(string(gotBody), "Updated") {
+		t.Fatalf("expected body to contain 'Updated', got %s", gotBody)
+	}
+	if strings.Contains(string(gotBody), `"id"`) {
+		t.Fatalf("body should not contain id wrapper, got %s", gotBody)
+	}
+}
+
+func TestUpdateCIWorkflowRejectsEmptyInputs(t *testing.T) {
+	client := &Client{httpClient: http.DefaultClient, baseURL: "http://localhost"}
+	tests := []struct {
+		name       string
+		teamID     string
+		productID  string
+		workflowID string
+		wantErr    string
+	}{
+		{"empty team", "", "prod", "wf", "team id is required"},
+		{"empty product", "team", "", "wf", "product id is required"},
+		{"empty workflow", "team", "prod", "", "workflow id is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.UpdateCIWorkflow(context.Background(), tt.teamID, tt.productID, tt.workflowID, json.RawMessage(`{}`))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantErr, err.Error())
+			}
+		})
+	}
+}
+
+func TestGetCIEncryptionKeyParsesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ci/auth/keys/client-encryption" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"key":"0xm9f0gX7lzArxrChNrDVUR3MKxueb1DdheWBeLndCVOqoiEsT2jxqZW6cHsIuDGDykvYWgQ1qaPBSxCNFXEUg=="}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	result, err := client.GetCIEncryptionKey(context.Background())
+	if err != nil {
+		t.Fatalf("GetCIEncryptionKey() error = %v", err)
+	}
+	if result.Key != "0xm9f0gX7lzArxrChNrDVUR3MKxueb1DdheWBeLndCVOqoiEsT2jxqZW6cHsIuDGDykvYWgQ1qaPBSxCNFXEUg==" {
+		t.Fatalf("unexpected key: %q", result.Key)
+	}
+}
+
+func TestExtractEnvVars(t *testing.T) {
+	content := json.RawMessage(`{
+		"name":"Test",
+		"environment_variables":[
+			{"id":"1","name":"FOO","value":{"plaintext":"bar"}},
+			{"id":"2","name":"SECRET","value":{"redacted_value":"***"}}
+		]
+	}`)
+	vars, err := ExtractEnvVars(content)
+	if err != nil {
+		t.Fatalf("ExtractEnvVars() error = %v", err)
+	}
+	if len(vars) != 2 {
+		t.Fatalf("expected 2 vars, got %d", len(vars))
+	}
+	if vars[0].Name != "FOO" {
+		t.Fatalf("expected name FOO, got %q", vars[0].Name)
+	}
+	if vars[1].Name != "SECRET" {
+		t.Fatalf("expected name SECRET, got %q", vars[1].Name)
+	}
+}
+
+func TestExtractEnvVarsNoKey(t *testing.T) {
+	content := json.RawMessage(`{"name":"Test"}`)
+	vars, err := ExtractEnvVars(content)
+	if err != nil {
+		t.Fatalf("ExtractEnvVars() error = %v", err)
+	}
+	if len(vars) != 0 {
+		t.Fatalf("expected 0 vars, got %d", len(vars))
+	}
+}
+
+func TestSetEnvVars(t *testing.T) {
+	content := json.RawMessage(`{"name":"Test","environment_variables":[{"id":"1","name":"OLD","value":{"plaintext":"old"}}]}`)
+	pt := "new-value"
+	newVars := []CIEnvironmentVariable{
+		{ID: "2", Name: "NEW", Value: CIEnvironmentVariableValue{Plaintext: &pt}},
+	}
+	result, err := SetEnvVars(content, newVars)
+	if err != nil {
+		t.Fatalf("SetEnvVars() error = %v", err)
+	}
+	// Verify the result has the new vars and preserves name.
+	vars, err := ExtractEnvVars(result)
+	if err != nil {
+		t.Fatalf("ExtractEnvVars() error = %v", err)
+	}
+	if len(vars) != 1 || vars[0].Name != "NEW" {
+		t.Fatalf("expected 1 var named NEW, got %+v", vars)
+	}
+	// Verify "name" field is preserved.
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(result, &m); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	var name string
+	if err := json.Unmarshal(m["name"], &name); err != nil {
+		t.Fatalf("unmarshal name error: %v", err)
+	}
+	if name != "Test" {
+		t.Fatalf("expected name %q, got %q", "Test", name)
+	}
+}
+
+func TestSetEnvVarsPreservesUnknownFields(t *testing.T) {
+	content := json.RawMessage(`{"name":"WF","description":"desc","custom_field":42,"environment_variables":[]}`)
+	pt := "val"
+	newVars := []CIEnvironmentVariable{
+		{ID: "1", Name: "X", Value: CIEnvironmentVariableValue{Plaintext: &pt}},
+	}
+	result, err := SetEnvVars(content, newVars)
+	if err != nil {
+		t.Fatalf("SetEnvVars() error = %v", err)
+	}
+	// Verify all original fields are preserved.
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(result, &m); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	for _, key := range []string{"name", "description", "custom_field", "environment_variables"} {
+		if _, ok := m[key]; !ok {
+			t.Fatalf("expected key %q to be preserved, got keys: %v", key, keysOf(m))
+		}
+	}
+	// Verify custom_field value is preserved.
+	var customField int
+	if err := json.Unmarshal(m["custom_field"], &customField); err != nil {
+		t.Fatalf("unmarshal custom_field error: %v", err)
+	}
+	if customField != 42 {
+		t.Fatalf("expected custom_field 42, got %d", customField)
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

@@ -47,6 +47,7 @@ Examples:
 		Subcommands: []*ffcli.Command{
 			webXcodeCloudUsageCommand(),
 			webXcodeCloudProductsCommand(),
+			webXcodeCloudEnvVarsCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
