@@ -340,7 +340,7 @@ type CIWorkflowFull struct {
 	Content json.RawMessage `json:"content"`
 }
 
-// CIEncryptionKeyResponse is the response from /ci/auth/keys/client-encryption.
+// CIEncryptionKeyResponse is the response from /auth/keys/client-encryption.
 type CIEncryptionKeyResponse struct {
 	Key string `json:"key"`
 }
@@ -418,9 +418,9 @@ func (c *Client) UpdateCIWorkflow(ctx context.Context, teamID, productID, workfl
 }
 
 // GetCIEncryptionKey fetches the P-256 public key for secret encryption.
-// GET /ci/auth/keys/client-encryption
+// GET /auth/keys/client-encryption (relative to /ci/api base URL)
 func (c *Client) GetCIEncryptionKey(ctx context.Context) (*CIEncryptionKeyResponse, error) {
-	body, err := c.doRequest(ctx, "GET", "/ci/auth/keys/client-encryption", nil)
+	body, err := c.doRequest(ctx, "GET", "/auth/keys/client-encryption", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -453,6 +453,9 @@ func SetEnvVars(content json.RawMessage, vars []CIEnvironmentVariable) (json.Raw
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(content, &m); err != nil {
 		return nil, fmt.Errorf("failed to decode workflow content: %w", err)
+	}
+	if m == nil {
+		return nil, fmt.Errorf("failed to decode workflow content: expected JSON object")
 	}
 	varsJSON, err := json.Marshal(vars)
 	if err != nil {

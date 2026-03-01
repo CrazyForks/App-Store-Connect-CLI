@@ -613,7 +613,7 @@ func TestUpdateCIWorkflowRejectsEmptyInputs(t *testing.T) {
 
 func TestGetCIEncryptionKeyParsesResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ci/auth/keys/client-encryption" {
+		if r.URL.Path != "/auth/keys/client-encryption" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -724,6 +724,19 @@ func TestSetEnvVarsPreservesUnknownFields(t *testing.T) {
 	}
 	if customField != 42 {
 		t.Fatalf("expected custom_field 42, got %d", customField)
+	}
+}
+
+func TestSetEnvVarsRejectsNullContent(t *testing.T) {
+	pt := "value"
+	_, err := SetEnvVars(json.RawMessage(`null`), []CIEnvironmentVariable{
+		{ID: "1", Name: "X", Value: CIEnvironmentVariableValue{Plaintext: &pt}},
+	})
+	if err == nil {
+		t.Fatal("expected error for null workflow content")
+	}
+	if !strings.Contains(err.Error(), "expected JSON object") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
