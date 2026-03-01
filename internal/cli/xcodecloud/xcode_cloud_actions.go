@@ -108,45 +108,26 @@ Examples:
 }
 
 func XcodeCloudActionsBuildRunCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("build-run", flag.ExitOnError)
-
-	id := fs.String("id", "", "Build action ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "build-run",
-		ShortUsage: "asc xcode-cloud actions build-run --id \"ACTION_ID\"",
-		ShortHelp:  "Get the build run for a build action.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "build-run",
+		Name:        "build-run",
+		ShortUsage:  "asc xcode-cloud actions build-run --id \"ACTION_ID\"",
+		ShortHelp:   "Get the build run for a build action.",
 		LongHelp: `Get the build run for a build action.
 
 Examples:
   asc xcode-cloud actions build-run --id "ACTION_ID"
   asc xcode-cloud actions build-run --id "ACTION_ID" --output table`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud actions build-run: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			resp, err := client.GetCiBuildActionBuildRun(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud actions build-run: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "Build action ID",
+		ErrorPrefix: "xcode-cloud actions build-run",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetCiBuildActionBuildRun(ctx, id)
+		},
+	})
 }
 
 func xcodeCloudActionsList(ctx context.Context, runID string, limit int, next string, paginate bool, output string, pretty bool) error {

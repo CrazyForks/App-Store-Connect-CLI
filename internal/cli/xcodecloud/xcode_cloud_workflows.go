@@ -106,46 +106,30 @@ Examples:
 }
 
 func XcodeCloudWorkflowsRepositoryCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("repository", flag.ExitOnError)
-
-	id := fs.String("id", "", "Workflow ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "repository",
-		ShortUsage: "asc xcode-cloud workflows repository --id \"WORKFLOW_ID\"",
-		ShortHelp:  "Get the repository for a workflow.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "repository",
+		Name:        "repository",
+		ShortUsage:  "asc xcode-cloud workflows repository --id \"WORKFLOW_ID\"",
+		ShortHelp:   "Get the repository for a workflow.",
 		LongHelp: `Get the repository for a workflow.
 
 Examples:
   asc xcode-cloud workflows repository --id "WORKFLOW_ID"
   asc xcode-cloud workflows repository --id "WORKFLOW_ID" --output table`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud workflows repository: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			repo, err := client.GetCiWorkflowRepository(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud workflows repository: %w", err)
-			}
-
-			resp := &asc.ScmRepositoriesResponse{Data: []asc.ScmRepositoryResource{*repo}}
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "Workflow ID",
+		ErrorPrefix: "xcode-cloud workflows repository",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			repo, err := client.GetCiWorkflowRepository(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			return &asc.ScmRepositoriesResponse{Data: []asc.ScmRepositoryResource{*repo}}, nil
+		},
+	})
 }
 
 func XcodeCloudWorkflowsCreateCommand() *ffcli.Command {
