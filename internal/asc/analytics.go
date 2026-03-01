@@ -271,13 +271,6 @@ func WithAnalyticsReportsNextURL(next string) AnalyticsReportsOption {
 	}
 }
 
-// WithAnalyticsReportsCategory filters reports by category.
-func WithAnalyticsReportsCategory(category string) AnalyticsReportsOption {
-	return func(q *analyticsReportsQuery) {
-		q.category = strings.TrimSpace(category)
-	}
-}
-
 // WithAnalyticsReportInstancesLimit sets the max number of instances to return.
 func WithAnalyticsReportInstancesLimit(limit int) AnalyticsReportInstancesOption {
 	return func(q *analyticsReportInstancesQuery) {

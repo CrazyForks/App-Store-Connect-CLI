@@ -906,10 +906,6 @@ func ResolveProfileName() string {
 	return resolveProfileName()
 }
 
-func ResolvePrivateKeyPath() (string, error) {
-	return resolvePrivateKeyPath()
-}
-
 func PrintOutput(data any, format string, pretty bool) error {
 	return printOutput(data, format, pretty)
 }
