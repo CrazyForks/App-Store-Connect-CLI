@@ -22,18 +22,6 @@ func xcodeCloudScmListFlags(fs *flag.FlagSet) (limit *int, next *string, paginat
 	return
 }
 
-func xcodeCloudScmRepoListFlags(fs *flag.FlagSet) (repoID *string, limit *int, next *string, paginate *bool, output *string, pretty *bool) {
-	repoID = fs.String("repo-id", "", "SCM repository ID")
-	limit, next, paginate, output, pretty = xcodeCloudScmListFlags(fs)
-	return
-}
-
-func xcodeCloudScmProviderListFlags(fs *flag.FlagSet) (providerID *string, limit *int, next *string, paginate *bool, output *string, pretty *bool) {
-	providerID = fs.String("provider-id", "", "SCM provider ID")
-	limit, next, paginate, output, pretty = xcodeCloudScmListFlags(fs)
-	return
-}
-
 // XcodeCloudScmCommand returns the SCM command group for Xcode Cloud.
 func XcodeCloudScmCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("scm", flag.ExitOnError)
