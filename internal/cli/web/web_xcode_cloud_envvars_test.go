@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"net/http"
@@ -35,7 +36,7 @@ func TestEnvVarsCommandHierarchy(t *testing.T) {
 func TestEnvVarsGroupReturnsErrHelp(t *testing.T) {
 	cmd := webXcodeCloudEnvVarsCommand()
 	err := cmd.Exec(context.Background(), nil)
-	if err != flag.ErrHelp {
+	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected flag.ErrHelp, got %v", err)
 	}
 }
@@ -150,7 +151,7 @@ func TestEnvVarsList_MissingProductID(t *testing.T) {
 
 	_, stderr := captureOutput(t, func() {
 		err := cmd.Exec(context.Background(), nil)
-		if err != flag.ErrHelp {
+		if !errors.Is(err, flag.ErrHelp) {
 			t.Fatalf("expected flag.ErrHelp, got %v", err)
 		}
 	})
@@ -169,7 +170,7 @@ func TestEnvVarsList_MissingWorkflowID(t *testing.T) {
 
 	_, stderr := captureOutput(t, func() {
 		err := cmd.Exec(context.Background(), nil)
-		if err != flag.ErrHelp {
+		if !errors.Is(err, flag.ErrHelp) {
 			t.Fatalf("expected flag.ErrHelp, got %v", err)
 		}
 	})
@@ -476,7 +477,7 @@ func TestEnvVarsSet_MissingFlags(t *testing.T) {
 			}
 			_, stderr := captureOutput(t, func() {
 				err := cmd.Exec(context.Background(), nil)
-				if err != flag.ErrHelp {
+				if !errors.Is(err, flag.ErrHelp) {
 					t.Fatalf("expected flag.ErrHelp, got %v", err)
 				}
 			})
@@ -788,7 +789,7 @@ func TestEnvVarsDelete_MissingFlags(t *testing.T) {
 			}
 			_, stderr := captureOutput(t, func() {
 				err := cmd.Exec(context.Background(), nil)
-				if err != flag.ErrHelp {
+				if !errors.Is(err, flag.ErrHelp) {
 					t.Fatalf("expected flag.ErrHelp, got %v", err)
 				}
 			})
