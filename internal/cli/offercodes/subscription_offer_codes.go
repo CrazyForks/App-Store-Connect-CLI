@@ -343,7 +343,7 @@ func (i *optionalInt) String() string {
 }
 
 func normalizeOfferCodeDuration(value string) (asc.SubscriptionOfferDuration, error) {
-	normalized := normalizeEnumValue(value)
+	normalized := shared.NormalizeEnumToken(value)
 	if normalized == "" {
 		return "", nil
 	}
@@ -354,7 +354,7 @@ func normalizeOfferCodeDuration(value string) (asc.SubscriptionOfferDuration, er
 }
 
 func normalizeOfferCodeMode(value string) (asc.SubscriptionOfferMode, error) {
-	normalized := normalizeEnumValue(value)
+	normalized := shared.NormalizeEnumToken(value)
 	if normalized == "" {
 		return "", nil
 	}
@@ -365,7 +365,7 @@ func normalizeOfferCodeMode(value string) (asc.SubscriptionOfferMode, error) {
 }
 
 func normalizeOfferCodeEligibility(value string) (asc.SubscriptionOfferEligibility, error) {
-	normalized := normalizeEnumValue(value)
+	normalized := shared.NormalizeEnumToken(value)
 	if normalized == "" {
 		return "", nil
 	}
@@ -383,7 +383,7 @@ func normalizeOfferCodeCustomerEligibilities(value string) ([]asc.SubscriptionCu
 
 	eligibilities := make([]asc.SubscriptionCustomerEligibility, 0, len(values))
 	for _, item := range values {
-		normalized := normalizeEnumValue(item)
+		normalized := shared.NormalizeEnumToken(item)
 		if eligibility, ok := offerCodeCustomerEligibilityMap[normalized]; ok {
 			eligibilities = append(eligibilities, eligibility)
 			continue
@@ -392,15 +392,4 @@ func normalizeOfferCodeCustomerEligibilities(value string) ([]asc.SubscriptionCu
 	}
 
 	return eligibilities, nil
-}
-
-func normalizeEnumValue(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return ""
-	}
-	normalized := strings.ToUpper(trimmed)
-	normalized = strings.ReplaceAll(normalized, "-", "_")
-	normalized = strings.ReplaceAll(normalized, " ", "_")
-	return normalized
 }

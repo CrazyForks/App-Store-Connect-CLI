@@ -190,7 +190,7 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			payload, err := readJSONFilePayload(fileValue)
+			payload, err := shared.ReadJSONFilePayload(fileValue)
 			if err != nil {
 				return fmt.Errorf("xcode-cloud workflows create: %w", err)
 			}
@@ -242,7 +242,7 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			payload, err := readJSONFilePayload(fileValue)
+			payload, err := shared.ReadJSONFilePayload(fileValue)
 			if err != nil {
 				return fmt.Errorf("xcode-cloud workflows update: %w", err)
 			}

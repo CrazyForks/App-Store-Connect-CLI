@@ -140,8 +140,5 @@ func openAssetFile(path string) (*os.File, os.FileInfo, error) {
 }
 
 func contextWithAssetUploadTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithTimeout(ctx, asc.ResolveTimeoutWithDefault(appEventAssetUploadDefaultTimeout))
+	return shared.ContextWithResolvedTimeout(ctx, appEventAssetUploadDefaultTimeout)
 }

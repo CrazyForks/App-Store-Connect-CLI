@@ -948,7 +948,7 @@ func (i *optionalInt) String() string {
 }
 
 func normalizeWinBackOfferDuration(value string) (asc.SubscriptionOfferDuration, error) {
-	normalized := normalizeEnumValue(value)
+	normalized := shared.NormalizeEnumToken(value)
 	if normalized == "" {
 		return "", nil
 	}
@@ -959,7 +959,7 @@ func normalizeWinBackOfferDuration(value string) (asc.SubscriptionOfferDuration,
 }
 
 func normalizeWinBackOfferMode(value string) (asc.SubscriptionOfferMode, error) {
-	normalized := normalizeEnumValue(value)
+	normalized := shared.NormalizeEnumToken(value)
 	if normalized == "" {
 		return "", nil
 	}
@@ -970,7 +970,7 @@ func normalizeWinBackOfferMode(value string) (asc.SubscriptionOfferMode, error) 
 }
 
 func normalizeWinBackOfferPriority(value string) (asc.WinBackOfferPriority, error) {
-	normalized := normalizeEnumValue(value)
+	normalized := shared.NormalizeEnumToken(value)
 	if normalized == "" {
 		return "", nil
 	}
@@ -981,7 +981,7 @@ func normalizeWinBackOfferPriority(value string) (asc.WinBackOfferPriority, erro
 }
 
 func normalizeWinBackOfferPromotionIntent(value string) (asc.WinBackOfferPromotionIntent, error) {
-	normalized := normalizeEnumValue(value)
+	normalized := shared.NormalizeEnumToken(value)
 	if normalized == "" {
 		return "", nil
 	}
@@ -989,17 +989,6 @@ func normalizeWinBackOfferPromotionIntent(value string) (asc.WinBackOfferPromoti
 		return intent, nil
 	}
 	return "", fmt.Errorf("--promotion-intent must be one of: %s", strings.Join(winBackOfferPromotionIntentValues, ", "))
-}
-
-func normalizeEnumValue(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return ""
-	}
-	normalized := strings.ToUpper(trimmed)
-	normalized = strings.ReplaceAll(normalized, "-", "_")
-	normalized = strings.ReplaceAll(normalized, " ", "_")
-	return normalized
 }
 
 func normalizeWinBackOfferFields(value, flagName string) ([]string, error) {

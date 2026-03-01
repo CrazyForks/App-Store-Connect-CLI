@@ -2,10 +2,8 @@ package xcodecloud
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -998,35 +996,4 @@ func xcodeCloudXcodeVersionsList(ctx context.Context, limit int, next string, pa
 	}
 
 	return shared.PrintOutput(resp, output, pretty)
-}
-
-func readJSONFilePayload(path string) (json.RawMessage, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	info, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("payload path must be a file")
-	}
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(string(data)) == "" {
-		return nil, fmt.Errorf("payload file is empty")
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	return json.RawMessage(data), nil
 }
