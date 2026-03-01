@@ -87,14 +87,14 @@ func TestWebXcodeCloudUsageSubcommands(t *testing.T) {
 	if usageCmd == nil {
 		t.Fatal("could not find 'usage' subcommand")
 	}
-	if len(usageCmd.Subcommands) != 4 {
-		t.Fatalf("expected 4 usage subcommands, got %d", len(usageCmd.Subcommands))
+	if len(usageCmd.Subcommands) != 5 {
+		t.Fatalf("expected 5 usage subcommands, got %d", len(usageCmd.Subcommands))
 	}
 	usageNames := map[string]bool{}
 	for _, sub := range usageCmd.Subcommands {
 		usageNames[sub.Name] = true
 	}
-	for _, expected := range []string{"summary", "months", "days", "workflows"} {
+	for _, expected := range []string{"summary", "alert", "months", "days", "workflows"} {
 		if !usageNames[expected] {
 			t.Fatalf("expected %q usage subcommand", expected)
 		}
@@ -116,6 +116,11 @@ func TestWebXcodeCloudSubcommandsResolveSessionWithinTimeoutContext(t *testing.T
 		{
 			name:  "usage summary",
 			build: webXcodeCloudUsageSummaryCommand,
+			args:  []string{"--apple-id", "user@example.com"},
+		},
+		{
+			name:  "usage alert",
+			build: webXcodeCloudUsageAlertCommand,
 			args:  []string{"--apple-id", "user@example.com"},
 		},
 		{
