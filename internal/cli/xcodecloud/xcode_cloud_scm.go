@@ -101,7 +101,7 @@ Examples:
 }
 
 func XcodeCloudScmProvidersGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud scm providers get --provider-id \"PROVIDER_ID\"",
@@ -123,7 +123,7 @@ Examples:
 }
 
 func XcodeCloudScmProvidersRepositoriesCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "repositories",
 		Name:        "repositories",
 		ShortUsage:  "asc xcode-cloud scm providers repositories --provider-id \"PROVIDER_ID\" [flags]",
@@ -208,7 +208,7 @@ Examples:
 }
 
 func XcodeCloudScmRepositoriesGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud scm repositories get --id \"REPO_ID\"",
@@ -234,7 +234,7 @@ Examples:
 }
 
 func XcodeCloudScmRepositoriesGitReferencesCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "git-references",
 		Name:        "git-references",
 		ShortUsage:  "asc xcode-cloud scm repositories git-references --repo-id \"REPO_ID\" [flags]",
@@ -266,7 +266,7 @@ Examples:
 }
 
 func XcodeCloudScmRepositoriesPullRequestsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "pull-requests",
 		Name:        "pull-requests",
 		ShortUsage:  "asc xcode-cloud scm repositories pull-requests --repo-id \"REPO_ID\" [flags]",
@@ -322,7 +322,7 @@ Examples:
 }
 
 func XcodeCloudScmRepositoriesRelationshipsGitReferencesCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "git-references",
 		Name:        "git-references",
 		ShortUsage:  "asc xcode-cloud scm repositories relationships git-references --repo-id \"REPO_ID\" [flags]",
@@ -354,7 +354,7 @@ Examples:
 }
 
 func XcodeCloudScmRepositoriesRelationshipsPullRequestsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "pull-requests",
 		Name:        "pull-requests",
 		ShortUsage:  "asc xcode-cloud scm repositories relationships pull-requests --repo-id \"REPO_ID\" [flags]",
@@ -409,7 +409,7 @@ Examples:
 }
 
 func XcodeCloudScmGitReferencesGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud scm git-references get --id \"REF_ID\"",
@@ -454,7 +454,7 @@ Examples:
 }
 
 func XcodeCloudScmPullRequestsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud scm pull-requests get --id \"PR_ID\"",

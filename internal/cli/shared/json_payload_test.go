@@ -24,6 +24,26 @@ func TestReadJSONFilePayload(t *testing.T) {
 		}
 	})
 
+	t.Run("symlink payload", func(t *testing.T) {
+		dir := t.TempDir()
+		targetPath := filepath.Join(dir, "target.json")
+		linkPath := filepath.Join(dir, "payload-link.json")
+		if err := os.WriteFile(targetPath, []byte(`{"name":"linked"}`), 0o600); err != nil {
+			t.Fatalf("write payload: %v", err)
+		}
+		if err := os.Symlink(targetPath, linkPath); err != nil {
+			t.Skipf("symlink not available in this environment: %v", err)
+		}
+
+		payload, err := ReadJSONFilePayload(linkPath)
+		if err != nil {
+			t.Fatalf("ReadJSONFilePayload unexpected error for symlink: %v", err)
+		}
+		if string(payload) != `{"name":"linked"}` {
+			t.Fatalf("unexpected payload: %q", string(payload))
+		}
+	})
+
 	t.Run("directory path", func(t *testing.T) {
 		dir := t.TempDir()
 		_, err := ReadJSONFilePayload(dir)

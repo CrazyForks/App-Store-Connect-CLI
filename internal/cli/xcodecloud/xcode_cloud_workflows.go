@@ -83,7 +83,7 @@ Examples:
 }
 
 func XcodeCloudWorkflowsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud workflows get --id \"WORKFLOW_ID\"",
@@ -106,7 +106,7 @@ Examples:
 }
 
 func XcodeCloudWorkflowsRepositoryCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "repository",
 		Name:        "repository",
 		ShortUsage:  "asc xcode-cloud workflows repository --id \"WORKFLOW_ID\"",
@@ -231,7 +231,7 @@ Examples:
 }
 
 func XcodeCloudWorkflowsDeleteCommand() *ffcli.Command {
-	return shared.NewConfirmDeleteCommand(shared.ConfirmDeleteCommandConfig{
+	return shared.BuildConfirmDeleteCommand(shared.ConfirmDeleteCommandConfig{
 		FlagSetName: "delete",
 		Name:        "delete",
 		ShortUsage:  "asc xcode-cloud workflows delete --id \"WORKFLOW_ID\" --confirm",

@@ -44,7 +44,7 @@ Examples:
 
 // OfferCodeCustomCodesListCommand returns the custom codes list subcommand.
 func OfferCodeCustomCodesListCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "list",
 		Name:        "list",
 		ShortUsage:  "asc offer-codes custom-codes list [flags]",
@@ -75,7 +75,7 @@ Examples:
 
 // OfferCodeCustomCodesGetCommand returns the custom codes get subcommand.
 func OfferCodeCustomCodesGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc offer-codes custom-codes get --custom-code-id ID",

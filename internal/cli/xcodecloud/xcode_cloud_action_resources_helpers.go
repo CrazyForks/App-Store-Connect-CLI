@@ -49,7 +49,7 @@ type xcodeCloudActionResourceListConfig struct {
 }
 
 func newXcodeCloudActionResourceListCommand(config xcodeCloudActionResourceListConfig) *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "list",
 		Name:        "list",
 		ShortUsage:  config.ShortUsage,
@@ -76,7 +76,7 @@ type xcodeCloudActionResourceGetConfig struct {
 }
 
 func newXcodeCloudActionResourceGetCommand(config xcodeCloudActionResourceGetConfig) *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  config.ShortUsage,

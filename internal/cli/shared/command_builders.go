@@ -29,8 +29,8 @@ type IDGetCommandConfig struct {
 	Fetch          func(context.Context, *asc.Client, string) (any, error)
 }
 
-// NewIDGetCommand builds a standard "get by ID" command.
-func NewIDGetCommand(config IDGetCommandConfig) *ffcli.Command {
+// BuildIDGetCommand builds a standard "get by ID" command.
+func BuildIDGetCommand(config IDGetCommandConfig) *ffcli.Command {
 	fs := flag.NewFlagSet(config.FlagSetName, flag.ExitOnError)
 
 	idFlagName := strings.TrimSpace(config.IDFlag)
@@ -102,9 +102,9 @@ type PaginatedListCommandConfig struct {
 	FetchPage      func(context.Context, *asc.Client, string, int, string) (asc.PaginatedResponse, error)
 }
 
-// NewPaginatedListCommand builds a list command that supports --next and
+// BuildPaginatedListCommand builds a list command that supports --next and
 // --paginate semantics shared by many resources.
-func NewPaginatedListCommand(config PaginatedListCommandConfig) *ffcli.Command {
+func BuildPaginatedListCommand(config PaginatedListCommandConfig) *ffcli.Command {
 	fs := flag.NewFlagSet(config.FlagSetName, flag.ExitOnError)
 
 	parentFlagName := strings.TrimSpace(config.ParentFlag)
@@ -205,9 +205,9 @@ type ConfirmDeleteCommandConfig struct {
 	Result         func(string) any
 }
 
-// NewConfirmDeleteCommand builds a standard delete command requiring --id and
+// BuildConfirmDeleteCommand builds a standard delete command requiring --id and
 // --confirm and printing a caller-provided result payload.
-func NewConfirmDeleteCommand(config ConfirmDeleteCommandConfig) *ffcli.Command {
+func BuildConfirmDeleteCommand(config ConfirmDeleteCommandConfig) *ffcli.Command {
 	fs := flag.NewFlagSet(config.FlagSetName, flag.ExitOnError)
 
 	idFlagName := strings.TrimSpace(config.IDFlag)

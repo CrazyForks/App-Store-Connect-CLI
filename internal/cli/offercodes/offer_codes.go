@@ -56,7 +56,7 @@ Examples:
 
 // OfferCodesListCommand returns the offer codes list subcommand.
 func OfferCodesListCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "list",
 		Name:        "list",
 		ShortUsage:  "asc offer-codes list [flags]",

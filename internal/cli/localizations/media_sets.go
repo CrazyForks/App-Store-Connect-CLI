@@ -42,7 +42,7 @@ Examples:
 
 // LocalizationsPreviewSetsListCommand returns the preview sets list subcommand.
 func LocalizationsPreviewSetsListCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "localizations preview-sets list",
 		Name:        "list",
 		ShortUsage:  "asc localizations preview-sets list --localization-id \"LOCALIZATION_ID\"",
@@ -71,7 +71,7 @@ Examples:
 
 // LocalizationsPreviewSetsGetCommand returns the preview sets get subcommand.
 func LocalizationsPreviewSetsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "localizations preview-sets get",
 		Name:        "get",
 		ShortUsage:  "asc localizations preview-sets get --id \"PREVIEW_SET_ID\"",
@@ -91,7 +91,7 @@ Examples:
 
 // LocalizationsPreviewSetsRelationshipsCommand returns the preview sets relationships subcommand.
 func LocalizationsPreviewSetsRelationshipsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "localizations preview-sets relationships",
 		Name:        "relationships",
 		ShortUsage:  "asc localizations preview-sets relationships --localization-id \"LOCALIZATION_ID\"",
@@ -149,7 +149,7 @@ Examples:
 
 // LocalizationsScreenshotSetsGetCommand returns the screenshot sets get subcommand.
 func LocalizationsScreenshotSetsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "localizations screenshot-sets get",
 		Name:        "get",
 		ShortUsage:  "asc localizations screenshot-sets get --id \"SCREENSHOT_SET_ID\"",
@@ -220,7 +220,7 @@ Examples:
 
 // LocalizationsScreenshotSetsListCommand returns the screenshot sets list subcommand.
 func LocalizationsScreenshotSetsListCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "localizations screenshot-sets list",
 		Name:        "list",
 		ShortUsage:  "asc localizations screenshot-sets list --localization-id \"LOCALIZATION_ID\"",
@@ -249,7 +249,7 @@ Examples:
 
 // LocalizationsScreenshotSetsRelationshipsCommand returns the screenshot sets relationships subcommand.
 func LocalizationsScreenshotSetsRelationshipsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "localizations screenshot-sets relationships",
 		Name:        "relationships",
 		ShortUsage:  "asc localizations screenshot-sets relationships --localization-id \"LOCALIZATION_ID\"",

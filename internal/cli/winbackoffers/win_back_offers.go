@@ -217,7 +217,7 @@ Examples:
 
 // WinBackOffersGetCommand returns the win-back offers get subcommand.
 func WinBackOffersGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc win-back-offers get --id OFFER_ID",
@@ -755,7 +755,7 @@ Examples:
 
 // WinBackOffersPricesRelationshipsCommand returns the price relationships subcommand.
 func WinBackOffersPricesRelationshipsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "prices-relationships",
 		Name:        "prices-relationships",
 		ShortUsage:  "asc win-back-offers prices-relationships --id OFFER_ID [flags]",
@@ -781,7 +781,7 @@ Examples:
 
 // WinBackOffersRelationshipsCommand returns the win-back offer relationships subcommand.
 func WinBackOffersRelationshipsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "relationships",
 		Name:        "relationships",
 		ShortUsage:  "asc win-back-offers relationships --subscription SUB_ID [flags]",

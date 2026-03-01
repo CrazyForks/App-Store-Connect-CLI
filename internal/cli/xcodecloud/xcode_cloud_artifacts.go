@@ -45,7 +45,7 @@ Examples:
 
 // XcodeCloudArtifactsListCommand returns the xcode-cloud artifacts list subcommand.
 func XcodeCloudArtifactsListCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "list",
 		Name:        "list",
 		ShortUsage:  "asc xcode-cloud artifacts list [flags]",
@@ -76,7 +76,7 @@ Examples:
 
 // XcodeCloudArtifactsGetCommand returns the xcode-cloud artifacts get subcommand.
 func XcodeCloudArtifactsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud artifacts get --id \"ARTIFACT_ID\"",

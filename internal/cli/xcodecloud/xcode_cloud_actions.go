@@ -82,7 +82,7 @@ Examples:
 }
 
 func XcodeCloudActionsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud actions get --id \"ACTION_ID\"",
@@ -105,7 +105,7 @@ Examples:
 }
 
 func XcodeCloudActionsBuildRunCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "build-run",
 		Name:        "build-run",
 		ShortUsage:  "asc xcode-cloud actions build-run --id \"ACTION_ID\"",

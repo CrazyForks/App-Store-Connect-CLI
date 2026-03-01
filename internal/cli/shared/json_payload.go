@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
 // ReadJSONFilePayload loads a JSON object from a file path for commands that
 // accept raw payload documents.
 func ReadJSONFilePayload(path string) (json.RawMessage, error) {
-	file, err := OpenExistingNoFollow(path)
+	file, err := openJSONPayloadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -38,4 +40,24 @@ func ReadJSONFilePayload(path string) (json.RawMessage, error) {
 	}
 
 	return json.RawMessage(data), nil
+}
+
+func openJSONPayloadFile(path string) (*os.File, error) {
+	file, err := OpenExistingNoFollow(path)
+	if err == nil {
+		return file, nil
+	}
+
+	info, statErr := os.Lstat(path)
+	if statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+		return nil, err
+	}
+
+	// Keep compatibility with legacy command behavior: allow symlinked payload files.
+	resolvedPath, resolveErr := filepath.EvalSymlinks(path)
+	if resolveErr != nil {
+		return nil, resolveErr
+	}
+
+	return OpenExistingNoFollow(resolvedPath)
 }

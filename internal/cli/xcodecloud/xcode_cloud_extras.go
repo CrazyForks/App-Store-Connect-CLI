@@ -76,7 +76,7 @@ Examples:
 }
 
 func XcodeCloudProductsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud products get --id \"PRODUCT_ID\"",
@@ -99,7 +99,7 @@ Examples:
 }
 
 func XcodeCloudProductsAppCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "app",
 		Name:        "app",
 		ShortUsage:  "asc xcode-cloud products app --id \"PRODUCT_ID\"",
@@ -122,7 +122,7 @@ Examples:
 }
 
 func XcodeCloudProductsBuildRunsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "build-runs",
 		Name:        "build-runs",
 		ShortUsage:  "asc xcode-cloud products build-runs [flags]",
@@ -151,7 +151,7 @@ Examples:
 }
 
 func XcodeCloudProductsWorkflowsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "workflows",
 		Name:        "workflows",
 		ShortUsage:  "asc xcode-cloud products workflows [flags]",
@@ -180,7 +180,7 @@ Examples:
 }
 
 func XcodeCloudProductsPrimaryRepositoriesCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "primary-repositories",
 		Name:        "primary-repositories",
 		ShortUsage:  "asc xcode-cloud products primary-repositories [flags]",
@@ -209,7 +209,7 @@ Examples:
 }
 
 func XcodeCloudProductsAdditionalRepositoriesCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "additional-repositories",
 		Name:        "additional-repositories",
 		ShortUsage:  "asc xcode-cloud products additional-repositories [flags]",
@@ -238,7 +238,7 @@ Examples:
 }
 
 func XcodeCloudProductsDeleteCommand() *ffcli.Command {
-	return shared.NewConfirmDeleteCommand(shared.ConfirmDeleteCommandConfig{
+	return shared.BuildConfirmDeleteCommand(shared.ConfirmDeleteCommandConfig{
 		FlagSetName: "delete",
 		Name:        "delete",
 		ShortUsage:  "asc xcode-cloud products delete --id \"PRODUCT_ID\" --confirm",
@@ -379,7 +379,7 @@ Examples:
 }
 
 func XcodeCloudMacOSVersionsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud macos-versions get --id \"MACOS_VERSION_ID\"",
@@ -402,7 +402,7 @@ Examples:
 }
 
 func XcodeCloudMacOSVersionsXcodeVersionsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "xcode-versions",
 		Name:        "xcode-versions",
 		ShortUsage:  "asc xcode-cloud macos-versions xcode-versions [flags]",
@@ -506,7 +506,7 @@ Examples:
 }
 
 func XcodeCloudXcodeVersionsGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc xcode-cloud xcode-versions get --id \"XCODE_VERSION_ID\"",
@@ -529,7 +529,7 @@ Examples:
 }
 
 func XcodeCloudXcodeVersionsMacOSVersionsCommand() *ffcli.Command {
-	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+	return shared.BuildPaginatedListCommand(shared.PaginatedListCommandConfig{
 		FlagSetName: "macos-versions",
 		Name:        "macos-versions",
 		ShortUsage:  "asc xcode-cloud xcode-versions macos-versions [flags]",

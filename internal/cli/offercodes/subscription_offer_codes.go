@@ -98,7 +98,7 @@ func parseOfferCodePrices(value string) ([]asc.SubscriptionOfferCodePrice, error
 
 // OfferCodesGetCommand returns the offer codes get subcommand.
 func OfferCodesGetCommand() *ffcli.Command {
-	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+	return shared.BuildIDGetCommand(shared.IDGetCommandConfig{
 		FlagSetName: "get",
 		Name:        "get",
 		ShortUsage:  "asc offer-codes get --offer-code-id ID",
