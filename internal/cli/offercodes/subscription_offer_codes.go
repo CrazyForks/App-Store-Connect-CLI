@@ -248,54 +248,22 @@ Examples:
 
 // OfferCodesUpdateCommand returns the offer codes update subcommand.
 func OfferCodesUpdateCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("update", flag.ExitOnError)
-
-	offerCodeID := fs.String("offer-code-id", "", "Subscription offer code ID (required)")
-	active := fs.String("active", "", "Set active (true/false)")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "update",
-		ShortUsage: "asc offer-codes update [flags]",
-		ShortHelp:  "Update a subscription offer code.",
+	return newActiveUpdateCommand(activeUpdateCommandConfig{
+		FlagSetName: "update",
+		Name:        "update",
+		ShortUsage:  "asc offer-codes update [flags]",
+		ShortHelp:   "Update a subscription offer code.",
 		LongHelp: `Update a subscription offer code.
 
 Examples:
   asc offer-codes update --offer-code-id "OFFER_CODE_ID" --active true`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			trimmedID := strings.TrimSpace(*offerCodeID)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --offer-code-id is required")
-				return flag.ErrHelp
-			}
-
-			activeValue, err := shared.ParseOptionalBoolFlag("--active", *active)
-			if err != nil {
-				return fmt.Errorf("offer-codes update: %w", err)
-			}
-			if activeValue == nil {
-				fmt.Fprintln(os.Stderr, "Error: --active is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("offer-codes update: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			resp, err := client.UpdateSubscriptionOfferCode(requestCtx, trimmedID, asc.SubscriptionOfferCodeUpdateAttributes{Active: activeValue})
-			if err != nil {
-				return fmt.Errorf("offer-codes update: failed to update: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "offer-code-id",
+		IDUsage:     "Subscription offer code ID (required)",
+		ErrorPrefix: "offer-codes update",
+		Update: func(ctx context.Context, client *asc.Client, id string, active *bool) (any, error) {
+			return client.UpdateSubscriptionOfferCode(ctx, id, asc.SubscriptionOfferCodeUpdateAttributes{Active: active})
 		},
-	}
+	})
 }
 
 type optionalInt struct {

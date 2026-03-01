@@ -181,52 +181,20 @@ Examples:
 
 // OfferCodeCustomCodesUpdateCommand returns the custom codes update subcommand.
 func OfferCodeCustomCodesUpdateCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("update", flag.ExitOnError)
-
-	customCodeID := fs.String("custom-code-id", "", "Custom code ID (required)")
-	active := fs.String("active", "", "Set active (true/false)")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "update",
-		ShortUsage: "asc offer-codes custom-codes update [flags]",
-		ShortHelp:  "Update a custom code.",
+	return newActiveUpdateCommand(activeUpdateCommandConfig{
+		FlagSetName: "update",
+		Name:        "update",
+		ShortUsage:  "asc offer-codes custom-codes update [flags]",
+		ShortHelp:   "Update a custom code.",
 		LongHelp: `Update a custom code.
 
 Examples:
   asc offer-codes custom-codes update --custom-code-id "CUSTOM_CODE_ID" --active false`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			trimmedID := strings.TrimSpace(*customCodeID)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --custom-code-id is required")
-				return flag.ErrHelp
-			}
-
-			activeValue, err := shared.ParseOptionalBoolFlag("--active", *active)
-			if err != nil {
-				return fmt.Errorf("offer-codes custom-codes update: %w", err)
-			}
-			if activeValue == nil {
-				fmt.Fprintln(os.Stderr, "Error: --active is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("offer-codes custom-codes update: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			resp, err := client.UpdateSubscriptionOfferCodeCustomCode(requestCtx, trimmedID, asc.SubscriptionOfferCodeCustomCodeUpdateAttributes{Active: activeValue})
-			if err != nil {
-				return fmt.Errorf("offer-codes custom-codes update: failed to update: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "custom-code-id",
+		IDUsage:     "Custom code ID (required)",
+		ErrorPrefix: "offer-codes custom-codes update",
+		Update: func(ctx context.Context, client *asc.Client, id string, active *bool) (any, error) {
+			return client.UpdateSubscriptionOfferCodeCustomCode(ctx, id, asc.SubscriptionOfferCodeCustomCodeUpdateAttributes{Active: active})
 		},
-	}
+	})
 }
