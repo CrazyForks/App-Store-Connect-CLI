@@ -777,152 +777,54 @@ Examples:
 
 // WinBackOffersPricesRelationshipsCommand returns the price relationships subcommand.
 func WinBackOffersPricesRelationshipsCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("prices-relationships", flag.ExitOnError)
-
-	id := fs.String("id", "", "Win-back offer ID")
-	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
-	next := fs.String("next", "", "Fetch next page using a links.next URL")
-	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "prices-relationships",
-		ShortUsage: "asc win-back-offers prices-relationships --id OFFER_ID [flags]",
-		ShortHelp:  "List price relationships for a win-back offer.",
+	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+		FlagSetName: "prices-relationships",
+		Name:        "prices-relationships",
+		ShortUsage:  "asc win-back-offers prices-relationships --id OFFER_ID [flags]",
+		ShortHelp:   "List price relationships for a win-back offer.",
 		LongHelp: `List price relationships for a win-back offer.
 
 Examples:
   asc win-back-offers prices-relationships --id "OFFER_ID"
   asc win-back-offers prices-relationships --id "OFFER_ID" --paginate`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > winBackOffersMaxLimit) {
-				return fmt.Errorf("win-back-offers prices-relationships: --limit must be between 1 and %d", winBackOffersMaxLimit)
-			}
-			if err := shared.ValidateNextURL(*next); err != nil {
-				return fmt.Errorf("win-back-offers prices-relationships: %w", err)
-			}
-
-			trimmedID := strings.TrimSpace(*id)
-			if trimmedID == "" && strings.TrimSpace(*next) == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("win-back-offers prices-relationships: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
+		ParentFlag:  "id",
+		ParentUsage: "Win-back offer ID",
+		LimitMax:    winBackOffersMaxLimit,
+		ErrorPrefix: "win-back-offers prices-relationships",
+		FetchPage: func(ctx context.Context, client *asc.Client, offerID string, limit int, next string) (asc.PaginatedResponse, error) {
 			opts := []asc.LinkagesOption{
-				asc.WithLinkagesLimit(*limit),
-				asc.WithLinkagesNextURL(*next),
+				asc.WithLinkagesLimit(limit),
+				asc.WithLinkagesNextURL(next),
 			}
-
-			if *paginate {
-				paginateOpts := append(opts, asc.WithLinkagesLimit(winBackOffersMaxLimit))
-				firstPage, err := client.GetWinBackOfferPricesRelationships(requestCtx, trimmedID, paginateOpts...)
-				if err != nil {
-					return fmt.Errorf("win-back-offers prices-relationships: failed to fetch: %w", err)
-				}
-
-				resp, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-					return client.GetWinBackOfferPricesRelationships(ctx, trimmedID, asc.WithLinkagesNextURL(nextURL))
-				})
-				if err != nil {
-					return fmt.Errorf("win-back-offers prices-relationships: %w", err)
-				}
-
-				return shared.PrintOutput(resp, *output.Output, *output.Pretty)
-			}
-
-			resp, err := client.GetWinBackOfferPricesRelationships(requestCtx, trimmedID, opts...)
-			if err != nil {
-				return fmt.Errorf("win-back-offers prices-relationships: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+			return client.GetWinBackOfferPricesRelationships(ctx, offerID, opts...)
 		},
-	}
+	})
 }
 
 // WinBackOffersRelationshipsCommand returns the win-back offer relationships subcommand.
 func WinBackOffersRelationshipsCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("relationships", flag.ExitOnError)
-
-	subscriptionID := fs.String("subscription", "", "Subscription ID")
-	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
-	next := fs.String("next", "", "Fetch next page using a links.next URL")
-	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "relationships",
-		ShortUsage: "asc win-back-offers relationships --subscription SUB_ID [flags]",
-		ShortHelp:  "List win-back offer relationships for a subscription.",
+	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+		FlagSetName: "relationships",
+		Name:        "relationships",
+		ShortUsage:  "asc win-back-offers relationships --subscription SUB_ID [flags]",
+		ShortHelp:   "List win-back offer relationships for a subscription.",
 		LongHelp: `List win-back offer relationships for a subscription.
 
 Examples:
   asc win-back-offers relationships --subscription "SUB_ID"
   asc win-back-offers relationships --subscription "SUB_ID" --paginate`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > winBackOffersMaxLimit) {
-				return fmt.Errorf("win-back-offers relationships: --limit must be between 1 and %d", winBackOffersMaxLimit)
-			}
-			if err := shared.ValidateNextURL(*next); err != nil {
-				return fmt.Errorf("win-back-offers relationships: %w", err)
-			}
-
-			trimmedID := strings.TrimSpace(*subscriptionID)
-			if trimmedID == "" && strings.TrimSpace(*next) == "" {
-				fmt.Fprintln(os.Stderr, "Error: --subscription is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("win-back-offers relationships: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
+		ParentFlag:  "subscription",
+		ParentUsage: "Subscription ID",
+		LimitMax:    winBackOffersMaxLimit,
+		ErrorPrefix: "win-back-offers relationships",
+		FetchPage: func(ctx context.Context, client *asc.Client, subscriptionID string, limit int, next string) (asc.PaginatedResponse, error) {
 			opts := []asc.LinkagesOption{
-				asc.WithLinkagesLimit(*limit),
-				asc.WithLinkagesNextURL(*next),
+				asc.WithLinkagesLimit(limit),
+				asc.WithLinkagesNextURL(next),
 			}
-
-			if *paginate {
-				paginateOpts := append(opts, asc.WithLinkagesLimit(winBackOffersMaxLimit))
-				firstPage, err := client.GetSubscriptionWinBackOffersRelationships(requestCtx, trimmedID, paginateOpts...)
-				if err != nil {
-					return fmt.Errorf("win-back-offers relationships: failed to fetch: %w", err)
-				}
-
-				resp, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-					return client.GetSubscriptionWinBackOffersRelationships(ctx, trimmedID, asc.WithLinkagesNextURL(nextURL))
-				})
-				if err != nil {
-					return fmt.Errorf("win-back-offers relationships: %w", err)
-				}
-
-				return shared.PrintOutput(resp, *output.Output, *output.Pretty)
-			}
-
-			resp, err := client.GetSubscriptionWinBackOffersRelationships(requestCtx, trimmedID, opts...)
-			if err != nil {
-				return fmt.Errorf("win-back-offers relationships: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+			return client.GetSubscriptionWinBackOffersRelationships(ctx, subscriptionID, opts...)
 		},
-	}
+	})
 }
 
 type optionalInt struct {
