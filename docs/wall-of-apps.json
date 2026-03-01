@@ -257,6 +257,13 @@
     "platform": ["iOS"]
   },
   {
+    "app": "TickerPad",
+    "link": "https://apps.apple.com/app/id1578860989",
+    "creator": "daimajia",
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/3f/a0/10/3fa0108a-9671-6045-d0bb-a546a27645f5/AppIcon-0-0-85-220-0-0-5-0-2x-0-0-0.png/512x512bb.jpg",
+    "platform": ["macOS"]
+  },
+  {
     "app": "Timefall",
     "link": "https://apps.apple.com/app/id6757712804",
     "creator": "vatrueshka",
