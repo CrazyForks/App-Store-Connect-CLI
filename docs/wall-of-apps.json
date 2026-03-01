@@ -76,6 +76,12 @@
     "platform": ["iOS"]
   },
   {
+    "app": "Foundation Lab",
+    "link": "https://testflight.apple.com/join/JWR9FpP3",
+    "creator": "rudrankriyam",
+    "platform": ["iOS", "macOS"]
+  },
+  {
     "app": "Fuel: AI Nutrition",
     "link": "https://apps.apple.com/app/id6748624107",
     "creator": "0xSMW",
