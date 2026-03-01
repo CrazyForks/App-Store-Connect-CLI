@@ -161,6 +161,58 @@ func TestWebXcodeCloudUsageAlertReturnsThresholdErrorWithJSONOutput(t *testing.T
 	}
 }
 
+func TestWebXcodeCloudUsageAlertUsesExactThresholdRatios(t *testing.T) {
+	origResolveSession := resolveSessionFn
+	origWebNow := webNowFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+		webNowFn = origWebNow
+	})
+
+	webNowFn = func() time.Time { return time.Date(2026, time.February, 28, 10, 0, 0, 0, time.UTC) }
+	summary := &webcore.CIUsageSummary{
+		Plan: webcore.CIUsagePlan{
+			Name:      "Starter",
+			Used:      945,
+			Available: 55,
+			Total:     1000,
+			ResetDate: "2026-03-01",
+		},
+	}
+	resolveSessionFn = stubUsageAlertSessionWithResponses(t, summary, nil)
+
+	cmd := webXcodeCloudUsageAlertCommand()
+	if err := cmd.FlagSet.Parse([]string{
+		"--apple-id", "user@example.com",
+		"--warn-at", "95",
+		"--critical-at", "96",
+		"--trend-months", "0",
+		"--fail-on", "warning",
+		"--output", "json",
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	var runErr error
+	stdout, _ := captureOutput(t, func() {
+		runErr = cmd.Exec(context.Background(), nil)
+	})
+	if runErr != nil {
+		t.Fatalf("expected no threshold error, got %v", runErr)
+	}
+
+	var result CIUsageAlertResult
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &result); err != nil {
+		t.Fatalf("expected valid json output, got error %v", err)
+	}
+	if result.Severity != usageAlertSeverityOK {
+		t.Fatalf("expected ok severity with exact ratio checks, got %q", result.Severity)
+	}
+	if result.Plan.UsedPercent != 95 {
+		t.Fatalf("expected rounded display percent 95, got %d", result.Plan.UsedPercent)
+	}
+}
+
 func TestWebXcodeCloudUsageAlertSendsSlackOnCritical(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	origSendSlack := sendUsageAlertSlackFn
@@ -349,6 +401,100 @@ func TestWebXcodeCloudUsageAlertLoadsMonthlyTrend(t *testing.T) {
 	}
 	if len(result.Trend.Months) != 2 {
 		t.Fatalf("expected two trend months, got %d", len(result.Trend.Months))
+	}
+}
+
+func TestUsageAlertMonthWindowAnchorsToMonthBoundaries(t *testing.T) {
+	startMonth, startYear, endMonth, endYear := usageAlertMonthWindow(
+		time.Date(2026, time.March, 31, 20, 15, 0, 0, time.UTC),
+		2,
+	)
+	if startMonth != 2 || startYear != 2026 || endMonth != 3 || endYear != 2026 {
+		t.Fatalf(
+			"expected Feb 2026 -> Mar 2026 window, got %02d/%d -> %02d/%d",
+			startMonth,
+			startYear,
+			endMonth,
+			endYear,
+		)
+	}
+}
+
+func TestWebXcodeCloudUsageAlertTrendUsesMonthAnchoredWindow(t *testing.T) {
+	origResolveSession := resolveSessionFn
+	origWebNow := webNowFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+		webNowFn = origWebNow
+	})
+
+	webNowFn = func() time.Time { return time.Date(2026, time.March, 31, 20, 15, 0, 0, time.UTC) }
+
+	summary := &webcore.CIUsageSummary{
+		Plan: webcore.CIUsagePlan{
+			Name:      "Starter",
+			Used:      700,
+			Available: 300,
+			Total:     1000,
+			ResetDate: "2026-04-01",
+		},
+	}
+	months := &webcore.CIUsageMonths{
+		Usage: []webcore.CIMonthUsage{
+			{Year: 2026, Month: 2, Duration: 310, NumberOfBuilds: 20},
+			{Year: 2026, Month: 3, Duration: 350, NumberOfBuilds: 21},
+		},
+	}
+
+	sawMonthsRequest := false
+	resolveSessionFn = func(
+		ctx context.Context,
+		appleID, password, twoFactorCode string,
+	) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			PublicProviderID: "TEAM-123",
+			Client: &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					switch {
+					case strings.Contains(req.URL.Path, "/usage/summary"):
+						return usageAlertJSONResponse(t, http.StatusOK, summary), nil
+					case strings.Contains(req.URL.Path, "/usage/months"):
+						sawMonthsRequest = true
+						query := req.URL.Query()
+						if query.Get("start_month") != "2" || query.Get("start_year") != "2026" {
+							t.Fatalf("expected start window 02/2026, got %s/%s", query.Get("start_month"), query.Get("start_year"))
+						}
+						if query.Get("end_month") != "3" || query.Get("end_year") != "2026" {
+							t.Fatalf("expected end window 03/2026, got %s/%s", query.Get("end_month"), query.Get("end_year"))
+						}
+						return usageAlertJSONResponse(t, http.StatusOK, months), nil
+					default:
+						return usageAlertJSONResponse(t, http.StatusNotFound, map[string]any{"error": "not found"}), nil
+					}
+				}),
+			},
+		}, "", nil
+	}
+
+	cmd := webXcodeCloudUsageAlertCommand()
+	if err := cmd.FlagSet.Parse([]string{
+		"--apple-id", "user@example.com",
+		"--fail-on", "none",
+		"--trend-months", "2",
+		"--output", "json",
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	var runErr error
+	_, _ = captureOutput(t, func() {
+		runErr = cmd.Exec(context.Background(), nil)
+	})
+	if runErr != nil {
+		t.Fatalf("expected no error, got %v", runErr)
+	}
+	if !sawMonthsRequest {
+		t.Fatal("expected usage months request")
 	}
 }
 

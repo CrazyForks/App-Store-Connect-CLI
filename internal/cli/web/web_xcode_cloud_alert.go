@@ -366,7 +366,7 @@ func buildCIUsageAlertResult(
 	used := summary.Plan.Used
 	total := summary.Plan.Total
 	percentUsed := calculateUsagePercent(used, total)
-	severity := classifyUsageAlertSeverity(percentUsed, total, warnAt, criticalAt)
+	severity := classifyUsageAlertSeverity(used, total, warnAt, criticalAt)
 
 	result := &CIUsageAlertResult{
 		TeamID:      teamID,
@@ -406,14 +406,19 @@ func calculateUsagePercent(used, total int) int {
 	return (used*100 + total/2) / total
 }
 
-func classifyUsageAlertSeverity(percentUsed, total, warnAt, criticalAt int) usageAlertSeverity {
+func classifyUsageAlertSeverity(used, total, warnAt, criticalAt int) usageAlertSeverity {
 	if total <= 0 {
 		return usageAlertSeverityUnknown
 	}
-	if percentUsed >= criticalAt {
+	if used < 0 {
+		used = 0
+	}
+	usedScaled := int64(used) * 100
+	totalScaled := int64(total)
+	if usedScaled >= int64(criticalAt)*totalScaled {
 		return usageAlertSeverityCritical
 	}
-	if percentUsed >= warnAt {
+	if usedScaled >= int64(warnAt)*totalScaled {
 		return usageAlertSeverityWarning
 	}
 	return usageAlertSeverityOK
@@ -477,14 +482,14 @@ func loadUsageAlertTrend(ctx context.Context, client *webcore.Client, teamID str
 	}
 
 	now := webNowFn().UTC()
-	start := now.AddDate(0, -(months - 1), 0)
+	startMonth, startYear, endMonth, endYear := usageAlertMonthWindow(now, months)
 	response, err := client.GetCIUsageMonths(
 		ctx,
 		teamID,
-		int(start.Month()),
-		start.Year(),
-		int(now.Month()),
-		now.Year(),
+		startMonth,
+		startYear,
+		endMonth,
+		endYear,
 	)
 	if err != nil || response == nil {
 		trend.Available = false
@@ -527,6 +532,16 @@ func loadUsageAlertTrend(ctx context.Context, client *webcore.Client, teamID str
 	trend.AverageMinutes = totalMinutes / len(usage)
 	trend.PeakMinutes = peakMinutes
 	return trend
+}
+
+func usageAlertMonthWindow(now time.Time, months int) (startMonth, startYear, endMonth, endYear int) {
+	if months < 1 {
+		months = 1
+	}
+	now = now.UTC()
+	endAnchor := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	startAnchor := endAnchor.AddDate(0, -(months - 1), 0)
+	return int(startAnchor.Month()), startAnchor.Year(), int(endAnchor.Month()), endAnchor.Year()
 }
 
 func deliverUsageAlertNotifications(
