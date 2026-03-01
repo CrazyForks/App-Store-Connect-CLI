@@ -65,8 +65,8 @@ func TestWebXcodeCloudCommandHierarchy(t *testing.T) {
 	if cmd.Name != "xcode-cloud" {
 		t.Fatalf("expected command name %q, got %q", "xcode-cloud", cmd.Name)
 	}
-	if len(cmd.Subcommands) != 2 {
-		t.Fatalf("expected 2 subcommands (usage, products), got %d", len(cmd.Subcommands))
+	if len(cmd.Subcommands) != 3 {
+		t.Fatalf("expected 3 subcommands (usage, products, env-vars), got %d", len(cmd.Subcommands))
 	}
 
 	names := map[string]bool{}
@@ -78,6 +78,9 @@ func TestWebXcodeCloudCommandHierarchy(t *testing.T) {
 	}
 	if !names["products"] {
 		t.Fatal("expected 'products' subcommand")
+	}
+	if !names["env-vars"] {
+		t.Fatal("expected 'env-vars' subcommand")
 	}
 }
 
