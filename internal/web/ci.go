@@ -431,6 +431,103 @@ func (c *Client) GetCIEncryptionKey(ctx context.Context) (*CIEncryptionKeyRespon
 	return &result, nil
 }
 
+// CIProductEnvironmentVariable represents a shared (product-level) environment variable.
+type CIProductEnvironmentVariable struct {
+	ID                       string                     `json:"id"`
+	Name                     string                     `json:"name"`
+	Value                    CIEnvironmentVariableValue `json:"value"`
+	IsLocked                 bool                       `json:"is_locked"`
+	RelatedWorkflowSummaries []CIRelatedWorkflowSummary `json:"related_workflow_summaries,omitempty"`
+}
+
+// CIRelatedWorkflowSummary describes a workflow linked to a shared env var.
+type CIRelatedWorkflowSummary struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Disabled       bool   `json:"disabled"`
+	Locked         bool   `json:"locked"`
+	LastModifiedBy string `json:"last_modified_by,omitempty"`
+	LastModifiedAt string `json:"last_modified_at,omitempty"`
+}
+
+// CIProductEnvVarRequest is the PUT body for creating/updating a shared env var.
+type CIProductEnvVarRequest struct {
+	Name        string                     `json:"name"`
+	Value       CIEnvironmentVariableValue `json:"value"`
+	IsLocked    bool                       `json:"is_locked"`
+	WorkflowIDs []string                   `json:"workflow_ids"`
+}
+
+// ListCIProductEnvVars lists shared (product-level) environment variables.
+// GET /teams/{teamID}/products/{productID}/product-environment-variables
+func (c *Client) ListCIProductEnvVars(ctx context.Context, teamID, productID string) ([]CIProductEnvironmentVariable, error) {
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return nil, fmt.Errorf("team id is required")
+	}
+	productID = strings.TrimSpace(productID)
+	if productID == "" {
+		return nil, fmt.Errorf("product id is required")
+	}
+	path := "/teams/" + url.PathEscape(teamID) + "/products/" + url.PathEscape(productID) + "/product-environment-variables"
+	body, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result []CIProductEnvironmentVariable
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode product environment variables: %w", err)
+	}
+	return result, nil
+}
+
+// SetCIProductEnvVar creates or updates a shared (product-level) environment variable.
+// PUT /teams/{teamID}/products/{productID}/product-environment-variables/{varID}
+func (c *Client) SetCIProductEnvVar(ctx context.Context, teamID, productID, varID string, req CIProductEnvVarRequest) (*CIProductEnvironmentVariable, error) {
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return nil, fmt.Errorf("team id is required")
+	}
+	productID = strings.TrimSpace(productID)
+	if productID == "" {
+		return nil, fmt.Errorf("product id is required")
+	}
+	varID = strings.TrimSpace(varID)
+	if varID == "" {
+		return nil, fmt.Errorf("variable id is required")
+	}
+	path := "/teams/" + url.PathEscape(teamID) + "/products/" + url.PathEscape(productID) + "/product-environment-variables/" + url.PathEscape(varID)
+	body, err := c.doRequest(ctx, "PUT", path, req)
+	if err != nil {
+		return nil, err
+	}
+	var result CIProductEnvironmentVariable
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode product environment variable response: %w", err)
+	}
+	return &result, nil
+}
+
+// DeleteCIProductEnvVar deletes a shared (product-level) environment variable.
+// DELETE /teams/{teamID}/products/{productID}/product-environment-variables/{varID}
+func (c *Client) DeleteCIProductEnvVar(ctx context.Context, teamID, productID, varID string) error {
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return fmt.Errorf("team id is required")
+	}
+	productID = strings.TrimSpace(productID)
+	if productID == "" {
+		return fmt.Errorf("product id is required")
+	}
+	varID = strings.TrimSpace(varID)
+	if varID == "" {
+		return fmt.Errorf("variable id is required")
+	}
+	path := "/teams/" + url.PathEscape(teamID) + "/products/" + url.PathEscape(productID) + "/product-environment-variables/" + url.PathEscape(varID)
+	_, err := c.doRequest(ctx, "DELETE", path, nil)
+	return err
+}
+
 // ExtractEnvVars extracts environment_variables from raw workflow content.
 func ExtractEnvVars(content json.RawMessage) ([]CIEnvironmentVariable, error) {
 	var m map[string]json.RawMessage

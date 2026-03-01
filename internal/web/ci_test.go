@@ -740,6 +740,235 @@ func TestSetEnvVarsRejectsNullContent(t *testing.T) {
 	}
 }
 
+func TestListCIProductEnvVarsParsesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/teams/team-uuid/products/prod-1/product-environment-variables" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{
+				"id": "var-1",
+				"name": "SHARED_KEY",
+				"value": {"plaintext": "shared-val"},
+				"is_locked": false,
+				"related_workflow_summaries": [
+					{"id": "wf-1", "name": "Deploy", "disabled": false, "locked": false}
+				]
+			},
+			{
+				"id": "var-2",
+				"name": "SHARED_SECRET",
+				"value": {"redacted_value": ""},
+				"is_locked": true,
+				"related_workflow_summaries": []
+			}
+		]`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	result, err := client.ListCIProductEnvVars(context.Background(), "team-uuid", "prod-1")
+	if err != nil {
+		t.Fatalf("ListCIProductEnvVars() error = %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 vars, got %d", len(result))
+	}
+	if result[0].ID != "var-1" || result[0].Name != "SHARED_KEY" {
+		t.Fatalf("unexpected first var: %+v", result[0])
+	}
+	if result[0].Value.Plaintext == nil || *result[0].Value.Plaintext != "shared-val" {
+		t.Fatalf("expected plaintext value, got %+v", result[0].Value)
+	}
+	if result[0].IsLocked {
+		t.Fatalf("expected is_locked=false for first var")
+	}
+	if len(result[0].RelatedWorkflowSummaries) != 1 || result[0].RelatedWorkflowSummaries[0].Name != "Deploy" {
+		t.Fatalf("unexpected workflow summaries: %+v", result[0].RelatedWorkflowSummaries)
+	}
+	if result[1].Name != "SHARED_SECRET" || !result[1].IsLocked {
+		t.Fatalf("unexpected second var: %+v", result[1])
+	}
+	if result[1].Value.RedactedValue == nil {
+		t.Fatalf("expected redacted_value for second var")
+	}
+}
+
+func TestListCIProductEnvVarsEmptyList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	result, err := client.ListCIProductEnvVars(context.Background(), "team-uuid", "prod-1")
+	if err != nil {
+		t.Fatalf("ListCIProductEnvVars() error = %v", err)
+	}
+	if len(result) != 0 {
+		t.Fatalf("expected 0 vars, got %d", len(result))
+	}
+}
+
+func TestListCIProductEnvVarsRejectsEmptyInputs(t *testing.T) {
+	client := &Client{httpClient: http.DefaultClient, baseURL: "http://localhost"}
+	tests := []struct {
+		name      string
+		teamID    string
+		productID string
+		wantErr   string
+	}{
+		{"empty team", "", "prod", "team id is required"},
+		{"empty product", "team", "", "product id is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.ListCIProductEnvVars(context.Background(), tt.teamID, tt.productID)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantErr, err.Error())
+			}
+		})
+	}
+}
+
+func TestSetCIProductEnvVarSendsBody(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	var gotBody []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("failed to read body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id": "var-1",
+			"name": "MY_VAR",
+			"value": {"plaintext": "hello"},
+			"is_locked": false,
+			"related_workflow_summaries": []
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	pt := "hello"
+	req := CIProductEnvVarRequest{
+		Name:        "MY_VAR",
+		Value:       CIEnvironmentVariableValue{Plaintext: &pt},
+		IsLocked:    false,
+		WorkflowIDs: []string{"wf-1"},
+	}
+	result, err := client.SetCIProductEnvVar(context.Background(), "team-uuid", "prod-1", "var-1", req)
+	if err != nil {
+		t.Fatalf("SetCIProductEnvVar() error = %v", err)
+	}
+	if gotMethod != http.MethodPut {
+		t.Fatalf("expected PUT, got %s", gotMethod)
+	}
+	if gotPath != "/teams/team-uuid/products/prod-1/product-environment-variables/var-1" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+	if !strings.Contains(string(gotBody), `"name":"MY_VAR"`) {
+		t.Fatalf("expected name in body, got %s", gotBody)
+	}
+	if !strings.Contains(string(gotBody), `"workflow_ids":["wf-1"]`) {
+		t.Fatalf("expected workflow_ids in body, got %s", gotBody)
+	}
+	if result.ID != "var-1" || result.Name != "MY_VAR" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestSetCIProductEnvVarRejectsEmptyInputs(t *testing.T) {
+	client := &Client{httpClient: http.DefaultClient, baseURL: "http://localhost"}
+	tests := []struct {
+		name      string
+		teamID    string
+		productID string
+		varID     string
+		wantErr   string
+	}{
+		{"empty team", "", "prod", "var", "team id is required"},
+		{"empty product", "team", "", "var", "product id is required"},
+		{"empty var", "team", "prod", "", "variable id is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.SetCIProductEnvVar(context.Background(), tt.teamID, tt.productID, tt.varID, CIProductEnvVarRequest{})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantErr, err.Error())
+			}
+		})
+	}
+}
+
+func TestDeleteCIProductEnvVar(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	err := client.DeleteCIProductEnvVar(context.Background(), "team-uuid", "prod-1", "var-1")
+	if err != nil {
+		t.Fatalf("DeleteCIProductEnvVar() error = %v", err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Fatalf("expected DELETE, got %s", gotMethod)
+	}
+	if gotPath != "/teams/team-uuid/products/prod-1/product-environment-variables/var-1" {
+		t.Fatalf("unexpected path: %s", gotPath)
+	}
+}
+
+func TestDeleteCIProductEnvVarRejectsEmptyInputs(t *testing.T) {
+	client := &Client{httpClient: http.DefaultClient, baseURL: "http://localhost"}
+	tests := []struct {
+		name      string
+		teamID    string
+		productID string
+		varID     string
+		wantErr   string
+	}{
+		{"empty team", "", "prod", "var", "team id is required"},
+		{"empty product", "team", "", "var", "product id is required"},
+		{"empty var", "team", "prod", "", "variable id is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.DeleteCIProductEnvVar(context.Background(), tt.teamID, tt.productID, tt.varID)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %q", tt.wantErr, err.Error())
+			}
+		})
+	}
+}
+
 func keysOf(m map[string]json.RawMessage) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

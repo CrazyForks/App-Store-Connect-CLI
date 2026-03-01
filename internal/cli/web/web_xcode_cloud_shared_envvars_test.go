@@ -13,35 +13,39 @@ import (
 	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
-func TestEnvVarsCommandHierarchy(t *testing.T) {
+func TestSharedEnvVarsCommandHierarchy(t *testing.T) {
 	cmd := WebXcodeCloudCommand()
 	envVarsCmd := findSub(cmd, "env-vars")
 	if envVarsCmd == nil {
 		t.Fatal("expected 'env-vars' subcommand")
 	}
-	if len(envVarsCmd.Subcommands) != 4 {
-		t.Fatalf("expected 4 subcommands (list, set, delete, shared), got %d", len(envVarsCmd.Subcommands))
+	sharedCmd := findSub(envVarsCmd, "shared")
+	if sharedCmd == nil {
+		t.Fatal("expected 'shared' subcommand under env-vars")
+	}
+	if len(sharedCmd.Subcommands) != 3 {
+		t.Fatalf("expected 3 subcommands (list, set, delete), got %d", len(sharedCmd.Subcommands))
 	}
 	names := map[string]bool{}
-	for _, sub := range envVarsCmd.Subcommands {
+	for _, sub := range sharedCmd.Subcommands {
 		names[sub.Name] = true
 	}
-	for _, name := range []string{"list", "set", "delete", "shared"} {
+	for _, name := range []string{"list", "set", "delete"} {
 		if !names[name] {
 			t.Fatalf("expected %q subcommand", name)
 		}
 	}
 }
 
-func TestEnvVarsGroupReturnsErrHelp(t *testing.T) {
-	cmd := webXcodeCloudEnvVarsCommand()
+func TestSharedEnvVarsGroupReturnsErrHelp(t *testing.T) {
+	cmd := webXcodeCloudEnvVarsSharedCommand()
 	err := cmd.Exec(context.Background(), nil)
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected flag.ErrHelp, got %v", err)
 	}
 }
 
-func TestEnvVarsList_Success(t *testing.T) {
+func TestSharedEnvVarsList_Success(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
@@ -53,16 +57,20 @@ func TestEnvVarsList_Success(t *testing.T) {
 			PublicProviderID: "team-uuid",
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					body := `{
-						"id": "wf-1",
-						"content": {
-							"name": "Test WF",
-							"environment_variables": [
-								{"id":"ev-1","name":"API_KEY","value":{"plaintext":"abc123"}},
-								{"id":"ev-2","name":"SECRET","value":{"redacted_value":"***"}}
-							]
+					body := `[
+						{
+							"id":"var-1","name":"SHARED_KEY",
+							"value":{"plaintext":"abc123"},
+							"is_locked":false,
+							"related_workflow_summaries":[{"id":"wf-1","name":"Deploy","disabled":false,"locked":false}]
+						},
+						{
+							"id":"var-2","name":"SHARED_SECRET",
+							"value":{"redacted_value":""},
+							"is_locked":true,
+							"related_workflow_summaries":[]
 						}
-					}`
+					]`
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -74,11 +82,10 @@ func TestEnvVarsList_Success(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsListCommand()
+	cmd := webXcodeCloudEnvVarsSharedListCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 	}); err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -88,16 +95,15 @@ func TestEnvVarsList_Success(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	// Default output is JSON
-	if !strings.Contains(stdout, "API_KEY") {
-		t.Fatalf("expected API_KEY in output, got %q", stdout)
+	if !strings.Contains(stdout, "SHARED_KEY") {
+		t.Fatalf("expected SHARED_KEY in output, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "SECRET") {
-		t.Fatalf("expected SECRET in output, got %q", stdout)
+	if !strings.Contains(stdout, "SHARED_SECRET") {
+		t.Fatalf("expected SHARED_SECRET in output, got %q", stdout)
 	}
 }
 
-func TestEnvVarsList_EmptyList(t *testing.T) {
+func TestSharedEnvVarsList_EmptyList(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
@@ -109,11 +115,10 @@ func TestEnvVarsList_EmptyList(t *testing.T) {
 			PublicProviderID: "team-uuid",
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					body := `{"id":"wf-1","content":{"name":"Test WF","environment_variables":[]}}`
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     http.Header{"Content-Type": []string{"application/json"}},
-						Body:       io.NopCloser(strings.NewReader(body)),
+						Body:       io.NopCloser(strings.NewReader(`[]`)),
 						Request:    req,
 					}, nil
 				}),
@@ -121,11 +126,10 @@ func TestEnvVarsList_EmptyList(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsListCommand()
+	cmd := webXcodeCloudEnvVarsSharedListCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 	}); err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -135,17 +139,14 @@ func TestEnvVarsList_EmptyList(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	// JSON output with empty variables
 	if !strings.Contains(stdout, `"variables"`) {
 		t.Fatalf("expected variables key in output, got %q", stdout)
 	}
 }
 
-func TestEnvVarsList_MissingProductID(t *testing.T) {
-	cmd := webXcodeCloudEnvVarsListCommand()
-	if err := cmd.FlagSet.Parse([]string{
-		"--workflow-id", "wf-1",
-	}); err != nil {
+func TestSharedEnvVarsList_MissingProductID(t *testing.T) {
+	cmd := webXcodeCloudEnvVarsSharedListCommand()
+	if err := cmd.FlagSet.Parse([]string{}); err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
 
@@ -160,26 +161,7 @@ func TestEnvVarsList_MissingProductID(t *testing.T) {
 	}
 }
 
-func TestEnvVarsList_MissingWorkflowID(t *testing.T) {
-	cmd := webXcodeCloudEnvVarsListCommand()
-	if err := cmd.FlagSet.Parse([]string{
-		"--product-id", "prod-1",
-	}); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	_, stderr := captureOutput(t, func() {
-		err := cmd.Exec(context.Background(), nil)
-		if !errors.Is(err, flag.ErrHelp) {
-			t.Fatalf("expected flag.ErrHelp, got %v", err)
-		}
-	})
-	if !strings.Contains(stderr, "--workflow-id is required") {
-		t.Fatalf("expected workflow-id error in stderr, got %q", stderr)
-	}
-}
-
-func TestEnvVarsList_TableOutput(t *testing.T) {
+func TestSharedEnvVarsList_TableOutput(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
@@ -191,16 +173,20 @@ func TestEnvVarsList_TableOutput(t *testing.T) {
 			PublicProviderID: "team-uuid",
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					body := `{
-						"id": "wf-1",
-						"content": {
-							"name": "Test WF",
-							"environment_variables": [
-								{"id":"ev-1","name":"MY_VAR","value":{"plaintext":"hello"}},
-								{"id":"ev-2","name":"MY_SECRET","value":{"redacted_value":"***"}}
-							]
+					body := `[
+						{
+							"id":"var-1","name":"MY_VAR",
+							"value":{"plaintext":"hello"},
+							"is_locked":false,
+							"related_workflow_summaries":[{"id":"wf-1","name":"Deploy","disabled":false,"locked":false}]
+						},
+						{
+							"id":"var-2","name":"MY_SECRET",
+							"value":{"redacted_value":""},
+							"is_locked":true,
+							"related_workflow_summaries":[]
 						}
-					}`
+					]`
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -212,11 +198,10 @@ func TestEnvVarsList_TableOutput(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsListCommand()
+	cmd := webXcodeCloudEnvVarsSharedListCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 		"--output", "table",
 	}); err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -227,14 +212,14 @@ func TestEnvVarsList_TableOutput(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	for _, token := range []string{"Name", "Type", "Value", "MY_VAR", "plaintext", "hello", "MY_SECRET", "secret", "(redacted)"} {
+	for _, token := range []string{"Name", "Type", "Value", "Locked", "Workflows", "MY_VAR", "plaintext", "hello", "MY_SECRET", "secret", "(redacted)", "Deploy"} {
 		if !strings.Contains(stdout, token) {
 			t.Fatalf("expected table output to include %q, got %q", token, stdout)
 		}
 	}
 }
 
-func TestEnvVarsList_JSONOutput(t *testing.T) {
+func TestSharedEnvVarsList_JSONOutput(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
@@ -246,15 +231,12 @@ func TestEnvVarsList_JSONOutput(t *testing.T) {
 			PublicProviderID: "team-uuid",
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					body := `{
-						"id": "wf-1",
-						"content": {
-							"name": "Test WF",
-							"environment_variables": [
-								{"id":"ev-1","name":"FOO","value":{"plaintext":"bar"}}
-							]
-						}
-					}`
+					body := `[{
+						"id":"var-1","name":"FOO",
+						"value":{"plaintext":"bar"},
+						"is_locked":false,
+						"related_workflow_summaries":[]
+					}]`
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -266,11 +248,10 @@ func TestEnvVarsList_JSONOutput(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsListCommand()
+	cmd := webXcodeCloudEnvVarsSharedListCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 		"--output", "json",
 	}); err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -281,19 +262,19 @@ func TestEnvVarsList_JSONOutput(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	var result CIEnvVarsListResult
+	var result CISharedEnvVarsListResult
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
 	}
-	if result.WorkflowID != "wf-1" {
-		t.Fatalf("expected workflow_id %q, got %q", "wf-1", result.WorkflowID)
+	if result.ProductID != "prod-1" {
+		t.Fatalf("expected product_id %q, got %q", "prod-1", result.ProductID)
 	}
 	if len(result.Variables) != 1 || result.Variables[0].Name != "FOO" {
 		t.Fatalf("unexpected variables: %+v", result.Variables)
 	}
 }
 
-func TestEnvVarsSetPlaintext_Success(t *testing.T) {
+func TestSharedEnvVarsSetPlaintext_Success(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
@@ -307,16 +288,17 @@ func TestEnvVarsSetPlaintext_Success(t *testing.T) {
 			PublicProviderID: "team-uuid",
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					if req.Method == http.MethodGet {
-						body := `{"id":"wf-1","content":{"name":"WF","environment_variables":[]}}`
+					path := req.URL.Path
+					switch {
+					case req.Method == http.MethodGet && strings.Contains(path, "/product-environment-variables"):
+						// List returns empty (new var)
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
-							Body:       io.NopCloser(strings.NewReader(body)),
+							Body:       io.NopCloser(strings.NewReader(`[]`)),
 							Request:    req,
 						}, nil
-					}
-					if req.Method == http.MethodPut {
+					case req.Method == http.MethodPut:
 						var err error
 						putBody, err = io.ReadAll(req.Body)
 						if err != nil {
@@ -325,22 +307,21 @@ func TestEnvVarsSetPlaintext_Success(t *testing.T) {
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
-							Body:       io.NopCloser(strings.NewReader(`{}`)),
+							Body:       io.NopCloser(strings.NewReader(`{"id":"new-uuid","name":"MY_VAR","value":{"plaintext":"hello"},"is_locked":false,"related_workflow_summaries":[]}`)),
 							Request:    req,
 						}, nil
 					}
-					t.Fatalf("unexpected method: %s", req.Method)
+					t.Fatalf("unexpected request: %s %s", req.Method, path)
 					return nil, nil
 				}),
 			},
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsSetCommand()
+	cmd := webXcodeCloudEnvVarsSharedSetCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 		"--name", "MY_VAR",
 		"--value", "hello",
 	}); err != nil {
@@ -352,7 +333,7 @@ func TestEnvVarsSetPlaintext_Success(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	var setResult CIEnvVarsSetResult
+	var setResult CISharedEnvVarsSetResult
 	if err := json.Unmarshal([]byte(stdout), &setResult); err != nil {
 		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
 	}
@@ -365,10 +346,10 @@ func TestEnvVarsSetPlaintext_Success(t *testing.T) {
 	if setResult.Action != "created" {
 		t.Fatalf("expected action %q, got %q", "created", setResult.Action)
 	}
-	if setResult.WorkflowName != "WF" {
-		t.Fatalf("expected workflow_name %q, got %q", "WF", setResult.WorkflowName)
+	if setResult.Locked {
+		t.Fatalf("expected locked=false")
 	}
-	// Verify PUT body contains the plaintext value
+	// Verify PUT body contains plaintext value
 	if !strings.Contains(string(putBody), `"plaintext"`) {
 		t.Fatalf("expected plaintext in PUT body, got %q", string(putBody))
 	}
@@ -377,10 +358,11 @@ func TestEnvVarsSetPlaintext_Success(t *testing.T) {
 	}
 }
 
-func TestEnvVarsSetPlaintext_UpdateExisting(t *testing.T) {
+func TestSharedEnvVarsSetPlaintext_UpdateExisting(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
+	var putPath string
 	var putBody []byte
 
 	resolveSessionFn = func(
@@ -391,16 +373,18 @@ func TestEnvVarsSetPlaintext_UpdateExisting(t *testing.T) {
 			PublicProviderID: "team-uuid",
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					if req.Method == http.MethodGet {
-						body := `{"id":"wf-1","content":{"name":"WF","environment_variables":[{"id":"existing-id","name":"MY_VAR","value":{"plaintext":"old"}}]}}`
+					path := req.URL.Path
+					switch {
+					case req.Method == http.MethodGet && strings.Contains(path, "/product-environment-variables"):
+						body := `[{"id":"existing-id","name":"MY_VAR","value":{"plaintext":"old"},"is_locked":false,"related_workflow_summaries":[{"id":"wf-1","name":"Deploy","disabled":false,"locked":false}]}]`
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
 							Body:       io.NopCloser(strings.NewReader(body)),
 							Request:    req,
 						}, nil
-					}
-					if req.Method == http.MethodPut {
+					case req.Method == http.MethodPut:
+						putPath = path
 						var err error
 						putBody, err = io.ReadAll(req.Body)
 						if err != nil {
@@ -409,7 +393,7 @@ func TestEnvVarsSetPlaintext_UpdateExisting(t *testing.T) {
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
-							Body:       io.NopCloser(strings.NewReader(`{}`)),
+							Body:       io.NopCloser(strings.NewReader(`{"id":"existing-id","name":"MY_VAR","value":{"plaintext":"updated"},"is_locked":false,"related_workflow_summaries":[]}`)),
 							Request:    req,
 						}, nil
 					}
@@ -419,11 +403,10 @@ func TestEnvVarsSetPlaintext_UpdateExisting(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsSetCommand()
+	cmd := webXcodeCloudEnvVarsSharedSetCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 		"--name", "MY_VAR",
 		"--value", "updated",
 	}); err != nil {
@@ -435,74 +418,28 @@ func TestEnvVarsSetPlaintext_UpdateExisting(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	var setResult CIEnvVarsSetResult
+	var setResult CISharedEnvVarsSetResult
 	if err := json.Unmarshal([]byte(stdout), &setResult); err != nil {
 		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
 	}
 	if setResult.Action != "updated" {
 		t.Fatalf("expected action %q, got %q", "updated", setResult.Action)
 	}
-	// Verify the PUT body contains the updated value and reuses the existing ID
+	// Verify PUT path reuses existing ID
+	if !strings.Contains(putPath, "existing-id") {
+		t.Fatalf("expected PUT to reuse existing ID, got path %q", putPath)
+	}
+	// Verify PUT body contains the updated value
 	if !strings.Contains(string(putBody), "updated") {
 		t.Fatalf("expected 'updated' in PUT body, got %q", string(putBody))
 	}
-	if !strings.Contains(string(putBody), "existing-id") {
-		t.Fatalf("expected existing ID preserved in PUT body, got %q", string(putBody))
-	}
-	// The PUT body is the raw content (not wrapped), verify no duplication
-	vars, _ := webcore.ExtractEnvVars(json.RawMessage(putBody))
-	if len(vars) != 1 {
-		t.Fatalf("expected 1 var (no duplication), got %d", len(vars))
+	// Verify preserved workflow IDs
+	if !strings.Contains(string(putBody), "wf-1") {
+		t.Fatalf("expected preserved workflow ID 'wf-1' in PUT body, got %q", string(putBody))
 	}
 }
 
-func TestEnvVarsSet_MissingFlags(t *testing.T) {
-	tests := []struct {
-		name    string
-		args    []string
-		wantErr string
-	}{
-		{
-			name:    "missing product-id",
-			args:    []string{"--workflow-id", "wf-1", "--name", "X", "--value", "Y"},
-			wantErr: "--product-id is required",
-		},
-		{
-			name:    "missing workflow-id",
-			args:    []string{"--product-id", "prod-1", "--name", "X", "--value", "Y"},
-			wantErr: "--workflow-id is required",
-		},
-		{
-			name:    "missing name",
-			args:    []string{"--product-id", "prod-1", "--workflow-id", "wf-1", "--value", "Y"},
-			wantErr: "--name is required",
-		},
-		{
-			name:    "missing value",
-			args:    []string{"--product-id", "prod-1", "--workflow-id", "wf-1", "--name", "X"},
-			wantErr: "--value is required",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd := webXcodeCloudEnvVarsSetCommand()
-			if err := cmd.FlagSet.Parse(tt.args); err != nil {
-				t.Fatalf("parse error: %v", err)
-			}
-			_, stderr := captureOutput(t, func() {
-				err := cmd.Exec(context.Background(), nil)
-				if !errors.Is(err, flag.ErrHelp) {
-					t.Fatalf("expected flag.ErrHelp, got %v", err)
-				}
-			})
-			if !strings.Contains(stderr, tt.wantErr) {
-				t.Fatalf("expected %q in stderr, got %q", tt.wantErr, stderr)
-			}
-		})
-	}
-}
-
-func TestEnvVarsSetSecret_Success(t *testing.T) {
+func TestSharedEnvVarsSetSecret_Success(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
@@ -519,12 +456,11 @@ func TestEnvVarsSetSecret_Success(t *testing.T) {
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					path := req.URL.Path
 					switch {
-					case req.Method == http.MethodGet && strings.Contains(path, "/workflows-v15/"):
-						body := `{"id":"wf-1","content":{"name":"WF","environment_variables":[]}}`
+					case req.Method == http.MethodGet && strings.Contains(path, "/product-environment-variables"):
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
-							Body:       io.NopCloser(strings.NewReader(body)),
+							Body:       io.NopCloser(strings.NewReader(`[]`)),
 							Request:    req,
 						}, nil
 					case req.Method == http.MethodGet && strings.Contains(path, "/keys/client-encryption"):
@@ -544,7 +480,7 @@ func TestEnvVarsSetSecret_Success(t *testing.T) {
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
-							Body:       io.NopCloser(strings.NewReader(`{}`)),
+							Body:       io.NopCloser(strings.NewReader(`{"id":"new-uuid","name":"MY_SECRET","value":{"redacted_value":""},"is_locked":true,"related_workflow_summaries":[]}`)),
 							Request:    req,
 						}, nil
 					}
@@ -555,14 +491,14 @@ func TestEnvVarsSetSecret_Success(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsSetCommand()
+	cmd := webXcodeCloudEnvVarsSharedSetCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 		"--name", "MY_SECRET",
 		"--value", "s3cret",
 		"--secret",
+		"--locked",
 	}); err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
@@ -572,7 +508,7 @@ func TestEnvVarsSetSecret_Success(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	var setResult CIEnvVarsSetResult
+	var setResult CISharedEnvVarsSetResult
 	if err := json.Unmarshal([]byte(stdout), &setResult); err != nil {
 		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
 	}
@@ -582,8 +518,8 @@ func TestEnvVarsSetSecret_Success(t *testing.T) {
 	if setResult.Type != "secret" {
 		t.Fatalf("expected type %q, got %q", "secret", setResult.Type)
 	}
-	if setResult.WorkflowName != "WF" {
-		t.Fatalf("expected workflow_name %q, got %q", "WF", setResult.WorkflowName)
+	if !setResult.Locked {
+		t.Fatalf("expected locked=true")
 	}
 	// Verify PUT body contains ciphertext (not plaintext)
 	if !strings.Contains(string(putBody), `"ciphertext"`) {
@@ -592,9 +528,53 @@ func TestEnvVarsSetSecret_Success(t *testing.T) {
 	if strings.Contains(string(putBody), "s3cret") {
 		t.Fatalf("plaintext value should not appear in PUT body")
 	}
+	if !strings.Contains(string(putBody), `"is_locked":true`) {
+		t.Fatalf("expected is_locked:true in PUT body, got %q", string(putBody))
+	}
 }
 
-func TestEnvVarsSetSecret_EncryptionKeyFetchFails(t *testing.T) {
+func TestSharedEnvVarsSet_MissingFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "missing product-id",
+			args:    []string{"--name", "X", "--value", "Y"},
+			wantErr: "--product-id is required",
+		},
+		{
+			name:    "missing name",
+			args:    []string{"--product-id", "prod-1", "--value", "Y"},
+			wantErr: "--name is required",
+		},
+		{
+			name:    "missing value",
+			args:    []string{"--product-id", "prod-1", "--name", "X"},
+			wantErr: "--value is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := webXcodeCloudEnvVarsSharedSetCommand()
+			if err := cmd.FlagSet.Parse(tt.args); err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+			_, stderr := captureOutput(t, func() {
+				err := cmd.Exec(context.Background(), nil)
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected flag.ErrHelp, got %v", err)
+				}
+			})
+			if !strings.Contains(stderr, tt.wantErr) {
+				t.Fatalf("expected %q in stderr, got %q", tt.wantErr, stderr)
+			}
+		})
+	}
+}
+
+func TestSharedEnvVarsSetSecret_EncryptionKeyFetchFails(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
@@ -607,12 +587,11 @@ func TestEnvVarsSetSecret_EncryptionKeyFetchFails(t *testing.T) {
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					path := req.URL.Path
-					if strings.Contains(path, "/workflows-v15/") {
-						body := `{"id":"wf-1","content":{"name":"WF","environment_variables":[]}}`
+					if strings.Contains(path, "/product-environment-variables") {
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
-							Body:       io.NopCloser(strings.NewReader(body)),
+							Body:       io.NopCloser(strings.NewReader(`[]`)),
 							Request:    req,
 						}, nil
 					}
@@ -630,11 +609,10 @@ func TestEnvVarsSetSecret_EncryptionKeyFetchFails(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsSetCommand()
+	cmd := webXcodeCloudEnvVarsSharedSetCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 		"--name", "MY_SECRET",
 		"--value", "s3cret",
 		"--secret",
@@ -653,11 +631,11 @@ func TestEnvVarsSetSecret_EncryptionKeyFetchFails(t *testing.T) {
 	})
 }
 
-func TestEnvVarsDelete_Success(t *testing.T) {
+func TestSharedEnvVarsDelete_Success(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
-	var putBody []byte
+	var deletePath string
 
 	resolveSessionFn = func(
 		ctx context.Context,
@@ -667,21 +645,21 @@ func TestEnvVarsDelete_Success(t *testing.T) {
 			PublicProviderID: "team-uuid",
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					if req.Method == http.MethodGet {
-						body := `{"id":"wf-1","content":{"name":"WF","environment_variables":[{"id":"ev-1","name":"DELETE_ME","value":{"plaintext":"bye"}},{"id":"ev-2","name":"KEEP_ME","value":{"plaintext":"stay"}}]}}`
+					path := req.URL.Path
+					switch {
+					case req.Method == http.MethodGet && strings.Contains(path, "/product-environment-variables"):
+						body := `[
+							{"id":"var-1","name":"DELETE_ME","value":{"plaintext":"bye"},"is_locked":false,"related_workflow_summaries":[]},
+							{"id":"var-2","name":"KEEP_ME","value":{"plaintext":"stay"},"is_locked":false,"related_workflow_summaries":[]}
+						]`
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
 							Body:       io.NopCloser(strings.NewReader(body)),
 							Request:    req,
 						}, nil
-					}
-					if req.Method == http.MethodPut {
-						var err error
-						putBody, err = io.ReadAll(req.Body)
-						if err != nil {
-							t.Fatalf("failed to read PUT body: %v", err)
-						}
+					case req.Method == http.MethodDelete:
+						deletePath = path
 						return &http.Response{
 							StatusCode: http.StatusOK,
 							Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -695,11 +673,10 @@ func TestEnvVarsDelete_Success(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsDeleteCommand()
+	cmd := webXcodeCloudEnvVarsSharedDeleteCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 		"--name", "DELETE_ME",
 		"--confirm",
 	}); err != nil {
@@ -711,29 +688,23 @@ func TestEnvVarsDelete_Success(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	var delResult CIEnvVarsDeleteResult
+	var delResult CISharedEnvVarsDeleteResult
 	if err := json.Unmarshal([]byte(stdout), &delResult); err != nil {
 		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
 	}
 	if delResult.Name != "DELETE_ME" {
 		t.Fatalf("expected name %q, got %q", "DELETE_ME", delResult.Name)
 	}
-	if delResult.WorkflowName != "WF" {
-		t.Fatalf("expected workflow_name %q, got %q", "WF", delResult.WorkflowName)
+	if delResult.ProductID != "prod-1" {
+		t.Fatalf("expected product_id %q, got %q", "prod-1", delResult.ProductID)
 	}
-	if delResult.WorkflowID != "wf-1" {
-		t.Fatalf("expected workflow_id %q, got %q", "wf-1", delResult.WorkflowID)
-	}
-	// Verify PUT body does not contain deleted var but keeps the other
-	if strings.Contains(string(putBody), "DELETE_ME") {
-		t.Fatalf("deleted var should not appear in PUT body")
-	}
-	if !strings.Contains(string(putBody), "KEEP_ME") {
-		t.Fatalf("kept var should appear in PUT body, got %q", string(putBody))
+	// Verify DELETE was called with the correct var ID
+	if !strings.Contains(deletePath, "var-1") {
+		t.Fatalf("expected DELETE path to contain var-1, got %q", deletePath)
 	}
 }
 
-func TestEnvVarsDelete_NotFound(t *testing.T) {
+func TestSharedEnvVarsDelete_NotFound(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() { resolveSessionFn = origResolveSession })
 
@@ -745,7 +716,7 @@ func TestEnvVarsDelete_NotFound(t *testing.T) {
 			PublicProviderID: "team-uuid",
 			Client: &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					body := `{"id":"wf-1","content":{"name":"WF","environment_variables":[{"id":"ev-1","name":"OTHER","value":{"plaintext":"val"}}]}}`
+					body := `[{"id":"var-1","name":"OTHER","value":{"plaintext":"val"},"is_locked":false,"related_workflow_summaries":[]}]`
 					return &http.Response{
 						StatusCode: http.StatusOK,
 						Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -757,11 +728,10 @@ func TestEnvVarsDelete_NotFound(t *testing.T) {
 		}, "cache", nil
 	}
 
-	cmd := webXcodeCloudEnvVarsDeleteCommand()
+	cmd := webXcodeCloudEnvVarsSharedDeleteCommand()
 	if err := cmd.FlagSet.Parse([]string{
 		"--apple-id", "user@example.com",
 		"--product-id", "prod-1",
-		"--workflow-id", "wf-1",
 		"--name", "NONEXISTENT",
 		"--confirm",
 	}); err != nil {
@@ -779,7 +749,7 @@ func TestEnvVarsDelete_NotFound(t *testing.T) {
 	})
 }
 
-func TestEnvVarsDelete_MissingFlags(t *testing.T) {
+func TestSharedEnvVarsDelete_MissingFlags(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
@@ -787,28 +757,23 @@ func TestEnvVarsDelete_MissingFlags(t *testing.T) {
 	}{
 		{
 			name:    "missing product-id",
-			args:    []string{"--workflow-id", "wf-1", "--name", "X"},
+			args:    []string{"--name", "X"},
 			wantErr: "--product-id is required",
 		},
 		{
-			name:    "missing workflow-id",
-			args:    []string{"--product-id", "prod-1", "--name", "X"},
-			wantErr: "--workflow-id is required",
-		},
-		{
 			name:    "missing name",
-			args:    []string{"--product-id", "prod-1", "--workflow-id", "wf-1", "--confirm"},
+			args:    []string{"--product-id", "prod-1", "--confirm"},
 			wantErr: "--name is required",
 		},
 		{
 			name:    "missing confirm",
-			args:    []string{"--product-id", "prod-1", "--workflow-id", "wf-1", "--name", "X"},
+			args:    []string{"--product-id", "prod-1", "--name", "X"},
 			wantErr: "--confirm is required",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := webXcodeCloudEnvVarsDeleteCommand()
+			cmd := webXcodeCloudEnvVarsSharedDeleteCommand()
 			if err := cmd.FlagSet.Parse(tt.args); err != nil {
 				t.Fatalf("parse error: %v", err)
 			}
@@ -825,14 +790,79 @@ func TestEnvVarsDelete_MissingFlags(t *testing.T) {
 	}
 }
 
-func TestEnvVarsAllCommandsHaveUsageFunc(t *testing.T) {
-	cmd := webXcodeCloudEnvVarsCommand()
+func TestSharedEnvVarsAllCommandsHaveUsageFunc(t *testing.T) {
+	cmd := webXcodeCloudEnvVarsSharedCommand()
 	if cmd.UsageFunc == nil {
-		t.Fatalf("env-vars command should have UsageFunc set")
+		t.Fatalf("shared command should have UsageFunc set")
 	}
 	for _, sub := range cmd.Subcommands {
 		if sub.UsageFunc == nil {
 			t.Fatalf("subcommand %q should have UsageFunc set", sub.Name)
 		}
+	}
+}
+
+func TestSharedEnvVarsSetWithWorkflowIDs(t *testing.T) {
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() { resolveSessionFn = origResolveSession })
+
+	var putBody []byte
+
+	resolveSessionFn = func(
+		ctx context.Context,
+		appleID, password, twoFactorCode string,
+	) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			PublicProviderID: "team-uuid",
+			Client: &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					path := req.URL.Path
+					switch {
+					case req.Method == http.MethodGet && strings.Contains(path, "/product-environment-variables"):
+						return &http.Response{
+							StatusCode: http.StatusOK,
+							Header:     http.Header{"Content-Type": []string{"application/json"}},
+							Body:       io.NopCloser(strings.NewReader(`[]`)),
+							Request:    req,
+						}, nil
+					case req.Method == http.MethodPut:
+						var err error
+						putBody, err = io.ReadAll(req.Body)
+						if err != nil {
+							t.Fatalf("failed to read PUT body: %v", err)
+						}
+						return &http.Response{
+							StatusCode: http.StatusOK,
+							Header:     http.Header{"Content-Type": []string{"application/json"}},
+							Body:       io.NopCloser(strings.NewReader(`{"id":"new-uuid","name":"MY_VAR","value":{"plaintext":"hello"},"is_locked":false,"related_workflow_summaries":[]}`)),
+							Request:    req,
+						}, nil
+					}
+					return nil, nil
+				}),
+			},
+		}, "cache", nil
+	}
+
+	cmd := webXcodeCloudEnvVarsSharedSetCommand()
+	if err := cmd.FlagSet.Parse([]string{
+		"--apple-id", "user@example.com",
+		"--product-id", "prod-1",
+		"--name", "MY_VAR",
+		"--value", "hello",
+		"--workflow-ids", "wf-1,wf-2",
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	captureOutput(t, func() {
+		if err := cmd.Exec(context.Background(), nil); err != nil {
+			t.Fatalf("exec error: %v", err)
+		}
+	})
+
+	// Verify PUT body contains workflow IDs
+	if !strings.Contains(string(putBody), "wf-1") || !strings.Contains(string(putBody), "wf-2") {
+		t.Fatalf("expected workflow IDs in PUT body, got %q", string(putBody))
 	}
 }

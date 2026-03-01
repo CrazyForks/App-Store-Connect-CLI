@@ -22,11 +22,14 @@ func webXcodeCloudEnvVarsCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "env-vars",
 		ShortUsage: "asc web xcode-cloud env-vars <subcommand> [flags]",
-		ShortHelp:  "EXPERIMENTAL: Manage Xcode Cloud workflow environment variables.",
+		ShortHelp:  "EXPERIMENTAL: Manage Xcode Cloud environment variables.",
 		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
 
-List, set, and delete environment variables on Xcode Cloud workflows
+Manage environment variables on Xcode Cloud workflows and products
 using Apple's private CI API. Requires a web session.
+
+Use list/set/delete for workflow-scoped variables.
+Use "shared" subcommand for product-level shared variables.
 
 ` + webWarningText + `
 
@@ -34,13 +37,16 @@ Examples:
   asc web xcode-cloud env-vars list --product-id "UUID" --workflow-id "WF-UUID" --apple-id "user@example.com"
   asc web xcode-cloud env-vars set --product-id "UUID" --workflow-id "WF-UUID" --name MY_VAR --value hello --apple-id "user@example.com"
   asc web xcode-cloud env-vars set --product-id "UUID" --workflow-id "WF-UUID" --name MY_SECRET --value s3cret --secret --apple-id "user@example.com"
-  asc web xcode-cloud env-vars delete --product-id "UUID" --workflow-id "WF-UUID" --name MY_VAR --confirm --apple-id "user@example.com"`,
+  asc web xcode-cloud env-vars delete --product-id "UUID" --workflow-id "WF-UUID" --name MY_VAR --confirm --apple-id "user@example.com"
+  asc web xcode-cloud env-vars shared list --product-id "UUID" --apple-id "user@example.com"
+  asc web xcode-cloud env-vars shared set --product-id "UUID" --name MY_VAR --value hello --apple-id "user@example.com"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			webXcodeCloudEnvVarsListCommand(),
 			webXcodeCloudEnvVarsSetCommand(),
 			webXcodeCloudEnvVarsDeleteCommand(),
+			webXcodeCloudEnvVarsSharedCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp

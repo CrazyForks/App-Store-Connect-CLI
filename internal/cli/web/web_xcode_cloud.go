@@ -41,7 +41,9 @@ Examples:
   asc web xcode-cloud usage months --apple-id "user@example.com" --output table
   asc web xcode-cloud usage months --product-ids "UUID" --apple-id "user@example.com" --output table
   asc web xcode-cloud usage days --product-ids "UUID" --apple-id "user@example.com"
-  asc web xcode-cloud usage workflows --product-id "UUID" --apple-id "user@example.com" --output table`,
+  asc web xcode-cloud usage workflows --product-id "UUID" --apple-id "user@example.com" --output table
+  asc web xcode-cloud env-vars shared list --product-id "UUID" --apple-id "user@example.com"
+  asc web xcode-cloud env-vars shared set --product-id "UUID" --name MY_VAR --value hello --apple-id "user@example.com"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
