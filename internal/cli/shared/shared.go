@@ -2,7 +2,9 @@ package shared
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -58,6 +60,7 @@ func (e missingAuthError) Is(target error) bool {
 var (
 	privateKeyTempMu    sync.Mutex
 	privateKeyTempPath  string
+	privateKeyTempKey   string
 	privateKeyTempPaths []string
 	selectedProfile     string
 	strictAuth          bool
@@ -457,20 +460,41 @@ func resolvePrivateKeyPath() (string, error) {
 	if path := strings.TrimSpace(os.Getenv("ASC_PRIVATE_KEY_PATH")); path != "" {
 		return path, nil
 	}
-	if privateKeyTempPath != "" {
-		return privateKeyTempPath, nil
-	}
 	if value := strings.TrimSpace(os.Getenv(privateKeyBase64EnvVar)); value != "" {
+		compact := strings.Join(strings.Fields(value), "")
+		cacheKey := tempPrivateKeyCacheKey("b64", compact)
+		if path := cachedTempPrivateKeyPath(cacheKey); path != "" {
+			return path, nil
+		}
 		decoded, err := decodeBase64Secret(value)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", privateKeyBase64EnvVar, err)
 		}
-		return writeTempPrivateKey(decoded)
+		return writeTempPrivateKey(decoded, cacheKey)
 	}
 	if value := strings.TrimSpace(os.Getenv(privateKeyEnvVar)); value != "" {
-		return writeTempPrivateKey([]byte(normalizePrivateKeyValue(value)))
+		normalized := normalizePrivateKeyValue(value)
+		cacheKey := tempPrivateKeyCacheKey("raw", normalized)
+		if path := cachedTempPrivateKeyPath(cacheKey); path != "" {
+			return path, nil
+		}
+		return writeTempPrivateKey([]byte(normalized), cacheKey)
 	}
 	return "", nil
+}
+
+func tempPrivateKeyCacheKey(kind, value string) string {
+	sum := sha256.Sum256([]byte(kind + "\x00" + value))
+	return kind + ":" + hex.EncodeToString(sum[:])
+}
+
+func cachedTempPrivateKeyPath(cacheKey string) string {
+	privateKeyTempMu.Lock()
+	defer privateKeyTempMu.Unlock()
+	if privateKeyTempPath == "" || privateKeyTempKey != cacheKey {
+		return ""
+	}
+	return privateKeyTempPath
 }
 
 func decodeBase64Secret(value string) ([]byte, error) {
@@ -495,7 +519,7 @@ func normalizePrivateKeyValue(value string) string {
 	return value
 }
 
-func writeTempPrivateKey(data []byte) (string, error) {
+func writeTempPrivateKey(data []byte, cacheKey string) (string, error) {
 	file, err := os.CreateTemp("", "asc-key-*.p8")
 	if err != nil {
 		return "", err
@@ -511,14 +535,15 @@ func writeTempPrivateKey(data []byte) (string, error) {
 	if err := file.Close(); err != nil {
 		return "", err
 	}
-	registerTempPrivateKey(file.Name())
+	registerTempPrivateKey(file.Name(), cacheKey)
 	return file.Name(), nil
 }
 
-func registerTempPrivateKey(path string) {
+func registerTempPrivateKey(path, cacheKey string) {
 	privateKeyTempMu.Lock()
 	defer privateKeyTempMu.Unlock()
 	privateKeyTempPath = path
+	privateKeyTempKey = cacheKey
 	privateKeyTempPaths = append(privateKeyTempPaths, path)
 }
 
@@ -528,6 +553,7 @@ func CleanupTempPrivateKeys() {
 	paths := privateKeyTempPaths
 	privateKeyTempPaths = nil
 	privateKeyTempPath = ""
+	privateKeyTempKey = ""
 	privateKeyTempMu.Unlock()
 
 	for _, path := range paths {
