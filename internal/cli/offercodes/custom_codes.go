@@ -120,44 +120,22 @@ Examples:
 
 // OfferCodeCustomCodesGetCommand returns the custom codes get subcommand.
 func OfferCodeCustomCodesGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	customCodeID := fs.String("custom-code-id", "", "Custom code ID (required)")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc offer-codes custom-codes get --custom-code-id ID",
-		ShortHelp:  "Get a custom code by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc offer-codes custom-codes get --custom-code-id ID",
+		ShortHelp:   "Get a custom code by ID.",
 		LongHelp: `Get a custom code by ID.
 
 Examples:
   asc offer-codes custom-codes get --custom-code-id "CUSTOM_CODE_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			trimmedID := strings.TrimSpace(*customCodeID)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --custom-code-id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("offer-codes custom-codes get: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			resp, err := client.GetSubscriptionOfferCodeCustomCode(requestCtx, trimmedID)
-			if err != nil {
-				return fmt.Errorf("offer-codes custom-codes get: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "custom-code-id",
+		IDUsage:     "Custom code ID (required)",
+		ErrorPrefix: "offer-codes custom-codes get",
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetSubscriptionOfferCodeCustomCode(ctx, id)
 		},
-	}
+	})
 }
 
 // OfferCodeCustomCodesCreateCommand returns the custom codes create subcommand.

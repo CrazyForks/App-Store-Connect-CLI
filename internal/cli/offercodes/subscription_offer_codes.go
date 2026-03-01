@@ -98,44 +98,22 @@ func parseOfferCodePrices(value string) ([]asc.SubscriptionOfferCodePrice, error
 
 // OfferCodesGetCommand returns the offer codes get subcommand.
 func OfferCodesGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	offerCodeID := fs.String("offer-code-id", "", "Subscription offer code ID (required)")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc offer-codes get --offer-code-id ID",
-		ShortHelp:  "Get a subscription offer code by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc offer-codes get --offer-code-id ID",
+		ShortHelp:   "Get a subscription offer code by ID.",
 		LongHelp: `Get a subscription offer code by ID.
 
 Examples:
   asc offer-codes get --offer-code-id "OFFER_CODE_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			trimmedID := strings.TrimSpace(*offerCodeID)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --offer-code-id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("offer-codes get: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			resp, err := client.GetSubscriptionOfferCode(requestCtx, trimmedID)
-			if err != nil {
-				return fmt.Errorf("offer-codes get: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "offer-code-id",
+		IDUsage:     "Subscription offer code ID (required)",
+		ErrorPrefix: "offer-codes get",
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetSubscriptionOfferCode(ctx, id)
 		},
-	}
+	})
 }
 
 // OfferCodesCreateCommand returns the offer codes create subcommand.
