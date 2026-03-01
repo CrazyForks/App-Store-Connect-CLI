@@ -37,6 +37,7 @@ using Apple's private CI API. Requires a web session.
 
 Examples:
   asc web xcode-cloud usage summary --apple-id "user@example.com"
+  asc web xcode-cloud usage alert --apple-id "user@example.com" --output table
   asc web xcode-cloud products --apple-id "user@example.com" --output table
   asc web xcode-cloud usage months --apple-id "user@example.com" --output table
   asc web xcode-cloud usage months --product-ids "UUID" --apple-id "user@example.com" --output table
@@ -70,6 +71,7 @@ Query Xcode Cloud compute usage: plan summary, monthly history, daily breakdown,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			webXcodeCloudUsageSummaryCommand(),
+			webXcodeCloudUsageAlertCommand(),
 			webXcodeCloudUsageMonthsCommand(),
 			webXcodeCloudUsageDaysCommand(),
 			webXcodeCloudUsageWorkflowsCommand(),
