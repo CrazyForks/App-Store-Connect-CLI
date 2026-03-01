@@ -77,45 +77,26 @@ Examples:
 }
 
 func XcodeCloudProductsGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	id := fs.String("id", "", "Product ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc xcode-cloud products get --id \"PRODUCT_ID\"",
-		ShortHelp:  "Get details for a product.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc xcode-cloud products get --id \"PRODUCT_ID\"",
+		ShortHelp:   "Get details for a product.",
 		LongHelp: `Get details for a product.
 
 Examples:
   asc xcode-cloud products get --id "PRODUCT_ID"
   asc xcode-cloud products get --id "PRODUCT_ID" --output table`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud products get: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			resp, err := client.GetCiProduct(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud products get: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "Product ID",
+		ErrorPrefix: "xcode-cloud products get",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetCiProduct(ctx, id)
+		},
+	})
 }
 
 func XcodeCloudProductsAppCommand() *ffcli.Command {
@@ -620,45 +601,26 @@ Examples:
 }
 
 func XcodeCloudMacOSVersionsGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	id := fs.String("id", "", "macOS version ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc xcode-cloud macos-versions get --id \"MACOS_VERSION_ID\"",
-		ShortHelp:  "Get details for a macOS version.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc xcode-cloud macos-versions get --id \"MACOS_VERSION_ID\"",
+		ShortHelp:   "Get details for a macOS version.",
 		LongHelp: `Get details for a macOS version.
 
 Examples:
   asc xcode-cloud macos-versions get --id "MACOS_VERSION_ID"
   asc xcode-cloud macos-versions get --id "MACOS_VERSION_ID" --output table`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud macos-versions get: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			resp, err := client.GetCiMacOsVersion(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud macos-versions get: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "macOS version ID",
+		ErrorPrefix: "xcode-cloud macos-versions get",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetCiMacOsVersion(ctx, id)
+		},
+	})
 }
 
 func XcodeCloudMacOSVersionsXcodeVersionsCommand() *ffcli.Command {
@@ -836,45 +798,26 @@ Examples:
 }
 
 func XcodeCloudXcodeVersionsGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	id := fs.String("id", "", "Xcode version ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc xcode-cloud xcode-versions get --id \"XCODE_VERSION_ID\"",
-		ShortHelp:  "Get details for an Xcode version.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc xcode-cloud xcode-versions get --id \"XCODE_VERSION_ID\"",
+		ShortHelp:   "Get details for an Xcode version.",
 		LongHelp: `Get details for an Xcode version.
 
 Examples:
   asc xcode-cloud xcode-versions get --id "XCODE_VERSION_ID"
   asc xcode-cloud xcode-versions get --id "XCODE_VERSION_ID" --output table`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud xcode-versions get: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			resp, err := client.GetCiXcodeVersion(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud xcode-versions get: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "Xcode version ID",
+		ErrorPrefix: "xcode-cloud xcode-versions get",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetCiXcodeVersion(ctx, id)
+		},
+	})
 }
 
 func XcodeCloudXcodeVersionsMacOSVersionsCommand() *ffcli.Command {

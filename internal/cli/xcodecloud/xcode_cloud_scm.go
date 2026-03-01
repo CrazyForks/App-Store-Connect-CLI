@@ -115,44 +115,25 @@ Examples:
 }
 
 func XcodeCloudScmProvidersGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	providerID := fs.String("provider-id", "", "SCM provider ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc xcode-cloud scm providers get --provider-id \"PROVIDER_ID\"",
-		ShortHelp:  "Get an SCM provider by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc xcode-cloud scm providers get --provider-id \"PROVIDER_ID\"",
+		ShortHelp:   "Get an SCM provider by ID.",
 		LongHelp: `Get an SCM provider by ID.
 
 Examples:
   asc xcode-cloud scm providers get --provider-id "PROVIDER_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*providerID)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --provider-id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm providers get: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			resp, err := client.GetScmProvider(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm providers get: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "provider-id",
+		IDUsage:     "SCM provider ID",
+		ErrorPrefix: "xcode-cloud scm providers get",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetScmProvider(ctx, id)
+		},
+	})
 }
 
 func XcodeCloudScmProvidersRepositoriesCommand() *ffcli.Command {
@@ -280,45 +261,29 @@ Examples:
 }
 
 func XcodeCloudScmRepositoriesGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	id := fs.String("id", "", "SCM repository ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc xcode-cloud scm repositories get --id \"REPO_ID\"",
-		ShortHelp:  "Get an SCM repository by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc xcode-cloud scm repositories get --id \"REPO_ID\"",
+		ShortHelp:   "Get an SCM repository by ID.",
 		LongHelp: `Get an SCM repository by ID.
 
 Examples:
   asc xcode-cloud scm repositories get --id "REPO_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories get: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			repo, err := client.GetScmRepository(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories get: %w", err)
-			}
-
-			resp := &asc.ScmRepositoriesResponse{Data: []asc.ScmRepositoryResource{*repo}}
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "SCM repository ID",
+		ErrorPrefix: "xcode-cloud scm repositories get",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			repo, err := client.GetScmRepository(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			return &asc.ScmRepositoriesResponse{Data: []asc.ScmRepositoryResource{*repo}}, nil
+		},
+	})
 }
 
 func XcodeCloudScmRepositoriesGitReferencesCommand() *ffcli.Command {
@@ -653,44 +618,25 @@ Examples:
 }
 
 func XcodeCloudScmGitReferencesGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	id := fs.String("id", "", "SCM git reference ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc xcode-cloud scm git-references get --id \"REF_ID\"",
-		ShortHelp:  "Get an SCM git reference by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc xcode-cloud scm git-references get --id \"REF_ID\"",
+		ShortHelp:   "Get an SCM git reference by ID.",
 		LongHelp: `Get an SCM git reference by ID.
 
 Examples:
   asc xcode-cloud scm git-references get --id "REF_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm git-references get: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			resp, err := client.GetScmGitReference(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm git-references get: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "SCM git reference ID",
+		ErrorPrefix: "xcode-cloud scm git-references get",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetScmGitReference(ctx, id)
+		},
+	})
 }
 
 // XcodeCloudScmPullRequestsCommand returns the SCM pull requests command group.
@@ -717,44 +663,25 @@ Examples:
 }
 
 func XcodeCloudScmPullRequestsGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	id := fs.String("id", "", "SCM pull request ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc xcode-cloud scm pull-requests get --id \"PR_ID\"",
-		ShortHelp:  "Get an SCM pull request by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc xcode-cloud scm pull-requests get --id \"PR_ID\"",
+		ShortHelp:   "Get an SCM pull request by ID.",
 		LongHelp: `Get an SCM pull request by ID.
 
 Examples:
   asc xcode-cloud scm pull-requests get --id "PR_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm pull-requests get: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			resp, err := client.GetScmPullRequest(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm pull-requests get: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "SCM pull request ID",
+		ErrorPrefix: "xcode-cloud scm pull-requests get",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetScmPullRequest(ctx, id)
+		},
+	})
 }
 
 func xcodeCloudScmProvidersList(ctx context.Context, limit int, next string, paginate bool, output string, pretty bool) error {

@@ -83,45 +83,26 @@ Examples:
 }
 
 func XcodeCloudWorkflowsGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
-
-	id := fs.String("id", "", "Workflow ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc xcode-cloud workflows get --id \"WORKFLOW_ID\"",
-		ShortHelp:  "Get details for a workflow.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "get",
+		Name:        "get",
+		ShortUsage:  "asc xcode-cloud workflows get --id \"WORKFLOW_ID\"",
+		ShortHelp:   "Get details for a workflow.",
 		LongHelp: `Get details for a workflow.
 
 Examples:
   asc xcode-cloud workflows get --id "WORKFLOW_ID"
   asc xcode-cloud workflows get --id "WORKFLOW_ID" --output table`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*id)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud workflows get: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			resp, err := client.GetCiWorkflow(requestCtx, idValue)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud workflows get: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "Workflow ID",
+		ErrorPrefix: "xcode-cloud workflows get",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetCiWorkflow(ctx, id)
+		},
+	})
 }
 
 func XcodeCloudWorkflowsRepositoryCommand() *ffcli.Command {
