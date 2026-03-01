@@ -114,44 +114,22 @@ Examples:
 
 // LocalizationsPreviewSetsGetCommand returns the preview sets get subcommand.
 func LocalizationsPreviewSetsGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("localizations preview-sets get", flag.ExitOnError)
-
-	setID := fs.String("id", "", "App preview set ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc localizations preview-sets get --id \"PREVIEW_SET_ID\"",
-		ShortHelp:  "Get an app preview set by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "localizations preview-sets get",
+		Name:        "get",
+		ShortUsage:  "asc localizations preview-sets get --id \"PREVIEW_SET_ID\"",
+		ShortHelp:   "Get an app preview set by ID.",
 		LongHelp: `Get an app preview set by ID.
 
 Examples:
   asc localizations preview-sets get --id "PREVIEW_SET_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			trimmedID := strings.TrimSpace(*setID)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("localizations preview-sets get: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			resp, err := client.GetAppPreviewSet(requestCtx, trimmedID)
-			if err != nil {
-				return fmt.Errorf("localizations preview-sets get: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "App preview set ID",
+		ErrorPrefix: "localizations preview-sets get",
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetAppPreviewSet(ctx, id)
 		},
-	}
+	})
 }
 
 // LocalizationsPreviewSetsRelationshipsCommand returns the preview sets relationships subcommand.
@@ -257,44 +235,22 @@ Examples:
 
 // LocalizationsScreenshotSetsGetCommand returns the screenshot sets get subcommand.
 func LocalizationsScreenshotSetsGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("localizations screenshot-sets get", flag.ExitOnError)
-
-	setID := fs.String("id", "", "App screenshot set ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc localizations screenshot-sets get --id \"SCREENSHOT_SET_ID\"",
-		ShortHelp:  "Get an app screenshot set by ID.",
+	return shared.NewIDGetCommand(shared.IDGetCommandConfig{
+		FlagSetName: "localizations screenshot-sets get",
+		Name:        "get",
+		ShortUsage:  "asc localizations screenshot-sets get --id \"SCREENSHOT_SET_ID\"",
+		ShortHelp:   "Get an app screenshot set by ID.",
 		LongHelp: `Get an app screenshot set by ID.
 
 Examples:
   asc localizations screenshot-sets get --id "SCREENSHOT_SET_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			trimmedID := strings.TrimSpace(*setID)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("localizations screenshot-sets get: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			resp, err := client.GetAppScreenshotSet(requestCtx, trimmedID)
-			if err != nil {
-				return fmt.Errorf("localizations screenshot-sets get: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		IDFlag:      "id",
+		IDUsage:     "App screenshot set ID",
+		ErrorPrefix: "localizations screenshot-sets get",
+		Fetch: func(ctx context.Context, client *asc.Client, id string) (any, error) {
+			return client.GetAppScreenshotSet(ctx, id)
 		},
-	}
+	})
 }
 
 // LocalizationsScreenshotSetsDeleteCommand returns the screenshot sets delete subcommand.
