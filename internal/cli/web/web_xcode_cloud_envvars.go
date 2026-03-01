@@ -54,6 +54,22 @@ type CIEnvVarsListResult struct {
 	Variables  []webcore.CIEnvironmentVariable `json:"variables"`
 }
 
+// CIEnvVarsSetResult is the output type for the env-vars set command.
+type CIEnvVarsSetResult struct {
+	WorkflowID   string `json:"workflow_id"`
+	WorkflowName string `json:"workflow_name"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Action       string `json:"action"`
+}
+
+// CIEnvVarsDeleteResult is the output type for the env-vars delete command.
+type CIEnvVarsDeleteResult struct {
+	WorkflowID   string `json:"workflow_id"`
+	WorkflowName string `json:"workflow_name"`
+	Name         string `json:"name"`
+}
+
 func webXcodeCloudEnvVarsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("web xcode-cloud env-vars list", flag.ExitOnError)
 	sessionFlags := bindWebSessionFlags(fs)
@@ -130,6 +146,7 @@ Examples:
 func webXcodeCloudEnvVarsSetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("web xcode-cloud env-vars set", flag.ExitOnError)
 	sessionFlags := bindWebSessionFlags(fs)
+	output := shared.BindOutputFlags(fs)
 
 	productID := fs.String("product-id", "", "Xcode Cloud product ID (required)")
 	workflowID := fs.String("workflow-id", "", "Xcode Cloud workflow ID (required)")
@@ -247,9 +264,25 @@ Examples:
 			if *secret {
 				varType = "secret"
 			}
+			action := "created"
+			if found {
+				action = "updated"
+			}
 			wfName := extractWorkflowName(workflow.Content)
-			fmt.Fprintf(os.Stdout, "Set %s environment variable %q on workflow %s (%s)\n", varType, varName, wfName, wfID)
-			return nil
+			result := &CIEnvVarsSetResult{
+				WorkflowID:   wfID,
+				WorkflowName: wfName,
+				Name:         varName,
+				Type:         varType,
+				Action:       action,
+			}
+			return shared.PrintOutputWithRenderers(
+				result,
+				*output.Output,
+				*output.Pretty,
+				func() error { return renderEnvVarsSetTable(result) },
+				func() error { return renderEnvVarsSetMarkdown(result) },
+			)
 		},
 	}
 }
@@ -257,6 +290,7 @@ Examples:
 func webXcodeCloudEnvVarsDeleteCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("web xcode-cloud env-vars delete", flag.ExitOnError)
 	sessionFlags := bindWebSessionFlags(fs)
+	output := shared.BindOutputFlags(fs)
 
 	productID := fs.String("product-id", "", "Xcode Cloud product ID (required)")
 	workflowID := fs.String("workflow-id", "", "Xcode Cloud workflow ID (required)")
@@ -346,8 +380,18 @@ Examples:
 			}
 
 			wfName := extractWorkflowName(workflow.Content)
-			fmt.Fprintf(os.Stdout, "Deleted environment variable %q from workflow %s (%s)\n", varName, wfName, wfID)
-			return nil
+			result := &CIEnvVarsDeleteResult{
+				WorkflowID:   wfID,
+				WorkflowName: wfName,
+				Name:         varName,
+			}
+			return shared.PrintOutputWithRenderers(
+				result,
+				*output.Output,
+				*output.Pretty,
+				func() error { return renderEnvVarsDeleteTable(result) },
+				func() error { return renderEnvVarsDeleteMarkdown(result) },
+			)
 		},
 	}
 }
@@ -372,6 +416,38 @@ func renderEnvVarsMarkdown(result *CIEnvVarsListResult) error {
 	asc.RenderMarkdown(
 		[]string{"Name", "Type", "Value"},
 		buildEnvVarRows(result.Variables),
+	)
+	return nil
+}
+
+func renderEnvVarsSetTable(result *CIEnvVarsSetResult) error {
+	asc.RenderTable(
+		[]string{"Action", "Name", "Type", "Workflow", "Workflow ID"},
+		[][]string{{result.Action, result.Name, result.Type, result.WorkflowName, result.WorkflowID}},
+	)
+	return nil
+}
+
+func renderEnvVarsSetMarkdown(result *CIEnvVarsSetResult) error {
+	asc.RenderMarkdown(
+		[]string{"Action", "Name", "Type", "Workflow", "Workflow ID"},
+		[][]string{{result.Action, result.Name, result.Type, result.WorkflowName, result.WorkflowID}},
+	)
+	return nil
+}
+
+func renderEnvVarsDeleteTable(result *CIEnvVarsDeleteResult) error {
+	asc.RenderTable(
+		[]string{"Action", "Name", "Workflow", "Workflow ID"},
+		[][]string{{"deleted", result.Name, result.WorkflowName, result.WorkflowID}},
+	)
+	return nil
+}
+
+func renderEnvVarsDeleteMarkdown(result *CIEnvVarsDeleteResult) error {
+	asc.RenderMarkdown(
+		[]string{"Action", "Name", "Workflow", "Workflow ID"},
+		[][]string{{"deleted", result.Name, result.WorkflowName, result.WorkflowID}},
 	)
 	return nil
 }

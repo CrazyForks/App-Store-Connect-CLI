@@ -352,14 +352,21 @@ func TestEnvVarsSetPlaintext_Success(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	if !strings.Contains(stdout, "Set plaintext environment variable") {
-		t.Fatalf("expected success message, got %q", stdout)
+	var setResult CIEnvVarsSetResult
+	if err := json.Unmarshal([]byte(stdout), &setResult); err != nil {
+		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
 	}
-	if !strings.Contains(stdout, "MY_VAR") {
-		t.Fatalf("expected var name in output, got %q", stdout)
+	if setResult.Name != "MY_VAR" {
+		t.Fatalf("expected name %q, got %q", "MY_VAR", setResult.Name)
 	}
-	if !strings.Contains(stdout, "WF") {
-		t.Fatalf("expected workflow name in output, got %q", stdout)
+	if setResult.Type != "plaintext" {
+		t.Fatalf("expected type %q, got %q", "plaintext", setResult.Type)
+	}
+	if setResult.Action != "created" {
+		t.Fatalf("expected action %q, got %q", "created", setResult.Action)
+	}
+	if setResult.WorkflowName != "WF" {
+		t.Fatalf("expected workflow_name %q, got %q", "WF", setResult.WorkflowName)
 	}
 	// Verify PUT body contains the plaintext value
 	if !strings.Contains(string(putBody), `"plaintext"`) {
@@ -423,11 +430,18 @@ func TestEnvVarsSetPlaintext_UpdateExisting(t *testing.T) {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	captureOutput(t, func() {
+	stdout, _ := captureOutput(t, func() {
 		if err := cmd.Exec(context.Background(), nil); err != nil {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
+	var setResult CIEnvVarsSetResult
+	if err := json.Unmarshal([]byte(stdout), &setResult); err != nil {
+		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
+	}
+	if setResult.Action != "updated" {
+		t.Fatalf("expected action %q, got %q", "updated", setResult.Action)
+	}
 	// Verify the PUT body contains the updated value and reuses the existing ID
 	if !strings.Contains(string(putBody), "updated") {
 		t.Fatalf("expected 'updated' in PUT body, got %q", string(putBody))
@@ -558,11 +572,18 @@ func TestEnvVarsSetSecret_Success(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	if !strings.Contains(stdout, "Set secret environment variable") {
-		t.Fatalf("expected secret success message, got %q", stdout)
+	var setResult CIEnvVarsSetResult
+	if err := json.Unmarshal([]byte(stdout), &setResult); err != nil {
+		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
 	}
-	if !strings.Contains(stdout, "WF") {
-		t.Fatalf("expected workflow name in output, got %q", stdout)
+	if setResult.Name != "MY_SECRET" {
+		t.Fatalf("expected name %q, got %q", "MY_SECRET", setResult.Name)
+	}
+	if setResult.Type != "secret" {
+		t.Fatalf("expected type %q, got %q", "secret", setResult.Type)
+	}
+	if setResult.WorkflowName != "WF" {
+		t.Fatalf("expected workflow_name %q, got %q", "WF", setResult.WorkflowName)
 	}
 	// Verify PUT body contains ciphertext (not plaintext)
 	if !strings.Contains(string(putBody), `"ciphertext"`) {
@@ -690,14 +711,18 @@ func TestEnvVarsDelete_Success(t *testing.T) {
 			t.Fatalf("exec error: %v", err)
 		}
 	})
-	if !strings.Contains(stdout, "Deleted environment variable") {
-		t.Fatalf("expected delete success message, got %q", stdout)
+	var delResult CIEnvVarsDeleteResult
+	if err := json.Unmarshal([]byte(stdout), &delResult); err != nil {
+		t.Fatalf("expected valid JSON output, got parse error: %v\noutput: %q", err, stdout)
 	}
-	if !strings.Contains(stdout, "DELETE_ME") {
-		t.Fatalf("expected var name in output, got %q", stdout)
+	if delResult.Name != "DELETE_ME" {
+		t.Fatalf("expected name %q, got %q", "DELETE_ME", delResult.Name)
 	}
-	if !strings.Contains(stdout, "WF") {
-		t.Fatalf("expected workflow name in output, got %q", stdout)
+	if delResult.WorkflowName != "WF" {
+		t.Fatalf("expected workflow_name %q, got %q", "WF", delResult.WorkflowName)
+	}
+	if delResult.WorkflowID != "wf-1" {
+		t.Fatalf("expected workflow_id %q, got %q", "wf-1", delResult.WorkflowID)
 	}
 	// Verify PUT body does not contain deleted var but keeps the other
 	if strings.Contains(string(putBody), "DELETE_ME") {
