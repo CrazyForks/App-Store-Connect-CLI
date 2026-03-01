@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
@@ -137,74 +136,35 @@ Examples:
 }
 
 func XcodeCloudScmProvidersRepositoriesCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("repositories", flag.ExitOnError)
-
-	providerID, limit, next, paginate, output, pretty := xcodeCloudScmProviderListFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "repositories",
-		ShortUsage: "asc xcode-cloud scm providers repositories --provider-id \"PROVIDER_ID\" [flags]",
-		ShortHelp:  "List repositories for an SCM provider.",
+	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+		FlagSetName: "repositories",
+		Name:        "repositories",
+		ShortUsage:  "asc xcode-cloud scm providers repositories --provider-id \"PROVIDER_ID\" [flags]",
+		ShortHelp:   "List repositories for an SCM provider.",
 		LongHelp: `List repositories for an SCM provider.
 
 Examples:
   asc xcode-cloud scm providers repositories --provider-id "PROVIDER_ID"
   asc xcode-cloud scm providers repositories --provider-id "PROVIDER_ID" --paginate`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("xcode-cloud scm providers repositories: --limit must be between 1 and 200")
-			}
-			nextURL := strings.TrimSpace(*next)
-			if err := shared.ValidateNextURL(nextURL); err != nil {
-				return fmt.Errorf("xcode-cloud scm providers repositories: %w", err)
-			}
-
-			idValue := strings.TrimSpace(*providerID)
-			if idValue == "" && nextURL == "" {
-				fmt.Fprintln(os.Stderr, "Error: --provider-id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm providers repositories: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			opts := []asc.ScmRepositoriesOption{
-				asc.WithScmRepositoriesLimit(*limit),
-				asc.WithScmRepositoriesNextURL(nextURL),
-			}
-
-			if *paginate {
-				paginateOpts := append(opts, asc.WithScmRepositoriesLimit(200))
-				resp, err := shared.PaginateWithSpinner(requestCtx,
-					func(ctx context.Context) (asc.PaginatedResponse, error) {
-						return client.GetScmProviderRepositories(ctx, idValue, paginateOpts...)
-					},
-					func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-						return client.GetScmProviderRepositories(ctx, idValue, asc.WithScmRepositoriesNextURL(nextURL))
-					},
-				)
-				if err != nil {
-					return fmt.Errorf("xcode-cloud scm providers repositories: %w", err)
-				}
-
-				return shared.PrintOutput(resp, *output, *pretty)
-			}
-
-			resp, err := client.GetScmProviderRepositories(requestCtx, idValue, opts...)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm providers repositories: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output, *pretty)
+		ParentFlag:  "provider-id",
+		ParentUsage: "SCM provider ID",
+		LimitMax:    200,
+		ErrorPrefix: "xcode-cloud scm providers repositories",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		FetchPage: func(ctx context.Context, client *asc.Client, providerID string, limit int, next string) (asc.PaginatedResponse, error) {
+			opts := []asc.ScmRepositoriesOption{
+				asc.WithScmRepositoriesLimit(limit),
+				asc.WithScmRepositoriesNextURL(next),
+			}
+			resp, err := client.GetScmProviderRepositories(ctx, providerID, opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch: %w", err)
+			}
+			return resp, nil
+		},
+	})
 }
 
 // XcodeCloudScmRepositoriesCommand returns the SCM repositories command group.
@@ -287,145 +247,67 @@ Examples:
 }
 
 func XcodeCloudScmRepositoriesGitReferencesCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("git-references", flag.ExitOnError)
-
-	repoID, limit, next, paginate, output, pretty := xcodeCloudScmRepoListFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "git-references",
-		ShortUsage: "asc xcode-cloud scm repositories git-references --repo-id \"REPO_ID\" [flags]",
-		ShortHelp:  "List git references for a repository.",
+	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+		FlagSetName: "git-references",
+		Name:        "git-references",
+		ShortUsage:  "asc xcode-cloud scm repositories git-references --repo-id \"REPO_ID\" [flags]",
+		ShortHelp:   "List git references for a repository.",
 		LongHelp: `List git references for a repository.
 
 Examples:
   asc xcode-cloud scm repositories git-references --repo-id "REPO_ID"
   asc xcode-cloud scm repositories git-references --repo-id "REPO_ID" --paginate`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("xcode-cloud scm repositories git-references: --limit must be between 1 and 200")
-			}
-			nextURL := strings.TrimSpace(*next)
-			if err := shared.ValidateNextURL(nextURL); err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories git-references: %w", err)
-			}
-
-			idValue := strings.TrimSpace(*repoID)
-			if idValue == "" && nextURL == "" {
-				fmt.Fprintln(os.Stderr, "Error: --repo-id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories git-references: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			opts := []asc.ScmGitReferencesOption{
-				asc.WithScmGitReferencesLimit(*limit),
-				asc.WithScmGitReferencesNextURL(nextURL),
-			}
-
-			if *paginate {
-				paginateOpts := append(opts, asc.WithScmGitReferencesLimit(200))
-				resp, err := shared.PaginateWithSpinner(requestCtx,
-					func(ctx context.Context) (asc.PaginatedResponse, error) {
-						return client.GetScmGitReferences(ctx, idValue, paginateOpts...)
-					},
-					func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-						return client.GetScmGitReferences(ctx, idValue, asc.WithScmGitReferencesNextURL(nextURL))
-					},
-				)
-				if err != nil {
-					return fmt.Errorf("xcode-cloud scm repositories git-references: %w", err)
-				}
-
-				return shared.PrintOutput(resp, *output, *pretty)
-			}
-
-			resp, err := client.GetScmGitReferences(requestCtx, idValue, opts...)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories git-references: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output, *pretty)
+		ParentFlag:  "repo-id",
+		ParentUsage: "SCM repository ID",
+		LimitMax:    200,
+		ErrorPrefix: "xcode-cloud scm repositories git-references",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		FetchPage: func(ctx context.Context, client *asc.Client, repoID string, limit int, next string) (asc.PaginatedResponse, error) {
+			opts := []asc.ScmGitReferencesOption{
+				asc.WithScmGitReferencesLimit(limit),
+				asc.WithScmGitReferencesNextURL(next),
+			}
+			resp, err := client.GetScmGitReferences(ctx, repoID, opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch: %w", err)
+			}
+			return resp, nil
+		},
+	})
 }
 
 func XcodeCloudScmRepositoriesPullRequestsCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("pull-requests", flag.ExitOnError)
-
-	repoID, limit, next, paginate, output, pretty := xcodeCloudScmRepoListFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "pull-requests",
-		ShortUsage: "asc xcode-cloud scm repositories pull-requests --repo-id \"REPO_ID\" [flags]",
-		ShortHelp:  "List pull requests for a repository.",
+	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+		FlagSetName: "pull-requests",
+		Name:        "pull-requests",
+		ShortUsage:  "asc xcode-cloud scm repositories pull-requests --repo-id \"REPO_ID\" [flags]",
+		ShortHelp:   "List pull requests for a repository.",
 		LongHelp: `List pull requests for a repository.
 
 Examples:
   asc xcode-cloud scm repositories pull-requests --repo-id "REPO_ID"
   asc xcode-cloud scm repositories pull-requests --repo-id "REPO_ID" --paginate`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("xcode-cloud scm repositories pull-requests: --limit must be between 1 and 200")
-			}
-			nextURL := strings.TrimSpace(*next)
-			if err := shared.ValidateNextURL(nextURL); err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories pull-requests: %w", err)
-			}
-
-			idValue := strings.TrimSpace(*repoID)
-			if idValue == "" && nextURL == "" {
-				fmt.Fprintln(os.Stderr, "Error: --repo-id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories pull-requests: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			opts := []asc.ScmPullRequestsOption{
-				asc.WithScmPullRequestsLimit(*limit),
-				asc.WithScmPullRequestsNextURL(nextURL),
-			}
-
-			if *paginate {
-				paginateOpts := append(opts, asc.WithScmPullRequestsLimit(200))
-				resp, err := shared.PaginateWithSpinner(requestCtx,
-					func(ctx context.Context) (asc.PaginatedResponse, error) {
-						return client.GetScmRepositoryPullRequests(ctx, idValue, paginateOpts...)
-					},
-					func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-						return client.GetScmRepositoryPullRequests(ctx, idValue, asc.WithScmPullRequestsNextURL(nextURL))
-					},
-				)
-				if err != nil {
-					return fmt.Errorf("xcode-cloud scm repositories pull-requests: %w", err)
-				}
-
-				return shared.PrintOutput(resp, *output, *pretty)
-			}
-
-			resp, err := client.GetScmRepositoryPullRequests(requestCtx, idValue, opts...)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories pull-requests: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output, *pretty)
+		ParentFlag:  "repo-id",
+		ParentUsage: "SCM repository ID",
+		LimitMax:    200,
+		ErrorPrefix: "xcode-cloud scm repositories pull-requests",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		FetchPage: func(ctx context.Context, client *asc.Client, repoID string, limit int, next string) (asc.PaginatedResponse, error) {
+			opts := []asc.ScmPullRequestsOption{
+				asc.WithScmPullRequestsLimit(limit),
+				asc.WithScmPullRequestsNextURL(next),
+			}
+			resp, err := client.GetScmRepositoryPullRequests(ctx, repoID, opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch: %w", err)
+			}
+			return resp, nil
+		},
+	})
 }
 
 func XcodeCloudScmRepositoriesRelationshipsCommand() *ffcli.Command {
@@ -453,145 +335,67 @@ Examples:
 }
 
 func XcodeCloudScmRepositoriesRelationshipsGitReferencesCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("git-references", flag.ExitOnError)
-
-	repoID, limit, next, paginate, output, pretty := xcodeCloudScmRepoListFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "git-references",
-		ShortUsage: "asc xcode-cloud scm repositories relationships git-references --repo-id \"REPO_ID\" [flags]",
-		ShortHelp:  "List git reference relationship linkages for a repository.",
+	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+		FlagSetName: "git-references",
+		Name:        "git-references",
+		ShortUsage:  "asc xcode-cloud scm repositories relationships git-references --repo-id \"REPO_ID\" [flags]",
+		ShortHelp:   "List git reference relationship linkages for a repository.",
 		LongHelp: `List git reference relationship linkages for a repository.
 
 Examples:
   asc xcode-cloud scm repositories relationships git-references --repo-id "REPO_ID"
   asc xcode-cloud scm repositories relationships git-references --repo-id "REPO_ID" --paginate`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("xcode-cloud scm repositories relationships git-references: --limit must be between 1 and 200")
-			}
-			nextURL := strings.TrimSpace(*next)
-			if err := shared.ValidateNextURL(nextURL); err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories relationships git-references: %w", err)
-			}
-
-			idValue := strings.TrimSpace(*repoID)
-			if idValue == "" && nextURL == "" {
-				fmt.Fprintln(os.Stderr, "Error: --repo-id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories relationships git-references: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			opts := []asc.LinkagesOption{
-				asc.WithLinkagesLimit(*limit),
-				asc.WithLinkagesNextURL(nextURL),
-			}
-
-			if *paginate {
-				paginateOpts := append(opts, asc.WithLinkagesLimit(200))
-				resp, err := shared.PaginateWithSpinner(requestCtx,
-					func(ctx context.Context) (asc.PaginatedResponse, error) {
-						return client.GetScmRepositoryGitReferencesRelationships(ctx, idValue, paginateOpts...)
-					},
-					func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-						return client.GetScmRepositoryGitReferencesRelationships(ctx, idValue, asc.WithLinkagesNextURL(nextURL))
-					},
-				)
-				if err != nil {
-					return fmt.Errorf("xcode-cloud scm repositories relationships git-references: %w", err)
-				}
-
-				return shared.PrintOutput(resp, *output, *pretty)
-			}
-
-			resp, err := client.GetScmRepositoryGitReferencesRelationships(requestCtx, idValue, opts...)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories relationships git-references: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output, *pretty)
+		ParentFlag:  "repo-id",
+		ParentUsage: "SCM repository ID",
+		LimitMax:    200,
+		ErrorPrefix: "xcode-cloud scm repositories relationships git-references",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		FetchPage: func(ctx context.Context, client *asc.Client, repoID string, limit int, next string) (asc.PaginatedResponse, error) {
+			opts := []asc.LinkagesOption{
+				asc.WithLinkagesLimit(limit),
+				asc.WithLinkagesNextURL(next),
+			}
+			resp, err := client.GetScmRepositoryGitReferencesRelationships(ctx, repoID, opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch: %w", err)
+			}
+			return resp, nil
+		},
+	})
 }
 
 func XcodeCloudScmRepositoriesRelationshipsPullRequestsCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("pull-requests", flag.ExitOnError)
-
-	repoID, limit, next, paginate, output, pretty := xcodeCloudScmRepoListFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "pull-requests",
-		ShortUsage: "asc xcode-cloud scm repositories relationships pull-requests --repo-id \"REPO_ID\" [flags]",
-		ShortHelp:  "List pull request relationship linkages for a repository.",
+	return shared.NewPaginatedListCommand(shared.PaginatedListCommandConfig{
+		FlagSetName: "pull-requests",
+		Name:        "pull-requests",
+		ShortUsage:  "asc xcode-cloud scm repositories relationships pull-requests --repo-id \"REPO_ID\" [flags]",
+		ShortHelp:   "List pull request relationship linkages for a repository.",
 		LongHelp: `List pull request relationship linkages for a repository.
 
 Examples:
   asc xcode-cloud scm repositories relationships pull-requests --repo-id "REPO_ID"
   asc xcode-cloud scm repositories relationships pull-requests --repo-id "REPO_ID" --paginate`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("xcode-cloud scm repositories relationships pull-requests: --limit must be between 1 and 200")
-			}
-			nextURL := strings.TrimSpace(*next)
-			if err := shared.ValidateNextURL(nextURL); err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories relationships pull-requests: %w", err)
-			}
-
-			idValue := strings.TrimSpace(*repoID)
-			if idValue == "" && nextURL == "" {
-				fmt.Fprintln(os.Stderr, "Error: --repo-id is required")
-				return flag.ErrHelp
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories relationships pull-requests: %w", err)
-			}
-
-			requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-			defer cancel()
-
-			opts := []asc.LinkagesOption{
-				asc.WithLinkagesLimit(*limit),
-				asc.WithLinkagesNextURL(nextURL),
-			}
-
-			if *paginate {
-				paginateOpts := append(opts, asc.WithLinkagesLimit(200))
-				resp, err := shared.PaginateWithSpinner(requestCtx,
-					func(ctx context.Context) (asc.PaginatedResponse, error) {
-						return client.GetScmRepositoryPullRequestsRelationships(ctx, idValue, paginateOpts...)
-					},
-					func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-						return client.GetScmRepositoryPullRequestsRelationships(ctx, idValue, asc.WithLinkagesNextURL(nextURL))
-					},
-				)
-				if err != nil {
-					return fmt.Errorf("xcode-cloud scm repositories relationships pull-requests: %w", err)
-				}
-
-				return shared.PrintOutput(resp, *output, *pretty)
-			}
-
-			resp, err := client.GetScmRepositoryPullRequestsRelationships(requestCtx, idValue, opts...)
-			if err != nil {
-				return fmt.Errorf("xcode-cloud scm repositories relationships pull-requests: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(resp, *output, *pretty)
+		ParentFlag:  "repo-id",
+		ParentUsage: "SCM repository ID",
+		LimitMax:    200,
+		ErrorPrefix: "xcode-cloud scm repositories relationships pull-requests",
+		ContextTimeout: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return contextWithXcodeCloudTimeout(ctx, 0)
 		},
-	}
+		FetchPage: func(ctx context.Context, client *asc.Client, repoID string, limit int, next string) (asc.PaginatedResponse, error) {
+			opts := []asc.LinkagesOption{
+				asc.WithLinkagesLimit(limit),
+				asc.WithLinkagesNextURL(next),
+			}
+			resp, err := client.GetScmRepositoryPullRequestsRelationships(ctx, repoID, opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch: %w", err)
+			}
+			return resp, nil
+		},
+	})
 }
 
 // XcodeCloudScmGitReferencesCommand returns the SCM git references command group.
