@@ -332,5 +332,12 @@
     "creator": "arunavo4",
     "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/d7/4d/4c/d74d4c07-c147-fa7e-86fe-cff01727629b/XO-0-0-1x_U007ephone-0-1-sRGB-85-220.png/512x512bb.jpg",
     "platform": ["iOS"]
+  },
+  {
+    "app": "시선 - 사진 한 장, 시 한 줄",
+    "link": "https://apps.apple.com/app/id6748271659",
+    "creator": "evanyi",
+    "icon": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/61/84/82/61848267-44c7-31d7-a46e-250c2bc09495/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/512x512bb.jpg",
+    "platform": ["iOS"]
   }
 ]
