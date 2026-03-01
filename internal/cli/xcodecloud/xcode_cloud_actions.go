@@ -3,9 +3,6 @@ package xcodecloud
 import (
 	"context"
 	"flag"
-	"fmt"
-	"os"
-	"strings"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
@@ -131,53 +128,26 @@ Examples:
 }
 
 func xcodeCloudActionsList(ctx context.Context, runID string, limit int, next string, paginate bool, output string, pretty bool) error {
-	if limit != 0 && (limit < 1 || limit > 200) {
-		return fmt.Errorf("xcode-cloud actions: --limit must be between 1 and 200")
-	}
-	if err := shared.ValidateNextURL(next); err != nil {
-		return fmt.Errorf("xcode-cloud actions: %w", err)
-	}
-
-	resolvedRunID := strings.TrimSpace(runID)
-	if resolvedRunID == "" && strings.TrimSpace(next) == "" {
-		fmt.Fprintln(os.Stderr, "Error: --run-id is required")
-		return flag.ErrHelp
-	}
-
-	client, err := shared.GetASCClient()
-	if err != nil {
-		return fmt.Errorf("xcode-cloud actions: %w", err)
-	}
-
-	requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-	defer cancel()
-
-	opts := []asc.CiBuildActionsOption{
-		asc.WithCiBuildActionsLimit(limit),
-		asc.WithCiBuildActionsNextURL(next),
-	}
-
-	if paginate {
-		paginateOpts := append(opts, asc.WithCiBuildActionsLimit(200))
-		resp, err := shared.PaginateWithSpinner(requestCtx,
-			func(ctx context.Context) (asc.PaginatedResponse, error) {
-				return client.GetCiBuildActions(ctx, resolvedRunID, paginateOpts...)
-			},
-			func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-				return client.GetCiBuildActions(ctx, resolvedRunID, asc.WithCiBuildActionsNextURL(nextURL))
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("xcode-cloud actions: %w", err)
-		}
-
-		return shared.PrintOutput(resp, output, pretty)
-	}
-
-	resp, err := client.GetCiBuildActions(requestCtx, resolvedRunID, opts...)
-	if err != nil {
-		return fmt.Errorf("xcode-cloud actions: %w", err)
-	}
-
-	return shared.PrintOutput(resp, output, pretty)
+	return runXcodeCloudPaginatedParentList(
+		ctx,
+		runID,
+		"run-id",
+		limit,
+		next,
+		paginate,
+		output,
+		pretty,
+		"xcode-cloud actions",
+		func(ctx context.Context, client *asc.Client, runID string, limit int, next string) (asc.PaginatedResponse, error) {
+			return client.GetCiBuildActions(
+				ctx,
+				runID,
+				asc.WithCiBuildActionsLimit(limit),
+				asc.WithCiBuildActionsNextURL(next),
+			)
+		},
+		func(ctx context.Context, client *asc.Client, runID string, next string) (asc.PaginatedResponse, error) {
+			return client.GetCiBuildActions(ctx, runID, asc.WithCiBuildActionsNextURL(next))
+		},
+	)
 }

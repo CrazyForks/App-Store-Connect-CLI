@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"strings"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
@@ -477,95 +476,45 @@ Examples:
 }
 
 func xcodeCloudScmProvidersList(ctx context.Context, limit int, next string, paginate bool, output string, pretty bool) error {
-	if limit != 0 && (limit < 1 || limit > 200) {
-		return fmt.Errorf("xcode-cloud scm providers: --limit must be between 1 and 200")
-	}
-	nextURL := strings.TrimSpace(next)
-	if err := shared.ValidateNextURL(nextURL); err != nil {
-		return fmt.Errorf("xcode-cloud scm providers: %w", err)
-	}
-
-	client, err := shared.GetASCClient()
-	if err != nil {
-		return fmt.Errorf("xcode-cloud scm providers: %w", err)
-	}
-
-	requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-	defer cancel()
-
-	opts := []asc.ScmProvidersOption{
-		asc.WithScmProvidersLimit(limit),
-		asc.WithScmProvidersNextURL(nextURL),
-	}
-
-	if paginate {
-		paginateOpts := append(opts, asc.WithScmProvidersLimit(200))
-		resp, err := shared.PaginateWithSpinner(requestCtx,
-			func(ctx context.Context) (asc.PaginatedResponse, error) {
-				return client.GetScmProviders(ctx, paginateOpts...)
-			},
-			func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-				return client.GetScmProviders(ctx, asc.WithScmProvidersNextURL(nextURL))
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("xcode-cloud scm providers: %w", err)
-		}
-
-		return shared.PrintOutput(resp, output, pretty)
-	}
-
-	resp, err := client.GetScmProviders(requestCtx, opts...)
-	if err != nil {
-		return fmt.Errorf("xcode-cloud scm providers: %w", err)
-	}
-
-	return shared.PrintOutput(resp, output, pretty)
+	return runXcodeCloudPaginatedList(
+		ctx,
+		limit,
+		next,
+		paginate,
+		output,
+		pretty,
+		"xcode-cloud scm providers",
+		func(ctx context.Context, client *asc.Client, limit int, next string) (asc.PaginatedResponse, error) {
+			return client.GetScmProviders(
+				ctx,
+				asc.WithScmProvidersLimit(limit),
+				asc.WithScmProvidersNextURL(next),
+			)
+		},
+		func(ctx context.Context, client *asc.Client, next string) (asc.PaginatedResponse, error) {
+			return client.GetScmProviders(ctx, asc.WithScmProvidersNextURL(next))
+		},
+	)
 }
 
 func xcodeCloudScmRepositoriesList(ctx context.Context, limit int, next string, paginate bool, output string, pretty bool) error {
-	if limit != 0 && (limit < 1 || limit > 200) {
-		return fmt.Errorf("xcode-cloud scm repositories: --limit must be between 1 and 200")
-	}
-	nextURL := strings.TrimSpace(next)
-	if err := shared.ValidateNextURL(nextURL); err != nil {
-		return fmt.Errorf("xcode-cloud scm repositories: %w", err)
-	}
-
-	client, err := shared.GetASCClient()
-	if err != nil {
-		return fmt.Errorf("xcode-cloud scm repositories: %w", err)
-	}
-
-	requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-	defer cancel()
-
-	opts := []asc.ScmRepositoriesOption{
-		asc.WithScmRepositoriesLimit(limit),
-		asc.WithScmRepositoriesNextURL(nextURL),
-	}
-
-	if paginate {
-		paginateOpts := append(opts, asc.WithScmRepositoriesLimit(200))
-		resp, err := shared.PaginateWithSpinner(requestCtx,
-			func(ctx context.Context) (asc.PaginatedResponse, error) {
-				return client.GetScmRepositories(ctx, paginateOpts...)
-			},
-			func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-				return client.GetScmRepositories(ctx, asc.WithScmRepositoriesNextURL(nextURL))
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("xcode-cloud scm repositories: %w", err)
-		}
-
-		return shared.PrintOutput(resp, output, pretty)
-	}
-
-	resp, err := client.GetScmRepositories(requestCtx, opts...)
-	if err != nil {
-		return fmt.Errorf("xcode-cloud scm repositories: %w", err)
-	}
-
-	return shared.PrintOutput(resp, output, pretty)
+	return runXcodeCloudPaginatedList(
+		ctx,
+		limit,
+		next,
+		paginate,
+		output,
+		pretty,
+		"xcode-cloud scm repositories",
+		func(ctx context.Context, client *asc.Client, limit int, next string) (asc.PaginatedResponse, error) {
+			return client.GetScmRepositories(
+				ctx,
+				asc.WithScmRepositoriesLimit(limit),
+				asc.WithScmRepositoriesNextURL(next),
+			)
+		},
+		func(ctx context.Context, client *asc.Client, next string) (asc.PaginatedResponse, error) {
+			return client.GetScmRepositories(ctx, asc.WithScmRepositoriesNextURL(next))
+		},
+	)
 }

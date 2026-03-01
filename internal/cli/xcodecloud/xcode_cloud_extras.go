@@ -431,49 +431,25 @@ Examples:
 }
 
 func xcodeCloudMacOSVersionsList(ctx context.Context, limit int, next string, paginate bool, output string, pretty bool) error {
-	if limit != 0 && (limit < 1 || limit > 200) {
-		return fmt.Errorf("xcode-cloud macos-versions: --limit must be between 1 and 200")
-	}
-	if err := shared.ValidateNextURL(next); err != nil {
-		return fmt.Errorf("xcode-cloud macos-versions: %w", err)
-	}
-
-	client, err := shared.GetASCClient()
-	if err != nil {
-		return fmt.Errorf("xcode-cloud macos-versions: %w", err)
-	}
-
-	requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-	defer cancel()
-
-	opts := []asc.CiMacOsVersionsOption{
-		asc.WithCiMacOsVersionsLimit(limit),
-		asc.WithCiMacOsVersionsNextURL(next),
-	}
-
-	if paginate {
-		paginateOpts := append(opts, asc.WithCiMacOsVersionsLimit(200))
-		resp, err := shared.PaginateWithSpinner(requestCtx,
-			func(ctx context.Context) (asc.PaginatedResponse, error) {
-				return client.GetCiMacOsVersions(ctx, paginateOpts...)
-			},
-			func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-				return client.GetCiMacOsVersions(ctx, asc.WithCiMacOsVersionsNextURL(nextURL))
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("xcode-cloud macos-versions: %w", err)
-		}
-
-		return shared.PrintOutput(resp, output, pretty)
-	}
-
-	resp, err := client.GetCiMacOsVersions(requestCtx, opts...)
-	if err != nil {
-		return fmt.Errorf("xcode-cloud macos-versions: %w", err)
-	}
-
-	return shared.PrintOutput(resp, output, pretty)
+	return runXcodeCloudPaginatedList(
+		ctx,
+		limit,
+		next,
+		paginate,
+		output,
+		pretty,
+		"xcode-cloud macos-versions",
+		func(ctx context.Context, client *asc.Client, limit int, next string) (asc.PaginatedResponse, error) {
+			return client.GetCiMacOsVersions(
+				ctx,
+				asc.WithCiMacOsVersionsLimit(limit),
+				asc.WithCiMacOsVersionsNextURL(next),
+			)
+		},
+		func(ctx context.Context, client *asc.Client, next string) (asc.PaginatedResponse, error) {
+			return client.GetCiMacOsVersions(ctx, asc.WithCiMacOsVersionsNextURL(next))
+		},
+	)
 }
 
 // XcodeCloudXcodeVersionsCommand returns the xcode-cloud xcode-versions command.
@@ -582,47 +558,23 @@ Examples:
 }
 
 func xcodeCloudXcodeVersionsList(ctx context.Context, limit int, next string, paginate bool, output string, pretty bool) error {
-	if limit != 0 && (limit < 1 || limit > 200) {
-		return fmt.Errorf("xcode-cloud xcode-versions: --limit must be between 1 and 200")
-	}
-	if err := shared.ValidateNextURL(next); err != nil {
-		return fmt.Errorf("xcode-cloud xcode-versions: %w", err)
-	}
-
-	client, err := shared.GetASCClient()
-	if err != nil {
-		return fmt.Errorf("xcode-cloud xcode-versions: %w", err)
-	}
-
-	requestCtx, cancel := contextWithXcodeCloudTimeout(ctx, 0)
-	defer cancel()
-
-	opts := []asc.CiXcodeVersionsOption{
-		asc.WithCiXcodeVersionsLimit(limit),
-		asc.WithCiXcodeVersionsNextURL(next),
-	}
-
-	if paginate {
-		paginateOpts := append(opts, asc.WithCiXcodeVersionsLimit(200))
-		resp, err := shared.PaginateWithSpinner(requestCtx,
-			func(ctx context.Context) (asc.PaginatedResponse, error) {
-				return client.GetCiXcodeVersions(ctx, paginateOpts...)
-			},
-			func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-				return client.GetCiXcodeVersions(ctx, asc.WithCiXcodeVersionsNextURL(nextURL))
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("xcode-cloud xcode-versions: %w", err)
-		}
-
-		return shared.PrintOutput(resp, output, pretty)
-	}
-
-	resp, err := client.GetCiXcodeVersions(requestCtx, opts...)
-	if err != nil {
-		return fmt.Errorf("xcode-cloud xcode-versions: %w", err)
-	}
-
-	return shared.PrintOutput(resp, output, pretty)
+	return runXcodeCloudPaginatedList(
+		ctx,
+		limit,
+		next,
+		paginate,
+		output,
+		pretty,
+		"xcode-cloud xcode-versions",
+		func(ctx context.Context, client *asc.Client, limit int, next string) (asc.PaginatedResponse, error) {
+			return client.GetCiXcodeVersions(
+				ctx,
+				asc.WithCiXcodeVersionsLimit(limit),
+				asc.WithCiXcodeVersionsNextURL(next),
+			)
+		},
+		func(ctx context.Context, client *asc.Client, next string) (asc.PaginatedResponse, error) {
+			return client.GetCiXcodeVersions(ctx, asc.WithCiXcodeVersionsNextURL(next))
+		},
+	)
 }
