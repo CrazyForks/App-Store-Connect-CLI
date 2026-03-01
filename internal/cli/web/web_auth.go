@@ -152,7 +152,7 @@ func loginWithOptionalTwoFactor(ctx context.Context, appleID, password, twoFacto
 	return nil, err
 }
 
-func resolveSession(ctx context.Context, appleID, password, twoFactorCode string, usePasswordStdin bool) (*webcore.AuthSession, string, error) {
+func resolveSession(ctx context.Context, appleID, password, twoFactorCode string) (*webcore.AuthSession, string, error) {
 	shared.ApplyRootLoggingOverrides()
 
 	appleID = strings.TrimSpace(appleID)
@@ -169,7 +169,7 @@ func resolveSession(ctx context.Context, appleID, password, twoFactorCode string
 	}
 
 	if appleID == "" {
-		return nil, "", shared.UsageError("--apple-id is required when no cached web session is available (run 'asc web auth login' first)")
+		return nil, "", shared.UsageError("--apple-id is required when no cached web session is available")
 	}
 
 	password = strings.TrimSpace(password)
@@ -253,7 +253,7 @@ Examples:
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
-			session, source, err := resolveSessionFn(requestCtx, *appleID, "", *twoFactorCode, false)
+			session, source, err := resolveSessionFn(requestCtx, *appleID, "", *twoFactorCode)
 			if err != nil {
 				return err
 			}

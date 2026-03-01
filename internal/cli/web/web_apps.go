@@ -241,7 +241,7 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			session, source, err := resolveSessionFn(ctx, *appleID, "", *twoFactorCode, false)
+			session, source, err := resolveSessionFn(ctx, *appleID, "", *twoFactorCode)
 			if err != nil {
 				return err
 			}

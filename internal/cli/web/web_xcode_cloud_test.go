@@ -146,7 +146,6 @@ func TestWebXcodeCloudSubcommandsResolveSessionWithinTimeoutContext(t *testing.T
 			resolveSessionFn = func(
 				ctx context.Context,
 				appleID, password, twoFactorCode string,
-				usePasswordStdin bool,
 			) (*webcore.AuthSession, string, error) {
 				_, hadDeadline = ctx.Deadline()
 				return nil, "", resolveErr
@@ -177,7 +176,6 @@ func TestWebXcodeCloudUsageSummaryOutputTableUsesHumanRenderer(t *testing.T) {
 	resolveSessionFn = func(
 		ctx context.Context,
 		appleID, password, twoFactorCode string,
-		usePasswordStdin bool,
 	) (*webcore.AuthSession, string, error) {
 		return &webcore.AuthSession{
 			PublicProviderID: "team-uuid",
@@ -418,7 +416,6 @@ func TestWebXcodeCloudUsageDaysProductIDsValidation(t *testing.T) {
 		resolveSessionFn = func(
 			ctx context.Context,
 			appleID, password, twoFactorCode string,
-			usePasswordStdin bool,
 		) (*webcore.AuthSession, string, error) {
 			return nil, "", resolveErr
 		}
@@ -618,7 +615,6 @@ func TestWebXcodeCloudUsageMonthsOutputTableWithProductFilter(t *testing.T) {
 	resolveSessionFn = func(
 		ctx context.Context,
 		appleID, password, twoFactorCode string,
-		usePasswordStdin bool,
 	) (*webcore.AuthSession, string, error) {
 		return &webcore.AuthSession{
 			PublicProviderID: "team-uuid",
@@ -732,7 +728,6 @@ func TestWebXcodeCloudUsageMonthsTableDoesNotFailWhenSummaryUnavailable(t *testi
 	resolveSessionFn = func(
 		ctx context.Context,
 		appleID, password, twoFactorCode string,
-		usePasswordStdin bool,
 	) (*webcore.AuthSession, string, error) {
 		return &webcore.AuthSession{
 			PublicProviderID: "team-uuid",
@@ -795,7 +790,6 @@ func TestWebXcodeCloudUsageDaysOutputBehavior(t *testing.T) {
 		resolveSessionFn = func(
 			ctx context.Context,
 			appleID, password, twoFactorCode string,
-			usePasswordStdin bool,
 		) (*webcore.AuthSession, string, error) {
 			return &webcore.AuthSession{
 				PublicProviderID: "team-uuid",
@@ -861,7 +855,6 @@ func TestWebXcodeCloudUsageDaysOutputBehavior(t *testing.T) {
 		resolveSessionFn = func(
 			ctx context.Context,
 			appleID, password, twoFactorCode string,
-			usePasswordStdin bool,
 		) (*webcore.AuthSession, string, error) {
 			return &webcore.AuthSession{
 				PublicProviderID: "team-uuid",
@@ -949,7 +942,6 @@ func TestWebXcodeCloudUsageDaysOutputBehavior(t *testing.T) {
 		resolveSessionFn = func(
 			ctx context.Context,
 			appleID, password, twoFactorCode string,
-			usePasswordStdin bool,
 		) (*webcore.AuthSession, string, error) {
 			return &webcore.AuthSession{
 				PublicProviderID: "team-uuid",
@@ -1093,7 +1085,6 @@ func TestWebXcodeCloudUsageWorkflowsListOutput(t *testing.T) {
 	resolveSessionFn = func(
 		ctx context.Context,
 		appleID, password, twoFactorCode string,
-		usePasswordStdin bool,
 	) (*webcore.AuthSession, string, error) {
 		return &webcore.AuthSession{
 			PublicProviderID: "team-uuid",
@@ -1213,7 +1204,6 @@ func TestWebXcodeCloudUsageWorkflowsJSONSkipsSummaryFetch(t *testing.T) {
 	resolveSessionFn = func(
 		ctx context.Context,
 		appleID, password, twoFactorCode string,
-		usePasswordStdin bool,
 	) (*webcore.AuthSession, string, error) {
 		return &webcore.AuthSession{
 			PublicProviderID: "team-uuid",

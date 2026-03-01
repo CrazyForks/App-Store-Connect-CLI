@@ -27,7 +27,6 @@ func resolveWebSessionForCommand(ctx context.Context, flags webSessionFlags) (*w
 		*flags.appleID,
 		"",
 		*flags.twoFactorCode,
-		false,
 	)
 	if err != nil {
 		return nil, err

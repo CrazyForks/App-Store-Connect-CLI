@@ -270,7 +270,7 @@ func TestResolveSessionUsesLastCachedSessionWhenAppleIDMissing(t *testing.T) {
 		return "", nil
 	}
 
-	session, source, err := resolveSession(context.Background(), "", "", "", false)
+	session, source, err := resolveSession(context.Background(), "", "", "")
 	if err != nil {
 		t.Fatalf("resolveSession returned error: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestResolveSessionRequiresAppleIDWhenNoCachedSessionExists(t *testing.T) {
 		return nil, false, nil
 	}
 
-	_, _, err := resolveSession(context.Background(), "", "", "", false)
+	_, _, err := resolveSession(context.Background(), "", "", "")
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected ErrHelp, got %v", err)
 	}
