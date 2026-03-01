@@ -627,6 +627,70 @@ func TestResolvePrivateKeyPathFromRawValue(t *testing.T) {
 	}
 }
 
+func TestResolvePrivateKeyPathRefreshesWhenRawValueChanges(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+
+	t.Setenv("ASC_PRIVATE_KEY", "account-a-key")
+	firstPath, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() first call error: %v", err)
+	}
+	firstData, err := os.ReadFile(firstPath)
+	if err != nil {
+		t.Fatalf("ReadFile(firstPath) error: %v", err)
+	}
+	if string(firstData) != "account-a-key" {
+		t.Fatalf("expected first key data %q, got %q", "account-a-key", string(firstData))
+	}
+
+	t.Setenv("ASC_PRIVATE_KEY", "account-b-key")
+	secondPath, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() second call error: %v", err)
+	}
+	secondData, err := os.ReadFile(secondPath)
+	if err != nil {
+		t.Fatalf("ReadFile(secondPath) error: %v", err)
+	}
+	if string(secondData) != "account-b-key" {
+		t.Fatalf("expected updated key data %q, got %q", "account-b-key", string(secondData))
+	}
+}
+
+func TestResolvePrivateKeyPathRefreshesWhenBase64ValueChanges(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	t.Setenv("ASC_PRIVATE_KEY_B64", base64.StdEncoding.EncodeToString([]byte("account-a-key")))
+	firstPath, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() first call error: %v", err)
+	}
+	firstData, err := os.ReadFile(firstPath)
+	if err != nil {
+		t.Fatalf("ReadFile(firstPath) error: %v", err)
+	}
+	if string(firstData) != "account-a-key" {
+		t.Fatalf("expected first key data %q, got %q", "account-a-key", string(firstData))
+	}
+
+	t.Setenv("ASC_PRIVATE_KEY_B64", base64.StdEncoding.EncodeToString([]byte("account-b-key")))
+	secondPath, err := resolvePrivateKeyPath()
+	if err != nil {
+		t.Fatalf("resolvePrivateKeyPath() second call error: %v", err)
+	}
+	secondData, err := os.ReadFile(secondPath)
+	if err != nil {
+		t.Fatalf("ReadFile(secondPath) error: %v", err)
+	}
+	if string(secondData) != "account-b-key" {
+		t.Fatalf("expected updated key data %q, got %q", "account-b-key", string(secondData))
+	}
+}
+
 func TestCleanupTempPrivateKeysRemovesFile(t *testing.T) {
 	resetPrivateKeyTemp(t)
 	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
