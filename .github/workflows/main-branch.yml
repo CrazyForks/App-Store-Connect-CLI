@@ -121,14 +121,10 @@ jobs:
         include:
           - name: packages
             command: python3 scripts/go_test_shard.py packages --packages ./... --exclude ./internal/cli/cmdtest --shard-index 0 --shard-total 1 -- -v
-          - name: cmdtest 1/4
-            command: python3 scripts/go_test_shard.py tests --package ./internal/cli/cmdtest --shard-index 0 --shard-total 4 -- -v
-          - name: cmdtest 2/4
-            command: python3 scripts/go_test_shard.py tests --package ./internal/cli/cmdtest --shard-index 1 --shard-total 4 -- -v
-          - name: cmdtest 3/4
-            command: python3 scripts/go_test_shard.py tests --package ./internal/cli/cmdtest --shard-index 2 --shard-total 4 -- -v
-          - name: cmdtest 4/4
-            command: python3 scripts/go_test_shard.py tests --package ./internal/cli/cmdtest --shard-index 3 --shard-total 4 -- -v
+          - name: cmdtest 1/2
+            command: python3 scripts/go_test_shard.py tests --package ./internal/cli/cmdtest --shard-index 0 --shard-total 2 -- -v
+          - name: cmdtest 2/2
+            command: python3 scripts/go_test_shard.py tests --package ./internal/cli/cmdtest --shard-index 1 --shard-total 2 -- -v
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
