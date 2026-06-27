@@ -363,7 +363,8 @@ func TestStoreKitBuiltBinaryUsageExitCode(t *testing.T) {
 	t.Setenv("ASC_STOREKIT_KEY_ID", "")
 	t.Setenv("ASC_STOREKIT_ISSUER_ID", "")
 
-	assertUsageExit(t,
+	assertUsageExit(
+		t,
 		[]string{"storekit", "retention-messaging", "messages", "list"},
 		"--environment is required",
 	)

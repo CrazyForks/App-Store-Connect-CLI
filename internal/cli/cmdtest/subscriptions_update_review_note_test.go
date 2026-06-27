@@ -71,7 +71,8 @@ func TestSubscriptionsUpdateSendsReviewNote(t *testing.T) {
 }
 
 func TestSubscriptionsUpdateRejectsEmptyReviewNoteExitCode(t *testing.T) {
-	assertUsageExit(t,
+	assertUsageExit(
+		t,
 		[]string{"subscriptions", "update", "--id", "sub-1", "--review-note", ""},
 		"--review-note cannot be empty",
 	)

@@ -643,7 +643,8 @@ func TestMigrateImportDryRunSkipScreenshotsFlag(t *testing.T) {
 }
 
 func TestMigrateImportSkipScreenshotsRejectsInvalidBooleanExitCode(t *testing.T) {
-	assertUsageExit(t,
+	assertUsageExit(
+		t,
 		[]string{"migrate", "import", "--app", "APP_ID", "--version-id", "VERSION_ID", "--skip-screenshots=maybe"},
 		"invalid boolean value",
 	)
