@@ -120,7 +120,11 @@ jobs:
       matrix:
         include:
           - name: packages
-            command: go test -v ./cmd && python3 scripts/go_test_shard.py packages --packages ./... --exclude ./cmd --exclude ./internal/cli/cmdtest --shard-index 0 --shard-total 1 -- -v
+            command: go test -v ./cmd && python3 scripts/go_test_shard.py packages --packages ./... --exclude ./cmd --exclude ./internal/cli/cmdtest --exclude ./internal/cli/web --shard-index 0 --shard-total 1 -- -v
+          - name: web 1/2
+            command: python3 scripts/go_test_shard.py tests --package ./internal/cli/web --shard-index 0 --shard-total 2 -- -v
+          - name: web 2/2
+            command: python3 scripts/go_test_shard.py tests --package ./internal/cli/web --shard-index 1 --shard-total 2 -- -v
           - name: cmdtest 1/2
             command: python3 scripts/go_test_shard.py tests --package ./internal/cli/cmdtest --shard-index 0 --shard-total 2 -- -v
           - name: cmdtest 2/2
