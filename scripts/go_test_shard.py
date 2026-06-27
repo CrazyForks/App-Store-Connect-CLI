@@ -70,7 +70,7 @@ def run_test_shard(args: argparse.Namespace) -> int:
     )
     if not selected:
         return 0
-    pattern = "^(?:" + "|".join(re.escape(test) for test in selected) + ")$"
+    pattern = "^(?:" + "|".join(re.escape(test) for test in selected) + ")(?:/.*)?$"
     return subprocess.run(
         ["go", "test", *args.go_test_args, "-run", pattern, args.package],
     ).returncode
