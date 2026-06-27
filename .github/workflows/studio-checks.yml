@@ -59,17 +59,16 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - parallel:
-          - name: Run frontend tests
-            run: npm run test -- --run
+      - name: Run frontend tests
+        run: npm run test -- --run
 
+      - name: Build frontend assets
+        run: npm run build
+
+      - parallel:
           - name: Run Studio Go tests
             working-directory: ${{ github.workspace }}
             run: go test ./apps/studio/...
-
-      - parallel:
-          - name: Build frontend assets
-            run: npm run build
 
           - name: Build Studio bootstrap binary
             working-directory: ${{ github.workspace }}
