@@ -1525,6 +1525,16 @@ func TestSubscriptionsValidationErrors(t *testing.T) {
 			wantErr: "--group-id or --app is required",
 		},
 		{
+			name:    "subscriptions list rejects app with group",
+			args:    []string{"subscriptions", "list", "--group-id", "GROUP_ID", "--app", "APP_ID"},
+			wantErr: "--group-id and --app are mutually exclusive",
+		},
+		{
+			name:    "subscriptions list rejects app with next",
+			args:    []string{"subscriptions", "list", "--app", "APP_ID", "--next", "https://api.appstoreconnect.apple.com/v1/subscriptionGroups/GROUP_ID/subscriptions?cursor=NEXT"},
+			wantErr: "--next cannot be combined with --app",
+		},
+		{
 			name:    "subscriptions create missing group",
 			args:    []string{"subscriptions", "create", "--reference-name", "Monthly", "--product-id", "com.example.sub"},
 			wantErr: "--group-id is required",
