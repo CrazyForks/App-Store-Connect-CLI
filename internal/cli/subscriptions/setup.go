@@ -822,7 +822,7 @@ func findExistingSubscriptionSetupGroup(ctx context.Context, client *asc.Client,
 		return "", false, nil
 	}
 
-	var foundID string
+	var foundIDs []string
 	if err := asc.PaginateEach(
 		ctx,
 		firstPage,
@@ -838,13 +838,22 @@ func findExistingSubscriptionSetupGroup(ctx context.Context, client *asc.Client,
 				if strings.TrimSpace(group.Attributes.ReferenceName) != referenceName {
 					continue
 				}
-				foundID = strings.TrimSpace(group.ID)
-				return errSubscriptionsSetupExistingResourceFound
+				foundID := strings.TrimSpace(group.ID)
+				if foundID != "" {
+					foundIDs = append(foundIDs, foundID)
+				}
 			}
 			return nil
 		},
-	); err != nil && !errors.Is(err, errSubscriptionsSetupExistingResourceFound) {
+	); err != nil {
 		return "", false, err
+	}
+	if len(foundIDs) > 1 {
+		return "", false, fmt.Errorf("multiple subscription groups match reference name %q; pass --group-id to choose one", referenceName)
+	}
+	var foundID string
+	if len(foundIDs) == 1 {
+		foundID = foundIDs[0]
 	}
 	return foundID, foundID != "", nil
 }

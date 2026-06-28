@@ -564,6 +564,60 @@ func TestSubscriptionsSetupRejectsMismatchedExistingSubscription(t *testing.T) {
 	}
 }
 
+func TestSubscriptionsSetupRejectsAmbiguousExistingGroupReference(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	requestCount := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-1/subscriptionGroups" {
+			t.Fatalf("unexpected group lookup request: %s %s", req.Method, req.URL.String())
+		}
+		return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionGroups","id":"group-1","attributes":{"referenceName":"Pro"}},{"type":"subscriptionGroups","id":"group-2","attributes":{"referenceName":"Pro"}}],"links":{"next":""}}`), nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "setup",
+			"--app", "app-1",
+			"--group-reference-name", "Pro",
+			"--reference-name", "Pro Monthly",
+			"--product-id", "com.example.pro.monthly",
+			"--subscription-period", "ONE_MONTH",
+			"--no-verify",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if runErr == nil || !strings.Contains(runErr.Error(), "multiple subscription groups match reference name") {
+		t.Fatalf("expected ambiguous group reference error, got %v", runErr)
+	}
+
+	var result subscriptionsSetupOutput
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("parse setup result: %v\nstdout=%q", err, stdout)
+	}
+	if result.Status != "error" || result.FailedStep != "ensure_group" {
+		t.Fatalf("unexpected setup result: %+v", result)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if requestCount != 1 {
+		t.Fatalf("expected only group lookup request, got %d", requestCount)
+	}
+}
+
 func TestSubscriptionsSetupRejectsMismatchedExistingLocalization(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
@@ -620,6 +674,79 @@ func TestSubscriptionsSetupRejectsMismatchedExistingLocalization(t *testing.T) {
 	})
 	if runErr == nil || !strings.Contains(runErr.Error(), "different display name") {
 		t.Fatalf("expected different display name error, got %v", runErr)
+	}
+
+	var result subscriptionsSetupOutput
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("parse setup result: %v\nstdout=%q", err, stdout)
+	}
+	if result.Status != "error" || result.FailedStep != "create_localization" {
+		t.Fatalf("unexpected setup result: %+v", result)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if requestCount != 3 {
+		t.Fatalf("expected lookup requests only, got %d", requestCount)
+	}
+}
+
+func TestSubscriptionsSetupRejectsMismatchedExistingLocalizationDescription(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	requestCount := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		switch requestCount {
+		case 1:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-1/subscriptionGroups" {
+				t.Fatalf("unexpected group lookup request: %s %s", req.Method, req.URL.String())
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionGroups","id":"group-1","attributes":{"referenceName":"Pro"}}],"links":{"next":""}}`), nil
+		case 2:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptionGroups/group-1/subscriptions" {
+				t.Fatalf("unexpected subscription lookup request: %s %s", req.Method, req.URL.String())
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Pro Monthly","productId":"com.example.pro.monthly","subscriptionPeriod":"ONE_MONTH"}}],"links":{"next":""}}`), nil
+		case 3:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/sub-1/subscriptionLocalizations" {
+				t.Fatalf("unexpected localization lookup request: %s %s", req.Method, req.URL.String())
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionLocalizations","id":"loc-1","attributes":{"name":"Pro Monthly","locale":"en-US","description":"Old description."}}],"links":{"next":""}}`), nil
+		default:
+			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "setup",
+			"--app", "app-1",
+			"--group-reference-name", "Pro",
+			"--reference-name", "Pro Monthly",
+			"--product-id", "com.example.pro.monthly",
+			"--subscription-period", "ONE_MONTH",
+			"--locale", "en-US",
+			"--display-name", "Pro Monthly",
+			"--description", "All premium features.",
+			"--no-verify",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if runErr == nil || !strings.Contains(runErr.Error(), "different description") {
+		t.Fatalf("expected different description error, got %v", runErr)
 	}
 
 	var result subscriptionsSetupOutput
