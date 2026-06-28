@@ -525,6 +525,43 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 		}
 	}
 
+	var preflightAvailabilityID string
+	var preflightFoundAvailability bool
+	var preflightHasAvailability bool
+	availabilityPreflightDone := false
+	if reusedSubscription && len(availabilityTerritories) > 0 {
+		availabilityAttrs := asc.SubscriptionAvailabilityAttributes{
+			AvailableInNewTerritories: opts.AvailableInNewTerritories,
+		}
+		availabilityCtx, availabilityCancel := shared.ContextWithTimeout(ctx)
+		preflightAvailabilityID, preflightFoundAvailability, preflightHasAvailability, err = findExistingSubscriptionSetupAvailability(availabilityCtx, client, result.SubscriptionID, availabilityTerritories, availabilityAttrs)
+		availabilityCancel()
+		if err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepSetAvailability
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepSetAvailability,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, fmt.Errorf("subscriptions setup: failed to find existing availability: %w", err)
+		}
+		availabilityPreflightDone = true
+		if preflightHasAvailability && !preflightFoundAvailability {
+			err := mismatchedExistingSubscriptionSetupAvailabilityError(result.SubscriptionID)
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepSetAvailability
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepSetAvailability,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, err
+		}
+	}
+
 	if !opts.hasLocalization() {
 		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
 			Name:    subscriptionsSetupStepCreateLocalization,
@@ -720,20 +757,27 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 		}
 		existingAvailabilityID := ""
 		found := false
+		hasExistingAvailability := false
 		if reusedSubscription {
-			availabilityCtx, availabilityCancel := shared.ContextWithTimeout(ctx)
-			existingAvailabilityID, found, err = findExistingSubscriptionSetupAvailability(availabilityCtx, client, result.SubscriptionID, availabilityTerritories, availabilityAttrs)
-			availabilityCancel()
-			if err != nil {
-				result.Status = "error"
-				result.Error = err.Error()
-				result.FailedStep = subscriptionsSetupStepSetAvailability
-				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
-					Name:    subscriptionsSetupStepSetAvailability,
-					Status:  "failed",
-					Message: err.Error(),
-				})
-				return result, fmt.Errorf("subscriptions setup: failed to find existing availability: %w", err)
+			if availabilityPreflightDone {
+				existingAvailabilityID = preflightAvailabilityID
+				found = preflightFoundAvailability
+				hasExistingAvailability = preflightHasAvailability
+			} else {
+				availabilityCtx, availabilityCancel := shared.ContextWithTimeout(ctx)
+				existingAvailabilityID, found, hasExistingAvailability, err = findExistingSubscriptionSetupAvailability(availabilityCtx, client, result.SubscriptionID, availabilityTerritories, availabilityAttrs)
+				availabilityCancel()
+				if err != nil {
+					result.Status = "error"
+					result.Error = err.Error()
+					result.FailedStep = subscriptionsSetupStepSetAvailability
+					result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+						Name:    subscriptionsSetupStepSetAvailability,
+						Status:  "failed",
+						Message: err.Error(),
+					})
+					return result, fmt.Errorf("subscriptions setup: failed to find existing availability: %w", err)
+				}
 			}
 		}
 		if found {
@@ -744,6 +788,17 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 				ID:      result.AvailabilityID,
 				Message: "used existing availability",
 			})
+		} else if hasExistingAvailability {
+			err := mismatchedExistingSubscriptionSetupAvailabilityError(result.SubscriptionID)
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepSetAvailability
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepSetAvailability,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, err
 		} else {
 			availabilityCtx, availabilityCancel := shared.ContextWithTimeout(ctx)
 			availabilityResp, err := client.CreateSubscriptionAvailability(availabilityCtx, result.SubscriptionID, availabilityTerritories, availabilityAttrs)
@@ -1146,31 +1201,36 @@ type subscriptionSetupPriceRelationships struct {
 	Territory              *asc.Relationship `json:"territory"`
 }
 
-func findExistingSubscriptionSetupAvailability(ctx context.Context, client *asc.Client, subID string, territories []string, attrs asc.SubscriptionAvailabilityAttributes) (string, bool, error) {
+func findExistingSubscriptionSetupAvailability(ctx context.Context, client *asc.Client, subID string, territories []string, attrs asc.SubscriptionAvailabilityAttributes) (string, bool, bool, error) {
 	resp, err := client.GetSubscriptionAvailabilityForSubscription(ctx, subID)
 	if err != nil {
 		if errors.Is(err, asc.ErrNotFound) {
-			return "", false, nil
+			return "", false, false, nil
 		}
-		return "", false, err
+		return "", false, false, err
 	}
 	if resp == nil || strings.TrimSpace(resp.Data.ID) == "" {
-		return "", false, nil
+		return "", false, false, nil
 	}
+	availabilityID := strings.TrimSpace(resp.Data.ID)
 	if resp.Data.Attributes.AvailableInNewTerritories != attrs.AvailableInNewTerritories {
-		return "", false, nil
+		return availabilityID, false, true, nil
 	}
 
-	actual, _, err := fetchSubscriptionSetupAvailabilityTerritories(ctx, client, resp.Data.ID)
+	actual, _, err := fetchSubscriptionSetupAvailabilityTerritories(ctx, client, availabilityID)
 	if err != nil {
-		return "", false, err
+		return "", false, true, err
 	}
 	for _, territory := range territories {
 		if _, ok := actual[strings.ToUpper(strings.TrimSpace(territory))]; !ok {
-			return "", false, nil
+			return availabilityID, false, true, nil
 		}
 	}
-	return strings.TrimSpace(resp.Data.ID), true, nil
+	return availabilityID, true, true, nil
+}
+
+func mismatchedExistingSubscriptionSetupAvailabilityError(subscriptionID string) error {
+	return fmt.Errorf("existing subscription %q already has availability but it does not match the requested territories and available-in-new-territories setting; update availability or choose a different product ID", subscriptionID)
 }
 
 func fetchSubscriptionSetupAvailabilityTerritories(ctx context.Context, client *asc.Client, availabilityID string) (map[string]struct{}, []string, error) {

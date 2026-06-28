@@ -990,6 +990,66 @@ func TestSubscriptionsSetupRejectsInitialPricePatchWhenExistingPricesMismatch(t 
 	}
 }
 
+func TestSubscriptionsSetupRejectsStaleExistingAvailabilityBeforeLocalization(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	requestCount := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		if req.Method == http.MethodPost || req.Method == http.MethodPatch {
+			t.Fatalf("setup rerun should not mutate before stale availability failure, got %s %s", req.Method, req.URL.Path)
+		}
+		switch requestCount {
+		case 1:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptionGroups/group-1/subscriptions" {
+				t.Fatalf("unexpected subscription lookup request: %s %s", req.Method, req.URL.String())
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Pro Monthly","productId":"com.example.pro.monthly","subscriptionPeriod":"ONE_MONTH","familySharable":false}}],"links":{"next":""}}`), nil
+		case 2:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/sub-1/subscriptionAvailability" {
+				t.Fatalf("unexpected availability lookup request: %s %s", req.Method, req.URL.String())
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":{"type":"subscriptionAvailabilities","id":"availability-1","attributes":{"availableInNewTerritories":false}}}`), nil
+		default:
+			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	_, _ = captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "setup",
+			"--group-id", "group-1",
+			"--reference-name", "Pro Monthly",
+			"--product-id", "com.example.pro.monthly",
+			"--subscription-period", "ONE_MONTH",
+			"--locale", "en-US",
+			"--display-name", "Pro Monthly",
+			"--description", "All premium features.",
+			"--available-in-new-territories",
+			"--territories", "USA",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		err := root.Run(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "already has availability") {
+			t.Fatalf("expected stale availability error, got %v", err)
+		}
+	})
+
+	if requestCount != 2 {
+		t.Fatalf("expected subscription and availability lookup only, got %d requests", requestCount)
+	}
+}
+
 func TestSubscriptionsSetupPricingAutoEnablesPriceTerritoryAvailability(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
