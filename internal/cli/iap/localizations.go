@@ -2,6 +2,7 @@ package iap
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
+
+var errIAPLocalizationFound = errors.New("iap localization found")
 
 // IAPLocalizationsCreateCommand returns the localizations create subcommand.
 func IAPLocalizationsCreateCommand() *ffcli.Command {
@@ -39,17 +42,17 @@ Examples:
 			iapValue := strings.TrimSpace(*iapID)
 			if iapValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --iap-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			nameValue := strings.TrimSpace(*name)
 			if nameValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --name is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			localeValue := strings.TrimSpace(*locale)
 			if localeValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --locale is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -65,11 +68,30 @@ Examples:
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.CreateInAppPurchaseLocalization(requestCtx, iapValue, asc.InAppPurchaseLocalizationCreateAttributes{
+			attrs := asc.InAppPurchaseLocalizationCreateAttributes{
 				Name:        nameValue,
 				Locale:      localeValue,
 				Description: strings.TrimSpace(*description),
-			})
+			}
+
+			existing, found, err := findIAPLocalizationByLocale(requestCtx, client, iapValue, localeValue)
+			if err != nil {
+				return fmt.Errorf("iap localizations create: failed to check existing localizations: %w", err)
+			}
+			if found {
+				if iapLocalizationMatchesCreateAttributes(existing, attrs) {
+					resp := &asc.InAppPurchaseLocalizationResponse{Data: existing}
+					return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+				}
+				return shared.UsageError(fmt.Sprintf(
+					"localization for locale %q already exists as %s; use iap localizations update --localization-id %s to change it",
+					localeValue,
+					strings.TrimSpace(existing.ID),
+					strings.TrimSpace(existing.ID),
+				))
+			}
+
+			resp, err := client.CreateInAppPurchaseLocalization(requestCtx, iapValue, attrs)
 			if err != nil {
 				return fmt.Errorf("iap localizations create: failed to create: %w", err)
 			}
@@ -77,6 +99,53 @@ Examples:
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
 		},
 	}
+}
+
+func findIAPLocalizationByLocale(ctx context.Context, client *asc.Client, iapID, locale string) (asc.Resource[asc.InAppPurchaseLocalizationAttributes], bool, error) {
+	locale = strings.TrimSpace(locale)
+	if locale == "" {
+		return asc.Resource[asc.InAppPurchaseLocalizationAttributes]{}, false, nil
+	}
+	firstPage, err := client.GetInAppPurchaseLocalizations(ctx, iapID, asc.WithIAPLocalizationsLimit(200))
+	if err != nil {
+		return asc.Resource[asc.InAppPurchaseLocalizationAttributes]{}, false, err
+	}
+	if firstPage == nil {
+		return asc.Resource[asc.InAppPurchaseLocalizationAttributes]{}, false, nil
+	}
+
+	var found asc.Resource[asc.InAppPurchaseLocalizationAttributes]
+	if err := asc.PaginateEach(
+		ctx,
+		firstPage,
+		func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetInAppPurchaseLocalizations(ctx, iapID, asc.WithIAPLocalizationsNextURL(nextURL))
+		},
+		func(page asc.PaginatedResponse) error {
+			resp, ok := page.(*asc.InAppPurchaseLocalizationsResponse)
+			if !ok {
+				return fmt.Errorf("unexpected in-app purchase localizations pagination type %T", page)
+			}
+			for _, localization := range resp.Data {
+				if !strings.EqualFold(strings.TrimSpace(localization.Attributes.Locale), locale) {
+					continue
+				}
+				found = localization
+				return errIAPLocalizationFound
+			}
+			return nil
+		},
+	); err != nil && !errors.Is(err, errIAPLocalizationFound) {
+		return asc.Resource[asc.InAppPurchaseLocalizationAttributes]{}, false, err
+	}
+
+	return found, strings.TrimSpace(found.ID) != "", nil
+}
+
+func iapLocalizationMatchesCreateAttributes(localization asc.Resource[asc.InAppPurchaseLocalizationAttributes], attrs asc.InAppPurchaseLocalizationCreateAttributes) bool {
+	return strings.EqualFold(strings.TrimSpace(localization.Attributes.Locale), strings.TrimSpace(attrs.Locale)) &&
+		strings.TrimSpace(localization.Attributes.Name) == strings.TrimSpace(attrs.Name) &&
+		strings.TrimSpace(localization.Attributes.Description) == strings.TrimSpace(attrs.Description)
 }
 
 // IAPLocalizationsUpdateCommand returns the localizations update subcommand.
@@ -103,13 +172,13 @@ Examples:
 			locValue := strings.TrimSpace(*localizationID)
 			if locValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --localization-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			nameValue := strings.TrimSpace(*name)
 			descriptionValue := strings.TrimSpace(*description)
 			if nameValue == "" && descriptionValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: at least one update flag is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -160,11 +229,11 @@ Examples:
 			locValue := strings.TrimSpace(*localizationID)
 			if locValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --localization-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			if !*confirm {
 				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()

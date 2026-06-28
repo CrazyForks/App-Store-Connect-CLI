@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestAssetsScreenshotsSizesCommandDefaultFocused(t *testing.T) {
@@ -289,6 +290,9 @@ func TestExecuteScreenshotUploadCommandRejectsMoreThanTenScreenshotsBeforeAuth(t
 
 	if err == nil {
 		t.Fatal("expected screenshot-count error")
+	}
+	if !shared.IsValidationError(err) {
+		t.Fatalf("expected shared validation error, got %T: %v", err, err)
 	}
 	if !strings.Contains(err.Error(), "allow at most 10 images") {
 		t.Fatalf("expected max screenshot guidance, got %v", err)

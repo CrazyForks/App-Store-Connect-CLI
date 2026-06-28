@@ -83,12 +83,12 @@ Examples:
 			pathValue := strings.TrimSpace(*path)
 			if pathValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --path is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			deviceValue := strings.TrimSpace(*deviceType)
 			if deviceValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --device-type is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			displayType, err := normalizeScreenshotDisplayType(deviceValue)
@@ -112,7 +112,7 @@ Examples:
 			}
 
 			if result.ErrorCount > 0 {
-				return shared.NewReportedError(fmt.Errorf("screenshots validate: found %d error(s)", result.ErrorCount))
+				return shared.NewValidationReportedError(fmt.Errorf("screenshots validate: found %d error(s)", result.ErrorCount))
 			}
 
 			return nil

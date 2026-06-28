@@ -136,7 +136,7 @@ Examples:
 				return err
 			}
 			if result.ErrorCount > 0 {
-				return shared.NewReportedError(fmt.Errorf("screenshots plan: found %d blocking issue(s)", result.ErrorCount))
+				return shared.NewValidationReportedError(fmt.Errorf("screenshots plan: found %d blocking issue(s)", result.ErrorCount))
 			}
 			return nil
 		},
@@ -177,7 +177,7 @@ Examples:
 			}
 			if !*confirm {
 				fmt.Fprintln(os.Stderr, "Error: --confirm is required to apply screenshot uploads")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			result, err := executeScreenshotReviewPlan(ctx, screenshotReviewPlanOptions{
@@ -205,7 +205,7 @@ Examples:
 				return err
 			}
 			if result.ErrorCount > 0 {
-				return shared.NewReportedError(fmt.Errorf("screenshots apply: found %d blocking issue(s)", result.ErrorCount))
+				return shared.NewValidationReportedError(fmt.Errorf("screenshots apply: found %d blocking issue(s)", result.ErrorCount))
 			}
 			return nil
 		},
@@ -216,7 +216,7 @@ func executeScreenshotReviewPlan(ctx context.Context, opts screenshotReviewPlanO
 	resolvedAppID := shared.ResolveAppID(opts.AppID)
 	if strings.TrimSpace(resolvedAppID) == "" {
 		fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
-		return nil, flag.ErrHelp
+		return nil, shared.MissingRequiredUsageError()
 	}
 
 	versionValue := strings.TrimSpace(opts.Version)

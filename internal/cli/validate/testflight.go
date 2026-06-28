@@ -52,13 +52,13 @@ Examples:
 			buildValue := strings.TrimSpace(*buildID)
 			if buildValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --build is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			resolvedAppID := shared.ResolveAppID(*appID)
 			if resolvedAppID == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			return runValidateTestFlight(ctx, validateTestFlightOptions{
@@ -164,7 +164,7 @@ func runValidateTestFlight(ctx context.Context, opts validateTestFlightOptions) 
 	}
 
 	if report.Summary.Blocking > 0 {
-		return shared.NewReportedError(fmt.Errorf("validate testflight: found %d blocking issue(s)", report.Summary.Blocking))
+		return shared.NewValidationReportedError(fmt.Errorf("validate testflight: found %d blocking issue(s)", report.Summary.Blocking))
 	}
 
 	return nil

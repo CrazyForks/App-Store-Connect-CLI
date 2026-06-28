@@ -72,12 +72,12 @@ Examples:
 			subID := strings.TrimSpace(*subscriptionID)
 			if subID == "" {
 				fmt.Fprintln(os.Stderr, "Error: --subscription-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			price := strings.TrimSpace(*basePrice)
 			if price == "" {
 				fmt.Fprintln(os.Stderr, "Error: --base-price is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			if err := shared.ValidateFinitePriceFlag("--base-price", price); err != nil {
 				return shared.UsageError(err.Error())
@@ -539,7 +539,7 @@ func reconcileEqualizeFailures(ctx context.Context, client *asc.Client, subID st
 
 	fmt.Fprintf(os.Stderr, "Verifying %d territory update(s) against current prices...\n", len(failures))
 
-	resolved, err := fetchResolvedSubscriptionPrices(ctx, client, subID, 200, "", effectiveAt, "")
+	resolved, err := fetchResolvedSubscriptionPrices(ctx, client, subID, 200, "", effectiveAt, "", "")
 	if err != nil {
 		return 0, failures, err
 	}

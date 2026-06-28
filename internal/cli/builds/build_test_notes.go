@@ -260,7 +260,7 @@ Examples:
 			localeValue := strings.TrimSpace(*locale)
 			if localeValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --locale is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			if err := shared.ValidateBuildLocalizationLocale(localeValue); err != nil {
 				return fmt.Errorf("builds test-notes create: %w", err)
@@ -272,7 +272,7 @@ Examples:
 			whatsNewValue := strings.TrimSpace(*whatsNew)
 			if whatsNewValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --whats-new is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -284,15 +284,10 @@ Examples:
 				return fmt.Errorf("builds test-notes create: %w", err)
 			}
 
-			attrs := asc.BetaBuildLocalizationAttributes{
-				Locale:   localeValue,
-				WhatsNew: whatsNewValue,
-			}
-
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.CreateBetaBuildLocalization(requestCtx, buildResp.Data.ID, attrs)
+			resp, err := shared.UpsertBetaBuildLocalization(requestCtx, client, buildResp.Data.ID, localeValue, whatsNewValue)
 			if err != nil {
 				return fmt.Errorf("builds test-notes create: %w", err)
 			}
@@ -348,7 +343,7 @@ Examples:
 			whatsNewValue := strings.TrimSpace(*whatsNew)
 			if whatsNewValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: at least one update flag is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -425,7 +420,7 @@ Examples:
 			}
 			if !*confirm {
 				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()

@@ -128,7 +128,7 @@ Examples:
 			resolvedAppID := shared.ResolveAppID(*appID)
 			if resolvedAppID == "" && strings.TrimSpace(*next) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -193,13 +193,13 @@ Examples:
 			resolvedAppID := shared.ResolveAppID(*appID)
 			if resolvedAppID == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			name := strings.TrimSpace(*referenceName)
 			if name == "" {
 				fmt.Fprintln(os.Stderr, "Error: --reference-name is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -245,7 +245,7 @@ Examples:
 			id := strings.TrimSpace(*groupID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -288,13 +288,13 @@ Examples:
 			id := strings.TrimSpace(*groupID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			name := strings.TrimSpace(*referenceName)
 			if name == "" {
 				fmt.Fprintln(os.Stderr, "Error: at least one update flag is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -341,11 +341,11 @@ Examples:
 			id := strings.TrimSpace(*groupID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			if !*confirm {
 				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -402,7 +402,7 @@ Examples:
 			id := strings.TrimSpace(*groupID)
 			if id == "" && strings.TrimSpace(*next) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --group-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -472,19 +472,19 @@ Examples:
 			group := strings.TrimSpace(*groupID)
 			if group == "" {
 				fmt.Fprintln(os.Stderr, "Error: --group-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			name := strings.TrimSpace(*referenceName)
 			if name == "" {
 				fmt.Fprintln(os.Stderr, "Error: --reference-name is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			product := strings.TrimSpace(*productID)
 			if product == "" {
 				fmt.Fprintln(os.Stderr, "Error: --product-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			period, err := normalizeSubscriptionPeriod(*subscriptionPeriod, false)
@@ -544,7 +544,7 @@ Examples:
 			id := strings.TrimSpace(*subID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -596,7 +596,7 @@ Examples:
 			id := strings.TrimSpace(*subID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			name := strings.TrimSpace(*referenceName)
@@ -621,7 +621,7 @@ Examples:
 
 			if name == "" && note == "" && period == "" && !*familySharable && !groupLevel.IsSet() {
 				fmt.Fprintln(os.Stderr, "Error: at least one update flag is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -714,11 +714,11 @@ Examples:
 			id := strings.TrimSpace(*subID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			if !*confirm {
 				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -779,6 +779,7 @@ func SubscriptionsPricesListCommand() *ffcli.Command {
 	subID := fs.String("subscription-id", "", "Subscription ID, product ID, or exact current name")
 	appID := addSubscriptionLookupAppFlag(fs)
 	planType := fs.String("plan-type", "", "Filter by plan type: MONTHLY or UPFRONT")
+	territory := fs.String("territory", "", "Filter by territory (accepts alpha-2, alpha-3, or exact English country name; e.g., US, USA, United States)")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
@@ -787,16 +788,18 @@ func SubscriptionsPricesListCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "list",
-		ShortUsage: "asc subscriptions prices list --subscription-id \"SUB_ID\" [--plan-type MONTHLY|UPFRONT]",
+		ShortUsage: "asc subscriptions prices list --subscription-id \"SUB_ID\" [--plan-type MONTHLY|UPFRONT] [--territory USA]",
 		ShortHelp:  "List prices for a subscription.",
 		LongHelp: `List prices for a subscription.
 
 Use --plan-type to filter by MONTHLY or UPFRONT billing plan prices.
+Use --territory to filter by a single territory.
 
 Examples:
   asc subscriptions prices list --subscription-id "SUB_ID"
   asc subscriptions prices list --subscription-id "SUB_ID" --paginate
   asc subscriptions prices list --subscription-id "SUB_ID" --resolved
+  asc subscriptions prices list --subscription-id "SUB_ID" --resolved --territory USA
   asc subscriptions prices list --subscription-id "SUB_ID" --plan-type MONTHLY`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -815,7 +818,7 @@ Examples:
 			id := strings.TrimSpace(*subID)
 			if id == "" && strings.TrimSpace(*next) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --subscription-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			var planTypeFilter asc.SubscriptionPlanType
@@ -836,6 +839,24 @@ Examples:
 				planTypeFilter = normalized
 			}
 
+			territoryFilter := strings.TrimSpace(*territory)
+			territoryProvided := false
+			fs.Visit(func(f *flag.Flag) {
+				if f.Name == "territory" {
+					territoryProvided = true
+				}
+			})
+			if territoryProvided {
+				if territoryFilter == "" {
+					return shared.UsageError("invalid value for --territory: cannot be empty")
+				}
+				normalizedTerritory, normalizeErr := ascterritory.Normalize(territoryFilter)
+				if normalizeErr != nil {
+					return shared.UsageError(normalizeErr.Error())
+				}
+				territoryFilter = normalizedTerritory
+			}
+
 			client, err := shared.GetASCClient()
 			if err != nil {
 				return fmt.Errorf("subscriptions prices list: %w", err)
@@ -849,7 +870,7 @@ Examples:
 			}
 
 			if *resolved {
-				resp, err := fetchResolvedSubscriptionPrices(ctx, client, id, *limit, *next, time.Now().UTC(), planTypeFilter)
+				resp, err := fetchResolvedSubscriptionPrices(ctx, client, id, *limit, *next, time.Now().UTC(), planTypeFilter, territoryFilter)
 				if err != nil {
 					return fmt.Errorf("subscriptions prices list: failed to resolve: %w", err)
 				}
@@ -860,8 +881,8 @@ Examples:
 			defer cancel()
 
 			nextURL := strings.TrimSpace(*next)
-			if nextURL != "" && planTypeFilter != "" {
-				nextURL, err = mergeSubscriptionPricesPlanType(nextURL, planTypeFilter)
+			if nextURL != "" && (planTypeFilter != "" || territoryFilter != "") {
+				nextURL, err = mergeSubscriptionPricesListFilters(nextURL, planTypeFilter, territoryFilter)
 				if err != nil {
 					return fmt.Errorf("subscriptions prices list: %w", err)
 				}
@@ -873,6 +894,9 @@ Examples:
 			if planTypeFilter != "" && nextURL == "" {
 				opts = append(opts, asc.WithSubscriptionPricesPlanType(planTypeFilter))
 			}
+			if territoryFilter != "" && nextURL == "" {
+				opts = append(opts, asc.WithSubscriptionPricesTerritory(territoryFilter))
+			}
 
 			if *paginate {
 				paginateOpts := append(opts, asc.WithSubscriptionPricesLimit(200))
@@ -882,7 +906,7 @@ Examples:
 				}
 
 				resp, err := asc.PaginateAll(requestCtx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-					nextURL, err := mergeSubscriptionPricesPlanType(nextURL, planTypeFilter)
+					nextURL, err := mergeSubscriptionPricesListFilters(nextURL, planTypeFilter, territoryFilter)
 					if err != nil {
 						return nil, err
 					}
@@ -906,14 +930,23 @@ Examples:
 }
 
 func mergeSubscriptionPricesPlanType(next string, planType asc.SubscriptionPlanType) (string, error) {
-	if planType == "" {
+	return mergeSubscriptionPricesListFilters(next, planType, "")
+}
+
+func mergeSubscriptionPricesListFilters(next string, planType asc.SubscriptionPlanType, territory string) (string, error) {
+	if planType == "" && strings.TrimSpace(territory) == "" {
 		return next, nil
 	}
 
-	return mergeSubscriptionPricesNextQuery(
-		next,
-		url.Values{"filter[planType]": []string{string(planType)}},
-	)
+	additions := url.Values{}
+	if planType != "" {
+		additions.Set("filter[planType]", string(planType))
+	}
+	if strings.TrimSpace(territory) != "" {
+		additions.Set("filter[territory]", strings.ToUpper(strings.TrimSpace(territory)))
+	}
+
+	return mergeSubscriptionPricesNextQuery(next, additions)
 }
 
 func mergeSubscriptionPricesNextQuery(next string, additions url.Values) (string, error) {
@@ -1065,7 +1098,7 @@ Examples:
 			id := strings.TrimSpace(*subID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --subscription-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			pricePoint := strings.TrimSpace(*pricePointID)
@@ -1092,7 +1125,7 @@ Examples:
 			if tierValue > 0 || priceValue != "" {
 				if territoryID == "" {
 					fmt.Fprintln(os.Stderr, "Error: --territory is required when using --tier or --price")
-					return flag.ErrHelp
+					return shared.MissingRequiredUsageError()
 				}
 			}
 
@@ -1194,11 +1227,11 @@ Examples:
 			id := strings.TrimSpace(*priceID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --price-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			if !*confirm {
 				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -1280,7 +1313,7 @@ Examples:
 			subscriptionValue := strings.TrimSpace(*subscriptionID)
 			if availabilityValue == "" && subscriptionValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --availability-id or --subscription-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			if availabilityValue != "" && subscriptionValue != "" {
 				fmt.Fprintln(os.Stderr, "Error: --availability-id and --subscription-id are mutually exclusive")
@@ -1353,7 +1386,7 @@ Examples:
 			id := strings.TrimSpace(*availabilityID)
 			if id == "" && strings.TrimSpace(*next) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --availability-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()
@@ -1426,7 +1459,7 @@ Examples:
 			id := strings.TrimSpace(*subID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --subscription-id is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 
 			territoryIDs, err := shared.NormalizeASCTerritoryCSV(*territories)
@@ -1435,7 +1468,7 @@ Examples:
 			}
 			if len(territoryIDs) == 0 {
 				fmt.Fprintln(os.Stderr, "Error: --territories is required")
-				return flag.ErrHelp
+				return shared.MissingRequiredUsageError()
 			}
 			normalizedBillingMode, err := normalizeSubscriptionBillingMode(*billingMode)
 			if err != nil {
