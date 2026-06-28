@@ -750,7 +750,7 @@ func runAppInfoSetBatch(
 
 	warnings := make([]shared.SubmitReadinessCreateWarning, 0, len(locales))
 	for idx, locale := range locales {
-		if results[idx].Action != "create" || results[idx].Status != "success" {
+		if existingByLocale[strings.ToLower(locale)] != "" || results[idx].Status != "success" {
 			continue
 		}
 		if warning, ok := shared.SubmitReadinessCreateWarningForLocaleWithOptions(locale, valuesByLocale[locale], shared.SubmitReadinessCreateModeApplied, submitOpts); ok {

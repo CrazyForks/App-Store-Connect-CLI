@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -177,8 +178,14 @@ func TestRunAppInfoSetBatchRefetchesAndUpdatesAfterCreateConflict(t *testing.T) 
 	if err != nil {
 		t.Fatalf("runAppInfoSetBatch() error: %v", err)
 	}
-	if len(warnings) != 0 {
-		t.Fatalf("expected no warnings, got %+v", warnings)
+	if len(warnings) != 1 {
+		t.Fatalf("expected one warning, got %+v", warnings)
+	}
+	if warnings[0].Locale != "en-US" || warnings[0].Mode != shared.SubmitReadinessCreateModeApplied {
+		t.Fatalf("unexpected warning identity: %+v", warnings[0])
+	}
+	if !slices.Equal(warnings[0].MissingFields, []string{"keywords", "supportUrl", "whatsNew"}) {
+		t.Fatalf("unexpected warning missing fields: %+v", warnings[0].MissingFields)
 	}
 	if result == nil || result.Failed != 0 || result.Succeeded != 1 {
 		t.Fatalf("unexpected batch result: %+v", result)
