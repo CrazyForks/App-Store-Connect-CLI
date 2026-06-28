@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
@@ -976,6 +977,95 @@ func mergeSubscriptionPricesNextQuery(next string, additions url.Values) (string
 	return parsed.String(), nil
 }
 
+type subscriptionPriceRelationshipData struct {
+	SubscriptionPricePoint *asc.Relationship `json:"subscriptionPricePoint"`
+	Territory              *asc.Relationship `json:"territory"`
+}
+
+func findMatchingSubscriptionPrice(ctx context.Context, client *asc.Client, subID, pricePointID, territoryID string, attrs asc.SubscriptionPriceCreateAttributes) (*asc.SubscriptionPriceResponse, error) {
+	pricePointID = strings.TrimSpace(pricePointID)
+	territoryID = strings.ToUpper(strings.TrimSpace(territoryID))
+
+	opts := []asc.SubscriptionPricesOption{
+		asc.WithSubscriptionPricesLimit(200),
+		asc.WithSubscriptionPricesInclude([]string{"subscriptionPricePoint", "territory"}),
+	}
+	if territoryID != "" {
+		opts = append(opts, asc.WithSubscriptionPricesTerritory(territoryID))
+	}
+	if attrs.PlanType != "" {
+		opts = append(opts, asc.WithSubscriptionPricesPlanType(attrs.PlanType))
+	}
+
+	for {
+		resp, err := client.GetSubscriptionPrices(ctx, subID, opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, price := range resp.Data {
+			if subscriptionPriceMatchesTarget(price, pricePointID, territoryID, attrs) {
+				return &asc.SubscriptionPriceResponse{Data: price}, nil
+			}
+		}
+
+		next := strings.TrimSpace(resp.Links.Next)
+		if next == "" {
+			return nil, nil
+		}
+		nextURL, err := mergeSubscriptionPricesPlanType(next, attrs.PlanType)
+		if err != nil {
+			return nil, err
+		}
+		opts = []asc.SubscriptionPricesOption{asc.WithSubscriptionPricesNextURL(nextURL)}
+	}
+}
+
+func subscriptionPriceMatchesTarget(price asc.Resource[asc.SubscriptionPriceAttributes], pricePointID, territoryID string, attrs asc.SubscriptionPriceCreateAttributes) bool {
+	if strings.TrimSpace(pricePointID) == "" {
+		return false
+	}
+
+	var relationships subscriptionPriceRelationshipData
+	if len(price.Relationships) > 0 {
+		if err := json.Unmarshal(price.Relationships, &relationships); err != nil {
+			return false
+		}
+	}
+	if relationships.SubscriptionPricePoint == nil || relationships.SubscriptionPricePoint.Data.ID != pricePointID {
+		return false
+	}
+
+	actualTerritory := ""
+	if relationships.Territory != nil {
+		actualTerritory = strings.ToUpper(strings.TrimSpace(relationships.Territory.Data.ID))
+	}
+	if strings.ToUpper(strings.TrimSpace(territoryID)) != actualTerritory {
+		return false
+	}
+
+	if strings.TrimSpace(price.Attributes.StartDate) != strings.TrimSpace(attrs.StartDate) {
+		return false
+	}
+	targetPreserved := attrs.Preserved != nil && *attrs.Preserved
+	if price.Attributes.Preserved != targetPreserved {
+		return false
+	}
+	targetPlanType := attrs.PlanType
+	if targetPlanType == "" {
+		targetPlanType = asc.SubscriptionPlanTypeUpfront
+	}
+	actualPlanType := price.Attributes.PlanType
+	if actualPlanType == "" {
+		actualPlanType = asc.SubscriptionPlanTypeUpfront
+	}
+	if actualPlanType != targetPlanType {
+		return false
+	}
+
+	return true
+}
+
 // SubscriptionsPricesAddCommand returns the subscriptions prices add subcommand.
 func SubscriptionsPricesAddCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("prices add", flag.ExitOnError)
@@ -1094,6 +1184,14 @@ Examples:
 					return fmt.Errorf("subscriptions prices add: failed to set initial price: %w", err)
 				}
 				return shared.PrintOutput(subResp, *output.Output, *output.Pretty)
+			}
+
+			matchingPrice, err := findMatchingSubscriptionPrice(requestCtx, client, id, pricePoint, territoryID, attrs)
+			if err != nil {
+				return fmt.Errorf("subscriptions prices add: failed to check matching price: %w", err)
+			}
+			if matchingPrice != nil {
+				return shared.PrintOutput(matchingPrice, *output.Output, *output.Pretty)
 			}
 
 			// Existing prices: use POST /v1/subscriptionPrices for a price change
