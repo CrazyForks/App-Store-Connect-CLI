@@ -471,6 +471,60 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 		})
 	}
 
+	var preflightPricePointID string
+	var preflightExistingPrice asc.Resource[asc.SubscriptionPriceAttributes]
+	var preflightFoundPrice bool
+	var preflightHasExistingPrices bool
+	pricePreflightDone := false
+	if reusedSubscription && opts.hasPricing(opts.StartDate) {
+		pricePointCtx, pricePointCancel := shared.ContextWithTimeout(ctx)
+		resolvedPricePointID, err := resolveExpectedSubscriptionSetupPricePoint(pricePointCtx, client, result.SubscriptionID, opts)
+		pricePointCancel()
+		if err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepResolvePricePoint
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepResolvePricePoint,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, err
+		}
+		preflightPricePointID = resolvedPricePointID
+		priceAttrs := asc.SubscriptionPriceCreateAttributes{
+			StartDate: opts.StartDate,
+			PlanType:  asc.SubscriptionPlanTypeUpfront,
+		}
+		priceCtx, priceCancel := shared.ContextWithTimeout(ctx)
+		preflightExistingPrice, preflightFoundPrice, preflightHasExistingPrices, err = findExistingSubscriptionSetupPrice(priceCtx, client, result.SubscriptionID, resolvedPricePointID, opts.PriceTerritory, priceAttrs)
+		priceCancel()
+		if err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepSetPrice
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepSetPrice,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, fmt.Errorf("subscriptions setup: failed to find existing price: %w", err)
+		}
+		pricePreflightDone = true
+		if preflightHasExistingPrices && !preflightFoundPrice {
+			err := mismatchedExistingSubscriptionSetupPriceError(result.SubscriptionID)
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepSetPrice
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepSetPrice,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, err
+		}
+	}
+
 	if !opts.hasLocalization() {
 		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
 			Name:    subscriptionsSetupStepCreateLocalization,
@@ -559,19 +613,23 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 			},
 		)
 	} else {
-		pricePointCtx, pricePointCancel := shared.ContextWithTimeout(ctx)
-		resolvedPricePointID, err := resolveExpectedSubscriptionSetupPricePoint(pricePointCtx, client, result.SubscriptionID, opts)
-		pricePointCancel()
-		if err != nil {
-			result.Status = "error"
-			result.Error = err.Error()
-			result.FailedStep = subscriptionsSetupStepResolvePricePoint
-			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
-				Name:    subscriptionsSetupStepResolvePricePoint,
-				Status:  "failed",
-				Message: err.Error(),
-			})
-			return result, err
+		resolvedPricePointID := preflightPricePointID
+		if !pricePreflightDone {
+			pricePointCtx, pricePointCancel := shared.ContextWithTimeout(ctx)
+			var err error
+			resolvedPricePointID, err = resolveExpectedSubscriptionSetupPricePoint(pricePointCtx, client, result.SubscriptionID, opts)
+			pricePointCancel()
+			if err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.FailedStep = subscriptionsSetupStepResolvePricePoint
+				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+					Name:    subscriptionsSetupStepResolvePricePoint,
+					Status:  "failed",
+					Message: err.Error(),
+				})
+				return result, err
+			}
 		}
 		result.ResolvedPricePointID = resolvedPricePointID
 		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
@@ -588,19 +646,25 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 		found := false
 		hasExistingPrices := false
 		if reusedSubscription {
-			priceCtx, priceCancel := shared.ContextWithTimeout(ctx)
-			existingPrice, found, hasExistingPrices, err = findExistingSubscriptionSetupPrice(priceCtx, client, result.SubscriptionID, result.ResolvedPricePointID, opts.PriceTerritory, priceAttrs)
-			priceCancel()
-			if err != nil {
-				result.Status = "error"
-				result.Error = err.Error()
-				result.FailedStep = subscriptionsSetupStepSetPrice
-				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
-					Name:    subscriptionsSetupStepSetPrice,
-					Status:  "failed",
-					Message: err.Error(),
-				})
-				return result, fmt.Errorf("subscriptions setup: failed to find existing price: %w", err)
+			if pricePreflightDone {
+				existingPrice = preflightExistingPrice
+				found = preflightFoundPrice
+				hasExistingPrices = preflightHasExistingPrices
+			} else {
+				priceCtx, priceCancel := shared.ContextWithTimeout(ctx)
+				existingPrice, found, hasExistingPrices, err = findExistingSubscriptionSetupPrice(priceCtx, client, result.SubscriptionID, result.ResolvedPricePointID, opts.PriceTerritory, priceAttrs)
+				priceCancel()
+				if err != nil {
+					result.Status = "error"
+					result.Error = err.Error()
+					result.FailedStep = subscriptionsSetupStepSetPrice
+					result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+						Name:    subscriptionsSetupStepSetPrice,
+						Status:  "failed",
+						Message: err.Error(),
+					})
+					return result, fmt.Errorf("subscriptions setup: failed to find existing price: %w", err)
+				}
 			}
 		}
 		if found {
@@ -611,7 +675,7 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 				Message: "used existing price",
 			})
 		} else if hasExistingPrices {
-			err := fmt.Errorf("existing subscription %q already has prices but none match the requested price point, territory, start date, and upfront plan type; use subscriptions prices add to add the requested price", result.SubscriptionID)
+			err := mismatchedExistingSubscriptionSetupPriceError(result.SubscriptionID)
 			result.Status = "error"
 			result.Error = err.Error()
 			result.FailedStep = subscriptionsSetupStepSetPrice
@@ -1044,6 +1108,10 @@ func findExistingSubscriptionSetupPrice(ctx context.Context, client *asc.Client,
 		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, false, err
 	}
 	return foundPrice, strings.TrimSpace(foundPrice.ID) != "", hasExistingPrices, nil
+}
+
+func mismatchedExistingSubscriptionSetupPriceError(subscriptionID string) error {
+	return fmt.Errorf("existing subscription %q already has prices but none match the requested price point, territory, start date, and upfront plan type; use subscriptions prices add to add the requested price", subscriptionID)
 }
 
 func subscriptionSetupPriceMatchesTarget(price asc.Resource[asc.SubscriptionPriceAttributes], pricePointID, territoryID string, attrs asc.SubscriptionPriceCreateAttributes) bool {
