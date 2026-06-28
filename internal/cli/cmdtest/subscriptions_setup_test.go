@@ -806,6 +806,17 @@ func TestSubscriptionsSetupReusesExistingPriceAndAvailability(t *testing.T) {
 			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptionAvailabilities/availability-1/availableTerritories" {
 				t.Fatalf("unexpected availability territories request: %s %s", req.Method, req.URL.String())
 			}
+			if got := req.URL.Query().Get("cursor"); got != "" {
+				t.Fatalf("expected first availability territories page, got cursor %q", got)
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"territories","id":"CAN"}],"links":{"next":"/v1/subscriptionAvailabilities/availability-1/availableTerritories?cursor=page-2"}}`), nil
+		case 5:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptionAvailabilities/availability-1/availableTerritories" {
+				t.Fatalf("unexpected availability territories page request: %s %s", req.Method, req.URL.String())
+			}
+			if got := req.URL.Query().Get("cursor"); got != "page-2" {
+				t.Fatalf("expected second availability territories page, got cursor %q", got)
+			}
 			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"territories","id":"USA"}],"links":{"next":""}}`), nil
 		default:
 			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
@@ -864,7 +875,7 @@ func TestSubscriptionsSetupReusesExistingPriceAndAvailability(t *testing.T) {
 			t.Fatalf("expected step %q in %+v", name, result.Steps)
 		}
 	}
-	if requestCount != 4 {
+	if requestCount != 5 {
 		t.Fatalf("expected lookup requests only, got %d", requestCount)
 	}
 }

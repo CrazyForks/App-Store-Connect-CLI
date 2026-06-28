@@ -838,21 +838,11 @@ func verifySubscriptionsSetupState(ctx context.Context, client *asc.Client, resu
 			return verification, subscriptionsSetupStepResult{Name: subscriptionsSetupStepVerifyState, Status: "failed", Message: "available-in-new-territories mismatch"}, fmt.Errorf("available-in-new-territories mismatch")
 		}
 		territoriesCtx, territoriesCancel := shared.ContextWithTimeout(ctx)
-		territoriesResp, err := client.GetSubscriptionAvailabilityAvailableTerritories(territoriesCtx, resultID, asc.WithSubscriptionAvailabilityTerritoriesLimit(200))
+		actualSet, actualTerritories, err := fetchSubscriptionSetupAvailabilityTerritories(territoriesCtx, client, resultID)
 		territoriesCancel()
 		if err != nil {
 			verification.Status = "failed"
 			return verification, subscriptionsSetupStepResult{Name: subscriptionsSetupStepVerifyState, Status: "failed", Message: err.Error()}, fmt.Errorf("fetch availability territories: %w", err)
-		}
-		actualTerritories := make([]string, 0, len(territoriesResp.Data))
-		actualSet := map[string]struct{}{}
-		for _, item := range territoriesResp.Data {
-			id := strings.ToUpper(strings.TrimSpace(item.ID))
-			if id == "" {
-				continue
-			}
-			actualTerritories = append(actualTerritories, id)
-			actualSet[id] = struct{}{}
 		}
 		for _, expected := range availabilityTerritories {
 			if _, ok := actualSet[expected]; !ok {
@@ -1092,18 +1082,9 @@ func findExistingSubscriptionSetupAvailability(ctx context.Context, client *asc.
 		return "", false, nil
 	}
 
-	territoriesResp, err := client.GetSubscriptionAvailabilityAvailableTerritories(ctx, resp.Data.ID, asc.WithSubscriptionAvailabilityTerritoriesLimit(200))
+	actual, _, err := fetchSubscriptionSetupAvailabilityTerritories(ctx, client, resp.Data.ID)
 	if err != nil {
 		return "", false, err
-	}
-	actual := map[string]struct{}{}
-	if territoriesResp != nil {
-		for _, item := range territoriesResp.Data {
-			id := strings.ToUpper(strings.TrimSpace(item.ID))
-			if id != "" {
-				actual[id] = struct{}{}
-			}
-		}
 	}
 	for _, territory := range territories {
 		if _, ok := actual[strings.ToUpper(strings.TrimSpace(territory))]; !ok {
@@ -1111,6 +1092,47 @@ func findExistingSubscriptionSetupAvailability(ctx context.Context, client *asc.
 		}
 	}
 	return strings.TrimSpace(resp.Data.ID), true, nil
+}
+
+func fetchSubscriptionSetupAvailabilityTerritories(ctx context.Context, client *asc.Client, availabilityID string) (map[string]struct{}, []string, error) {
+	firstPage, err := client.GetSubscriptionAvailabilityAvailableTerritories(ctx, availabilityID, asc.WithSubscriptionAvailabilityTerritoriesLimit(200))
+	if err != nil {
+		return nil, nil, err
+	}
+	actualSet := map[string]struct{}{}
+	actualTerritories := []string{}
+	if firstPage == nil {
+		return actualSet, actualTerritories, nil
+	}
+
+	err = asc.PaginateEach(
+		ctx,
+		firstPage,
+		func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetSubscriptionAvailabilityAvailableTerritories(ctx, availabilityID, asc.WithSubscriptionAvailabilityTerritoriesNextURL(nextURL))
+		},
+		func(page asc.PaginatedResponse) error {
+			resp, ok := page.(*asc.TerritoriesResponse)
+			if !ok {
+				return fmt.Errorf("unexpected subscription availability territories pagination type %T", page)
+			}
+			for _, item := range resp.Data {
+				id := strings.ToUpper(strings.TrimSpace(item.ID))
+				if id == "" {
+					continue
+				}
+				if _, seen := actualSet[id]; !seen {
+					actualTerritories = append(actualTerritories, id)
+				}
+				actualSet[id] = struct{}{}
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return actualSet, actualTerritories, nil
 }
 
 func validateExistingSubscriptionSetupSubscription(subscription asc.Resource[asc.SubscriptionAttributes], target asc.SubscriptionCreateAttributes) error {
