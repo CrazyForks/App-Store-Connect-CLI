@@ -115,6 +115,18 @@ func resolveRatingsAppID(ctx context.Context, client *itunes.Client, app string,
 	if parsed, err := strconv.ParseInt(app, 10, 64); err == nil {
 		return strconv.FormatInt(parsed, 10), nil
 	}
+	if looksLikeRatingsBundleID(app) {
+		result, err := client.LookupAppByBundleID(ctx, app, itunes.LookupOptions{
+			Country:               country,
+			IncludeSoftwareEntity: true,
+		})
+		if err != nil {
+			return "", err
+		}
+		if result != nil && result.AppID != 0 {
+			return strconv.FormatInt(result.AppID, 10), nil
+		}
+	}
 
 	results, err := client.SearchApps(ctx, app, country, ratingsAppSearchLimit)
 	if err != nil {
@@ -133,6 +145,11 @@ func resolveRatingsAppID(ctx context.Context, client *itunes.Client, app string,
 	}
 
 	return "", fmt.Errorf("could not resolve --app; pass a numeric App Store ID, exact bundle ID, or exact app name")
+}
+
+func looksLikeRatingsBundleID(app string) bool {
+	app = strings.TrimSpace(app)
+	return strings.Contains(app, ".") && !strings.ContainsAny(app, " \t\r\n")
 }
 
 func uniqueExactRatingsAppMatch(results []itunes.SearchResult, app string, value func(itunes.SearchResult) string) (string, bool) {

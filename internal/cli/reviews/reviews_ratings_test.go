@@ -74,22 +74,19 @@ func TestRatingsAppLookupCountryUsesDefaultForAllStorefronts(t *testing.T) {
 	}
 }
 
-func TestResolveRatingsAppIDSearchesTrimmedBundleWithHttptest(t *testing.T) {
+func TestResolveRatingsAppIDLooksUpTrimmedBundleWithHttptest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/search" {
+		if r.URL.Path != "/lookup" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
-		if got := r.URL.Query().Get("term"); got != "com.example.alpha" {
-			t.Fatalf("expected trimmed search term com.example.alpha, got %q", got)
+		if got := r.URL.Query().Get("bundleId"); got != "com.example.alpha" {
+			t.Fatalf("expected trimmed lookup bundleId com.example.alpha, got %q", got)
 		}
 		if got := r.URL.Query().Get("country"); got != "us" {
-			t.Fatalf("expected search country=us, got %q", got)
+			t.Fatalf("expected lookup country=us, got %q", got)
 		}
 		if got := r.URL.Query().Get("entity"); got != "software" {
 			t.Fatalf("expected entity=software, got %q", got)
-		}
-		if got := r.URL.Query().Get("limit"); got != strconv.Itoa(ratingsAppSearchLimit) {
-			t.Fatalf("expected search limit=%d, got %q", ratingsAppSearchLimit, got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"resultCount":1,"results":[{"trackId":123,"trackName":"Alpha","bundleId":"com.example.alpha"}]}`)
