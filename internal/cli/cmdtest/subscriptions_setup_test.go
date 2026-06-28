@@ -638,6 +638,9 @@ func TestSubscriptionsSetupRejectsMismatchedExistingLocalization(t *testing.T) {
 			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptionGroups/group-1/subscriptions" {
 				t.Fatalf("unexpected subscription lookup request: %s %s", req.Method, req.URL.String())
 			}
+			if got := req.URL.Query().Get("filter[productId]"); got != "com.example.pro.monthly" {
+				t.Fatalf("expected product ID lookup, got %q", got)
+			}
 			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Pro Monthly","productId":"com.example.pro.monthly","subscriptionPeriod":"ONE_MONTH"}}],"links":{"next":""}}`), nil
 		case 3:
 			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/sub-1/subscriptionLocalizations" {
@@ -760,6 +763,108 @@ func TestSubscriptionsSetupRejectsMismatchedExistingLocalizationDescription(t *t
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
 	if requestCount != 3 {
+		t.Fatalf("expected lookup requests only, got %d", requestCount)
+	}
+}
+
+func TestSubscriptionsSetupReusesExistingPriceAndAvailability(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	requestCount := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		if req.Method == http.MethodPost || req.Method == http.MethodPatch {
+			t.Fatalf("setup rerun should not mutate matching existing state, got %s %s", req.Method, req.URL.Path)
+		}
+		switch requestCount {
+		case 1:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptionGroups/group-1/subscriptions" {
+				t.Fatalf("unexpected subscription lookup request: %s %s", req.Method, req.URL.String())
+			}
+			if got := req.URL.Query().Get("filter[productId]"); got != "com.example.pro.monthly" {
+				t.Fatalf("expected product ID lookup, got %q", got)
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Pro Monthly","productId":"com.example.pro.monthly","subscriptionPeriod":"ONE_MONTH"}}],"links":{"next":""}}`), nil
+		case 2:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/sub-1/prices" {
+				t.Fatalf("unexpected price lookup request: %s %s", req.Method, req.URL.String())
+			}
+			if got := req.URL.Query().Get("filter[territory]"); got != "USA" {
+				t.Fatalf("expected price lookup territory USA, got %q", got)
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionPrices","id":"price-1","attributes":{},"relationships":{"subscriptionPricePoint":{"data":{"type":"subscriptionPricePoints","id":"price-point-1"}},"territory":{"data":{"type":"territories","id":"USA"}}}}],"links":{"next":""}}`), nil
+		case 3:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/sub-1/subscriptionAvailability" {
+				t.Fatalf("unexpected availability lookup request: %s %s", req.Method, req.URL.String())
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":{"type":"subscriptionAvailabilities","id":"availability-1","attributes":{"availableInNewTerritories":true}}}`), nil
+		case 4:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptionAvailabilities/availability-1/availableTerritories" {
+				t.Fatalf("unexpected availability territories request: %s %s", req.Method, req.URL.String())
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"territories","id":"USA"}],"links":{"next":""}}`), nil
+		default:
+			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var result subscriptionsSetupOutput
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "setup",
+			"--group-id", "group-1",
+			"--reference-name", "Pro Monthly",
+			"--product-id", "com.example.pro.monthly",
+			"--subscription-period", "ONE_MONTH",
+			"--price-point-id", "price-point-1",
+			"--price-territory", "USA",
+			"--available-in-new-territories",
+			"--no-verify",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("parse setup result: %v\nstdout=%q", err, stdout)
+	}
+	if result.Status != "ok" || result.SubscriptionID != "sub-1" || result.AvailabilityID != "availability-1" {
+		t.Fatalf("unexpected setup result: %+v", result)
+	}
+	wantMessages := map[string]string{
+		"set_price":        "used existing price",
+		"set_availability": "used existing availability",
+	}
+	for name, want := range wantMessages {
+		found := false
+		for _, step := range result.Steps {
+			if step.Name == name {
+				found = true
+				if step.Message != want {
+					t.Fatalf("expected %s message %q, got %q", name, want, step.Message)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("expected step %q in %+v", name, result.Steps)
+		}
+	}
+	if requestCount != 4 {
 		t.Fatalf("expected lookup requests only, got %d", requestCount)
 	}
 }
