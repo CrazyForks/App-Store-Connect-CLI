@@ -1522,7 +1522,7 @@ func TestSubscriptionsValidationErrors(t *testing.T) {
 		{
 			name:    "subscriptions list missing group",
 			args:    []string{"subscriptions", "list"},
-			wantErr: "--group-id is required",
+			wantErr: "--group-id or --app is required",
 		},
 		{
 			name:    "subscriptions create missing group",

@@ -374,6 +374,7 @@ func SubscriptionsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
 	groupID := fs.String("group-id", "", "Subscription group ID")
+	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env); lists subscriptions across all groups")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
@@ -381,13 +382,14 @@ func SubscriptionsListCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "list",
-		ShortUsage: "asc subscriptions list --group-id \"GROUP_ID\" [flags]",
-		ShortHelp:  "List subscriptions in a group.",
-		LongHelp: `List subscriptions in a group.
+		ShortUsage: "asc subscriptions list (--group-id \"GROUP_ID\" | --app \"APP_ID\") [flags]",
+		ShortHelp:  "List subscriptions in a group or app.",
+		LongHelp: `List subscriptions in a group or across all groups in an app.
 
 Examples:
   asc subscriptions list --group-id "GROUP_ID"
-  asc subscriptions list --group-id "GROUP_ID" --paginate`,
+  asc subscriptions list --group-id "GROUP_ID" --paginate
+  asc subscriptions list --app "APP_ID" --paginate`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -399,8 +401,16 @@ Examples:
 			}
 
 			id := strings.TrimSpace(*groupID)
-			if id == "" && strings.TrimSpace(*next) == "" {
-				fmt.Fprintln(os.Stderr, "Error: --group-id is required")
+			resolvedAppID := shared.ResolveAppID(*appID)
+			nextURL := strings.TrimSpace(*next)
+			if id != "" && resolvedAppID != "" {
+				return shared.UsageError("--group-id and --app are mutually exclusive")
+			}
+			if resolvedAppID != "" && nextURL != "" {
+				return shared.UsageError("--next cannot be combined with --app; use --group-id with the group-scoped next URL")
+			}
+			if id == "" && resolvedAppID == "" && nextURL == "" {
+				fmt.Fprintln(os.Stderr, "Error: --group-id or --app is required (or set ASC_APP_ID)")
 				return shared.MissingRequiredUsageError()
 			}
 
@@ -412,9 +422,17 @@ Examples:
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
+			if resolvedAppID != "" {
+				resp, err := listSubscriptionsForApp(requestCtx, client, resolvedAppID, *limit, *paginate)
+				if err != nil {
+					return fmt.Errorf("subscriptions list: %w", err)
+				}
+				return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+			}
+
 			opts := []asc.SubscriptionsOption{
 				asc.WithSubscriptionsLimit(*limit),
-				asc.WithSubscriptionsNextURL(*next),
+				asc.WithSubscriptionsNextURL(nextURL),
 			}
 
 			if *paginate {
@@ -442,6 +460,60 @@ Examples:
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
 		},
 	}
+}
+
+func listSubscriptionsForApp(ctx context.Context, client *asc.Client, appID string, limit int, paginate bool) (*asc.SubscriptionsResponse, error) {
+	groupLimit := limit
+	if paginate {
+		groupLimit = 200
+	}
+	groupsResp, err := client.GetSubscriptionGroups(ctx, appID, asc.WithSubscriptionGroupsLimit(groupLimit))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch groups: %w", err)
+	}
+
+	if paginate {
+		paginatedGroups, err := asc.PaginateAll(ctx, groupsResp, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetSubscriptionGroups(ctx, appID, asc.WithSubscriptionGroupsNextURL(nextURL))
+		})
+		if err != nil {
+			return nil, fmt.Errorf("paginate groups: %w", err)
+		}
+		var ok bool
+		groupsResp, ok = paginatedGroups.(*asc.SubscriptionGroupsResponse)
+		if !ok {
+			return nil, fmt.Errorf("unexpected groups response type %T", paginatedGroups)
+		}
+	}
+
+	result := &asc.SubscriptionsResponse{}
+	for _, group := range groupsResp.Data {
+		subLimit := limit
+		if paginate {
+			subLimit = 200
+		}
+		subsResp, err := client.GetSubscriptions(ctx, group.ID, asc.WithSubscriptionsLimit(subLimit))
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch subscriptions for group %s: %w", group.ID, err)
+		}
+
+		if paginate {
+			paginatedSubs, err := asc.PaginateAll(ctx, subsResp, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+				return client.GetSubscriptions(ctx, group.ID, asc.WithSubscriptionsNextURL(nextURL))
+			})
+			if err != nil {
+				return nil, fmt.Errorf("paginate subscriptions for group %s: %w", group.ID, err)
+			}
+			var ok bool
+			subsResp, ok = paginatedSubs.(*asc.SubscriptionsResponse)
+			if !ok {
+				return nil, fmt.Errorf("unexpected subscriptions response type %T", paginatedSubs)
+			}
+		}
+
+		result.Data = append(result.Data, subsResp.Data...)
+	}
+	return result, nil
 }
 
 // SubscriptionsCreateCommand returns the subscriptions create subcommand.
