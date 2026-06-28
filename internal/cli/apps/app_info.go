@@ -3,9 +3,11 @@ package apps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -530,15 +532,37 @@ func runAppInfoSetSingleLocale(
 		updateAttrs.Locale = locale
 		resp, createErr := client.CreateAppStoreVersionLocalization(ctx, versionID, updateAttrs)
 		if createErr != nil {
-			return fmt.Errorf("apps info edit: %w", createErr)
+			if !appInfoSetIsConflictError(createErr) {
+				return fmt.Errorf("apps info edit: %w", createErr)
+			}
+			refetchedLocalization, found, fetchErr := fetchAppInfoSetLocalizationByLocale(ctx, client, versionID, locale)
+			if fetchErr != nil {
+				return fmt.Errorf("apps info edit: create conflicted and failed to refetch localization: %w", fetchErr)
+			}
+			if !found {
+				return fmt.Errorf("apps info edit: %w", createErr)
+			}
+			targetLocalization = refetchedLocalization
+			effectiveAttrs = targetLocalization.Attributes
+			effectiveAttrs.Locale = locale
+			effectiveAttrs = applyAppInfoSetValues(
+				effectiveAttrs,
+				descriptionValue,
+				keywordsValue,
+				supportURLValue,
+				marketingURLValue,
+				promotionalTextValue,
+				whatsNewValue,
+			)
+		} else {
+			if err := shared.PrintOutput(resp, *output.Output, *output.Pretty); err != nil {
+				return err
+			}
+			if warning, ok := shared.SubmitReadinessCreateWarningForLocaleWithOptions(locale, effectiveAttrs, shared.SubmitReadinessCreateModeApplied, submitOpts); ok {
+				return shared.PrintSubmitReadinessCreateWarnings(os.Stderr, []shared.SubmitReadinessCreateWarning{warning})
+			}
+			return nil
 		}
-		if err := shared.PrintOutput(resp, *output.Output, *output.Pretty); err != nil {
-			return err
-		}
-		if warning, ok := shared.SubmitReadinessCreateWarningForLocaleWithOptions(locale, effectiveAttrs, shared.SubmitReadinessCreateModeApplied, submitOpts); ok {
-			return shared.PrintSubmitReadinessCreateWarnings(os.Stderr, []shared.SubmitReadinessCreateWarning{warning})
-		}
-		return nil
 	}
 
 	localizationID := strings.TrimSpace(targetLocalization.ID)
@@ -649,14 +673,33 @@ func runAppInfoSetBatch(
 				attrs.Locale = locale
 				resp, createErr := client.CreateAppStoreVersionLocalization(ctx, versionID, attrs)
 				if createErr != nil {
-					localeResult.Status = "failed"
-					localeResult.Error = createErr.Error()
+					if !appInfoSetIsConflictError(createErr) {
+						localeResult.Status = "failed"
+						localeResult.Error = createErr.Error()
+						results[idx] = localeResult
+						return
+					}
+					refetchedLocalization, found, fetchErr := fetchAppInfoSetLocalizationByLocale(ctx, client, versionID, locale)
+					if fetchErr != nil {
+						localeResult.Status = "failed"
+						localeResult.Error = fetchErr.Error()
+						results[idx] = localeResult
+						return
+					}
+					if !found {
+						localeResult.Status = "failed"
+						localeResult.Error = createErr.Error()
+						results[idx] = localeResult
+						return
+					}
+					existingID = strings.TrimSpace(refetchedLocalization.ID)
+					action = "update"
+					localeResult.Action = action
+				} else {
+					localeResult.LocalizationID = strings.TrimSpace(resp.Data.ID)
 					results[idx] = localeResult
 					return
 				}
-				localeResult.LocalizationID = strings.TrimSpace(resp.Data.ID)
-				results[idx] = localeResult
-				return
 			}
 
 			resp, updateErr := client.UpdateAppStoreVersionLocalization(ctx, existingID, attrs)
@@ -688,6 +731,25 @@ func runAppInfoSetBatch(
 	}
 
 	return buildAppInfoSetBatchResult(appID, versionID, false, results), shared.NormalizeSubmitReadinessCreateWarnings(warnings), nil
+}
+
+func fetchAppInfoSetLocalizationByLocale(ctx context.Context, client *asc.Client, versionID, locale string) (asc.Resource[asc.AppStoreVersionLocalizationAttributes], bool, error) {
+	localizations, err := client.GetAppStoreVersionLocalizations(
+		ctx,
+		versionID,
+		asc.WithAppStoreVersionLocalizationsLimit(200),
+		asc.WithAppStoreVersionLocalizationLocales([]string{locale}),
+	)
+	if err != nil {
+		return asc.Resource[asc.AppStoreVersionLocalizationAttributes]{}, false, err
+	}
+	localization, found := findAppInfoSetLocalizationByLocale(localizations.Data, locale)
+	return localization, found, nil
+}
+
+func appInfoSetIsConflictError(err error) bool {
+	var apiErr *asc.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict
 }
 
 func buildAppInfoSetBatchResult(appID string, versionID string, dryRun bool, results []asc.AppInfoSetLocaleResult) *asc.AppInfoSetBatchResult {
