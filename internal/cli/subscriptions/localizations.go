@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -240,12 +241,18 @@ Examples:
 					resp := &asc.SubscriptionLocalizationResponse{Data: existing}
 					return shared.PrintOutput(resp, *output.Output, *output.Pretty)
 				}
-				return shared.UsageError(fmt.Sprintf(
+				message := fmt.Sprintf(
 					"localization for locale %q already exists as %s; use subscriptions localizations update --id %s to change it",
 					localeValue,
 					strings.TrimSpace(existing.ID),
 					strings.TrimSpace(existing.ID),
-				))
+				)
+				return fmt.Errorf("subscriptions localizations create: %w", &asc.APIError{
+					Code:       "CONFLICT",
+					Title:      "Conflict",
+					Detail:     message,
+					StatusCode: http.StatusConflict,
+				})
 			}
 
 			resp, err := client.CreateSubscriptionLocalization(requestCtx, id, attrs)

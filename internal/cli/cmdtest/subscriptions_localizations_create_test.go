@@ -3,11 +3,14 @@ package cmdtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
 func TestSubscriptionsLocalizationsCreateReusesMatchingLocale(t *testing.T) {
@@ -101,6 +104,7 @@ func TestSubscriptionsLocalizationsCreateRejectsDifferentExistingLocale(t *testi
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
 
+	var runErr error
 	stdout, stderr := captureOutput(t, func() {
 		if err := root.Parse([]string{
 			"subscriptions", "localizations", "create",
@@ -111,19 +115,25 @@ func TestSubscriptionsLocalizationsCreateRejectsDifferentExistingLocale(t *testi
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
-		err := root.Run(context.Background())
-		if err == nil {
-			t.Fatal("expected existing localization mismatch error")
-		}
+		runErr = root.Run(context.Background())
 	})
+	if runErr == nil {
+		t.Fatal("expected existing localization mismatch error")
+	}
+	if !errors.Is(runErr, asc.ErrConflict) {
+		t.Fatalf("expected conflict error, got %v", runErr)
+	}
 
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, `localization for locale "en-US" already exists as loc-1`) {
-		t.Fatalf("expected existing localization guidance, got %q", stderr)
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stderr, "subscriptions localizations update --id loc-1") {
-		t.Fatalf("expected update guidance, got %q", stderr)
+	if !strings.Contains(runErr.Error(), `localization for locale "en-US" already exists as loc-1`) {
+		t.Fatalf("expected existing localization guidance, got %v", runErr)
+	}
+	if !strings.Contains(runErr.Error(), "subscriptions localizations update --id loc-1") {
+		t.Fatalf("expected update guidance, got %v", runErr)
 	}
 }
