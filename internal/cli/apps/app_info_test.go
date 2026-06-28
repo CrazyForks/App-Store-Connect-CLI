@@ -198,6 +198,55 @@ func TestRunAppInfoSetBatchRefetchesAndUpdatesAfterCreateConflict(t *testing.T) 
 	}
 }
 
+func TestRunAppInfoSetBatchConflictWarningsUseRefetchedFields(t *testing.T) {
+	requests := make([]string, 0)
+	client := newAppInfoTestClient(t, appInfoRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.Method+" "+req.URL.Path)
+		switch len(requests) {
+		case 1:
+			return appInfoJSONResponse(http.StatusOK, `{"data":[]}`), nil
+		case 2:
+			if req.Method != http.MethodPost || req.URL.Path != "/v1/appStoreVersionLocalizations" {
+				t.Fatalf("unexpected create request: %s %s", req.Method, req.URL.String())
+			}
+			return appInfoJSONResponse(http.StatusConflict, `{"errors":[{"status":"409","code":"ENTITY_ERROR.ATTRIBUTE.INVALID","title":"Conflict","detail":"localization already exists"}]}`), nil
+		case 3:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/appStoreVersions/version-1/appStoreVersionLocalizations" {
+				t.Fatalf("unexpected refetch request: %s %s", req.Method, req.URL.String())
+			}
+			return appInfoJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US","description":"Existing description","keywords":"existing,keywords","supportUrl":"https://example.com/support"}}]}`), nil
+		case 4:
+			if req.Method != http.MethodPatch || req.URL.Path != "/v1/appStoreVersionLocalizations/loc-1" {
+				t.Fatalf("unexpected update request: %s %s", req.Method, req.URL.String())
+			}
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatalf("read update body: %v", err)
+			}
+			if !strings.Contains(string(body), `"whatsNew":"Bug fixes"`) {
+				t.Fatalf("expected update body to contain whatsNew, got %s", string(body))
+			}
+			return appInfoJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US","whatsNew":"Bug fixes"}}}`), nil
+		default:
+			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	}))
+
+	result, warnings, err := runAppInfoSetBatch(context.Background(), client, "app-1", "version-1", map[string]asc.AppStoreVersionLocalizationAttributes{
+		"en-US": {WhatsNew: "Bug fixes"},
+	}, shared.SubmitReadinessOptions{RequireWhatsNew: true}, false)
+	if err != nil {
+		t.Fatalf("runAppInfoSetBatch() error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings from refetched complete fields, got %+v", warnings)
+	}
+	if result == nil || result.Failed != 0 || result.Succeeded != 1 {
+		t.Fatalf("unexpected batch result: %+v", result)
+	}
+}
+
 func TestRunAppInfoSetSingleLocaleConflictRechecksCopyFromAfterRefetch(t *testing.T) {
 	requests := make([]string, 0)
 	client := newAppInfoTestClient(t, appInfoRoundTripFunc(func(req *http.Request) (*http.Response, error) {

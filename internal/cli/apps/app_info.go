@@ -681,6 +681,7 @@ func runAppInfoSetBatch(
 	}
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
+	createWarningAttrs := make([]asc.AppStoreVersionLocalizationAttributes, len(locales))
 	for idx, locale := range locales {
 		idx := idx
 		locale := locale
@@ -702,6 +703,8 @@ func runAppInfoSetBatch(
 				Action: action,
 				Status: "success",
 			}
+			effectiveCreateAttrs := attrs
+			effectiveCreateAttrs.Locale = locale
 
 			if existingID == "" {
 				attrs.Locale = locale
@@ -729,8 +732,19 @@ func runAppInfoSetBatch(
 					existingID = strings.TrimSpace(refetchedLocalization.ID)
 					action = "update"
 					localeResult.Action = action
+					effectiveCreateAttrs = applyAppInfoSetValues(
+						refetchedLocalization.Attributes,
+						attrs.Description,
+						attrs.Keywords,
+						attrs.SupportURL,
+						attrs.MarketingURL,
+						attrs.PromotionalText,
+						attrs.WhatsNew,
+					)
+					effectiveCreateAttrs.Locale = locale
 				} else {
 					localeResult.LocalizationID = strings.TrimSpace(resp.Data.ID)
+					createWarningAttrs[idx] = effectiveCreateAttrs
 					results[idx] = localeResult
 					return
 				}
@@ -749,6 +763,9 @@ func runAppInfoSetBatch(
 				localizationID = existingID
 			}
 			localeResult.LocalizationID = localizationID
+			if existingByLocale[strings.ToLower(locale)] == "" {
+				createWarningAttrs[idx] = effectiveCreateAttrs
+			}
 			results[idx] = localeResult
 		}()
 	}
@@ -759,7 +776,7 @@ func runAppInfoSetBatch(
 		if existingByLocale[strings.ToLower(locale)] != "" || results[idx].Status != "success" {
 			continue
 		}
-		if warning, ok := shared.SubmitReadinessCreateWarningForLocaleWithOptions(locale, valuesByLocale[locale], shared.SubmitReadinessCreateModeApplied, submitOpts); ok {
+		if warning, ok := shared.SubmitReadinessCreateWarningForLocaleWithOptions(locale, createWarningAttrs[idx], shared.SubmitReadinessCreateModeApplied, submitOpts); ok {
 			warnings = append(warnings, warning)
 		}
 	}
