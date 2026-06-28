@@ -554,15 +554,6 @@ func runAppInfoSetSingleLocale(
 				marketingURLValue = strings.TrimSpace(attrs.MarketingURL)
 				promotionalTextValue = strings.TrimSpace(attrs.PromotionalText)
 				whatsNewValue = strings.TrimSpace(attrs.WhatsNew)
-				if shouldBackfillAppInfoSetField(descriptionValue, true, targetLocalization.Attributes.Description) {
-					descriptionValue = strings.TrimSpace(sourceLocalization.Attributes.Description)
-				}
-				if shouldBackfillAppInfoSetField(keywordsValue, true, targetLocalization.Attributes.Keywords) {
-					keywordsValue = strings.TrimSpace(sourceLocalization.Attributes.Keywords)
-				}
-				if shouldBackfillAppInfoSetField(supportURLValue, true, targetLocalization.Attributes.SupportURL) {
-					supportURLValue = strings.TrimSpace(sourceLocalization.Attributes.SupportURL)
-				}
 			}
 			updateAttrs = applyAppInfoSetValues(
 				asc.AppStoreVersionLocalizationAttributes{},

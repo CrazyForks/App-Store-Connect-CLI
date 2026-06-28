@@ -210,7 +210,7 @@ func TestRunAppInfoSetSingleLocaleConflictRechecksCopyFromAfterRefetch(t *testin
 			if got := req.URL.Query().Get("filter[locale]"); got != "en-US" {
 				t.Fatalf("expected refetch filter[locale]=en-US, got %q", got)
 			}
-			return appInfoJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US","description":"Target description","keywords":"target,keywords","supportUrl":"https://example.com/target"}}]}`), nil
+			return appInfoJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US","description":"","keywords":"","supportUrl":""}}]}`), nil
 		case 4:
 			if req.Method != http.MethodPatch || req.URL.Path != "/v1/appStoreVersionLocalizations/loc-1" {
 				t.Fatalf("unexpected update request: %s %s", req.Method, req.URL.String())
@@ -226,7 +226,7 @@ func TestRunAppInfoSetSingleLocaleConflictRechecksCopyFromAfterRefetch(t *testin
 			if strings.Contains(bodyString, "Source description") || strings.Contains(bodyString, "source,keywords") || strings.Contains(bodyString, "https://example.com/source") {
 				t.Fatalf("copy-from values should not overwrite refetched target fields, got %s", bodyString)
 			}
-			return appInfoJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US","description":"Target description","whatsNew":"Bug fixes"}}}`), nil
+			return appInfoJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US","whatsNew":"Bug fixes"}}}`), nil
 		default:
 			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
 			return nil, nil
