@@ -41,6 +41,7 @@ func TestSubscriptionsListAppAggregatesGroups(t *testing.T) {
 		if err := root.Parse([]string{
 			"subscriptions", "list",
 			"--app", "app-1",
+			"--paginate",
 			"--output", "json",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
@@ -55,6 +56,47 @@ func TestSubscriptionsListAppAggregatesGroups(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"id":"sub-1"`) || !strings.Contains(stdout, `"id":"sub-1b"`) || !strings.Contains(stdout, `"id":"sub-2"`) {
 		t.Fatalf("expected subscriptions from every group and subscription page, got %q", stdout)
+	}
+}
+
+func TestSubscriptionsListAppDoesNotPaginateByDefault(t *testing.T) {
+	setupAuth(t)
+
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/app-1/subscriptionGroups" && req.URL.Query().Get("cursor") == "":
+			body := `{"data":[{"type":"subscriptionGroups","id":"group-1"}],"links":{"next":"/v1/apps/app-1/subscriptionGroups?cursor=group-page-2"}}`
+			return jsonHTTPResponse(http.StatusOK, body), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/subscriptionGroups/group-1/subscriptions" && req.URL.Query().Get("cursor") == "":
+			body := `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Monthly","productId":"com.example.monthly"}}],"links":{"next":"/v1/subscriptionGroups/group-1/subscriptions?cursor=sub-page-2"}}`
+			return jsonHTTPResponse(http.StatusOK, body), nil
+		default:
+			t.Fatalf("unexpected paginated request without --paginate: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	}))
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "list",
+			"--app", "app-1",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, `"id":"sub-1"`) {
+		t.Fatalf("expected first page subscription, got %q", stdout)
 	}
 }
 

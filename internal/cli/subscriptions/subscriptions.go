@@ -427,7 +427,7 @@ Examples:
 			defer cancel()
 
 			if resolvedAppID != "" {
-				resp, err := listSubscriptionsForApp(requestCtx, client, resolvedAppID, *limit)
+				resp, err := listSubscriptionsForApp(requestCtx, client, resolvedAppID, *limit, *paginate)
 				if err != nil {
 					return fmt.Errorf("subscriptions list: %w", err)
 				}
@@ -466,7 +466,7 @@ Examples:
 	}
 }
 
-func listSubscriptionsForApp(ctx context.Context, client *asc.Client, appID string, limit int) (*asc.SubscriptionsResponse, error) {
+func listSubscriptionsForApp(ctx context.Context, client *asc.Client, appID string, limit int, paginate bool) (*asc.SubscriptionsResponse, error) {
 	pageLimit := limit
 	if pageLimit == 0 {
 		pageLimit = 200
@@ -476,16 +476,18 @@ func listSubscriptionsForApp(ctx context.Context, client *asc.Client, appID stri
 		return nil, fmt.Errorf("failed to fetch groups: %w", err)
 	}
 
-	paginatedGroups, err := asc.PaginateAll(ctx, groupsResp, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-		return client.GetSubscriptionGroups(ctx, appID, asc.WithSubscriptionGroupsNextURL(nextURL))
-	})
-	if err != nil {
-		return nil, fmt.Errorf("paginate groups: %w", err)
-	}
-	var ok bool
-	groupsResp, ok = paginatedGroups.(*asc.SubscriptionGroupsResponse)
-	if !ok {
-		return nil, fmt.Errorf("unexpected groups response type %T", paginatedGroups)
+	if paginate {
+		paginatedGroups, err := asc.PaginateAll(ctx, groupsResp, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetSubscriptionGroups(ctx, appID, asc.WithSubscriptionGroupsNextURL(nextURL))
+		})
+		if err != nil {
+			return nil, fmt.Errorf("paginate groups: %w", err)
+		}
+		var ok bool
+		groupsResp, ok = paginatedGroups.(*asc.SubscriptionGroupsResponse)
+		if !ok {
+			return nil, fmt.Errorf("unexpected groups response type %T", paginatedGroups)
+		}
 	}
 
 	result := &asc.SubscriptionsResponse{Data: []asc.Resource[asc.SubscriptionAttributes]{}}
@@ -495,15 +497,18 @@ func listSubscriptionsForApp(ctx context.Context, client *asc.Client, appID stri
 			return nil, fmt.Errorf("failed to fetch subscriptions for group %s: %w", group.ID, err)
 		}
 
-		paginatedSubs, err := asc.PaginateAll(ctx, subsResp, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-			return client.GetSubscriptions(ctx, group.ID, asc.WithSubscriptionsNextURL(nextURL))
-		})
-		if err != nil {
-			return nil, fmt.Errorf("paginate subscriptions for group %s: %w", group.ID, err)
-		}
-		subsResp, ok = paginatedSubs.(*asc.SubscriptionsResponse)
-		if !ok {
-			return nil, fmt.Errorf("unexpected subscriptions response type %T", paginatedSubs)
+		if paginate {
+			paginatedSubs, err := asc.PaginateAll(ctx, subsResp, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+				return client.GetSubscriptions(ctx, group.ID, asc.WithSubscriptionsNextURL(nextURL))
+			})
+			if err != nil {
+				return nil, fmt.Errorf("paginate subscriptions for group %s: %w", group.ID, err)
+			}
+			var ok bool
+			subsResp, ok = paginatedSubs.(*asc.SubscriptionsResponse)
+			if !ok {
+				return nil, fmt.Errorf("unexpected subscriptions response type %T", paginatedSubs)
+			}
 		}
 
 		result.Data = append(result.Data, subsResp.Data...)
