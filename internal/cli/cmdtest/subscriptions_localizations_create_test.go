@@ -55,7 +55,7 @@ func TestSubscriptionsLocalizationsCreateReusesMatchingLocale(t *testing.T) {
 		if err := root.Parse([]string{
 			"subscriptions", "localizations", "create",
 			"--subscription-id", "123456789",
-			"--locale", "en-US",
+			"--locale", "en-us",
 			"--name", "Pro",
 			"--description", "Premium features.",
 			"--output", "json",
