@@ -3,6 +3,8 @@ package reviews
 import (
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/itunes"
 )
 
 func TestNormalizeRatingsOutput(t *testing.T) {
@@ -36,5 +38,24 @@ func TestNormalizeRatingsOutput(t *testing.T) {
 				t.Fatalf("expected format %q, got %q", tc.wantFormat, got)
 			}
 		})
+	}
+}
+
+func TestUniqueExactRatingsAppMatch(t *testing.T) {
+	results := []itunes.SearchResult{
+		{AppID: 123, Name: "Alpha", BundleID: "com.example.alpha"},
+		{AppID: 456, Name: "Alpha", BundleID: "com.example.alpha.pro"},
+	}
+
+	if got, ok := uniqueExactRatingsAppMatch(results, "com.example.alpha", func(result itunes.SearchResult) string {
+		return result.BundleID
+	}); !ok || got != "123" {
+		t.Fatalf("bundle match = %q, %v; want 123, true", got, ok)
+	}
+
+	if got, ok := uniqueExactRatingsAppMatch(results, "Alpha", func(result itunes.SearchResult) string {
+		return result.Name
+	}); ok || got != "" {
+		t.Fatalf("ambiguous name match = %q, %v; want empty, false", got, ok)
 	}
 }
