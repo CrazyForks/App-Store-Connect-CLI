@@ -427,7 +427,7 @@ Examples:
 			defer cancel()
 
 			if resolvedAppID != "" {
-				resp, err := listSubscriptionsForApp(requestCtx, client, resolvedAppID, *limit, *paginate)
+				resp, err := listSubscriptionsForApp(requestCtx, client, resolvedAppID, *limit, true)
 				if err != nil {
 					return fmt.Errorf("subscriptions list: %w", err)
 				}
