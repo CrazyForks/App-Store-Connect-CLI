@@ -582,6 +582,7 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 
 		priceAttrs := asc.SubscriptionPriceCreateAttributes{
 			StartDate: opts.StartDate,
+			PlanType:  asc.SubscriptionPlanTypeUpfront,
 		}
 		var existingPrice asc.Resource[asc.SubscriptionPriceAttributes]
 		found := false
@@ -1065,6 +1066,9 @@ func subscriptionSetupPriceMatchesTarget(price asc.Resource[asc.SubscriptionPric
 	if strings.TrimSpace(price.Attributes.StartDate) != strings.TrimSpace(attrs.StartDate) {
 		return false
 	}
+	if attrs.PlanType != "" && price.Attributes.PlanType != attrs.PlanType {
+		return false
+	}
 	return true
 }
 
@@ -1129,7 +1133,7 @@ func validateExistingSubscriptionSetupLocalization(localization asc.Resource[asc
 	if strings.TrimSpace(opts.DisplayName) != "" && strings.TrimSpace(localization.Attributes.Name) != strings.TrimSpace(opts.DisplayName) {
 		return fmt.Errorf("existing subscription localization %q has a different display name; update it or choose a different locale", strings.TrimSpace(localization.ID))
 	}
-	if strings.TrimSpace(opts.Description) != "" && strings.TrimSpace(localization.Attributes.Description) != strings.TrimSpace(opts.Description) {
+	if strings.TrimSpace(localization.Attributes.Description) != strings.TrimSpace(opts.Description) {
 		return fmt.Errorf("existing subscription localization %q has a different description; update it or choose a different locale", strings.TrimSpace(localization.ID))
 	}
 	return nil

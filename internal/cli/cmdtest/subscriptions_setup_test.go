@@ -796,7 +796,7 @@ func TestSubscriptionsSetupReusesExistingPriceAndAvailability(t *testing.T) {
 			if got := req.URL.Query().Get("filter[territory]"); got != "USA" {
 				t.Fatalf("expected price lookup territory USA, got %q", got)
 			}
-			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionPrices","id":"price-1","attributes":{},"relationships":{"subscriptionPricePoint":{"data":{"type":"subscriptionPricePoints","id":"price-point-1"}},"territory":{"data":{"type":"territories","id":"USA"}}}}],"links":{"next":""}}`), nil
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionPrices","id":"price-1","attributes":{"planType":"UPFRONT"},"relationships":{"subscriptionPricePoint":{"data":{"type":"subscriptionPricePoints","id":"price-point-1"}},"territory":{"data":{"type":"territories","id":"USA"}}}}],"links":{"next":""}}`), nil
 		case 3:
 			if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/sub-1/subscriptionAvailability" {
 				t.Fatalf("unexpected availability lookup request: %s %s", req.Method, req.URL.String())
@@ -914,6 +914,9 @@ func TestSubscriptionsSetupPricingAutoEnablesPriceTerritoryAvailability(t *testi
 			}
 			if len(payload.Included) != 1 {
 				t.Fatalf("expected one included price resource, got %d", len(payload.Included))
+			}
+			if payload.Included[0].Attributes == nil || payload.Included[0].Attributes.PlanType != asc.SubscriptionPlanTypeUpfront {
+				t.Fatalf("expected UPFRONT initial price, got %+v", payload.Included[0].Attributes)
 			}
 			if payload.Included[0].Relationships.Territory == nil || payload.Included[0].Relationships.Territory.Data.ID != "NOR" {
 				t.Fatalf("expected pricing territory NOR, got %+v", payload.Included[0].Relationships.Territory)
@@ -1084,6 +1087,9 @@ func TestSubscriptionsSetupCreateLocalizationPricingAndAvailabilitySuccess(t *te
 			}
 			if len(payload.Included) != 1 || payload.Included[0].Relationships.SubscriptionPricePoint.Data.ID != "pp-399" {
 				t.Fatalf("expected resolved price point pp-399, got %+v", payload.Included)
+			}
+			if payload.Included[0].Attributes == nil || payload.Included[0].Attributes.PlanType != asc.SubscriptionPlanTypeUpfront {
+				t.Fatalf("expected UPFRONT initial price, got %+v", payload.Included[0].Attributes)
 			}
 			body := `{"data":{"type":"subscriptions","id":"sub-1","attributes":{"name":"Pro Monthly","productId":"com.example.pro.monthly","subscriptionPeriod":"ONE_MONTH","state":"MISSING_METADATA","familySharable":true}}}`
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{"Content-Type": []string{"application/json"}}}, nil
