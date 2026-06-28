@@ -55,7 +55,7 @@ func TestIAPLocalizationsCreateReusesMatchingLocale(t *testing.T) {
 		if err := root.Parse([]string{
 			"iap", "localizations", "create",
 			"--iap-id", "123456789",
-			"--locale", "en-US",
+			"--locale", "en-us",
 			"--name", "Coins",
 			"--description", "Pack of coins.",
 			"--output", "json",

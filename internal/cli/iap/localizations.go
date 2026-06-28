@@ -127,7 +127,7 @@ func findIAPLocalizationByLocale(ctx context.Context, client *asc.Client, iapID,
 				return fmt.Errorf("unexpected in-app purchase localizations pagination type %T", page)
 			}
 			for _, localization := range resp.Data {
-				if strings.TrimSpace(localization.Attributes.Locale) != locale {
+				if !strings.EqualFold(strings.TrimSpace(localization.Attributes.Locale), locale) {
 					continue
 				}
 				found = localization
@@ -143,7 +143,7 @@ func findIAPLocalizationByLocale(ctx context.Context, client *asc.Client, iapID,
 }
 
 func iapLocalizationMatchesCreateAttributes(localization asc.Resource[asc.InAppPurchaseLocalizationAttributes], attrs asc.InAppPurchaseLocalizationCreateAttributes) bool {
-	return strings.TrimSpace(localization.Attributes.Locale) == strings.TrimSpace(attrs.Locale) &&
+	return strings.EqualFold(strings.TrimSpace(localization.Attributes.Locale), strings.TrimSpace(attrs.Locale)) &&
 		strings.TrimSpace(localization.Attributes.Name) == strings.TrimSpace(attrs.Name) &&
 		strings.TrimSpace(localization.Attributes.Description) == strings.TrimSpace(attrs.Description)
 }
