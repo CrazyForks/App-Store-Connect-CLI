@@ -960,6 +960,9 @@ func findMatchingSubscriptionPrice(ctx context.Context, client *asc.Client, subI
 	if territoryID != "" {
 		opts = append(opts, asc.WithSubscriptionPricesTerritory(territoryID))
 	}
+	if attrs.PlanType != "" {
+		opts = append(opts, asc.WithSubscriptionPricesPlanType(attrs.PlanType))
+	}
 
 	for {
 		resp, err := client.GetSubscriptionPrices(ctx, subID, opts...)
@@ -977,7 +980,11 @@ func findMatchingSubscriptionPrice(ctx context.Context, client *asc.Client, subI
 		if next == "" {
 			return nil, nil
 		}
-		opts = []asc.SubscriptionPricesOption{asc.WithSubscriptionPricesNextURL(next)}
+		nextURL, err := mergeSubscriptionPricesPlanType(next, attrs.PlanType)
+		if err != nil {
+			return nil, err
+		}
+		opts = []asc.SubscriptionPricesOption{asc.WithSubscriptionPricesNextURL(nextURL)}
 	}
 }
 
