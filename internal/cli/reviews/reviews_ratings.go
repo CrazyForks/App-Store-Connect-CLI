@@ -73,17 +73,20 @@ Examples:
 }
 
 func executeRatings(ctx context.Context, appID, country string, all bool, workers int, output string, pretty bool) error {
+	client := itunes.NewClient()
+	return executeRatingsWithClient(ctx, client, appID, country, all, workers, output, pretty)
+}
+
+func executeRatingsWithClient(ctx context.Context, client *itunes.Client, appID, country string, all bool, workers int, output string, pretty bool) error {
 	format, err := normalizeRatingsOutput(output, pretty)
 	if err != nil {
 		return err
 	}
 
-	client := itunes.NewClient()
-
 	requestCtx, cancel := shared.ContextWithTimeout(ctx)
 	defer cancel()
 
-	resolvedAppID, err := resolveRatingsAppID(requestCtx, client, appID, country)
+	resolvedAppID, err := resolveRatingsAppID(requestCtx, client, appID, ratingsAppLookupCountry(country, all))
 	if err != nil {
 		return fmt.Errorf("reviews ratings: %w", err)
 	}
@@ -93,6 +96,13 @@ func executeRatings(ctx context.Context, appID, country string, all bool, worker
 	}
 
 	return executeSingleRatings(requestCtx, client, resolvedAppID, country, format, pretty)
+}
+
+func ratingsAppLookupCountry(country string, all bool) string {
+	if all {
+		return "us"
+	}
+	return country
 }
 
 func resolveRatingsAppID(ctx context.Context, client *itunes.Client, app string, country string) (string, error) {

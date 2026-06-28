@@ -1,6 +1,10 @@
 package reviews
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -57,5 +61,43 @@ func TestUniqueExactRatingsAppMatch(t *testing.T) {
 		return result.Name
 	}); ok || got != "" {
 		t.Fatalf("ambiguous name match = %q, %v; want empty, false", got, ok)
+	}
+}
+
+func TestRatingsAppLookupCountryUsesDefaultForAllStorefronts(t *testing.T) {
+	if got := ratingsAppLookupCountry("kz", true); got != "us" {
+		t.Fatalf("ratingsAppLookupCountry(all) = %q, want us", got)
+	}
+	if got := ratingsAppLookupCountry("kz", false); got != "kz" {
+		t.Fatalf("ratingsAppLookupCountry(single) = %q, want kz", got)
+	}
+}
+
+func TestResolveRatingsAppIDSearchesTrimmedBundleWithHttptest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("term"); got != "com.example.alpha" {
+			t.Fatalf("expected trimmed search term com.example.alpha, got %q", got)
+		}
+		if got := r.URL.Query().Get("country"); got != "us" {
+			t.Fatalf("expected search country=us, got %q", got)
+		}
+		if got := r.URL.Query().Get("entity"); got != "software" {
+			t.Fatalf("expected entity=software, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"resultCount":1,"results":[{"trackId":123,"trackName":"Alpha","bundleId":"com.example.alpha"}]}`)
+	}))
+	defer server.Close()
+
+	client := &itunes.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	got, err := resolveRatingsAppID(context.Background(), client, "  com.example.alpha  ", "us")
+	if err != nil {
+		t.Fatalf("resolveRatingsAppID() error: %v", err)
+	}
+	if got != "123" {
+		t.Fatalf("resolveRatingsAppID() = %q, want 123", got)
 	}
 }
