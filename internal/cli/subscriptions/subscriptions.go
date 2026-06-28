@@ -1004,10 +1004,11 @@ func subscriptionPriceMatchesTarget(price asc.Resource[asc.SubscriptionPriceAttr
 		return false
 	}
 
-	if attrs.StartDate != "" && price.Attributes.StartDate != attrs.StartDate {
+	if strings.TrimSpace(price.Attributes.StartDate) != strings.TrimSpace(attrs.StartDate) {
 		return false
 	}
-	if attrs.Preserved != nil && *attrs.Preserved && !price.Attributes.Preserved {
+	targetPreserved := attrs.Preserved != nil && *attrs.Preserved
+	if price.Attributes.Preserved != targetPreserved {
 		return false
 	}
 	if attrs.PlanType != "" && price.Attributes.PlanType != attrs.PlanType {
