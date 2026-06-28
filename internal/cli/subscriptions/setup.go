@@ -426,7 +426,7 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 			return result, fmt.Errorf("subscriptions setup: failed to find existing subscription: %w", err)
 		}
 		if found {
-			if err := validateExistingSubscriptionSetupSubscription(existingSub, subAttrs); err != nil {
+			if err := validateExistingSubscriptionSetupSubscription(existingSub, subAttrs, opts.FamilySharable); err != nil {
 				result.Status = "error"
 				result.Error = err.Error()
 				result.FailedStep = subscriptionsSetupStepCreateSubscription
@@ -1214,14 +1214,14 @@ func fetchSubscriptionSetupAvailabilityTerritories(ctx context.Context, client *
 	return actualSet, actualTerritories, nil
 }
 
-func validateExistingSubscriptionSetupSubscription(subscription asc.Resource[asc.SubscriptionAttributes], target asc.SubscriptionCreateAttributes) error {
+func validateExistingSubscriptionSetupSubscription(subscription asc.Resource[asc.SubscriptionAttributes], target asc.SubscriptionCreateAttributes, expectedFamilySharable bool) error {
 	if strings.TrimSpace(subscription.Attributes.Name) != strings.TrimSpace(target.Name) {
 		return fmt.Errorf("existing subscription %q has a different reference name; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
 	}
 	if target.SubscriptionPeriod != "" && strings.TrimSpace(subscription.Attributes.SubscriptionPeriod) != strings.TrimSpace(target.SubscriptionPeriod) {
 		return fmt.Errorf("existing subscription %q has a different subscription period; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
 	}
-	if target.FamilySharable != nil && subscription.Attributes.FamilySharable != *target.FamilySharable {
+	if subscription.Attributes.FamilySharable != expectedFamilySharable {
 		return fmt.Errorf("existing subscription %q has a different family sharing setting; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
 	}
 	return nil

@@ -564,6 +564,59 @@ func TestSubscriptionsSetupRejectsMismatchedExistingSubscription(t *testing.T) {
 	}
 }
 
+func TestSubscriptionsSetupRejectsMismatchedExistingSubscriptionFamilySharingDefault(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	requestCount := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptionGroups/group-1/subscriptions" {
+			t.Fatalf("unexpected subscription lookup request: %s %s", req.Method, req.URL.String())
+		}
+		return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Pro Monthly","productId":"com.example.pro.monthly","subscriptionPeriod":"ONE_MONTH","familySharable":true}}],"links":{"next":""}}`), nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "setup",
+			"--group-id", "group-1",
+			"--reference-name", "Pro Monthly",
+			"--product-id", "com.example.pro.monthly",
+			"--subscription-period", "ONE_MONTH",
+			"--no-verify",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if runErr == nil || !strings.Contains(runErr.Error(), "different family sharing setting") {
+		t.Fatalf("expected different family sharing error, got %v", runErr)
+	}
+
+	var result subscriptionsSetupOutput
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("parse setup result: %v\nstdout=%q", err, stdout)
+	}
+	if result.Status != "error" || result.FailedStep != "create_subscription" {
+		t.Fatalf("unexpected setup result: %+v", result)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if requestCount != 1 {
+		t.Fatalf("expected only subscription lookup request, got %d", requestCount)
+	}
+}
+
 func TestSubscriptionsSetupRejectsAmbiguousExistingGroupReference(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
