@@ -15,6 +15,8 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/itunes"
 )
 
+const ratingsAppSearchLimit = 200
+
 // ReviewsRatingsCommand returns the reviews ratings subcommand.
 func ReviewsRatingsCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("ratings", flag.ExitOnError)
@@ -114,7 +116,7 @@ func resolveRatingsAppID(ctx context.Context, client *itunes.Client, app string,
 		return strconv.FormatInt(parsed, 10), nil
 	}
 
-	results, err := client.SearchApps(ctx, app, country, 10)
+	results, err := client.SearchApps(ctx, app, country, ratingsAppSearchLimit)
 	if err != nil {
 		return "", err
 	}

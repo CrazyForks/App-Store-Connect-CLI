@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -87,6 +88,9 @@ func TestResolveRatingsAppIDSearchesTrimmedBundleWithHttptest(t *testing.T) {
 		if got := r.URL.Query().Get("entity"); got != "software" {
 			t.Fatalf("expected entity=software, got %q", got)
 		}
+		if got := r.URL.Query().Get("limit"); got != strconv.Itoa(ratingsAppSearchLimit) {
+			t.Fatalf("expected search limit=%d, got %q", ratingsAppSearchLimit, got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"resultCount":1,"results":[{"trackId":123,"trackName":"Alpha","bundleId":"com.example.alpha"}]}`)
 	}))
@@ -94,6 +98,42 @@ func TestResolveRatingsAppIDSearchesTrimmedBundleWithHttptest(t *testing.T) {
 
 	client := &itunes.Client{BaseURL: server.URL, HTTPClient: server.Client()}
 	got, err := resolveRatingsAppID(context.Background(), client, "  com.example.alpha  ", "us")
+	if err != nil {
+		t.Fatalf("resolveRatingsAppID() error: %v", err)
+	}
+	if got != "123" {
+		t.Fatalf("resolveRatingsAppID() = %q, want 123", got)
+	}
+}
+
+func TestResolveRatingsAppIDSearchesBeyondFirstTenForExactName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("term"); got != "Alpha" {
+			t.Fatalf("expected search term Alpha, got %q", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != strconv.Itoa(ratingsAppSearchLimit) {
+			t.Fatalf("expected search limit=%d, got %q", ratingsAppSearchLimit, got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"resultCount":11,"results":[
+			{"trackId":1,"trackName":"Alpha Notes 1","bundleId":"com.example.alpha1"},
+			{"trackId":2,"trackName":"Alpha Notes 2","bundleId":"com.example.alpha2"},
+			{"trackId":3,"trackName":"Alpha Notes 3","bundleId":"com.example.alpha3"},
+			{"trackId":4,"trackName":"Alpha Notes 4","bundleId":"com.example.alpha4"},
+			{"trackId":5,"trackName":"Alpha Notes 5","bundleId":"com.example.alpha5"},
+			{"trackId":6,"trackName":"Alpha Notes 6","bundleId":"com.example.alpha6"},
+			{"trackId":7,"trackName":"Alpha Notes 7","bundleId":"com.example.alpha7"},
+			{"trackId":8,"trackName":"Alpha Notes 8","bundleId":"com.example.alpha8"},
+			{"trackId":9,"trackName":"Alpha Notes 9","bundleId":"com.example.alpha9"},
+			{"trackId":10,"trackName":"Alpha Notes 10","bundleId":"com.example.alpha10"},
+			{"trackId":123,"trackName":"Alpha","bundleId":"com.example.alpha"}
+		]}`)
+	}))
+	defer server.Close()
+
+	client := &itunes.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	got, err := resolveRatingsAppID(context.Background(), client, "Alpha", "us")
 	if err != nil {
 		t.Fatalf("resolveRatingsAppID() error: %v", err)
 	}
