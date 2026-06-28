@@ -1011,7 +1011,15 @@ func subscriptionPriceMatchesTarget(price asc.Resource[asc.SubscriptionPriceAttr
 	if price.Attributes.Preserved != targetPreserved {
 		return false
 	}
-	if attrs.PlanType != "" && price.Attributes.PlanType != attrs.PlanType {
+	targetPlanType := attrs.PlanType
+	if targetPlanType == "" {
+		targetPlanType = asc.SubscriptionPlanTypeUpfront
+	}
+	actualPlanType := price.Attributes.PlanType
+	if actualPlanType == "" {
+		actualPlanType = asc.SubscriptionPlanTypeUpfront
+	}
+	if actualPlanType != targetPlanType {
 		return false
 	}
 

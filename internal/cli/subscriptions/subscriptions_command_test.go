@@ -74,4 +74,14 @@ func TestSubscriptionPriceMatchesTargetComparesDefaultScheduleAndPreserved(t *te
 	if subscriptionPriceMatchesTarget(price, "PP_ID", "USA", asc.SubscriptionPriceCreateAttributes{}) {
 		t.Fatal("expected preserved price not to match omitted preserved flag")
 	}
+	price.Attributes.Preserved = false
+
+	price.Attributes.PlanType = asc.SubscriptionPlanTypeMonthly
+	if subscriptionPriceMatchesTarget(price, "PP_ID", "USA", asc.SubscriptionPriceCreateAttributes{}) {
+		t.Fatal("expected monthly plan price not to match omitted upfront plan type")
+	}
+	price.Attributes.PlanType = asc.SubscriptionPlanTypeUpfront
+	if !subscriptionPriceMatchesTarget(price, "PP_ID", "USA", asc.SubscriptionPriceCreateAttributes{}) {
+		t.Fatal("expected upfront plan price to match omitted plan type")
+	}
 }
