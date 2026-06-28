@@ -58,6 +58,41 @@ func TestSubscriptionsListAppAggregatesGroups(t *testing.T) {
 	}
 }
 
+func TestSubscriptionsListAppPreservesEmptyDataArray(t *testing.T) {
+	setupAuth(t)
+
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-1/subscriptionGroups" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+		body := `{"data":[],"links":{}}`
+		return jsonHTTPResponse(http.StatusOK, body), nil
+	}))
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "list",
+			"--app", "app-1",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, `"data":[]`) {
+		t.Fatalf("expected empty data array, got %q", stdout)
+	}
+}
+
 func TestSubscriptionsListGroupIDIgnoresDefaultAppEnv(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_APP_ID", "app-default")

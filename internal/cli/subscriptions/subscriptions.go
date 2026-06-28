@@ -488,7 +488,7 @@ func listSubscriptionsForApp(ctx context.Context, client *asc.Client, appID stri
 		return nil, fmt.Errorf("unexpected groups response type %T", paginatedGroups)
 	}
 
-	result := &asc.SubscriptionsResponse{}
+	result := &asc.SubscriptionsResponse{Data: []asc.Resource[asc.SubscriptionAttributes]{}}
 	for _, group := range groupsResp.Data {
 		subsResp, err := client.GetSubscriptions(ctx, group.ID, asc.WithSubscriptionsLimit(pageLimit))
 		if err != nil {
