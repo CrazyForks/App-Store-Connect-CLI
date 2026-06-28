@@ -411,7 +411,7 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 	reusedSubscription := false
 	if reusedGroup {
 		subCtx, subCancel := shared.ContextWithTimeout(ctx)
-		existingSubID, found, err := findExistingSubscriptionSetupSubscription(subCtx, client, result.GroupID, opts.ProductID)
+		existingSub, found, err := findExistingSubscriptionSetupSubscription(subCtx, client, result.GroupID, opts.ProductID)
 		subCancel()
 		if err != nil {
 			result.Status = "error"
@@ -425,8 +425,19 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 			return result, fmt.Errorf("subscriptions setup: failed to find existing subscription: %w", err)
 		}
 		if found {
+			if err := validateExistingSubscriptionSetupSubscription(existingSub, subAttrs); err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.FailedStep = subscriptionsSetupStepCreateSubscription
+				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+					Name:    subscriptionsSetupStepCreateSubscription,
+					Status:  "failed",
+					Message: err.Error(),
+				})
+				return result, fmt.Errorf("subscriptions setup: %w", err)
+			}
 			reusedSubscription = true
-			result.SubscriptionID = existingSubID
+			result.SubscriptionID = strings.TrimSpace(existingSub.ID)
 			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
 				Name:    subscriptionsSetupStepCreateSubscription,
 				Status:  "completed",
@@ -469,7 +480,7 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 		reusedLocalization := false
 		if reusedSubscription {
 			locCtx, locCancel := shared.ContextWithTimeout(ctx)
-			localizationID, found, err := findExistingSubscriptionSetupLocalization(locCtx, client, result.SubscriptionID, opts.Locale)
+			localization, found, err := findExistingSubscriptionSetupLocalization(locCtx, client, result.SubscriptionID, opts.Locale)
 			locCancel()
 			if err != nil {
 				result.Status = "error"
@@ -483,8 +494,19 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 				return result, fmt.Errorf("subscriptions setup: failed to find existing localization: %w", err)
 			}
 			if found {
+				if err := validateExistingSubscriptionSetupLocalization(localization, opts); err != nil {
+					result.Status = "error"
+					result.Error = err.Error()
+					result.FailedStep = subscriptionsSetupStepCreateLocalization
+					result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+						Name:    subscriptionsSetupStepCreateLocalization,
+						Status:  "failed",
+						Message: err.Error(),
+					})
+					return result, fmt.Errorf("subscriptions setup: %w", err)
+				}
 				reusedLocalization = true
-				result.LocalizationID = localizationID
+				result.LocalizationID = strings.TrimSpace(localization.ID)
 				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
 					Name:    subscriptionsSetupStepCreateLocalization,
 					Status:  "completed",
@@ -827,20 +849,20 @@ func findExistingSubscriptionSetupGroup(ctx context.Context, client *asc.Client,
 	return foundID, foundID != "", nil
 }
 
-func findExistingSubscriptionSetupSubscription(ctx context.Context, client *asc.Client, groupID, productID string) (string, bool, error) {
+func findExistingSubscriptionSetupSubscription(ctx context.Context, client *asc.Client, groupID, productID string) (asc.Resource[asc.SubscriptionAttributes], bool, error) {
 	productID = strings.TrimSpace(productID)
 	if productID == "" {
-		return "", false, nil
+		return asc.Resource[asc.SubscriptionAttributes]{}, false, nil
 	}
 	firstPage, err := client.GetSubscriptions(ctx, groupID, asc.WithSubscriptionsLimit(200), asc.WithSubscriptionsProductIDs([]string{productID}))
 	if err != nil {
-		return "", false, err
+		return asc.Resource[asc.SubscriptionAttributes]{}, false, err
 	}
 	if firstPage == nil {
-		return "", false, nil
+		return asc.Resource[asc.SubscriptionAttributes]{}, false, nil
 	}
 
-	var foundID string
+	var foundSubscription asc.Resource[asc.SubscriptionAttributes]
 	if err := asc.PaginateEach(
 		ctx,
 		firstPage,
@@ -856,31 +878,31 @@ func findExistingSubscriptionSetupSubscription(ctx context.Context, client *asc.
 				if strings.TrimSpace(subscription.Attributes.ProductID) != productID {
 					continue
 				}
-				foundID = strings.TrimSpace(subscription.ID)
+				foundSubscription = subscription
 				return errSubscriptionsSetupExistingResourceFound
 			}
 			return nil
 		},
 	); err != nil && !errors.Is(err, errSubscriptionsSetupExistingResourceFound) {
-		return "", false, err
+		return asc.Resource[asc.SubscriptionAttributes]{}, false, err
 	}
-	return foundID, foundID != "", nil
+	return foundSubscription, strings.TrimSpace(foundSubscription.ID) != "", nil
 }
 
-func findExistingSubscriptionSetupLocalization(ctx context.Context, client *asc.Client, subscriptionID, locale string) (string, bool, error) {
+func findExistingSubscriptionSetupLocalization(ctx context.Context, client *asc.Client, subscriptionID, locale string) (asc.Resource[asc.SubscriptionLocalizationAttributes], bool, error) {
 	locale = strings.TrimSpace(locale)
 	if locale == "" {
-		return "", false, nil
+		return asc.Resource[asc.SubscriptionLocalizationAttributes]{}, false, nil
 	}
 	firstPage, err := client.GetSubscriptionLocalizations(ctx, subscriptionID, asc.WithSubscriptionLocalizationsLimit(200))
 	if err != nil {
-		return "", false, err
+		return asc.Resource[asc.SubscriptionLocalizationAttributes]{}, false, err
 	}
 	if firstPage == nil {
-		return "", false, nil
+		return asc.Resource[asc.SubscriptionLocalizationAttributes]{}, false, nil
 	}
 
-	var foundID string
+	var foundLocalization asc.Resource[asc.SubscriptionLocalizationAttributes]
 	if err := asc.PaginateEach(
 		ctx,
 		firstPage,
@@ -896,15 +918,41 @@ func findExistingSubscriptionSetupLocalization(ctx context.Context, client *asc.
 				if strings.TrimSpace(localization.Attributes.Locale) != locale {
 					continue
 				}
-				foundID = strings.TrimSpace(localization.ID)
+				foundLocalization = localization
 				return errSubscriptionsSetupExistingResourceFound
 			}
 			return nil
 		},
 	); err != nil && !errors.Is(err, errSubscriptionsSetupExistingResourceFound) {
-		return "", false, err
+		return asc.Resource[asc.SubscriptionLocalizationAttributes]{}, false, err
 	}
-	return foundID, foundID != "", nil
+	return foundLocalization, strings.TrimSpace(foundLocalization.ID) != "", nil
+}
+
+func validateExistingSubscriptionSetupSubscription(subscription asc.Resource[asc.SubscriptionAttributes], target asc.SubscriptionCreateAttributes) error {
+	if strings.TrimSpace(subscription.Attributes.Name) != strings.TrimSpace(target.Name) {
+		return fmt.Errorf("existing subscription %q has a different reference name; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
+	}
+	if target.SubscriptionPeriod != "" && strings.TrimSpace(subscription.Attributes.SubscriptionPeriod) != strings.TrimSpace(target.SubscriptionPeriod) {
+		return fmt.Errorf("existing subscription %q has a different subscription period; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
+	}
+	if target.FamilySharable != nil && subscription.Attributes.FamilySharable != *target.FamilySharable {
+		return fmt.Errorf("existing subscription %q has a different family sharing setting; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
+	}
+	return nil
+}
+
+func validateExistingSubscriptionSetupLocalization(localization asc.Resource[asc.SubscriptionLocalizationAttributes], opts subscriptionsSetupOptions) error {
+	if strings.TrimSpace(localization.Attributes.Locale) != strings.TrimSpace(opts.Locale) {
+		return fmt.Errorf("existing subscription localization %q has a different locale; update it or choose a different locale", strings.TrimSpace(localization.ID))
+	}
+	if strings.TrimSpace(opts.DisplayName) != "" && strings.TrimSpace(localization.Attributes.Name) != strings.TrimSpace(opts.DisplayName) {
+		return fmt.Errorf("existing subscription localization %q has a different display name; update it or choose a different locale", strings.TrimSpace(localization.ID))
+	}
+	if strings.TrimSpace(opts.Description) != "" && strings.TrimSpace(localization.Attributes.Description) != strings.TrimSpace(opts.Description) {
+		return fmt.Errorf("existing subscription localization %q has a different description; update it or choose a different locale", strings.TrimSpace(localization.ID))
+	}
+	return nil
 }
 
 func subscriptionsSetupAvailabilityTerritories(opts subscriptionsSetupOptions) []string {
