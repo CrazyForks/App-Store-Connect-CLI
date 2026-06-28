@@ -103,6 +103,25 @@ func TestResolveRatingsAppIDLooksUpTrimmedBundleWithHttptest(t *testing.T) {
 	}
 }
 
+func TestResolveRatingsAppIDHidesBundleLookupFailureDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/lookup" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		http.Error(w, "backend leaked com.example.secret", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := &itunes.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	_, err := resolveRatingsAppID(context.Background(), client, "com.example.secret", "us")
+	if err == nil {
+		t.Fatal("expected lookup failure")
+	}
+	if strings.Contains(err.Error(), "com.example.secret") || strings.Contains(err.Error(), "backend leaked") {
+		t.Fatalf("expected generic lookup error, got %q", err.Error())
+	}
+}
+
 func TestResolveRatingsAppIDSearchesBeyondFirstTenForExactName(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("term"); got != "Alpha" {

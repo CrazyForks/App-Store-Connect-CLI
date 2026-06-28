@@ -121,7 +121,7 @@ func resolveRatingsAppID(ctx context.Context, client *itunes.Client, app string,
 			IncludeSoftwareEntity: true,
 		})
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("could not resolve --app by bundle ID; pass a numeric App Store ID or try again later")
 		}
 		if result != nil && result.AppID != 0 {
 			return strconv.FormatInt(result.AppID, 10), nil
