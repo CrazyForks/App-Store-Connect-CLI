@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/ascterritory"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
+
+var errSubscriptionsSetupExistingResourceFound = errors.New("existing subscription setup resource found")
 
 const (
 	subscriptionsSetupStepEnsureGroup        = "ensure_group"
@@ -335,11 +338,10 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 		return result, fmt.Errorf("subscriptions setup: %w", err)
 	}
 
+	reusedGroup := strings.TrimSpace(opts.GroupID) != ""
 	if strings.TrimSpace(opts.GroupID) == "" {
 		groupCtx, groupCancel := shared.ContextWithTimeout(ctx)
-		groupResp, err := client.CreateSubscriptionGroup(groupCtx, opts.AppID, asc.SubscriptionGroupCreateAttributes{
-			ReferenceName: opts.GroupReferenceName,
-		})
+		groupID, found, err := findExistingSubscriptionSetupGroup(groupCtx, client, opts.AppID, opts.GroupReferenceName)
 		groupCancel()
 		if err != nil {
 			result.Status = "error"
@@ -350,14 +352,41 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 				Status:  "failed",
 				Message: err.Error(),
 			})
-			return result, fmt.Errorf("subscriptions setup: failed to create group: %w", err)
+			return result, fmt.Errorf("subscriptions setup: failed to find existing group: %w", err)
 		}
-		result.GroupID = strings.TrimSpace(groupResp.Data.ID)
-		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
-			Name:   subscriptionsSetupStepEnsureGroup,
-			Status: "completed",
-			ID:     result.GroupID,
-		})
+		if found {
+			reusedGroup = true
+			result.GroupID = groupID
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepEnsureGroup,
+				Status:  "completed",
+				ID:      result.GroupID,
+				Message: "used existing group",
+			})
+		} else {
+			groupCtx, groupCancel := shared.ContextWithTimeout(ctx)
+			groupResp, err := client.CreateSubscriptionGroup(groupCtx, opts.AppID, asc.SubscriptionGroupCreateAttributes{
+				ReferenceName: opts.GroupReferenceName,
+			})
+			groupCancel()
+			if err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.FailedStep = subscriptionsSetupStepEnsureGroup
+				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+					Name:    subscriptionsSetupStepEnsureGroup,
+					Status:  "failed",
+					Message: err.Error(),
+				})
+				return result, fmt.Errorf("subscriptions setup: failed to create group: %w", err)
+			}
+			result.GroupID = strings.TrimSpace(groupResp.Data.ID)
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:   subscriptionsSetupStepEnsureGroup,
+				Status: "completed",
+				ID:     result.GroupID,
+			})
+		}
 	} else {
 		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
 			Name:    subscriptionsSetupStepEnsureGroup,
@@ -379,27 +408,56 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 		subAttrs.FamilySharable = &val
 	}
 
-	subCtx, subCancel := shared.ContextWithTimeout(ctx)
-	subResp, err := client.CreateSubscription(subCtx, result.GroupID, subAttrs)
-	subCancel()
-	if err != nil {
-		result.Status = "error"
-		result.Error = err.Error()
-		result.FailedStep = subscriptionsSetupStepCreateSubscription
-		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
-			Name:    subscriptionsSetupStepCreateSubscription,
-			Status:  "failed",
-			Message: err.Error(),
-		})
-		return result, fmt.Errorf("subscriptions setup: failed to create subscription: %w", err)
+	reusedSubscription := false
+	if reusedGroup {
+		subCtx, subCancel := shared.ContextWithTimeout(ctx)
+		existingSubID, found, err := findExistingSubscriptionSetupSubscription(subCtx, client, result.GroupID, opts.ProductID)
+		subCancel()
+		if err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepCreateSubscription
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepCreateSubscription,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, fmt.Errorf("subscriptions setup: failed to find existing subscription: %w", err)
+		}
+		if found {
+			reusedSubscription = true
+			result.SubscriptionID = existingSubID
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepCreateSubscription,
+				Status:  "completed",
+				ID:      result.SubscriptionID,
+				Message: "used existing subscription",
+			})
+		}
 	}
+	if !reusedSubscription {
+		subCtx, subCancel := shared.ContextWithTimeout(ctx)
+		subResp, err := client.CreateSubscription(subCtx, result.GroupID, subAttrs)
+		subCancel()
+		if err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepCreateSubscription
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepCreateSubscription,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, fmt.Errorf("subscriptions setup: failed to create subscription: %w", err)
+		}
 
-	result.SubscriptionID = strings.TrimSpace(subResp.Data.ID)
-	result.Steps = append(result.Steps, subscriptionsSetupStepResult{
-		Name:   subscriptionsSetupStepCreateSubscription,
-		Status: "completed",
-		ID:     result.SubscriptionID,
-	})
+		result.SubscriptionID = strings.TrimSpace(subResp.Data.ID)
+		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+			Name:   subscriptionsSetupStepCreateSubscription,
+			Status: "completed",
+			ID:     result.SubscriptionID,
+		})
+	}
 
 	if !opts.hasLocalization() {
 		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
@@ -408,30 +466,59 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 			Message: "no localization flags provided",
 		})
 	} else {
-		locCtx, locCancel := shared.ContextWithTimeout(ctx)
-		locResp, err := client.CreateSubscriptionLocalization(locCtx, result.SubscriptionID, asc.SubscriptionLocalizationCreateAttributes{
-			Name:        opts.DisplayName,
-			Locale:      opts.Locale,
-			Description: opts.Description,
-		})
-		locCancel()
-		if err != nil {
-			result.Status = "error"
-			result.Error = err.Error()
-			result.FailedStep = subscriptionsSetupStepCreateLocalization
-			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
-				Name:    subscriptionsSetupStepCreateLocalization,
-				Status:  "failed",
-				Message: err.Error(),
-			})
-			return result, fmt.Errorf("subscriptions setup: failed to create localization: %w", err)
+		reusedLocalization := false
+		if reusedSubscription {
+			locCtx, locCancel := shared.ContextWithTimeout(ctx)
+			localizationID, found, err := findExistingSubscriptionSetupLocalization(locCtx, client, result.SubscriptionID, opts.Locale)
+			locCancel()
+			if err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.FailedStep = subscriptionsSetupStepCreateLocalization
+				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+					Name:    subscriptionsSetupStepCreateLocalization,
+					Status:  "failed",
+					Message: err.Error(),
+				})
+				return result, fmt.Errorf("subscriptions setup: failed to find existing localization: %w", err)
+			}
+			if found {
+				reusedLocalization = true
+				result.LocalizationID = localizationID
+				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+					Name:    subscriptionsSetupStepCreateLocalization,
+					Status:  "completed",
+					ID:      result.LocalizationID,
+					Message: "used existing localization",
+				})
+			}
 		}
-		result.LocalizationID = strings.TrimSpace(locResp.Data.ID)
-		result.Steps = append(result.Steps, subscriptionsSetupStepResult{
-			Name:   subscriptionsSetupStepCreateLocalization,
-			Status: "completed",
-			ID:     result.LocalizationID,
-		})
+		if !reusedLocalization {
+			locCtx, locCancel := shared.ContextWithTimeout(ctx)
+			locResp, err := client.CreateSubscriptionLocalization(locCtx, result.SubscriptionID, asc.SubscriptionLocalizationCreateAttributes{
+				Name:        opts.DisplayName,
+				Locale:      opts.Locale,
+				Description: opts.Description,
+			})
+			locCancel()
+			if err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				result.FailedStep = subscriptionsSetupStepCreateLocalization
+				result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+					Name:    subscriptionsSetupStepCreateLocalization,
+					Status:  "failed",
+					Message: err.Error(),
+				})
+				return result, fmt.Errorf("subscriptions setup: failed to create localization: %w", err)
+			}
+			result.LocalizationID = strings.TrimSpace(locResp.Data.ID)
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:   subscriptionsSetupStepCreateLocalization,
+				Status: "completed",
+				ID:     result.LocalizationID,
+			})
+		}
 	}
 
 	if !opts.hasPricing(opts.StartDate) {
@@ -698,6 +785,126 @@ func verifySubscriptionsSetupState(ctx context.Context, client *asc.Client, resu
 	}
 
 	return verification, subscriptionsSetupStepResult{Name: subscriptionsSetupStepVerifyState, Status: "completed"}, nil
+}
+
+func findExistingSubscriptionSetupGroup(ctx context.Context, client *asc.Client, appID, referenceName string) (string, bool, error) {
+	referenceName = strings.TrimSpace(referenceName)
+	if referenceName == "" {
+		return "", false, nil
+	}
+	firstPage, err := client.GetSubscriptionGroups(ctx, appID, asc.WithSubscriptionGroupsLimit(200))
+	if err != nil {
+		return "", false, err
+	}
+	if firstPage == nil {
+		return "", false, nil
+	}
+
+	var foundID string
+	if err := asc.PaginateEach(
+		ctx,
+		firstPage,
+		func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetSubscriptionGroups(ctx, appID, asc.WithSubscriptionGroupsNextURL(nextURL))
+		},
+		func(page asc.PaginatedResponse) error {
+			resp, ok := page.(*asc.SubscriptionGroupsResponse)
+			if !ok {
+				return fmt.Errorf("unexpected subscription groups pagination type %T", page)
+			}
+			for _, group := range resp.Data {
+				if strings.TrimSpace(group.Attributes.ReferenceName) != referenceName {
+					continue
+				}
+				foundID = strings.TrimSpace(group.ID)
+				return errSubscriptionsSetupExistingResourceFound
+			}
+			return nil
+		},
+	); err != nil && !errors.Is(err, errSubscriptionsSetupExistingResourceFound) {
+		return "", false, err
+	}
+	return foundID, foundID != "", nil
+}
+
+func findExistingSubscriptionSetupSubscription(ctx context.Context, client *asc.Client, groupID, productID string) (string, bool, error) {
+	productID = strings.TrimSpace(productID)
+	if productID == "" {
+		return "", false, nil
+	}
+	firstPage, err := client.GetSubscriptions(ctx, groupID, asc.WithSubscriptionsLimit(200), asc.WithSubscriptionsProductIDs([]string{productID}))
+	if err != nil {
+		return "", false, err
+	}
+	if firstPage == nil {
+		return "", false, nil
+	}
+
+	var foundID string
+	if err := asc.PaginateEach(
+		ctx,
+		firstPage,
+		func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetSubscriptions(ctx, groupID, asc.WithSubscriptionsNextURL(nextURL))
+		},
+		func(page asc.PaginatedResponse) error {
+			resp, ok := page.(*asc.SubscriptionsResponse)
+			if !ok {
+				return fmt.Errorf("unexpected subscriptions pagination type %T", page)
+			}
+			for _, subscription := range resp.Data {
+				if strings.TrimSpace(subscription.Attributes.ProductID) != productID {
+					continue
+				}
+				foundID = strings.TrimSpace(subscription.ID)
+				return errSubscriptionsSetupExistingResourceFound
+			}
+			return nil
+		},
+	); err != nil && !errors.Is(err, errSubscriptionsSetupExistingResourceFound) {
+		return "", false, err
+	}
+	return foundID, foundID != "", nil
+}
+
+func findExistingSubscriptionSetupLocalization(ctx context.Context, client *asc.Client, subscriptionID, locale string) (string, bool, error) {
+	locale = strings.TrimSpace(locale)
+	if locale == "" {
+		return "", false, nil
+	}
+	firstPage, err := client.GetSubscriptionLocalizations(ctx, subscriptionID, asc.WithSubscriptionLocalizationsLimit(200))
+	if err != nil {
+		return "", false, err
+	}
+	if firstPage == nil {
+		return "", false, nil
+	}
+
+	var foundID string
+	if err := asc.PaginateEach(
+		ctx,
+		firstPage,
+		func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetSubscriptionLocalizations(ctx, subscriptionID, asc.WithSubscriptionLocalizationsNextURL(nextURL))
+		},
+		func(page asc.PaginatedResponse) error {
+			resp, ok := page.(*asc.SubscriptionLocalizationsResponse)
+			if !ok {
+				return fmt.Errorf("unexpected subscription localizations pagination type %T", page)
+			}
+			for _, localization := range resp.Data {
+				if strings.TrimSpace(localization.Attributes.Locale) != locale {
+					continue
+				}
+				foundID = strings.TrimSpace(localization.ID)
+				return errSubscriptionsSetupExistingResourceFound
+			}
+			return nil
+		},
+	); err != nil && !errors.Is(err, errSubscriptionsSetupExistingResourceFound) {
+		return "", false, err
+	}
+	return foundID, foundID != "", nil
 }
 
 func subscriptionsSetupAvailabilityTerritories(opts subscriptionsSetupOptions) []string {
