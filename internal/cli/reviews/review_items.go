@@ -131,7 +131,7 @@ Examples:
 
 			client, err := shared.GetASCClient()
 			if err != nil {
-				return fmt.Errorf("review items-list: %w", err)
+				return fmt.Errorf("%s: %w", errorPrefix, err)
 			}
 
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
@@ -267,7 +267,7 @@ Examples:
 
 			normalizedState, err := normalizeReviewSubmissionItemState(*state)
 			if err != nil {
-				return fmt.Errorf("review items-update: %w", err)
+				return fmt.Errorf("%s: %w", errorPrefix, err)
 			}
 
 			client, err := shared.GetASCClient()
