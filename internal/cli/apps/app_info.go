@@ -484,8 +484,10 @@ func runAppInfoSetSingleLocale(
 	promotionalTextValue := strings.TrimSpace(attrs.PromotionalText)
 	whatsNewValue := strings.TrimSpace(attrs.WhatsNew)
 
+	var sourceLocalization asc.Resource[asc.AppStoreVersionLocalizationAttributes]
 	if copyFromLocale != "" {
-		sourceLocalization, found := findAppInfoSetLocalizationByLocale(localizations.Data, copyFromLocale)
+		var found bool
+		sourceLocalization, found = findAppInfoSetLocalizationByLocale(localizations.Data, copyFromLocale)
 		if !found {
 			return fmt.Errorf("apps info edit: --copy-from-locale %q was not found for this app version", copyFromLocale)
 		}
@@ -545,6 +547,32 @@ func runAppInfoSetSingleLocale(
 			targetLocalization = refetchedLocalization
 			effectiveAttrs = targetLocalization.Attributes
 			effectiveAttrs.Locale = locale
+			if copyFromLocale != "" {
+				descriptionValue = strings.TrimSpace(attrs.Description)
+				keywordsValue = strings.TrimSpace(attrs.Keywords)
+				supportURLValue = strings.TrimSpace(attrs.SupportURL)
+				marketingURLValue = strings.TrimSpace(attrs.MarketingURL)
+				promotionalTextValue = strings.TrimSpace(attrs.PromotionalText)
+				whatsNewValue = strings.TrimSpace(attrs.WhatsNew)
+				if shouldBackfillAppInfoSetField(descriptionValue, true, targetLocalization.Attributes.Description) {
+					descriptionValue = strings.TrimSpace(sourceLocalization.Attributes.Description)
+				}
+				if shouldBackfillAppInfoSetField(keywordsValue, true, targetLocalization.Attributes.Keywords) {
+					keywordsValue = strings.TrimSpace(sourceLocalization.Attributes.Keywords)
+				}
+				if shouldBackfillAppInfoSetField(supportURLValue, true, targetLocalization.Attributes.SupportURL) {
+					supportURLValue = strings.TrimSpace(sourceLocalization.Attributes.SupportURL)
+				}
+			}
+			updateAttrs = applyAppInfoSetValues(
+				asc.AppStoreVersionLocalizationAttributes{},
+				descriptionValue,
+				keywordsValue,
+				supportURLValue,
+				marketingURLValue,
+				promotionalTextValue,
+				whatsNewValue,
+			)
 			effectiveAttrs = applyAppInfoSetValues(
 				effectiveAttrs,
 				descriptionValue,
