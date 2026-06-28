@@ -604,6 +604,12 @@ func runAppInfoSetSingleLocale(
 	if err := shared.PrintOutput(resp, *output.Output, *output.Pretty); err != nil {
 		return err
 	}
+	if !targetExists {
+		if warning, ok := shared.SubmitReadinessCreateWarningForLocaleWithOptions(locale, effectiveAttrs, shared.SubmitReadinessCreateModeApplied, submitOpts); ok {
+			return shared.PrintSubmitReadinessCreateWarnings(os.Stderr, []shared.SubmitReadinessCreateWarning{warning})
+		}
+		return nil
+	}
 	warnAppInfoSetSubmitIncompleteLocale(locale, effectiveAttrs)
 	return nil
 }

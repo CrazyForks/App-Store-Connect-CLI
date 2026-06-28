@@ -120,7 +120,7 @@ func TestRunAppInfoSetSingleLocaleRefetchesAndUpdatesAfterCreateConflict(t *test
 	outputFormat := "json"
 	pretty := false
 	output := shared.OutputFlags{Output: &outputFormat, Pretty: &pretty}
-	captureAppsCreateOutput(t, func() {
+	stderr := captureAppsCreateOutput(t, func() {
 		err := runAppInfoSetSingleLocale(context.Background(), client, "version-1", "en-US", "", asc.AppStoreVersionLocalizationAttributes{
 			Description: "New description",
 		}, shared.SubmitReadinessOptions{RequireWhatsNew: true}, output)
@@ -129,6 +129,9 @@ func TestRunAppInfoSetSingleLocaleRefetchesAndUpdatesAfterCreateConflict(t *test
 		}
 	})
 
+	if !strings.Contains(stderr, "whatsNew") {
+		t.Fatalf("expected RequireWhatsNew warning after conflict fallback, got %q", stderr)
+	}
 	if got, want := strings.Join(requests, ","), "GET /v1/appStoreVersions/version-1/appStoreVersionLocalizations,POST /v1/appStoreVersionLocalizations,GET /v1/appStoreVersions/version-1/appStoreVersionLocalizations,PATCH /v1/appStoreVersionLocalizations/loc-1"; got != want {
 		t.Fatalf("request sequence = %s, want %s", got, want)
 	}
