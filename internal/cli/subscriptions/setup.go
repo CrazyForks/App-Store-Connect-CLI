@@ -586,9 +586,10 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 		}
 		var existingPrice asc.Resource[asc.SubscriptionPriceAttributes]
 		found := false
+		hasExistingPrices := false
 		if reusedSubscription {
 			priceCtx, priceCancel := shared.ContextWithTimeout(ctx)
-			existingPrice, found, err = findExistingSubscriptionSetupPrice(priceCtx, client, result.SubscriptionID, result.ResolvedPricePointID, opts.PriceTerritory, priceAttrs)
+			existingPrice, found, hasExistingPrices, err = findExistingSubscriptionSetupPrice(priceCtx, client, result.SubscriptionID, result.ResolvedPricePointID, opts.PriceTerritory, priceAttrs)
 			priceCancel()
 			if err != nil {
 				result.Status = "error"
@@ -609,6 +610,17 @@ func executeSubscriptionsSetup(ctx context.Context, opts subscriptionsSetupOptio
 				ID:      strings.TrimSpace(existingPrice.ID),
 				Message: "used existing price",
 			})
+		} else if hasExistingPrices {
+			err := fmt.Errorf("existing subscription %q already has prices but none match the requested price point, territory, start date, and upfront plan type; use subscriptions prices add to add the requested price", result.SubscriptionID)
+			result.Status = "error"
+			result.Error = err.Error()
+			result.FailedStep = subscriptionsSetupStepSetPrice
+			result.Steps = append(result.Steps, subscriptionsSetupStepResult{
+				Name:    subscriptionsSetupStepSetPrice,
+				Status:  "failed",
+				Message: err.Error(),
+			})
+			return result, err
 		} else {
 			priceCtx, priceCancel := shared.ContextWithTimeout(ctx)
 			_, err = client.SetSubscriptionInitialPrice(priceCtx, result.SubscriptionID, result.ResolvedPricePointID, opts.PriceTerritory, priceAttrs)
@@ -987,29 +999,27 @@ func findExistingSubscriptionSetupLocalization(ctx context.Context, client *asc.
 	return foundLocalization, strings.TrimSpace(foundLocalization.ID) != "", nil
 }
 
-func findExistingSubscriptionSetupPrice(ctx context.Context, client *asc.Client, subID, pricePointID, territoryID string, attrs asc.SubscriptionPriceCreateAttributes) (asc.Resource[asc.SubscriptionPriceAttributes], bool, error) {
+func findExistingSubscriptionSetupPrice(ctx context.Context, client *asc.Client, subID, pricePointID, territoryID string, attrs asc.SubscriptionPriceCreateAttributes) (asc.Resource[asc.SubscriptionPriceAttributes], bool, bool, error) {
 	pricePointID = strings.TrimSpace(pricePointID)
 	territoryID = strings.ToUpper(strings.TrimSpace(territoryID))
 	if pricePointID == "" {
-		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, nil
+		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, false, nil
 	}
 
 	opts := []asc.SubscriptionPricesOption{
 		asc.WithSubscriptionPricesLimit(200),
 		asc.WithSubscriptionPricesInclude([]string{"subscriptionPricePoint", "territory"}),
 	}
-	if territoryID != "" {
-		opts = append(opts, asc.WithSubscriptionPricesTerritory(territoryID))
-	}
 	firstPage, err := client.GetSubscriptionPrices(ctx, subID, opts...)
 	if err != nil {
-		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, err
+		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, false, err
 	}
 	if firstPage == nil {
-		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, nil
+		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, false, nil
 	}
 
 	var foundPrice asc.Resource[asc.SubscriptionPriceAttributes]
+	hasExistingPrices := false
 	if err := asc.PaginateEach(
 		ctx,
 		firstPage,
@@ -1022,6 +1032,7 @@ func findExistingSubscriptionSetupPrice(ctx context.Context, client *asc.Client,
 				return fmt.Errorf("unexpected subscription prices pagination type %T", page)
 			}
 			for _, price := range resp.Data {
+				hasExistingPrices = true
 				if subscriptionSetupPriceMatchesTarget(price, pricePointID, territoryID, attrs) {
 					foundPrice = price
 					return errSubscriptionsSetupExistingResourceFound
@@ -1030,9 +1041,9 @@ func findExistingSubscriptionSetupPrice(ctx context.Context, client *asc.Client,
 			return nil
 		},
 	); err != nil && !errors.Is(err, errSubscriptionsSetupExistingResourceFound) {
-		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, err
+		return asc.Resource[asc.SubscriptionPriceAttributes]{}, false, false, err
 	}
-	return foundPrice, strings.TrimSpace(foundPrice.ID) != "", nil
+	return foundPrice, strings.TrimSpace(foundPrice.ID) != "", hasExistingPrices, nil
 }
 
 func subscriptionSetupPriceMatchesTarget(price asc.Resource[asc.SubscriptionPriceAttributes], pricePointID, territoryID string, attrs asc.SubscriptionPriceCreateAttributes) bool {
