@@ -137,6 +137,26 @@ func TestReviewCommandItemsValidationErrors(t *testing.T) {
 			args:    []string{"review", "items-remove", "--id", "ITEM_ID"},
 			wantErr: "--confirm is required to remove",
 		},
+		{
+			name:    "nested review items list missing submission",
+			args:    []string{"review", "items", "list"},
+			wantErr: "--submission is required",
+		},
+		{
+			name:    "nested review items add missing item-id",
+			args:    []string{"review", "items", "add", "--submission", "SUBMISSION_ID", "--item-type", "appStoreVersions"},
+			wantErr: "--item-id is required",
+		},
+		{
+			name:    "nested review items update missing state",
+			args:    []string{"review", "items", "update", "--id", "ITEM_ID"},
+			wantErr: "--state is required",
+		},
+		{
+			name:    "nested review items remove missing confirm",
+			args:    []string{"review", "items", "remove", "--id", "ITEM_ID"},
+			wantErr: "--confirm is required to remove",
+		},
 	}
 
 	for _, test := range tests {
