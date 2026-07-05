@@ -1,12 +1,8 @@
 # web
 
-> Unofficial Apple web-session workflows for App Store Connect. Experimental, unofficial, and discouraged.
+> Apple web-session workflows for App Store Connect.
 
-The `asc web` command family automates workflows that rely on Apple's private App Store Connect web endpoints instead of the public App Store Connect API. Use this surface only when no supported API flow exists and you accept the risk that Apple can change or block these endpoints at any time.
-
-<Warning>
-  `asc web` is experimental, unofficial, and discouraged. These commands use private Apple web-session endpoints, are not sanctioned for third-party automation, can break without notice, and may put your account at risk. Prefer the public App Store Connect API and the non-`web` `asc` commands whenever those can do the job.
-</Warning>
+The `asc web` command family automates App Store Connect workflows through Apple web-session endpoints.
 
 ## Quick start
 
@@ -38,17 +34,11 @@ asc web analytics overview --app "123456789" --start 2026-01-01 --end 2026-03-31
 
 ## When to use `asc web`
 
-Use `asc web` only when one of these is true:
+Use `asc web` when one of these is true:
 
 * Apple exposes the workflow only in the App Store Connect web UI
 * the public App Store Connect API is missing the specific mutation or report you need
-* you are doing one-off or reviewer-owned operations where breakage risk is acceptable
-
-Avoid `asc web` when:
-
-* an official `asc` command already exists for the workflow
-* you need stable CI or production-critical automation
-* you need guarantees that the endpoint contract will stay consistent over time
+* you need workflows that are available in the `asc web` command family
 
 ## Session model
 
@@ -76,7 +66,7 @@ Available commands:
 
 ### `asc web apps`
 
-App management workflows over private web endpoints.
+App management workflows over Apple web-session endpoints.
 
 Available commands:
 
@@ -88,7 +78,6 @@ Notes:
 
 * `asc web apps create` is the canonical app-creation path in the `web` family
 * `asc web apps medical-device set` currently supports only `--declared false`
-* all commands in this group remain experimental and discouraged
 
 ### `asc web sandbox`
 
@@ -131,8 +120,8 @@ Available commands:
 
 ### `asc web subscriptions`
 
-Subscription sale availability and private pricing workflows over Apple
-web-session `/iris` endpoints.
+Subscription sale availability and pricing workflows over Apple web-session
+`/iris` endpoints.
 
 Available commands:
 
@@ -140,16 +129,10 @@ Available commands:
 * `asc web subscriptions pricing monthly-commitment bootstrap` - create or reuse MONTHLY availability and attach paired UPFRONT/MONTHLY prices
 * `asc web subscriptions pricing adjusted-equalizations view` - inspect Apple's adjusted price matrix for a MONTHLY subscription price point
 
-<Warning>
-  Removing an approved auto-renewable subscription from sale requires an Account Holder web session. App Store Connect rejects Admin and App Manager users for this action.
-</Warning>
+Role requirement: removing an approved auto-renewable subscription from sale requires an Account Holder web session. App Store Connect rejects Admin and App Manager users for this action.
 
-<Warning>
-  Prefer `asc subscriptions pricing monthly-commitment enable` for normal
-  monthly-commitment setup. The `asc web subscriptions pricing` commands are
-  private-endpoint escape hatches for App Store Connect's paired pricing and
-  adjusted-equalization workflows.
-</Warning>
+For standard monthly-commitment setup, use `asc subscriptions pricing monthly-commitment enable`.
+Use `asc web subscriptions pricing` for App Store Connect paired pricing and adjusted-equalization workflows.
 
 Example:
 
@@ -191,7 +174,7 @@ asc web subscriptions pricing adjusted-equalizations view \
 
 ### `asc web analytics`
 
-Recreates App Store Connect analytics dashboards using private web analytics endpoints.
+Recreates App Store Connect analytics dashboards using Apple web analytics endpoints.
 
 Available commands:
 
@@ -217,7 +200,7 @@ asc web analytics sales --app "123456789" --start 2026-01-01 --end 2026-03-31 --
 
 ### `asc web xcode-cloud`
 
-Private Xcode Cloud usage, workflow, and environment-variable management.
+Xcode Cloud usage, workflow, and environment-variable management.
 
 Available command groups:
 
@@ -233,13 +216,9 @@ asc web xcode-cloud usage summary --apple-id "user@example.com"
 asc web xcode-cloud workflows create --product-id "UUID" --file ./workflow.json --apple-id "user@example.com"
 ```
 
-## Safety notes
+## Session upkeep
 
-* Expect authentication churn; cached web sessions expire
-* prefer one-off human-driven usage over unattended automation
-* expect contract drift in request/response bodies
-* do not treat `asc web` output or behavior as stable API guarantees
-* when an official non-`web` command exists, prefer that command instead
+Cached web sessions expire. Use `asc web auth status` to inspect the current session and `asc web auth login` to refresh it.
 
 ## Discoverability
 
@@ -259,18 +238,18 @@ asc web xcode-cloud --help
 
 <CardGroup cols={2}>
   <Card title="Apps command" icon="boxes-stacked" href="/commands/apps">
-    Prefer the supported app-management surface when it can do the job
+    Browse the main app-management command family
   </Card>
 
   <Card title="Sandbox command" icon="flask" href="/commands/sandbox">
-    Compare the official sandbox command family with the web-only creation flow
+    Browse sandbox tester commands
   </Card>
 
   <Card title="Analytics command" icon="chart-line" href="/commands/analytics">
-    Use official analytics and report workflows when those meet your needs
+    Browse analytics and report workflows
   </Card>
 
   <Card title="Xcode Cloud command" icon="cloud" href="/commands/xcode-cloud">
-    Prefer the supported Xcode Cloud command family when possible
+    Browse Xcode Cloud commands
   </Card>
 </CardGroup>
