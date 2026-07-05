@@ -21,14 +21,13 @@ func WebAppsCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "apps",
 		ShortUsage: "asc web apps <subcommand> [flags]",
-		ShortHelp:  "[experimental] Unofficial app management via web sessions; canonical path for app creation.",
-		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
+		ShortHelp:  "App management via web sessions; canonical path for app creation.",
+		LongHelp: `WEB SESSION WORKFLOWS
 
 Manage app operations using Apple web sessions and internal APIs.
-This command group is detached from official App Store Connect API flows.
 Use ` + "`asc web apps create`" + ` as the canonical app-creation command.
 
-` + webWarningText,
+`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -232,13 +231,12 @@ func WebAppsCreateCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "create",
 		ShortUsage: "asc web apps create [flags]",
-		ShortHelp:  "[experimental] Create app via unofficial Apple web API.",
+		ShortHelp:  "Create app via Apple web API.",
 		LongHelp: fmt.Sprintf(
-			`EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
+			`WEB SESSION WORKFLOWS
 
-Create an app through Apple's internal web API using a web-session login.
-This is the canonical app-creation path for web-session based flows and is
-detached from official API-key workflows.
+Create an app through Apple's web API using a web-session login.
+This is the canonical app-creation path for web-session based flows.
 
 If required fields are omitted in an interactive terminal, the CLI will prompt
 for the missing app-creation inputs.
@@ -257,7 +255,7 @@ Bundle ID preflight:
   If official ASC API authentication is available, the CLI will check or create
   the Bundle ID before app creation. Otherwise it assumes the Bundle ID already exists.
 
-`+webWarningText+`
+
 
 Examples:
   asc web apps create

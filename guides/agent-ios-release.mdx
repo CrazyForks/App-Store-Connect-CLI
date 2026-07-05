@@ -13,7 +13,7 @@ state before reporting success.
 * Run `--help` for every command before using it.
 * Resolve the app ID and version target before changing anything. Resolve the
   build ID before staging or submitting.
-* Use public App Store Connect API commands before experimental web commands.
+* Use the most specific `asc` command for the workflow, including `asc web` when the operation lives there.
 * Preview supported workflows with `--dry-run`. Use `--confirm` only after
   checking every identifier available at that stage.
 * Never print credentials or personal identity values in logs or handoffs.
@@ -261,7 +261,7 @@ a review state such as `WAITING_FOR_REVIEW`, `IN_REVIEW`, or
 
 ## Web fallback
 
-Use an explicit `asc web` command only when the public API cannot perform the
-operation and the user accepts its experimental status. `asc web auth login`
-supports interactive two-factor authentication, but account-holder agreements,
+Use an explicit `asc web` command when the operation lives in the web-session
+command family. `asc web auth login` supports interactive two-factor authentication,
+but account-holder agreements,
 payment issues, CAPTCHA, and unsupported surfaces may still require the browser.
