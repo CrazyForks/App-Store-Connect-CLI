@@ -30,6 +30,7 @@ Examples:
   asc web sandbox create --first-name "Jane" --last-name "Tester" --email "jane+sandbox@example.com" --password "Passwordtest1" --territory "USA"
   asc web auth login --apple-id "user@example.com"
   asc web apps create --name "My App" --bundle-id "com.example.app" --sku "MYAPP123"
+  asc web removed-apps list --paginate
   asc web privacy plan --app "123456789" --file "./privacy.json"
   asc web review list --app "123456789" --apple-id "user@example.com"
   asc web review show --app "123456789" --apple-id "user@example.com"
@@ -42,6 +43,7 @@ Examples:
 			WebAuthCommand(),
 			WebSandboxCommand(),
 			WebAppsCommand(),
+			WebRemovedAppsCommand(),
 			WebBundleIDsCommand(),
 			WebPrivacyCommand(),
 			WebReviewCommand(),
