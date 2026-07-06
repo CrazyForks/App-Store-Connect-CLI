@@ -124,6 +124,9 @@ func validateRemovedAppsNextURL(next string) error {
 	if parsed.Scheme != "https" || !strings.EqualFold(parsed.Host, "appstoreconnect.apple.com") || parsed.EscapedPath() != "/iris/v1/apps" {
 		return fmt.Errorf("--next must be an App Store Connect web URL")
 	}
+	if parsed.Query().Get("filter[removed]") != "true" {
+		return fmt.Errorf("--next must include filter[removed]=true")
+	}
 	return nil
 }
 

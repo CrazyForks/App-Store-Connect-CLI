@@ -140,6 +140,7 @@ func TestWebRemovedAppsListValidationErrors(t *testing.T) {
 		{name: "limit low", args: []string{"--limit", "0"}, wantErr: "--limit must be between 1 and 200"},
 		{name: "next with paginate", args: []string{"--next", "https://appstoreconnect.apple.com/iris/v1/apps?page=2", "--paginate"}, wantErr: "--next cannot be combined with --paginate"},
 		{name: "bad next host", args: []string{"--next", "https://example.com/iris/v1/apps?page=2"}, wantErr: "--next must be an App Store Connect web URL"},
+		{name: "next missing removed filter", args: []string{"--next", "https://appstoreconnect.apple.com/iris/v1/apps?limit=48"}, wantErr: "--next must include filter[removed]=true"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

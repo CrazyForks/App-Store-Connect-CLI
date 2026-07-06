@@ -92,6 +92,9 @@ func (c *Client) ListRemovedApps(ctx context.Context, opts RemovedAppsListOption
 		if err != nil {
 			return nil, err
 		}
+		if err := validateRemovedAppsNextPath(nextPath); err != nil {
+			return nil, err
+		}
 		path = nextPath
 	}
 
@@ -101,7 +104,7 @@ func (c *Client) ListRemovedApps(ctx context.Context, opts RemovedAppsListOption
 func (c *Client) removedAppsListPath(opts RemovedAppsListOptions) (string, error) {
 	next := strings.TrimSpace(opts.Next)
 	if next != "" {
-		return normalizeNextPath(next, c.baseURL)
+		return removedAppsNextPath(next, c.baseURL)
 	}
 
 	limit := opts.Limit
@@ -120,6 +123,35 @@ func (c *Client) removedAppsListPath(opts RemovedAppsListOptions) (string, error
 	values.Set("fields[appStoreVersions]", "platform,versionString,appStoreState,storeIcon,watchStoreIcon,isWatchOnly,createdDate,appVersionState")
 	values.Set("limit[displayableVersions]", strconv.Itoa(removedAppsDisplayableVersionMax))
 	return "/apps?" + values.Encode(), nil
+}
+
+func removedAppsNextPath(next, baseURL string) (string, error) {
+	path, err := normalizeNextPath(next, baseURL)
+	if err != nil {
+		return "", err
+	}
+	if err := validateRemovedAppsNextPath(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func validateRemovedAppsNextPath(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	parsed, err := url.Parse(path)
+	if err != nil {
+		return fmt.Errorf("invalid removed apps next link: %w", err)
+	}
+	if parsed.EscapedPath() != "/apps" {
+		return fmt.Errorf("removed apps next link must point to /apps")
+	}
+	if parsed.Query().Get("filter[removed]") != "true" {
+		return fmt.Errorf("removed apps next link must include filter[removed]=true")
+	}
+	return nil
 }
 
 type removedAppsPage struct {

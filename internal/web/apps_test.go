@@ -202,10 +202,10 @@ func TestListRemovedAppsPaginatesNextLinks(t *testing.T) {
 					"id": "app-1",
 					"attributes": {"name": "First", "removed": true}
 				}],
-				"links": {"next": "` + serverURL + `/iris/v1/apps?page=2"}
+				"links": {"next": "` + serverURL + `/iris/v1/apps?filter[removed]=true&page=2"}
 			}`))
 		case 2:
-			if r.URL.Path != "/iris/v1/apps" || r.URL.Query().Get("page") != "2" {
+			if r.URL.Path != "/iris/v1/apps" || r.URL.Query().Get("filter[removed]") != "true" || r.URL.Query().Get("page") != "2" {
 				t.Fatalf("expected second request to follow next link, got %s?%s", r.URL.Path, r.URL.RawQuery)
 			}
 			_, _ = w.Write([]byte(`{
@@ -239,5 +239,21 @@ func TestListRemovedAppsPaginatesNextLinks(t *testing.T) {
 	}
 	if requests != 2 {
 		t.Fatalf("expected 2 requests, got %d", requests)
+	}
+}
+
+func TestListRemovedAppsRejectsNextWithoutRemovedFilter(t *testing.T) {
+	client := &Client{
+		httpClient: http.DefaultClient,
+		baseURL:    "https://appstoreconnect.apple.com/iris/v1",
+	}
+	_, err := client.ListRemovedApps(context.Background(), RemovedAppsListOptions{
+		Next: "https://appstoreconnect.apple.com/iris/v1/apps?limit=48",
+	})
+	if err == nil {
+		t.Fatal("expected missing removed filter error")
+	}
+	if !strings.Contains(err.Error(), "filter[removed]=true") {
+		t.Fatalf("expected removed filter error, got %v", err)
 	}
 }
