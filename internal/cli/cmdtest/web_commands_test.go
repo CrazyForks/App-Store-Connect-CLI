@@ -49,6 +49,13 @@ func TestWebAppsCreateSubcommandIsRegistered(t *testing.T) {
 	}
 }
 
+func TestWebRemovedAppsListSubcommandIsRegistered(t *testing.T) {
+	root := RootCommand("1.2.3")
+	if sub := findSubcommand(root, "web", "removed-apps", "list"); sub == nil {
+		t.Fatalf("expected web removed-apps list to be registered")
+	}
+}
+
 func TestWebAppsMedicalDeviceSetSubcommandIsRegistered(t *testing.T) {
 	root := RootCommand("1.2.3")
 	if sub := findSubcommand(root, "web", "apps", "medical-device", "set"); sub == nil {
