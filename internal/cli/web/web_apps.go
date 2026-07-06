@@ -32,6 +32,7 @@ Use ` + "`asc web apps create`" + ` as the canonical app-creation command.
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			WebAppsCreateCommand(),
+			WebAppsDeleteCommand(),
 			WebAppsAvailabilityCommand(),
 			WebAppsCompatibilityCommand(),
 			WebAppsMedicalDeviceCommand(),
@@ -50,6 +51,15 @@ var (
 	deleteBundleIDFn = deleteBundleIDByIdentifier
 	createWebAppFn   = func(ctx context.Context, client *webcore.Client, attrs webcore.AppCreateAttributes) (*webcore.AppResponse, error) {
 		return client.CreateApp(ctx, attrs)
+	}
+	findWebAppFn = func(ctx context.Context, client *webcore.Client, bundleID string) (*webcore.AppResponse, error) {
+		return client.FindApp(ctx, bundleID)
+	}
+	getWebAppFn = func(ctx context.Context, client *webcore.Client, appID string) (*webcore.AppResponse, error) {
+		return client.GetApp(ctx, appID)
+	}
+	deleteWebAppFn = func(ctx context.Context, client *webcore.Client, appID string) (*webcore.AppResponse, error) {
+		return client.DeleteApp(ctx, appID)
 	}
 )
 
