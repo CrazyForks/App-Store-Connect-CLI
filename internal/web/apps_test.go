@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,6 +91,53 @@ func TestFindAppEscapesBundleIDQuery(t *testing.T) {
 	}
 	if !strings.Contains(gotRawQuery, "filter%5BbundleId%5D=") && !strings.Contains(gotRawQuery, "filter[bundleId]=") {
 		t.Fatalf("expected bundleId filter query, got %q", gotRawQuery)
+	}
+}
+
+func TestDeleteAppSendsRemovedPatch(t *testing.T) {
+	var gotMethod, gotPath, gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		_, _ = w.Write([]byte(`{"data":{"type":"apps","id":"1234567890","attributes":{"name":"Throwaway","bundleId":"com.example.throwaway","removed":true}}}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		httpClient: server.Client(),
+		baseURL:    server.URL,
+	}
+	app, err := client.DeleteApp(context.Background(), "1234567890")
+	if err != nil {
+		t.Fatalf("DeleteApp error: %v", err)
+	}
+	if gotMethod != http.MethodPatch {
+		t.Fatalf("expected PATCH, got %s", gotMethod)
+	}
+	if gotPath != "/apps/1234567890" {
+		t.Fatalf("expected /apps/1234567890, got %s", gotPath)
+	}
+	for _, want := range []string{
+		`"type":"apps"`,
+		`"id":"1234567890"`,
+		`"removed":true`,
+	} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("expected request body to contain %s, got %s", want, gotBody)
+		}
+	}
+	if app == nil || app.Data.ID != "1234567890" {
+		t.Fatalf("expected app response id, got %+v", app)
+	}
+}
+
+func TestDeleteAppRequiresID(t *testing.T) {
+	client := &Client{}
+	if _, err := client.DeleteApp(context.Background(), "  "); err == nil {
+		t.Fatal("expected missing app id error")
 	}
 }
 
