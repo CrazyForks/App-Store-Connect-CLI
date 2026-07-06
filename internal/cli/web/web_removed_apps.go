@@ -50,7 +50,7 @@ func WebRemovedAppsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("web removed-apps list", flag.ExitOnError)
 
 	authFlags := bindWebSessionFlags(fs)
-	limit := fs.Int("limit", 48, "Maximum results per page (1-200)")
+	limit := fs.Int("limit", webcore.DefaultRemovedAppsLimit, fmt.Sprintf("Maximum results per page (1-%d)", webcore.MaxRemovedAppsLimit))
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
 	output := shared.BindOutputFlags(fs)
@@ -73,8 +73,8 @@ Examples:
 			if len(args) > 0 {
 				return shared.UsageError("web removed-apps list does not accept positional arguments")
 			}
-			if *limit < 1 || *limit > 200 {
-				return shared.UsageError("web removed-apps list: --limit must be between 1 and 200")
+			if *limit < 1 || *limit > webcore.MaxRemovedAppsLimit {
+				return shared.UsageError(fmt.Sprintf("web removed-apps list: --limit must be between 1 and %d", webcore.MaxRemovedAppsLimit))
 			}
 			nextValue := strings.TrimSpace(*next)
 			if nextValue != "" && *paginate {

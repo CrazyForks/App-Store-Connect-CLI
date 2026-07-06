@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	defaultRemovedAppsLimit          = 48
-	maxRemovedAppsLimit              = 200
+	// DefaultRemovedAppsLimit is the default page size for removed-apps listing.
+	DefaultRemovedAppsLimit = 48
+	// MaxRemovedAppsLimit is the largest accepted page size for removed-apps listing.
+	MaxRemovedAppsLimit              = 200
 	removedAppsDisplayableVersionMax = 20
 )
 
@@ -109,10 +111,10 @@ func (c *Client) removedAppsListPath(opts RemovedAppsListOptions) (string, error
 
 	limit := opts.Limit
 	if limit == 0 {
-		limit = defaultRemovedAppsLimit
+		limit = DefaultRemovedAppsLimit
 	}
-	if limit < 1 || limit > maxRemovedAppsLimit {
-		return "", fmt.Errorf("limit must be between 1 and 200")
+	if limit < 1 || limit > MaxRemovedAppsLimit {
+		return "", fmt.Errorf("limit must be between 1 and %d", MaxRemovedAppsLimit)
 	}
 
 	values := url.Values{}
