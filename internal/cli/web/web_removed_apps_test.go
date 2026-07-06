@@ -140,6 +140,7 @@ func TestWebRemovedAppsListValidationErrors(t *testing.T) {
 		{name: "limit low", args: []string{"--limit", "0"}, wantErr: "--limit must be between 1 and 200"},
 		{name: "next with paginate", args: []string{"--next", "https://appstoreconnect.apple.com/iris/v1/apps?page=2", "--paginate"}, wantErr: "--next cannot be combined with --paginate"},
 		{name: "bad next host", args: []string{"--next", "https://example.com/iris/v1/apps?page=2"}, wantErr: "--next must be an App Store Connect web URL"},
+		{name: "protocol relative next host", args: []string{"--next", "//example.com/iris/v1/apps?filter[removed]=true"}, wantErr: "--next must be an App Store Connect web URL"},
 		{name: "next missing removed filter", args: []string{"--next", "https://appstoreconnect.apple.com/iris/v1/apps?limit=48"}, wantErr: "--next must include filter[removed]=true"},
 	}
 	for _, tc := range tests {
@@ -156,6 +157,20 @@ func TestWebRemovedAppsListValidationErrors(t *testing.T) {
 			})
 			if !strings.Contains(stderr, tc.wantErr) {
 				t.Fatalf("expected stderr to contain %q, got %q", tc.wantErr, stderr)
+			}
+		})
+	}
+}
+
+func TestValidateRemovedAppsNextURLAcceptsSafeRelativeLinks(t *testing.T) {
+	for _, next := range []string{
+		"/iris/v1/apps?filter[removed]=true&cursor=abc",
+		"/apps?filter[removed]=true&cursor=abc",
+		"https://appstoreconnect.apple.com/iris/v1/apps?filter[removed]=true&cursor=abc",
+	} {
+		t.Run(next, func(t *testing.T) {
+			if err := validateRemovedAppsNextURL(next); err != nil {
+				t.Fatalf("expected %q to validate, got %v", next, err)
 			}
 		})
 	}
