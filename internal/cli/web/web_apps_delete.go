@@ -177,9 +177,9 @@ func webAppDeleteResultFromResponse(appID string, deleted, fallback *webcore.App
 	if source != nil {
 		result.Name = webAppAttrString(source, "name")
 		result.BundleID = webAppAttrString(source, "bundleId")
-		if removed, ok := webAppAttrBool(source, "removed"); ok {
-			result.Removed = removed
-		}
+	}
+	if removed, ok := webAppAttrBool(deleted, "removed"); ok {
+		result.Removed = removed
 	}
 	return result
 }

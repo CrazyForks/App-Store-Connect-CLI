@@ -1258,6 +1258,35 @@ func TestWebAppsDeleteByBundleID(t *testing.T) {
 	}
 }
 
+func TestWebAppsDeleteResultKeepsRemovedTrueWhenDeleteResponseOmitsAttributes(t *testing.T) {
+	deleted := &webcore.AppResponse{}
+	deleted.Data.ID = "1234567890"
+	deleted.Data.Type = "apps"
+
+	fallback := &webcore.AppResponse{}
+	fallback.Data.ID = "1234567890"
+	fallback.Data.Type = "apps"
+	fallback.Data.Attributes = map[string]any{
+		"name":     "Throwaway",
+		"bundleId": "com.example.throwaway",
+		"removed":  false,
+	}
+
+	result := webAppDeleteResultFromResponse("1234567890", deleted, fallback)
+	if result.AppID != "1234567890" {
+		t.Fatalf("expected app ID from delete response, got %q", result.AppID)
+	}
+	if result.Name != "Throwaway" {
+		t.Fatalf("expected fallback name, got %q", result.Name)
+	}
+	if result.BundleID != "com.example.throwaway" {
+		t.Fatalf("expected fallback bundle ID, got %q", result.BundleID)
+	}
+	if !result.Removed {
+		t.Fatal("expected removed to stay true when delete response omits attributes")
+	}
+}
+
 func TestWebAppsDeleteBundleIDLookupMismatchStopsBeforeDelete(t *testing.T) {
 	restoreSession := SetResolveWebSession(func(ctx context.Context, appleID, password, twoFactorCode string) (*webcore.AuthSession, string, error) {
 		return &webcore.AuthSession{}, "cache", nil
