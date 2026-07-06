@@ -1298,7 +1298,16 @@ func TestWebAppsDeleteBundleIDLookupMismatchStopsBeforeDelete(t *testing.T) {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	err := cmd.Exec(context.Background(), nil)
+	var err error
+	stdout, stderr := captureOutput(t, func() {
+		err = cmd.Exec(context.Background(), nil)
+	})
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
 	if err == nil {
 		t.Fatal("expected bundle lookup mismatch error")
 	}
@@ -1348,7 +1357,16 @@ func TestWebAppsDeleteExpectedBundleIDMismatchStopsBeforeDelete(t *testing.T) {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	err := cmd.Exec(context.Background(), nil)
+	var err error
+	stdout, stderr := captureOutput(t, func() {
+		err = cmd.Exec(context.Background(), nil)
+	})
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
 	if err == nil {
 		t.Fatal("expected guard mismatch error")
 	}
@@ -1370,7 +1388,16 @@ func TestWebAppsDeleteRequiresConfirmBeforeResolvingSession(t *testing.T) {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	err := cmd.Exec(context.Background(), nil)
+	var err error
+	stdout, stderr := captureOutput(t, func() {
+		err = cmd.Exec(context.Background(), nil)
+	})
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "--confirm is required") {
+		t.Fatalf("expected confirm stderr, got %q", stderr)
+	}
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected usage error, got %v", err)
 	}
