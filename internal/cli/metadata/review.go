@@ -297,9 +297,16 @@ func ExecuteMetadataApprove(opts MetadataApproveOptions) (MetadataApprovalArtifa
 	if err != nil {
 		return MetadataApprovalArtifact{}, err
 	}
-	pendingKeys := diffMetadataKeys(allKeys, approvedKeys)
 	planPath := filepath.Join(reviewDir, metadataPlanFileName)
 	approvalPath := filepath.Join(reviewDir, metadataApprovalFileName)
+	existingApproval, err := readMetadataApprovalArtifact(approvalPath)
+	if err != nil && !os.IsNotExist(err) {
+		return MetadataApprovalArtifact{}, err
+	}
+	if err == nil && existingApproval.PlanHash == plan.PlanHash {
+		approvedKeys = mergeMetadataApprovalKeys(allKeys, existingApproval.ApprovedKeys, approvedKeys)
+	}
+	pendingKeys := diffMetadataKeys(allKeys, approvedKeys)
 	approval := MetadataApprovalArtifact{
 		SchemaVersion: metadataReviewSchemaV1,
 		ApprovedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -379,14 +386,17 @@ func VerifyApprovedMetadataPlan(opts PushExecutionOptions, currentPlan PushPlanR
 	if err != nil {
 		return fmt.Errorf("metadata apply: hash current plan: %w", err)
 	}
+	planKeys := metadataPlanKeys(metadataPlanItems(plan.Plan))
 	currentKeys := metadataPlanKeys(metadataPlanItems(currentPlan))
+	if currentHash != plan.PlanHash {
+		return shared.UsageError("approved metadata plan drifted; rerun asc metadata plan and asc metadata approve")
+	}
+	if len(planKeys) == 0 && len(currentKeys) == 0 {
+		return nil
+	}
 	approval, err := readMetadataApprovalArtifact(filepath.Join(resolvedReviewDir, metadataApprovalFileName))
 	if err != nil {
 		if os.IsNotExist(err) {
-			planKeys := metadataPlanKeys(metadataPlanItems(plan.Plan))
-			if len(planKeys) == 0 && len(currentKeys) == 0 && currentHash == plan.PlanHash {
-				return nil
-			}
 			return shared.UsageError("approved metadata plan is missing; run asc metadata approve first")
 		}
 		return err
@@ -395,9 +405,6 @@ func VerifyApprovedMetadataPlan(opts PushExecutionOptions, currentPlan PushPlanR
 		return shared.UsageError("approved metadata plan hash does not match plan.json; rerun asc metadata approve")
 	}
 
-	if currentHash != plan.PlanHash {
-		return shared.UsageError("approved metadata plan drifted; rerun asc metadata plan and asc metadata approve")
-	}
 	pendingKeys := diffMetadataKeys(currentKeys, approval.ApprovedKeys)
 	if len(pendingKeys) > 0 {
 		return shared.UsageErrorf("approved metadata plan is incomplete; pending key(s): %s", strings.Join(pendingKeys, ", "))
@@ -624,6 +631,30 @@ func intersectMetadataKeys(all []string, approved []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func mergeMetadataApprovalKeys(all []string, existing []string, selected []string) []string {
+	allSet := make(map[string]struct{}, len(all))
+	for _, key := range all {
+		allSet[key] = struct{}{}
+	}
+	mergedSet := make(map[string]struct{}, len(existing)+len(selected))
+	for _, key := range existing {
+		if _, ok := allSet[key]; ok {
+			mergedSet[key] = struct{}{}
+		}
+	}
+	for _, key := range selected {
+		if _, ok := allSet[key]; ok {
+			mergedSet[key] = struct{}{}
+		}
+	}
+	merged := make([]string, 0, len(mergedSet))
+	for key := range mergedSet {
+		merged = append(merged, key)
+	}
+	sort.Strings(merged)
+	return merged
 }
 
 func printMetadataPlanArtifactTable(artifact MetadataPlanArtifact, markdown bool) error {

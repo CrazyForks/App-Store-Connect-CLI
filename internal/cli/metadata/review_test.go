@@ -62,6 +62,98 @@ func TestReadMetadataPlanArtifactRejectsMismatchedHash(t *testing.T) {
 	}
 }
 
+func TestMetadataApproveMergesExistingApprovalForSamePlan(t *testing.T) {
+	reviewDir := t.TempDir()
+	plan := metadataReviewTestPlan(t, reviewDir)
+	plan.Plan.Updates = append(plan.Plan.Updates, PlanItem{
+		Key:    "app-info:en-US:name",
+		Scope:  appInfoDirName,
+		Locale: "en-US",
+		Field:  "name",
+		Reason: "field differs",
+		From:   "Outslept",
+		To:     "Outslept: Sleep Scores",
+	})
+	updateMetadataReviewTestPlanHash(t, &plan)
+	if err := writeMetadataReviewJSON(filepath.Join(reviewDir, metadataPlanFileName), plan); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+
+	first, err := ExecuteMetadataApprove(MetadataApproveOptions{
+		ReviewDir: reviewDir,
+		Key:       "app-info:en-US:subtitle",
+	})
+	if err != nil {
+		t.Fatalf("approve first key: %v", err)
+	}
+	if len(first.ApprovedKeys) != 1 || first.ApprovedKeys[0] != "app-info:en-US:subtitle" {
+		t.Fatalf("unexpected first approval: %+v", first.ApprovedKeys)
+	}
+
+	second, err := ExecuteMetadataApprove(MetadataApproveOptions{
+		ReviewDir: reviewDir,
+		Key:       "app-info:en-US:name",
+	})
+	if err != nil {
+		t.Fatalf("approve second key: %v", err)
+	}
+	want := []string{"app-info:en-US:name", "app-info:en-US:subtitle"}
+	if strings.Join(second.ApprovedKeys, ",") != strings.Join(want, ",") {
+		t.Fatalf("expected merged approvals %v, got %v", want, second.ApprovedKeys)
+	}
+	status, err := ExecuteMetadataReviewStatus(reviewDir)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.Ready || status.PendingCount != 0 || status.ApprovedCount != 2 {
+		t.Fatalf("expected merged approvals to be ready, got %+v", status)
+	}
+}
+
+func TestVerifyApprovedMetadataPlanReportsDriftBeforeMissingApproval(t *testing.T) {
+	reviewDir := t.TempDir()
+	plan := metadataReviewTestPlan(t, reviewDir)
+	if err := writeMetadataReviewJSON(filepath.Join(reviewDir, metadataPlanFileName), plan); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+
+	currentPlan := plan.Plan
+	currentPlan.Updates[0].To = "Drifted after planning"
+	err := VerifyApprovedMetadataPlan(metadataReviewTestPushOptions(plan.Plan), currentPlan, reviewDir)
+	if err == nil {
+		t.Fatal("expected drift error")
+	}
+	if !strings.Contains(err.Error(), "approved metadata plan drifted") {
+		t.Fatalf("expected drift error, got %v", err)
+	}
+}
+
+func TestVerifyApprovedMetadataPlanAllowsEmptyPlanWithStaleApproval(t *testing.T) {
+	reviewDir := t.TempDir()
+	plan := metadataReviewTestPlan(t, reviewDir)
+	plan.Plan.Updates = nil
+	updateMetadataReviewTestPlanHash(t, &plan)
+	if err := writeMetadataReviewJSON(filepath.Join(reviewDir, metadataPlanFileName), plan); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	staleApproval := MetadataApprovalArtifact{
+		SchemaVersion: metadataReviewSchemaV1,
+		ApprovedAt:    time.Now().UTC().Format(time.RFC3339),
+		PlanHash:      "stale-plan-hash",
+		ReviewDir:     reviewDir,
+		PlanPath:      filepath.Join(reviewDir, metadataPlanFileName),
+		ApprovalPath:  filepath.Join(reviewDir, metadataApprovalFileName),
+		Mode:          metadataApprovalAllOption,
+	}
+	if err := writeMetadataReviewJSON(filepath.Join(reviewDir, metadataApprovalFileName), staleApproval); err != nil {
+		t.Fatalf("write stale approval: %v", err)
+	}
+
+	if err := VerifyApprovedMetadataPlan(metadataReviewTestPushOptions(plan.Plan), plan.Plan, reviewDir); err != nil {
+		t.Fatalf("expected empty plan with stale approval to be ready: %v", err)
+	}
+}
+
 func metadataReviewTestPlan(t *testing.T, reviewDir string) MetadataPlanArtifact {
 	t.Helper()
 	result := PushPlanResult{
@@ -104,5 +196,28 @@ func metadataReviewTestPlan(t *testing.T, reviewDir string) MetadataPlanArtifact
 		PlanHash:      planHash,
 		Options:       options,
 		Plan:          result,
+	}
+}
+
+func updateMetadataReviewTestPlanHash(t *testing.T, plan *MetadataPlanArtifact) {
+	t.Helper()
+	options := metadataPlanOptionsFromPush(metadataReviewTestPushOptions(plan.Plan), plan.Plan)
+	planHash, err := hashMetadataPlan(options, plan.Plan)
+	if err != nil {
+		t.Fatalf("hash plan: %v", err)
+	}
+	plan.Options = options
+	plan.PlanHash = planHash
+}
+
+func metadataReviewTestPushOptions(plan PushPlanResult) PushExecutionOptions {
+	return PushExecutionOptions{
+		AppID:        plan.AppID,
+		AppInfoID:    plan.AppInfoID,
+		Version:      plan.Version,
+		Dir:          plan.Dir,
+		Include:      strings.Join(plan.Includes, ","),
+		DryRun:       true,
+		AllowDeletes: false,
 	}
 }
