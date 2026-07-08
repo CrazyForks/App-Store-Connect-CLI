@@ -298,20 +298,22 @@ func ExecuteMetadataApprove(opts MetadataApproveOptions) (MetadataApprovalArtifa
 		return MetadataApprovalArtifact{}, err
 	}
 	pendingKeys := diffMetadataKeys(allKeys, approvedKeys)
+	planPath := filepath.Join(reviewDir, metadataPlanFileName)
+	approvalPath := filepath.Join(reviewDir, metadataApprovalFileName)
 	approval := MetadataApprovalArtifact{
 		SchemaVersion: metadataReviewSchemaV1,
 		ApprovedAt:    time.Now().UTC().Format(time.RFC3339),
 		PlanHash:      plan.PlanHash,
 		ReviewDir:     reviewDir,
-		PlanPath:      plan.PlanPath,
-		ApprovalPath:  plan.ApprovalPath,
+		PlanPath:      planPath,
+		ApprovalPath:  approvalPath,
 		Mode:          mode,
 		Note:          strings.TrimSpace(opts.Note),
 		ApprovedKeys:  approvedKeys,
 		PendingKeys:   pendingKeys,
 	}
-	if err := writeMetadataReviewJSON(plan.ApprovalPath, approval); err != nil {
-		return MetadataApprovalArtifact{}, fmt.Errorf("metadata approve: write %s: %w", plan.ApprovalPath, err)
+	if err := writeMetadataReviewJSON(approvalPath, approval); err != nil {
+		return MetadataApprovalArtifact{}, fmt.Errorf("metadata approve: write %s: %w", approvalPath, err)
 	}
 	return approval, nil
 }
@@ -474,6 +476,13 @@ func readMetadataPlanArtifact(path string) (MetadataPlanArtifact, error) {
 	}
 	if strings.TrimSpace(artifact.PlanHash) == "" {
 		return MetadataPlanArtifact{}, shared.UsageError("metadata plan artifact is missing planHash")
+	}
+	actualHash, err := hashMetadataPlan(artifact.Options, artifact.Plan)
+	if err != nil {
+		return MetadataPlanArtifact{}, fmt.Errorf("metadata plan: hash %s: %w", path, err)
+	}
+	if actualHash != artifact.PlanHash {
+		return MetadataPlanArtifact{}, shared.UsageError("metadata plan artifact planHash does not match its contents; rerun asc metadata plan")
 	}
 	return artifact, nil
 }
