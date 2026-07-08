@@ -62,6 +62,257 @@ func TestMetadataApplyValidationErrors(t *testing.T) {
 	}
 }
 
+func TestMetadataPlanApproveStatusAndApplyReviewDir(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	t.Setenv("ASC_APP_ID", "")
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "app-info"), 0o755); err != nil {
+		t.Fatalf("mkdir app-info: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app-info", "en-US.json"), []byte(`{"name":"Outslept","subtitle":"Sleep debt recovery"}`), 0o644); err != nil {
+		t.Fatalf("write app-info metadata: %v", err)
+	}
+
+	reviewDir := filepath.Join(t.TempDir(), "review")
+	patches := 0
+	withMetadataReviewHTTP(t, func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/v1/apps/app-1/appInfos":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appInfos","id":"appinfo-1","attributes":{"state":"PREPARE_FOR_SUBMISSION"}}]}`), nil
+		case "/v1/apps/app-1/appStoreVersions":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"version-1","attributes":{"versionString":"1.2.3","platform":"IOS"}}],"links":{"next":""}}`), nil
+		case "/v1/appInfos/appinfo-1/appInfoLocalizations":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appInfoLocalizations","id":"loc-en","attributes":{"locale":"en-US","name":"Outslept","subtitle":"Sleep tracker"}}],"links":{"next":""}}`), nil
+		case "/v1/appStoreVersions/version-1/appStoreVersionLocalizations":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
+		case "/v1/appInfoLocalizations/loc-en":
+			if req.Method != http.MethodPatch {
+				t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+			}
+			patches++
+			assertMetadataPatchPayload(t, req, "appInfoLocalizations", "loc-en", map[string]string{
+				"name":     "Outslept",
+				"subtitle": "Sleep debt recovery",
+			})
+			return jsonHTTPResponse(http.StatusOK, `{"data":{"type":"appInfoLocalizations","id":"loc-en","attributes":{"locale":"en-US","name":"Outslept","subtitle":"Sleep debt recovery"}}}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+			return nil, nil
+		}
+	})
+
+	planStdout := runMetadataReviewCommand(t, []string{
+		"metadata", "plan",
+		"--app", "app-1",
+		"--version", "1.2.3",
+		"--platform", "IOS",
+		"--dir", dir,
+		"--review-dir", reviewDir,
+		"--output", "json",
+		"--pretty",
+	})
+	var planOut struct {
+		PlanHash string `json:"planHash"`
+		PlanPath string `json:"planPath"`
+		Plan     struct {
+			Updates []struct {
+				Key string `json:"key"`
+			} `json:"updates"`
+		} `json:"plan"`
+	}
+	if err := json.Unmarshal([]byte(planStdout), &planOut); err != nil {
+		t.Fatalf("parse plan output: %v\n%s", err, planStdout)
+	}
+	if planOut.PlanHash == "" || planOut.PlanPath != filepath.Join(reviewDir, "plan.json") {
+		t.Fatalf("unexpected plan artifact identity: %+v", planOut)
+	}
+	if len(planOut.Plan.Updates) != 1 || planOut.Plan.Updates[0].Key != "app-info:en-US:subtitle" {
+		t.Fatalf("unexpected planned updates: %+v", planOut.Plan.Updates)
+	}
+	if _, err := os.Stat(filepath.Join(reviewDir, "plan.json")); err != nil {
+		t.Fatalf("expected plan artifact: %v", err)
+	}
+	if patches != 0 {
+		t.Fatalf("plan must not mutate, patches=%d", patches)
+	}
+
+	approveStdout := runMetadataReviewCommand(t, []string{
+		"metadata", "approve",
+		"--review-dir", reviewDir,
+		"--all",
+		"--note", "reviewed by test",
+		"--output", "json",
+		"--pretty",
+	})
+	var approvalOut struct {
+		PlanHash     string   `json:"planHash"`
+		ApprovedKeys []string `json:"approvedKeys"`
+	}
+	if err := json.Unmarshal([]byte(approveStdout), &approvalOut); err != nil {
+		t.Fatalf("parse approval output: %v\n%s", err, approveStdout)
+	}
+	if approvalOut.PlanHash != planOut.PlanHash || len(approvalOut.ApprovedKeys) != 1 || approvalOut.ApprovedKeys[0] != "app-info:en-US:subtitle" {
+		t.Fatalf("unexpected approval output: %+v", approvalOut)
+	}
+	if _, err := os.Stat(filepath.Join(reviewDir, "approved.json")); err != nil {
+		t.Fatalf("expected approval artifact: %v", err)
+	}
+
+	statusStdout := runMetadataReviewCommand(t, []string{
+		"metadata", "status",
+		"--review-dir", reviewDir,
+		"--output", "json",
+		"--pretty",
+	})
+	var statusOut struct {
+		Ready         bool `json:"ready"`
+		ApprovedCount int  `json:"approvedCount"`
+		PendingCount  int  `json:"pendingCount"`
+	}
+	if err := json.Unmarshal([]byte(statusStdout), &statusOut); err != nil {
+		t.Fatalf("parse status output: %v\n%s", err, statusStdout)
+	}
+	if !statusOut.Ready || statusOut.ApprovedCount != 1 || statusOut.PendingCount != 0 {
+		t.Fatalf("unexpected status output: %+v", statusOut)
+	}
+
+	applyStdout := runMetadataReviewCommand(t, []string{
+		"metadata", "apply",
+		"--app", "app-1",
+		"--version", "1.2.3",
+		"--platform", "IOS",
+		"--dir", dir,
+		"--review-dir", reviewDir,
+		"--confirm",
+		"--output", "json",
+	})
+	var applyOut struct {
+		Applied   bool `json:"applied"`
+		Total     int  `json:"total"`
+		Succeeded int  `json:"succeeded"`
+		Failed    int  `json:"failed"`
+	}
+	if err := json.Unmarshal([]byte(applyStdout), &applyOut); err != nil {
+		t.Fatalf("parse apply output: %v\n%s", err, applyStdout)
+	}
+	if !applyOut.Applied || applyOut.Total != 1 || applyOut.Succeeded != 1 || applyOut.Failed != 0 || patches != 1 {
+		t.Fatalf("unexpected apply output=%+v patches=%d", applyOut, patches)
+	}
+}
+
+func TestMetadataApplyReviewDirRejectsDriftBeforeMutation(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	t.Setenv("ASC_APP_ID", "")
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "app-info"), 0o755); err != nil {
+		t.Fatalf("mkdir app-info: %v", err)
+	}
+	metadataPath := filepath.Join(dir, "app-info", "en-US.json")
+	if err := os.WriteFile(metadataPath, []byte(`{"name":"Outslept","subtitle":"Sleep debt recovery"}`), 0o644); err != nil {
+		t.Fatalf("write app-info metadata: %v", err)
+	}
+
+	reviewDir := filepath.Join(t.TempDir(), "review")
+	mutations := 0
+	withMetadataReviewHTTP(t, func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet {
+			mutations++
+		}
+		switch req.URL.Path {
+		case "/v1/apps/app-1/appInfos":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appInfos","id":"appinfo-1","attributes":{"state":"PREPARE_FOR_SUBMISSION"}}]}`), nil
+		case "/v1/apps/app-1/appStoreVersions":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"version-1","attributes":{"versionString":"1.2.3","platform":"IOS"}}],"links":{"next":""}}`), nil
+		case "/v1/appInfos/appinfo-1/appInfoLocalizations":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appInfoLocalizations","id":"loc-en","attributes":{"locale":"en-US","name":"Outslept","subtitle":"Sleep tracker"}}],"links":{"next":""}}`), nil
+		case "/v1/appStoreVersions/version-1/appStoreVersionLocalizations":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+			return nil, nil
+		}
+	})
+
+	_ = runMetadataReviewCommand(t, []string{
+		"metadata", "plan",
+		"--app", "app-1",
+		"--version", "1.2.3",
+		"--dir", dir,
+		"--review-dir", reviewDir,
+		"--output", "json",
+	})
+	_ = runMetadataReviewCommand(t, []string{
+		"metadata", "approve",
+		"--review-dir", reviewDir,
+		"--all",
+		"--output", "json",
+	})
+	if err := os.WriteFile(metadataPath, []byte(`{"name":"Outslept","subtitle":"Sleep debt and bedtime"}`), 0o644); err != nil {
+		t.Fatalf("write drifted app-info metadata: %v", err)
+	}
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"metadata", "apply",
+			"--app", "app-1",
+			"--version", "1.2.3",
+			"--dir", dir,
+			"--review-dir", reviewDir,
+			"--confirm",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if !errors.Is(runErr, flag.ErrHelp) {
+		t.Fatalf("expected usage error, got %T: %v", runErr, runErr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "approved metadata plan drifted") {
+		t.Fatalf("expected drift error, got %q", stderr)
+	}
+	if mutations != 0 {
+		t.Fatalf("expected no mutation before drift rejection, got %d", mutations)
+	}
+}
+
+func withMetadataReviewHTTP(t *testing.T, fn roundTripFunc) {
+	t.Helper()
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	http.DefaultTransport = fn
+}
+
+func runMetadataReviewCommand(t *testing.T, args []string) string {
+	t.Helper()
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse(args); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if runErr != nil {
+		t.Fatalf("run %v: %T %v\nstdout=%s\nstderr=%s", args, runErr, runErr, stdout, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("unexpected stderr for %v: %q", args, stderr)
+	}
+	return stdout
+}
+
 func TestMetadataApplyDryRunSuggestsApplyCommandForAmbiguousAppInfos(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
