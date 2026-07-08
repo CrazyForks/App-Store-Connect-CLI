@@ -145,7 +145,7 @@ func newMetadataMutationCommand(cfg metadataMutationCommandConfig) *ffcli.Comman
 	include := fs.String("include", includeLocalizations, "Included metadata scopes (comma-separated)")
 	dryRun := fs.Bool("dry-run", false, "Preview changes without mutating App Store Connect")
 	allowDeletes := fs.Bool("allow-deletes", false, "Allow destructive delete operations when applying changes (disables default locale fallback for missing locales)")
-	confirm := fs.Bool("confirm", false, "Confirm destructive operations (required with --allow-deletes)")
+	confirm := fs.Bool("confirm", false, "Confirm destructive operations (required with --allow-deletes or --review-dir)")
 	var reviewDir *string
 	if cfg.name == "apply" {
 		reviewDir = fs.String("review-dir", "", "Apply only after verifying metadata review artifacts in this directory")

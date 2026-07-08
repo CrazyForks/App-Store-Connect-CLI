@@ -292,22 +292,14 @@ func TestMetadataApplyReviewDirRejectsDriftBeforeMutation(t *testing.T) {
 		t.Fatalf("write drifted app-info metadata: %v", err)
 	}
 
-	root := RootCommand("1.2.3")
-	root.FlagSet.SetOutput(io.Discard)
-	var runErr error
-	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{
-			"metadata", "apply",
-			"--app", "app-1",
-			"--version", "1.2.3",
-			"--dir", dir,
-			"--review-dir", reviewDir,
-			"--confirm",
-			"--output", "json",
-		}); err != nil {
-			t.Fatalf("parse error: %v", err)
-		}
-		runErr = root.Run(context.Background())
+	stdout, stderr, runErr := runMetadataReviewCommandRaw(t, []string{
+		"metadata", "apply",
+		"--app", "app-1",
+		"--version", "1.2.3",
+		"--dir", dir,
+		"--review-dir", reviewDir,
+		"--confirm",
+		"--output", "json",
 	})
 	if !errors.Is(runErr, flag.ErrHelp) {
 		t.Fatalf("expected usage error, got %T: %v", runErr, runErr)
@@ -323,6 +315,87 @@ func TestMetadataApplyReviewDirRejectsDriftBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestMetadataApplyReviewDirAllowsEmptyPlanWithoutApproval(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	t.Setenv("ASC_APP_ID", "")
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "app-info"), 0o755); err != nil {
+		t.Fatalf("mkdir app-info: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app-info", "en-US.json"), []byte(`{"name":"Outslept","subtitle":"Sleep tracker"}`), 0o644); err != nil {
+		t.Fatalf("write app-info metadata: %v", err)
+	}
+
+	reviewDir := filepath.Join(t.TempDir(), "review")
+	mutations := 0
+	withMetadataReviewHTTP(t, func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet {
+			mutations++
+		}
+		switch req.URL.Path {
+		case "/v1/apps/app-1/appInfos":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appInfos","id":"appinfo-1","attributes":{"state":"PREPARE_FOR_SUBMISSION"}}]}`), nil
+		case "/v1/apps/app-1/appStoreVersions":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"version-1","attributes":{"versionString":"1.2.3","platform":"IOS"}}],"links":{"next":""}}`), nil
+		case "/v1/appInfos/appinfo-1/appInfoLocalizations":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appInfoLocalizations","id":"loc-en","attributes":{"locale":"en-US","name":"Outslept","subtitle":"Sleep tracker"}}],"links":{"next":""}}`), nil
+		case "/v1/appStoreVersions/version-1/appStoreVersionLocalizations":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+			return nil, nil
+		}
+	})
+
+	_ = runMetadataReviewCommand(t, []string{
+		"metadata", "plan",
+		"--app", "app-1",
+		"--version", "1.2.3",
+		"--platform", "IOS",
+		"--dir", dir,
+		"--review-dir", reviewDir,
+		"--output", "json",
+	})
+	statusStdout := runMetadataReviewCommand(t, []string{
+		"metadata", "status",
+		"--review-dir", reviewDir,
+		"--output", "json",
+	})
+	var statusOut struct {
+		Ready      bool `json:"ready"`
+		TotalCount int  `json:"totalCount"`
+	}
+	if err := json.Unmarshal([]byte(statusStdout), &statusOut); err != nil {
+		t.Fatalf("parse status output: %v\n%s", err, statusStdout)
+	}
+	if !statusOut.Ready || statusOut.TotalCount != 0 {
+		t.Fatalf("expected empty plan to be ready, got %+v", statusOut)
+	}
+
+	applyStdout := runMetadataReviewCommand(t, []string{
+		"metadata", "apply",
+		"--app", "app-1",
+		"--version", "1.2.3",
+		"--platform", "IOS",
+		"--dir", dir,
+		"--review-dir", reviewDir,
+		"--confirm",
+		"--output", "json",
+	})
+	var applyOut struct {
+		Applied bool `json:"applied"`
+		Total   int  `json:"total"`
+	}
+	if err := json.Unmarshal([]byte(applyStdout), &applyOut); err != nil {
+		t.Fatalf("parse apply output: %v\n%s", err, applyStdout)
+	}
+	if !applyOut.Applied || applyOut.Total != 0 || mutations != 0 {
+		t.Fatalf("expected no-op apply without mutations, output=%+v mutations=%d", applyOut, mutations)
+	}
+}
+
 func withMetadataReviewHTTP(t *testing.T, fn roundTripFunc) {
 	t.Helper()
 	originalTransport := http.DefaultTransport
@@ -330,17 +403,22 @@ func withMetadataReviewHTTP(t *testing.T, fn roundTripFunc) {
 	http.DefaultTransport = fn
 }
 
-func runMetadataReviewCommand(t *testing.T, args []string) string {
+func runMetadataReviewCommandRaw(t *testing.T, args []string) (stdout, stderr string, runErr error) {
 	t.Helper()
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
-	var runErr error
-	stdout, stderr := captureOutput(t, func() {
+	stdout, stderr = captureOutput(t, func() {
 		if err := root.Parse(args); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		runErr = root.Run(context.Background())
 	})
+	return stdout, stderr, runErr
+}
+
+func runMetadataReviewCommand(t *testing.T, args []string) string {
+	t.Helper()
+	stdout, stderr, runErr := runMetadataReviewCommandRaw(t, args)
 	if runErr != nil {
 		t.Fatalf("run %v: %T %v\nstdout=%s\nstderr=%s", args, runErr, runErr, stdout, stderr)
 	}
