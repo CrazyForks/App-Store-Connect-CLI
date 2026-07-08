@@ -62,6 +62,32 @@ func TestMetadataApplyValidationErrors(t *testing.T) {
 	}
 }
 
+func TestMetadataApplyReviewDirRequiresConfirmBeforeSideEffects(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	t.Setenv("ASC_APP_ID", "")
+
+	dir := t.TempDir()
+	reviewDir := filepath.Join(t.TempDir(), "review")
+	stdout, stderr, runErr := runMetadataReviewCommandRaw(t, []string{
+		"metadata", "apply",
+		"--app", "app-1",
+		"--version", "1.2.3",
+		"--dir", dir,
+		"--review-dir", reviewDir,
+		"--output", "json",
+	})
+	if !errors.Is(runErr, flag.ErrHelp) {
+		t.Fatalf("expected ErrHelp, got %T: %v", runErr, runErr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "--confirm is required when applying an approved metadata plan") {
+		t.Fatalf("expected confirm error, got %q", stderr)
+	}
+}
+
 func TestMetadataPlanApproveStatusAndApplyReviewDir(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))

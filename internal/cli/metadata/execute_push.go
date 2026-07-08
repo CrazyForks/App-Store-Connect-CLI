@@ -52,6 +52,9 @@ func ExecutePushWithWarnings(ctx context.Context, opts PushExecutionOptions) (Pu
 	if dirValue == "" {
 		return PushPlanResult{}, nil, shared.UsageError("--dir is required")
 	}
+	if strings.TrimSpace(opts.ReviewDir) != "" && !opts.DryRun && !opts.Confirm {
+		return PushPlanResult{}, nil, shared.UsageError("--confirm is required when applying an approved metadata plan")
+	}
 
 	platformValue := strings.TrimSpace(opts.Platform)
 	if platformValue != "" {
@@ -201,9 +204,6 @@ func ExecutePushWithWarnings(ctx context.Context, opts PushExecutionOptions) (Pu
 	if strings.TrimSpace(opts.ReviewDir) != "" {
 		if err := VerifyApprovedMetadataPlan(opts, result, opts.ReviewDir); err != nil {
 			return PushPlanResult{}, warnings, err
-		}
-		if !opts.DryRun && !opts.Confirm {
-			return PushPlanResult{}, nil, shared.UsageError("--confirm is required when applying an approved metadata plan")
 		}
 	}
 
