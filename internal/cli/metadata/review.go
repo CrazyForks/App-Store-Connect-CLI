@@ -364,7 +364,7 @@ func ExecuteMetadataReviewStatus(reviewDir string) (MetadataReviewStatus, error)
 		PlanHash:            plan.PlanHash,
 		ApprovalPlanHash:    approval.PlanHash,
 		ApprovalMatchesPlan: matches,
-		Ready:               matches && len(pendingKeys) == 0,
+		Ready:               len(allKeys) == 0 || (matches && len(pendingKeys) == 0),
 		TotalCount:          len(allKeys),
 		ApprovedCount:       len(approvedKeys),
 		PendingCount:        len(pendingKeys),

@@ -152,6 +152,13 @@ func TestVerifyApprovedMetadataPlanAllowsEmptyPlanWithStaleApproval(t *testing.T
 	if err := VerifyApprovedMetadataPlan(metadataReviewTestPushOptions(plan.Plan), plan.Plan, reviewDir); err != nil {
 		t.Fatalf("expected empty plan with stale approval to be ready: %v", err)
 	}
+	status, err := ExecuteMetadataReviewStatus(reviewDir)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.Ready || status.TotalCount != 0 || status.PendingCount != 0 {
+		t.Fatalf("expected empty plan status to be ready despite stale approval, got %+v", status)
+	}
 }
 
 func metadataReviewTestPlan(t *testing.T, reviewDir string) MetadataPlanArtifact {
