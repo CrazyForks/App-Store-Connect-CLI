@@ -201,14 +201,10 @@ Notes:
 				AllowDeletes: *allowDeletes,
 				Confirm:      *confirm,
 			}
-			var result PushPlanResult
-			var warnings []shared.SubmitReadinessCreateWarning
-			var err error
 			if cfg.name == "apply" && reviewDir != nil && strings.TrimSpace(*reviewDir) != "" {
-				result, warnings, err = ExecuteApprovedMetadataApplyWithWarnings(ctx, opts, *reviewDir)
-			} else {
-				result, warnings, err = ExecutePushWithWarnings(ctx, opts)
+				opts.ReviewDir = *reviewDir
 			}
+			result, warnings, err := ExecutePushWithWarnings(ctx, opts)
 			if err != nil && len(result.Actions) == 0 {
 				return err
 			}

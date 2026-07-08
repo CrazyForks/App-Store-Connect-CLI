@@ -364,49 +364,44 @@ func ExecuteMetadataReviewStatus(reviewDir string) (MetadataReviewStatus, error)
 	}, nil
 }
 
-func ExecuteApprovedMetadataApplyWithWarnings(ctx context.Context, opts PushExecutionOptions, reviewDir string) (PushPlanResult, []shared.SubmitReadinessCreateWarning, error) {
-	if !opts.Confirm {
-		return PushPlanResult{}, nil, shared.UsageError("--confirm is required when applying an approved metadata plan")
-	}
+func VerifyApprovedMetadataPlan(opts PushExecutionOptions, currentPlan PushPlanResult, reviewDir string) error {
 	resolvedReviewDir := metadataReviewDir(reviewDir)
 	plan, err := readMetadataPlanArtifact(filepath.Join(resolvedReviewDir, metadataPlanFileName))
 	if err != nil {
-		return PushPlanResult{}, nil, err
+		return err
 	}
 	approval, err := readMetadataApprovalArtifact(filepath.Join(resolvedReviewDir, metadataApprovalFileName))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return PushPlanResult{}, nil, shared.UsageError("approved metadata plan is missing; run asc metadata approve first")
+			return shared.UsageError("approved metadata plan is missing; run asc metadata approve first")
 		}
-		return PushPlanResult{}, nil, err
+		return err
 	}
 	if approval.PlanHash != plan.PlanHash {
-		return PushPlanResult{}, nil, shared.UsageError("approved metadata plan hash does not match plan.json; rerun asc metadata approve")
+		return shared.UsageError("approved metadata plan hash does not match plan.json; rerun asc metadata approve")
 	}
 
-	currentOpts := opts
-	currentOpts.DryRun = true
-	currentPlan, warnings, err := ExecutePushWithWarnings(ctx, currentOpts)
+	hashPlan := currentPlan
+	hashPlan.DryRun = true
+	currentOptions := metadataPlanOptionsFromPush(opts, hashPlan)
+	currentHash, err := hashMetadataPlan(currentOptions, hashPlan)
 	if err != nil {
-		return PushPlanResult{}, warnings, err
-	}
-	currentOptions := metadataPlanOptionsFromPush(currentOpts, currentPlan)
-	currentHash, err := hashMetadataPlan(currentOptions, currentPlan)
-	if err != nil {
-		return PushPlanResult{}, warnings, fmt.Errorf("metadata apply: hash current plan: %w", err)
+		return fmt.Errorf("metadata apply: hash current plan: %w", err)
 	}
 	if currentHash != plan.PlanHash {
-		return PushPlanResult{}, warnings, shared.UsageError("approved metadata plan drifted; rerun asc metadata plan and asc metadata approve")
+		return shared.UsageError("approved metadata plan drifted; rerun asc metadata plan and asc metadata approve")
 	}
 	currentKeys := metadataPlanKeys(metadataPlanItems(currentPlan))
 	pendingKeys := diffMetadataKeys(currentKeys, approval.ApprovedKeys)
 	if len(pendingKeys) > 0 {
-		return PushPlanResult{}, warnings, shared.UsageErrorf("approved metadata plan is incomplete; pending key(s): %s", strings.Join(pendingKeys, ", "))
+		return shared.UsageErrorf("approved metadata plan is incomplete; pending key(s): %s", strings.Join(pendingKeys, ", "))
 	}
+	return nil
+}
 
-	applyOpts := opts
-	applyOpts.DryRun = false
-	return ExecutePushWithWarnings(ctx, applyOpts)
+func ExecuteApprovedMetadataApplyWithWarnings(ctx context.Context, opts PushExecutionOptions, reviewDir string) (PushPlanResult, []shared.SubmitReadinessCreateWarning, error) {
+	opts.ReviewDir = reviewDir
+	return ExecutePushWithWarnings(ctx, opts)
 }
 
 func metadataReviewDir(reviewDir string) string {

@@ -22,6 +22,7 @@ type PushExecutionOptions struct {
 	DryRun       bool
 	AllowDeletes bool
 	Confirm      bool
+	ReviewDir    string
 }
 
 // ExecutePush computes and optionally applies a metadata push plan.
@@ -195,6 +196,15 @@ func ExecutePushWithWarnings(ctx context.Context, opts PushExecutionOptions) (Pu
 		Updates:   updates,
 		Deletes:   deletes,
 		APICalls:  apiCalls,
+	}
+
+	if strings.TrimSpace(opts.ReviewDir) != "" {
+		if err := VerifyApprovedMetadataPlan(opts, result, opts.ReviewDir); err != nil {
+			return PushPlanResult{}, warnings, err
+		}
+		if !opts.DryRun && !opts.Confirm {
+			return PushPlanResult{}, nil, shared.UsageError("--confirm is required when applying an approved metadata plan")
+		}
 	}
 
 	if opts.DryRun {
