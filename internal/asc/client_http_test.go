@@ -1612,6 +1612,31 @@ func TestGetAppStoreVersion(t *testing.T) {
 	}
 }
 
+func TestGetAppStoreVersion_WithCompoundReadOptions(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"1"},"included":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/appStoreVersions/1" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+		if got := req.URL.Query().Get("include"); got != "appStoreVersionLocalizations,build,appStoreReviewDetail" {
+			t.Fatalf("include = %q", got)
+		}
+		if got := req.URL.Query().Get("limit[appStoreVersionLocalizations]"); got != "50" {
+			t.Fatalf("localization include limit = %q", got)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppStoreVersion(
+		context.Background(),
+		"1",
+		WithAppStoreVersionInclude([]string{"appStoreVersionLocalizations", "build", "appStoreReviewDetail"}),
+		WithAppStoreVersionLocalizationsIncludeLimit(50),
+	); err != nil {
+		t.Fatalf("GetAppStoreVersion() error: %v", err)
+	}
+}
+
 func TestCreateAppStoreVersion(t *testing.T) {
 	response := jsonResponse(http.StatusCreated, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"1.0.0","platform":"IOS"}}}`)
 	client := newTestClient(t, func(req *http.Request) {
@@ -3674,6 +3699,31 @@ func TestGetAppInfos(t *testing.T) {
 	}, response)
 
 	if _, err := client.GetAppInfos(context.Background(), "app-1"); err != nil {
+		t.Fatalf("GetAppInfos() error: %v", err)
+	}
+}
+
+func TestGetAppInfos_WithCompoundReadOptions(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"appInfos","id":"info-1"}],"included":[]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-1/appInfos" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+		if got := req.URL.Query().Get("include"); got != "app,ageRatingDeclaration,appInfoLocalizations,primaryCategory" {
+			t.Fatalf("include = %q", got)
+		}
+		if got := req.URL.Query().Get("limit[appInfoLocalizations]"); got != "50" {
+			t.Fatalf("localization include limit = %q", got)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.GetAppInfos(
+		context.Background(),
+		"app-1",
+		WithAppInfoInclude([]string{"app", "ageRatingDeclaration", "appInfoLocalizations", "primaryCategory"}),
+		WithAppInfoLocalizationsIncludeLimit(50),
+	); err != nil {
 		t.Fatalf("GetAppInfos() error: %v", err)
 	}
 }

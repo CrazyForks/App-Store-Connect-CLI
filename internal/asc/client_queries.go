@@ -252,7 +252,8 @@ type appStoreVersionsQuery struct {
 }
 
 type appStoreVersionQuery struct {
-	include []string
+	include            []string
+	localizationsLimit int
 }
 
 type reviewSubmissionsQuery struct {
@@ -310,7 +311,8 @@ type appInfoLocalizationsQuery struct {
 }
 
 type appInfoQuery struct {
-	include []string
+	include            []string
+	localizationsLimit int
 }
 
 type territoryAgeRatingsQuery struct {
@@ -1364,6 +1366,9 @@ func buildAppStoreVersionsQuery(query *appStoreVersionsQuery) string {
 func buildAppStoreVersionQuery(query *appStoreVersionQuery) string {
 	values := url.Values{}
 	addCSV(values, "include", query.include)
+	if query.localizationsLimit > 0 {
+		values.Set("limit[appStoreVersionLocalizations]", strconv.Itoa(query.localizationsLimit))
+	}
 	return values.Encode()
 }
 
@@ -1457,6 +1462,9 @@ func buildAppInfoLocalizationsQuery(query *appInfoLocalizationsQuery) string {
 func buildAppInfoQuery(query *appInfoQuery) string {
 	values := url.Values{}
 	addCSV(values, "include", query.include)
+	if query.localizationsLimit > 0 {
+		values.Set("limit[appInfoLocalizations]", strconv.Itoa(query.localizationsLimit))
+	}
 	return values.Encode()
 }
 
