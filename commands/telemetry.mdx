@@ -84,13 +84,6 @@ asc telemetry reset-id
   or `on`. Events are still sent, but the local install ID is omitted.
 </ParamField>
 
-<ParamField path="ASC_TELEMETRY_TASK_ID" type="uuid">
-  Attach a random UUID supplied by the launcher to events from one high-level
-  task. The CLI accepts only UUID syntax and never derives this value from a
-  thread, project, account, path, or machine. Leave it unset unless the launcher
-  can generate a fresh UUID for the task.
-</ParamField>
-
 ## Event Payload
 
 The CLI sends a single best-effort JSON event after command completion:
@@ -116,10 +109,8 @@ The CLI sends a single best-effort JSON event after command completion:
   "error_kind": null,
   "failure_stage": null,
   "failure_parameter": null,
-  "event_kind": "execution",
   "outcome_kind": "success",
-  "http_status": null,
-  "task_id": null
+  "http_status": null
 }
 ```
 
@@ -136,16 +127,10 @@ never contain stderr, error text, flag values, or positional values.
 `failure_parameter` is limited to a sanitized public long flag name such as
 `--app`.
 
-`event_kind` separates command execution from help output. `outcome_kind`
-separates success, expected negative validation results, usage errors,
+`outcome_kind` separates success, expected negative validation results, usage errors,
 authentication and API failures, transport failures, cancellations, and
 internal errors. `http_status` contains a number from 400 through 599 only when
 an API client exposes the exact response status.
-
-`task_id` is nullable. Agent launchers can set `ASC_TELEMETRY_TASK_ID` to a fresh
-UUID for one user task, which lets aggregate analytics measure help-before-use
-and recovery after a failed command. The CLI rejects non-UUID values, and raw
-task IDs aren't shown in the admin analytics.
 
 `runtime_context` describes where the command runs, independently from
 `invocation_source`, which describes what launched it. A command launched by
@@ -208,10 +193,8 @@ CREATE TABLE asc_cli_events
   error_kind Nullable(LowCardinality(String)),
   failure_stage Nullable(LowCardinality(String)),
   failure_parameter Nullable(LowCardinality(String)),
-  event_kind Nullable(LowCardinality(String)),
   outcome_kind Nullable(LowCardinality(String)),
   http_status Nullable(Int16),
-  task_id Nullable(UUID),
   source LowCardinality(String),
   collector_version LowCardinality(String)
 )

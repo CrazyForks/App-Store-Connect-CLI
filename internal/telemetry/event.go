@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"encoding/json"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -31,18 +30,9 @@ type Event struct {
 	ErrorKind        *ErrorKind       `json:"error_kind"`
 	FailureStage     *FailureStage    `json:"failure_stage"`
 	FailureParameter *string          `json:"failure_parameter"`
-	EventKind        EventKind        `json:"event_kind,omitempty"`
 	OutcomeKind      OutcomeKind      `json:"outcome_kind,omitempty"`
 	HTTPStatus       *int             `json:"http_status,omitempty"`
-	TaskID           *string          `json:"task_id,omitempty"`
 }
-
-type EventKind string
-
-const (
-	EventKindExecution EventKind = "execution"
-	EventKindHelp      EventKind = "help"
-)
 
 type OutcomeKind string
 
@@ -95,7 +85,6 @@ type EventContext struct {
 	ErrorKind        ErrorKind
 	FailureStage     FailureStage
 	FailureParameter string
-	EventKind        EventKind
 	OutcomeKind      OutcomeKind
 	HTTPStatus       int
 }
@@ -107,7 +96,6 @@ var processSessionID = uuid.NewString()
 func BuildEvent(commandName, version string, duration time.Duration, exitCode int) (Event, bool) {
 	return BuildEventWithContext(commandName, version, duration, exitCode, EventContext{
 		InvocationShape: InvocationShapeLeaf,
-		EventKind:       EventKindExecution,
 	})
 }
 
@@ -157,10 +145,8 @@ func BuildEventWithContext(
 		ErrorKind:        optionalErrorKind(eventContext.ErrorKind),
 		FailureStage:     optionalFailureStage(eventContext.FailureStage),
 		FailureParameter: optionalFailureParameter(eventContext.FailureParameter, exitCode),
-		EventKind:        eventContext.EventKind,
 		OutcomeKind:      eventContext.OutcomeKind,
 		HTTPStatus:       optionalHTTPStatus(eventContext.HTTPStatus),
-		TaskID:           telemetryTaskID(),
 	}, true
 }
 
@@ -171,9 +157,6 @@ func normalizeEventContext(eventContext EventContext, exitCode int) EventContext
 		eventContext.InvocationShape = InvocationShapeLeaf
 	}
 
-	if eventContext.EventKind != EventKindHelp {
-		eventContext.EventKind = EventKindExecution
-	}
 	eventContext.HTTPStatus = sanitizeHTTPStatus(eventContext.HTTPStatus)
 
 	if exitCode == 0 {
@@ -184,7 +167,6 @@ func normalizeEventContext(eventContext EventContext, exitCode int) EventContext
 		eventContext.HTTPStatus = 0
 		return eventContext
 	}
-	eventContext.EventKind = EventKindExecution
 	if eventContext.ErrorKind == "" {
 		eventContext.ErrorKind = ErrorKindOther
 	}
@@ -290,16 +272,6 @@ func sanitizeHTTPStatus(status int) int {
 	return status
 }
 
-func telemetryTaskID() *string {
-	raw := strings.TrimSpace(os.Getenv("ASC_TELEMETRY_TASK_ID"))
-	parsed, err := uuid.Parse(raw)
-	if err != nil {
-		return nil
-	}
-	value := parsed.String()
-	return &value
-}
-
 // MarshalJSON keeps queued schema-v3 records wire-compatible while ensuring
 // nullable schema-v4 fields are present even when their value is null.
 func (event Event) MarshalJSON() ([]byte, error) {
@@ -309,12 +281,10 @@ func (event Event) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		eventAlias
-		HTTPStatus *int    `json:"http_status"`
-		TaskID     *string `json:"task_id"`
+		HTTPStatus *int `json:"http_status"`
 	}{
 		eventAlias: eventAlias(event),
 		HTTPStatus: event.HTTPStatus,
-		TaskID:     event.TaskID,
 	})
 }
 

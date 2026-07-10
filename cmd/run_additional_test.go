@@ -206,10 +206,8 @@ func TestRun_BareGroupPrintsHelpToStdoutAndExitsSuccessfully(t *testing.T) {
 	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
 
 	var telemetryCalls int
-	var gotContext telemetry.EventContext
-	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, eventContext telemetry.EventContext) {
+	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, _ telemetry.EventContext) {
 		telemetryCalls++
-		gotContext = eventContext
 	}
 
 	stdout, stderr := captureCommandOutput(t, func() {
@@ -224,11 +222,8 @@ func TestRun_BareGroupPrintsHelpToStdoutAndExitsSuccessfully(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if telemetryCalls != 1 {
-		t.Fatalf("telemetry calls = %d, want 1 for group help", telemetryCalls)
-	}
-	if gotContext.EventKind != telemetry.EventKindHelp || gotContext.OutcomeKind != telemetry.OutcomeSuccess {
-		t.Fatalf("unexpected help telemetry context: %+v", gotContext)
+	if telemetryCalls != 0 {
+		t.Fatalf("telemetry calls = %d, want 0 for group help", telemetryCalls)
 	}
 }
 
@@ -820,18 +815,14 @@ func TestRun_HelpSkipsAuthResolution(t *testing.T) {
 	}
 }
 
-func TestRun_HelpEmitsHelpTelemetry(t *testing.T) {
+func TestRun_HelpSkipsTelemetry(t *testing.T) {
 	resetReportFlags(t)
 	originalEmitTelemetry := emitTelemetry
 	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
 
 	var telemetryCalls int
-	var commandName string
-	var gotContext telemetry.EventContext
-	emitTelemetry = func(command string, _ string, _ time.Duration, _ int, eventContext telemetry.EventContext) {
+	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, _ telemetry.EventContext) {
 		telemetryCalls++
-		commandName = command
-		gotContext = eventContext
 	}
 
 	captureCommandOutput(t, func() {
@@ -839,14 +830,8 @@ func TestRun_HelpEmitsHelpTelemetry(t *testing.T) {
 			t.Fatalf("Run() exit code = %d, want %d", code, ExitSuccess)
 		}
 	})
-	if telemetryCalls != 1 {
-		t.Fatalf("telemetry calls = %d, want 1 for help", telemetryCalls)
-	}
-	if commandName != "asc builds" {
-		t.Fatalf("telemetry command = %q, want %q", commandName, "asc builds")
-	}
-	if gotContext.EventKind != telemetry.EventKindHelp || gotContext.OutcomeKind != telemetry.OutcomeSuccess {
-		t.Fatalf("unexpected help telemetry context: %+v", gotContext)
+	if telemetryCalls != 0 {
+		t.Fatalf("telemetry calls = %d, want 0 for help", telemetryCalls)
 	}
 }
 

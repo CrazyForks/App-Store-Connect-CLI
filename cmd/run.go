@@ -54,10 +54,6 @@ func Run(args []string, versionInfo string) int {
 			fmt.Fprint(os.Stderr, parseOutput.String())
 		}
 		if errors.Is(parseErr, flag.ErrHelp) {
-			commandName := getCommandName(root, args)
-			if commandName != "asc" {
-				emitTelemetry(commandName, versionInfo, 0, ExitSuccess, helpEventContext(analysis))
-			}
 			return ExitSuccess
 		}
 		if parseOutput.Len() == 0 {
@@ -148,7 +144,6 @@ func Run(args []string, versionInfo string) int {
 	}
 
 	if renderGroupHelp {
-		emitTelemetry(commandName, versionInfo, elapsed, ExitSuccess, helpEventContext(analysis))
 		return ExitSuccess
 	}
 
@@ -174,14 +169,6 @@ func Run(args []string, versionInfo string) int {
 		InvocationShape: analysis.shape,
 	})
 	return ExitSuccess
-}
-
-func helpEventContext(analysis invocationAnalysis) telemetry.EventContext {
-	return telemetry.EventContext{
-		InvocationShape: analysis.shape,
-		EventKind:       telemetry.EventKindHelp,
-		OutcomeKind:     telemetry.OutcomeSuccess,
-	}
 }
 
 func redirectCommandFlagOutput(command *ffcli.Command, output io.Writer) func() {

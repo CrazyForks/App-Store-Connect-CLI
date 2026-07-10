@@ -167,7 +167,6 @@ func clearContextEnv(t *testing.T) {
 		"JENKINS_URL",
 		"TRAVIS",
 		"APPVEYOR",
-		"ASC_TELEMETRY_TASK_ID",
 	} {
 		t.Setenv(key, "")
 	}

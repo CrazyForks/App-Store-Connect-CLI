@@ -46,8 +46,7 @@ func TestRun_BuiltBinaryEmitsSchemaV4Payload(t *testing.T) {
 	if err := json.Unmarshal(record.Event, &event); err != nil {
 		t.Fatalf("decode built CLI telemetry event: %v", err)
 	}
-	if event.SchemaVersion != 4 || event.EventKind != telemetry.EventKindExecution ||
-		event.OutcomeKind != telemetry.OutcomeUsageError {
+	if event.SchemaVersion != 4 || event.OutcomeKind != telemetry.OutcomeUsageError {
 		t.Fatalf("unexpected schema-v4 payload: %+v", event)
 	}
 	if event.FailureParameter == nil || *event.FailureParameter != "--build-id" {
@@ -57,10 +56,8 @@ func TestRun_BuiltBinaryEmitsSchemaV4Payload(t *testing.T) {
 	if err := json.Unmarshal(record.Event, &payload); err != nil {
 		t.Fatalf("decode built CLI telemetry JSON: %v", err)
 	}
-	for _, field := range []string{"http_status", "task_id"} {
-		if value, exists := payload[field]; !exists || value != nil {
-			t.Fatalf("%s = %v (exists=%t), want explicit null", field, value, exists)
-		}
+	if value, exists := payload["http_status"]; !exists || value != nil {
+		t.Fatalf("http_status = %v (exists=%t), want explicit null", value, exists)
 	}
 }
 
@@ -122,7 +119,6 @@ func telemetryBlackboxEnv(home string, disabled bool, endpoint string) []string 
 		"ASC_TELEMETRY_DISABLED",
 		"ASC_TELEMETRY_ENDPOINT",
 		"ASC_TELEMETRY_EPHEMERAL",
-		"ASC_TELEMETRY_TASK_ID",
 		"ASC_TIMEOUT",
 		"ASC_TIMEOUT_SECONDS",
 		"DO_NOT_TRACK",
@@ -141,7 +137,6 @@ func telemetryBlackboxEnv(home string, disabled bool, endpoint string) []string 
 		"ASC_TELEMETRY_DISABLED="+disabledValue,
 		"ASC_TELEMETRY_ENDPOINT="+endpoint,
 		"ASC_TELEMETRY_EPHEMERAL=",
-		"ASC_TELEMETRY_TASK_ID=",
 		"ASC_TIMEOUT=1s",
 		"ASC_TIMEOUT_SECONDS=",
 		"DO_NOT_TRACK=",

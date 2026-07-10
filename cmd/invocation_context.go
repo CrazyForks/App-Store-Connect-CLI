@@ -127,7 +127,6 @@ func parseFailureContext(analysis invocationAnalysis) telemetry.EventContext {
 		ErrorKind:        kind,
 		FailureStage:     telemetry.FailureStageParse,
 		FailureParameter: parameter,
-		EventKind:        telemetry.EventKindExecution,
 		OutcomeKind:      telemetry.OutcomeUsageError,
 	}
 }
@@ -148,7 +147,6 @@ func validationFailureContext(analysis invocationAnalysis, err error) telemetry.
 		ErrorKind:        kind,
 		FailureStage:     telemetry.FailureStageValidation,
 		FailureParameter: failureParameterFromError(err),
-		EventKind:        telemetry.EventKindExecution,
 		OutcomeKind:      telemetry.OutcomeUsageError,
 	}
 }
@@ -162,7 +160,6 @@ func runtimeFailureContext(analysis invocationAnalysis, err error, exitCode int)
 		InvocationShape: analysis.shape,
 		ErrorKind:       telemetry.ErrorKindOther,
 		FailureStage:    telemetry.FailureStageExecution,
-		EventKind:       telemetry.EventKindExecution,
 		HTTPStatus:      httpStatusFromError(err),
 	}
 	switch {

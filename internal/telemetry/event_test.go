@@ -45,14 +45,11 @@ func TestBuildEventSanitizesCommand(t *testing.T) {
 	if payload["invocation_source"] != string(SourceTerminal) {
 		t.Fatalf("invocation_source = %v, want %q", payload["invocation_source"], SourceTerminal)
 	}
-	if payload["event_kind"] != string(EventKindExecution) || payload["outcome_kind"] != string(OutcomeSuccess) {
+	if payload["outcome_kind"] != string(OutcomeSuccess) {
 		t.Fatalf("unexpected v4 event context: %v", payload)
 	}
 	if value, exists := payload["http_status"]; !exists || value != nil {
 		t.Fatalf("http_status = %v (exists=%t), want explicit null", value, exists)
-	}
-	if value, exists := payload["task_id"]; !exists || value != nil {
-		t.Fatalf("task_id = %v (exists=%t), want explicit null", value, exists)
 	}
 	if _, exists := payload["execution_context"]; exists {
 		t.Fatal("legacy execution_context field should not be emitted")
@@ -93,7 +90,7 @@ func TestBuildEventWithContextEmitsOnlyLowCardinalityClassifications(t *testing.
 	if ev.FailureParameter == nil || *ev.FailureParameter != "--build-id" {
 		t.Fatalf("FailureParameter = %v, want --build-id", ev.FailureParameter)
 	}
-	if ev.EventKind != EventKindExecution || ev.OutcomeKind != OutcomeUsageError || ev.HTTPStatus != nil {
+	if ev.OutcomeKind != OutcomeUsageError || ev.HTTPStatus != nil {
 		t.Fatalf("unexpected v4 outcome context: %+v", ev)
 	}
 
@@ -108,11 +105,9 @@ func TestBuildEventWithContextEmitsOnlyLowCardinalityClassifications(t *testing.
 	}
 }
 
-func TestBuildEventWithContextCapturesBoundedHTTPAndTaskContext(t *testing.T) {
+func TestBuildEventWithContextCapturesBoundedHTTPContext(t *testing.T) {
 	clearContextEnv(t)
 	setTelemetryTestHome(t)
-	const taskID = "9df30b58-934d-48c8-82f4-105bdb5c3295"
-	t.Setenv("ASC_TELEMETRY_TASK_ID", taskID)
 
 	ev, ok := BuildEventWithContext(
 		"asc analytics sales",
@@ -123,7 +118,6 @@ func TestBuildEventWithContextCapturesBoundedHTTPAndTaskContext(t *testing.T) {
 			InvocationShape: InvocationShapeLeaf,
 			ErrorKind:       ErrorKindOther,
 			FailureStage:    FailureStageRequest,
-			EventKind:       EventKindExecution,
 			OutcomeKind:     OutcomeAuthError,
 			HTTPStatus:      403,
 		},
@@ -134,32 +128,8 @@ func TestBuildEventWithContextCapturesBoundedHTTPAndTaskContext(t *testing.T) {
 	if ev.HTTPStatus == nil || *ev.HTTPStatus != 403 {
 		t.Fatalf("HTTPStatus = %v, want 403", ev.HTTPStatus)
 	}
-	if ev.TaskID == nil || *ev.TaskID != taskID {
-		t.Fatalf("TaskID = %v, want %q", ev.TaskID, taskID)
-	}
 	if ev.OutcomeKind != OutcomeAuthError {
 		t.Fatalf("OutcomeKind = %q, want %q", ev.OutcomeKind, OutcomeAuthError)
-	}
-}
-
-func TestBuildEventOmitsInvalidTelemetryTaskID(t *testing.T) {
-	clearContextEnv(t)
-	setTelemetryTestHome(t)
-	t.Setenv("ASC_TELEMETRY_TASK_ID", "private-project-name")
-
-	ev, ok := BuildEvent("asc builds list", "2.7.0", 0, 0)
-	if !ok {
-		t.Fatal("expected event")
-	}
-	if ev.TaskID != nil {
-		t.Fatalf("TaskID = %q, want nil", *ev.TaskID)
-	}
-	data, err := json.Marshal(ev)
-	if err != nil {
-		t.Fatalf("marshal event: %v", err)
-	}
-	if strings.Contains(string(data), "private-project-name") {
-		t.Fatalf("payload leaked invalid task ID: %s", data)
 	}
 }
 
@@ -171,7 +141,7 @@ func TestSchemaV3SpoolRecordOmitsSchemaV4Fields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal event: %v", err)
 	}
-	for _, field := range []string{"event_kind", "outcome_kind", "http_status", "task_id"} {
+	for _, field := range []string{"outcome_kind", "http_status"} {
 		if strings.Contains(string(data), `"`+field+`"`) {
 			t.Fatalf("schema-v3 payload contains schema-v4 field %q: %s", field, data)
 		}
