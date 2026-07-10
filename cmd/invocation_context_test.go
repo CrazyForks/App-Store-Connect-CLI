@@ -3,11 +3,13 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/telemetry"
+	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
 func TestRuntimeFailureContextClassifiesLowCardinalityFailures(t *testing.T) {
@@ -27,6 +29,14 @@ func TestRuntimeFailureContextClassifiesLowCardinalityFailures(t *testing.T) {
 			exitCode:    ExitAuth,
 			wantKind:    telemetry.ErrorKindOther,
 			wantStage:   telemetry.FailureStageValidation,
+			wantOutcome: telemetry.OutcomeAuthError,
+		},
+		{
+			name:        "invalid Apple Account credentials",
+			err:         fmt.Errorf("SRP login failed: %w", webcore.ErrInvalidAppleAccountCredentials),
+			exitCode:    ExitError,
+			wantKind:    telemetry.ErrorKindOther,
+			wantStage:   telemetry.FailureStageExecution,
 			wantOutcome: telemetry.OutcomeAuthError,
 		},
 		{

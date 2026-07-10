@@ -13,6 +13,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared/suggest"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/telemetry"
+	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
 type invocationAnalysis struct {
@@ -194,7 +195,7 @@ func runtimeOutcomeKind(err error, exitCode int, eventContext telemetry.EventCon
 	switch {
 	case errors.Is(err, context.Canceled):
 		return telemetry.OutcomeCancelled
-	case errors.Is(err, shared.ErrMissingAuth), exitCode == ExitAuth:
+	case errors.Is(err, shared.ErrMissingAuth), errors.Is(err, webcore.ErrInvalidAppleAccountCredentials), exitCode == ExitAuth:
 		return telemetry.OutcomeAuthError
 	case shared.IsValidationError(err):
 		return telemetry.OutcomeExpectedNegative
