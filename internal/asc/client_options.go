@@ -1822,6 +1822,16 @@ func WithAppStoreVersionInclude(include []string) AppStoreVersionOption {
 	}
 }
 
+// WithAppStoreVersionLocalizationsIncludeLimit sets the maximum number of
+// localizations returned through an app store version include.
+func WithAppStoreVersionLocalizationsIncludeLimit(limit int) AppStoreVersionOption {
+	return func(q *appStoreVersionQuery) {
+		if limit > 0 {
+			q.localizationsLimit = limit
+		}
+	}
+}
+
 // WithReviewSubmissionsLimit sets the max number of review submissions to return.
 func WithReviewSubmissionsLimit(limit int) ReviewSubmissionsOption {
 	return func(q *reviewSubmissionsQuery) {
@@ -3113,6 +3123,16 @@ func WithAppInfoLocalizationLocales(locales []string) AppInfoLocalizationsOption
 func WithAppInfoInclude(include []string) AppInfoOption {
 	return func(q *appInfoQuery) {
 		q.include = normalizeList(include)
+	}
+}
+
+// WithAppInfoLocalizationsIncludeLimit sets the maximum number of
+// localizations returned through an app info include.
+func WithAppInfoLocalizationsIncludeLimit(limit int) AppInfoOption {
+	return func(q *appInfoQuery) {
+		if limit > 0 {
+			q.localizationsLimit = limit
+		}
 	}
 }
 

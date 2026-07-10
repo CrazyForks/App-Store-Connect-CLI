@@ -980,6 +980,7 @@ func TestBuildAppSearchKeywordsQuery(t *testing.T) {
 func TestBuildAppStoreVersionQuery(t *testing.T) {
 	query := &appStoreVersionQuery{}
 	WithAppStoreVersionInclude([]string{"appStoreReviewDetail", "ageRatingDeclaration"})(query)
+	WithAppStoreVersionLocalizationsIncludeLimit(50)(query)
 
 	values, err := url.ParseQuery(buildAppStoreVersionQuery(query))
 	if err != nil {
@@ -988,11 +989,15 @@ func TestBuildAppStoreVersionQuery(t *testing.T) {
 	if got := values.Get("include"); got != "appStoreReviewDetail,ageRatingDeclaration" {
 		t.Fatalf("expected include=appStoreReviewDetail,ageRatingDeclaration, got %q", got)
 	}
+	if got := values.Get("limit[appStoreVersionLocalizations]"); got != "50" {
+		t.Fatalf("expected localization include limit 50, got %q", got)
+	}
 }
 
 func TestBuildAppInfoQuery(t *testing.T) {
 	query := &appInfoQuery{}
 	WithAppInfoInclude([]string{"ageRatingDeclaration", "territoryAgeRatings"})(query)
+	WithAppInfoLocalizationsIncludeLimit(50)(query)
 
 	values, err := url.ParseQuery(buildAppInfoQuery(query))
 	if err != nil {
@@ -1000,6 +1005,9 @@ func TestBuildAppInfoQuery(t *testing.T) {
 	}
 	if got := values.Get("include"); got != "ageRatingDeclaration,territoryAgeRatings" {
 		t.Fatalf("expected include=ageRatingDeclaration,territoryAgeRatings, got %q", got)
+	}
+	if got := values.Get("limit[appInfoLocalizations]"); got != "50" {
+		t.Fatalf("expected localization include limit 50, got %q", got)
 	}
 }
 
