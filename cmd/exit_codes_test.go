@@ -819,6 +819,19 @@ func TestSkillsAutoCheckDoesNotDelayForegroundCommand(t *testing.T) {
 	}
 	markerPath := filepath.Join(tmpDir, "skills-check-ran")
 	sleepPIDPath := filepath.Join(tmpDir, "skills-check-sleep-pid")
+	t.Cleanup(func() {
+		pidBytes, err := os.ReadFile(sleepPIDPath)
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+		if err != nil {
+			return
+		}
+		if process, err := os.FindProcess(pid); err == nil {
+			_ = process.Kill()
+		}
+	})
 	scriptPath := filepath.Join(scriptDir, "skills")
 	script := "#!/bin/sh\n" +
 		"printf 'ran' > \"$SKILLS_MARKER\"\n" +
@@ -920,6 +933,7 @@ func TestSkillsAutoCheckDoesNotDelayForegroundCommand(t *testing.T) {
 				t.Fatalf("find checker sleep process: %v", findErr)
 			}
 			_ = process.Kill()
+			_ = os.Remove(sleepPIDPath)
 			break
 		}
 		if !os.IsNotExist(readErr) {

@@ -3,6 +3,7 @@ package install
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -423,6 +424,73 @@ func TestDefaultClaimSkillsCheckWorkerReclaimsStaleLease(t *testing.T) {
 	if !claimed || token == "" || token == "stale-token" {
 		t.Fatalf("stale lease claim = (%q, %v), want new owner", token, claimed)
 	}
+	quarantines, err := filepath.Glob(lockPath + ".stale-*")
+	if err != nil {
+		t.Fatalf("glob stale lock quarantines: %v", err)
+	}
+	if len(quarantines) != 0 {
+		t.Fatalf("stale reclaim left quarantines: %v", quarantines)
+	}
+}
+
+func TestDefaultClaimSkillsCheckWorkerConcurrentStaleReclaimKeepsWinner(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), skillsCheckLockFilename)
+	now := time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC)
+	const contenders = 32
+
+	for round := 0; round < 20; round++ {
+		if err := createSkillsCheckLock(lockPath, "stale-token", now.Add(-skillsWorkerRetryDelay-time.Second)); err != nil {
+			t.Fatalf("round %d: create stale lock: %v", round, err)
+		}
+
+		start := make(chan struct{})
+		var winnersMu sync.Mutex
+		winners := make([]string, 0, 1)
+		errorsSeen := make(chan error, contenders)
+		var wg sync.WaitGroup
+		for range contenders {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				token, claimed, err := defaultClaimSkillsCheckWorker(lockPath, now)
+				if err != nil {
+					errorsSeen <- err
+					return
+				}
+				if claimed {
+					winnersMu.Lock()
+					winners = append(winners, token)
+					winnersMu.Unlock()
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errorsSeen)
+
+		for err := range errorsSeen {
+			t.Fatalf("round %d: stale contender error: %v", round, err)
+		}
+		if len(winners) != 1 {
+			t.Fatalf("round %d: worker claims = %d, want 1", round, len(winners))
+		}
+
+		data, err := os.ReadFile(lockPath)
+		if err != nil {
+			t.Fatalf("round %d: read winner lock: %v", round, err)
+		}
+		var lock skillsCheckLock
+		if err := json.Unmarshal(data, &lock); err != nil {
+			t.Fatalf("round %d: decode winner lock: %v", round, err)
+		}
+		if lock.Token != winners[0] {
+			t.Fatalf("round %d: canonical token = %q, winner = %q", round, lock.Token, winners[0])
+		}
+		if err := defaultReleaseSkillsCheckWorker(lockPath, winners[0]); err != nil {
+			t.Fatalf("round %d: release winner: %v", round, err)
+		}
+	}
 }
 
 func TestDefaultStoreSkillsCheckCacheWritesTimestampAndResultTogether(t *testing.T) {
@@ -711,6 +779,33 @@ func TestDefaultRunSkillsCheckCommandDoesNotWaitForDescendantPipes(t *testing.T)
 	}
 	if !strings.Contains(output, "2 updates available") {
 		t.Fatalf("output = %q, want update result", output)
+	}
+}
+
+func TestCappedSkillsCheckOutputRetainsLimitWhileDraining(t *testing.T) {
+	var output cappedSkillsCheckOutput
+	payload := bytes.Repeat([]byte("x"), maxSkillsCheckOutputBytes+4096)
+
+	written, err := output.Write(payload)
+	if err != nil {
+		t.Fatalf("Write() error: %v", err)
+	}
+	if written != len(payload) {
+		t.Fatalf("Write() = %d, want %d", written, len(payload))
+	}
+	if got := len(output.String()); got != maxSkillsCheckOutputBytes {
+		t.Fatalf("retained output = %d bytes, want %d", got, maxSkillsCheckOutputBytes)
+	}
+
+	written, err = output.Write([]byte("still drained"))
+	if err != nil {
+		t.Fatalf("second Write() error: %v", err)
+	}
+	if written != len("still drained") {
+		t.Fatalf("second Write() = %d, want %d", written, len("still drained"))
+	}
+	if got := len(output.String()); got != maxSkillsCheckOutputBytes {
+		t.Fatalf("retained output after cap = %d bytes, want %d", got, maxSkillsCheckOutputBytes)
 	}
 }
 

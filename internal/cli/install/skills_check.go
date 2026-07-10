@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
@@ -27,6 +28,7 @@ const (
 	skillsWorkerTokenEnvVar   = "ASC_INTERNAL_SKILLS_CHECK_TOKEN"
 	skillsCheckCacheFilename  = "skills-check.json"
 	skillsCheckLockFilename   = "skills-check.lock"
+	skillsCheckClaimSuffix    = ".claim"
 	skillsCheckInterval       = 24 * time.Hour
 	skillsCheckTimeout        = 8 * time.Second
 	skillsCheckPipeWaitDelay  = 250 * time.Millisecond
@@ -39,6 +41,7 @@ const (
 var (
 	lookupSkillsCheckCLI      = exec.LookPath
 	errSkillsCheckUnavailable = errors.New("skills check command unavailable")
+	skillsCheckClaimMu        sync.Mutex
 )
 
 type skillsCheckCache struct {
@@ -60,6 +63,10 @@ type skillsCheckWorkerSpec struct {
 type skillsCheckLock struct {
 	Token     string `json:"token"`
 	StartedAt string `json:"started_at"`
+}
+
+type cappedSkillsCheckOutput struct {
+	data []byte
 }
 
 type skillsCheckScheduler struct {
@@ -281,6 +288,26 @@ func defaultStoreSkillsCheckCache(path string, cache skillsCheckCache) error {
 }
 
 func defaultClaimSkillsCheckWorker(path string, now time.Time) (string, bool, error) {
+	skillsCheckClaimMu.Lock()
+	defer skillsCheckClaimMu.Unlock()
+
+	guard, acquired, err := acquireSkillsCheckClaimGuard(path+skillsCheckClaimSuffix, false)
+	if err != nil || !acquired {
+		return "", false, err
+	}
+
+	token, claimed, claimErr := claimSkillsCheckWorkerUnderGuard(path, now)
+	guardErr := releaseSkillsCheckClaimGuard(guard)
+	if claimErr != nil {
+		return "", false, claimErr
+	}
+	if guardErr != nil {
+		return "", false, guardErr
+	}
+	return token, claimed, nil
+}
+
+func claimSkillsCheckWorkerUnderGuard(path string, now time.Time) (string, bool, error) {
 	token, err := newSkillsCheckWorkerToken()
 	if err != nil {
 		return "", false, err
@@ -293,16 +320,35 @@ func defaultClaimSkillsCheckWorker(path string, now time.Time) (string, bool, er
 			return "", false, err
 		}
 
-		stale, err := skillsCheckLockIsStale(path, now)
-		if err != nil || !stale {
-			return "", false, err
-		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		reclaimed, err := quarantineStaleSkillsCheckLock(path, token, now)
+		if err != nil || !reclaimed {
 			return "", false, err
 		}
 	}
 
 	return "", false, nil
+}
+
+func quarantineStaleSkillsCheckLock(path, token string, now time.Time) (bool, error) {
+	stale, err := skillsCheckLockIsStale(path, now)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil || !stale {
+		return false, err
+	}
+
+	quarantinePath := path + ".stale-" + token
+	if err := os.Rename(path, quarantinePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return true, nil
+		}
+		return false, err
+	}
+	if err := os.Remove(quarantinePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	return true, nil
 }
 
 func createSkillsCheckLock(path, token string, now time.Time) error {
@@ -362,6 +408,26 @@ func skillsCheckLockIsStale(path string, now time.Time) (bool, error) {
 }
 
 func defaultReleaseSkillsCheckWorker(path, token string) error {
+	skillsCheckClaimMu.Lock()
+	defer skillsCheckClaimMu.Unlock()
+
+	guard, acquired, err := acquireSkillsCheckClaimGuard(path+skillsCheckClaimSuffix, true)
+	if err != nil {
+		return err
+	}
+	if !acquired {
+		return nil
+	}
+
+	releaseErr := releaseSkillsCheckWorkerUnderGuard(path, token)
+	guardErr := releaseSkillsCheckClaimGuard(guard)
+	if releaseErr != nil {
+		return releaseErr
+	}
+	return guardErr
+}
+
+func releaseSkillsCheckWorkerUnderGuard(path, token string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -381,6 +447,78 @@ func defaultReleaseSkillsCheckWorker(path, token string) error {
 		return err
 	}
 	return nil
+}
+
+func acquireSkillsCheckClaimGuard(path string, wait bool) (*os.File, bool, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, false, err
+	}
+
+	created, err := shared.OpenNewFileNoFollow(path, 0o600)
+	if err == nil {
+		err = created.Close()
+	} else if errors.Is(err, os.ErrExist) {
+		err = nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	file, err := openSkillsCheckClaimGuard(path)
+	if err != nil {
+		return nil, false, err
+	}
+	acquired, err := lockSkillsCheckClaimFile(file, wait)
+	if err != nil || !acquired {
+		_ = file.Close()
+		return nil, false, err
+	}
+	return file, true, nil
+}
+
+func openSkillsCheckClaimGuard(path string) (*os.File, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("skills check claim guard must be a regular file")
+	}
+
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return nil, err
+	}
+	closeOnFailure := true
+	defer func() {
+		if closeOnFailure {
+			_ = file.Close()
+		}
+	}()
+
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(before, after) || !os.SameFile(opened, after) {
+		return nil, fmt.Errorf("skills check claim guard changed while opening")
+	}
+
+	closeOnFailure = false
+	return file, nil
+}
+
+func releaseSkillsCheckClaimGuard(file *os.File) error {
+	unlockErr := unlockSkillsCheckClaimFile(file)
+	closeErr := file.Close()
+	if unlockErr != nil {
+		return unlockErr
+	}
+	return closeErr
 }
 
 func newSkillsCheckWorkerToken() (string, error) {
@@ -470,7 +608,7 @@ func runSkillsCheckProcess(ctx context.Context, name string, args []string, env 
 	}
 	cmd.WaitDelay = skillsCheckPipeWaitDelay
 
-	var combined bytes.Buffer
+	var combined cappedSkillsCheckOutput
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
 	err := cmd.Run()
@@ -481,11 +619,22 @@ func runSkillsCheckProcess(ctx context.Context, name string, args []string, env 
 		err = ctxErr
 	}
 
-	output := combined.Bytes()
-	if len(output) > maxSkillsCheckOutputBytes {
-		output = output[:maxSkillsCheckOutputBytes]
+	return combined.String(), err
+}
+
+func (output *cappedSkillsCheckOutput) Write(p []byte) (int, error) {
+	remaining := maxSkillsCheckOutputBytes - len(output.data)
+	if remaining > 0 {
+		if len(p) < remaining {
+			remaining = len(p)
+		}
+		output.data = append(output.data, p[:remaining]...)
 	}
-	return string(output), err
+	return len(p), nil
+}
+
+func (output *cappedSkillsCheckOutput) String() string {
+	return string(output.data)
 }
 
 func isUnavailableSkillsCheckOutput(output string) bool {
