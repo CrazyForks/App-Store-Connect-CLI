@@ -9,6 +9,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var fcntlSkillsCheckClaim = unix.FcntlFlock
+
 func lockSkillsCheckClaimFile(file *os.File, wait bool) (bool, error) {
 	command := unix.F_SETLK
 	if wait {
@@ -20,7 +22,7 @@ func lockSkillsCheckClaimFile(file *os.File, wait bool) (bool, error) {
 		Start:  0,
 		Len:    1,
 	}
-	if err := unix.FcntlFlock(file.Fd(), command, &lock); err != nil {
+	if err := retrySkillsCheckFcntl(file.Fd(), command, &lock); err != nil {
 		if !wait && (errors.Is(err, unix.EACCES) || errors.Is(err, unix.EAGAIN)) {
 			return false, nil
 		}
@@ -36,5 +38,14 @@ func unlockSkillsCheckClaimFile(file *os.File) error {
 		Start:  0,
 		Len:    1,
 	}
-	return unix.FcntlFlock(file.Fd(), unix.F_SETLK, &lock)
+	return retrySkillsCheckFcntl(file.Fd(), unix.F_SETLK, &lock)
+}
+
+func retrySkillsCheckFcntl(fd uintptr, command int, lock *unix.Flock_t) error {
+	for {
+		err := fcntlSkillsCheckClaim(fd, command, lock)
+		if !errors.Is(err, unix.EINTR) {
+			return err
+		}
+	}
 }

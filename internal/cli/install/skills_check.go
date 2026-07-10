@@ -39,9 +39,10 @@ const (
 )
 
 var (
-	lookupSkillsCheckCLI      = exec.LookPath
-	errSkillsCheckUnavailable = errors.New("skills check command unavailable")
-	skillsCheckClaimMu        sync.Mutex
+	lookupSkillsCheckCLI           = exec.LookPath
+	errSkillsCheckUnavailable      = errors.New("skills check command unavailable")
+	releaseSkillsCheckClaimGuardFn = releaseSkillsCheckClaimGuard
+	skillsCheckClaimMu             sync.Mutex
 )
 
 type skillsCheckCache struct {
@@ -297,14 +298,17 @@ func defaultClaimSkillsCheckWorker(path string, now time.Time) (string, bool, er
 	}
 
 	token, claimed, claimErr := claimSkillsCheckWorkerUnderGuard(path, now)
-	guardErr := releaseSkillsCheckClaimGuard(guard)
+	guardErr := releaseSkillsCheckClaimGuardFn(guard)
 	if claimErr != nil {
 		return "", false, claimErr
+	}
+	if claimed {
+		return token, true, nil
 	}
 	if guardErr != nil {
 		return "", false, guardErr
 	}
-	return token, claimed, nil
+	return "", false, nil
 }
 
 func claimSkillsCheckWorkerUnderGuard(path string, now time.Time) (string, bool, error) {

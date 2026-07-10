@@ -410,6 +410,32 @@ func TestDefaultClaimSkillsCheckWorkerAllowsOnlyOneConcurrentWorker(t *testing.T
 	}
 }
 
+func TestDefaultClaimSkillsCheckWorkerKeepsClaimWhenGuardReleaseReportsError(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), skillsCheckLockFilename)
+	now := time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC)
+	originalRelease := releaseSkillsCheckClaimGuardFn
+	t.Cleanup(func() {
+		releaseSkillsCheckClaimGuardFn = originalRelease
+	})
+	releaseSkillsCheckClaimGuardFn = func(file *os.File) error {
+		if err := originalRelease(file); err != nil {
+			return err
+		}
+		return errors.New("simulated guard release failure")
+	}
+
+	token, claimed, err := defaultClaimSkillsCheckWorker(lockPath, now)
+	if err != nil {
+		t.Fatalf("defaultClaimSkillsCheckWorker() error: %v", err)
+	}
+	if !claimed || token == "" {
+		t.Fatalf("claim after guard release error = (%q, %v), want owner", token, claimed)
+	}
+	if err := defaultReleaseSkillsCheckWorker(lockPath, token); err != nil {
+		t.Fatalf("release claimed worker: %v", err)
+	}
+}
+
 func TestDefaultClaimSkillsCheckWorkerReclaimsStaleLease(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), skillsCheckLockFilename)
 	now := time.Date(2026, 3, 5, 12, 0, 0, 0, time.UTC)
