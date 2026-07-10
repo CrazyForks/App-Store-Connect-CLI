@@ -205,6 +205,12 @@ func normalizeOutcomeKind(eventContext EventContext, exitCode int) OutcomeKind {
 	case status >= 500:
 		return OutcomeAPIServerError
 	}
+	switch eventContext.ErrorKind {
+	case ErrorKindAPIConflict:
+		return OutcomeConflict
+	case ErrorKindAPI5xx:
+		return OutcomeAPIServerError
+	}
 
 	switch eventContext.OutcomeKind {
 	case OutcomeExpectedNegative:
@@ -215,7 +221,7 @@ func normalizeOutcomeKind(eventContext EventContext, exitCode int) OutcomeKind {
 		if exitCode == 2 && (eventContext.FailureStage == FailureStageParse || eventContext.FailureStage == FailureStageValidation) {
 			return OutcomeUsageError
 		}
-	case OutcomeAuthError, OutcomeNotFound, OutcomeConflict, OutcomeCancelled, OutcomeInternalError:
+	case OutcomeAuthError, OutcomeNotFound, OutcomeConflict, OutcomeAPIClientError, OutcomeAPIServerError, OutcomeCancelled, OutcomeInternalError:
 		return eventContext.OutcomeKind
 	case OutcomeTransportError:
 		if eventContext.FailureStage == FailureStageRequest {

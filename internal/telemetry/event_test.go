@@ -133,6 +133,65 @@ func TestBuildEventWithContextCapturesBoundedHTTPContext(t *testing.T) {
 	}
 }
 
+func TestBuildEventWithContextPreservesAPIOutcomesWithoutHTTPStatus(t *testing.T) {
+	clearContextEnv(t)
+	setTelemetryTestHome(t)
+
+	tests := []struct {
+		name    string
+		context EventContext
+		want    OutcomeKind
+	}{
+		{
+			name: "explicit client error",
+			context: EventContext{
+				ErrorKind:    ErrorKindOther,
+				FailureStage: FailureStageRequest,
+				OutcomeKind:  OutcomeAPIClientError,
+			},
+			want: OutcomeAPIClientError,
+		},
+		{
+			name: "explicit server error",
+			context: EventContext{
+				ErrorKind:    ErrorKindOther,
+				FailureStage: FailureStageRequest,
+				OutcomeKind:  OutcomeAPIServerError,
+			},
+			want: OutcomeAPIServerError,
+		},
+		{
+			name: "conflict error kind",
+			context: EventContext{
+				ErrorKind: ErrorKindAPIConflict,
+			},
+			want: OutcomeConflict,
+		},
+		{
+			name: "server error kind",
+			context: EventContext{
+				ErrorKind: ErrorKindAPI5xx,
+			},
+			want: OutcomeAPIServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev, ok := BuildEventWithContext("asc builds list", "2.7.0", time.Second, 1, tt.context)
+			if !ok {
+				t.Fatal("expected event")
+			}
+			if ev.OutcomeKind != tt.want {
+				t.Fatalf("OutcomeKind = %q, want %q", ev.OutcomeKind, tt.want)
+			}
+			if ev.HTTPStatus != nil {
+				t.Fatalf("HTTPStatus = %v, want nil", ev.HTTPStatus)
+			}
+		})
+	}
+}
+
 func TestSchemaV3SpoolRecordOmitsSchemaV4Fields(t *testing.T) {
 	data, err := json.Marshal(Event{
 		SchemaVersion:   3,
