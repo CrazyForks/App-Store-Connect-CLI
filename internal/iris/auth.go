@@ -160,6 +160,13 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("API error (status %d): %s", e.Status, string(e.Body))
 }
 
+func (e *APIError) HTTPStatusCode() int {
+	if e == nil {
+		return 0
+	}
+	return e.Status
+}
+
 // NewClient creates a new IRIS client with an authenticated session
 func NewClient(session *AuthSession) *Client {
 	return &Client{

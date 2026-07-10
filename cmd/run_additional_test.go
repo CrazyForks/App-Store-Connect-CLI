@@ -176,8 +176,10 @@ func TestRun_BareGroupPrintsHelpToStdoutAndExitsSuccessfully(t *testing.T) {
 	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
 
 	var telemetryCalls int
-	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, _ telemetry.EventContext) {
+	var gotContext telemetry.EventContext
+	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, eventContext telemetry.EventContext) {
 		telemetryCalls++
+		gotContext = eventContext
 	}
 
 	stdout, stderr := captureCommandOutput(t, func() {
@@ -192,8 +194,11 @@ func TestRun_BareGroupPrintsHelpToStdoutAndExitsSuccessfully(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if telemetryCalls != 0 {
-		t.Fatalf("telemetry calls = %d, want 0 for group help", telemetryCalls)
+	if telemetryCalls != 1 {
+		t.Fatalf("telemetry calls = %d, want 1 for group help", telemetryCalls)
+	}
+	if gotContext.EventKind != telemetry.EventKindHelp || gotContext.OutcomeKind != telemetry.OutcomeSuccess {
+		t.Fatalf("unexpected help telemetry context: %+v", gotContext)
 	}
 }
 
@@ -259,6 +264,9 @@ func TestRun_ValidateMissingRequiredFlagsReturnsUsage(t *testing.T) {
 	if gotContext.ErrorKind != telemetry.ErrorKindMissingRequired || gotContext.FailureStage != telemetry.FailureStageValidation {
 		t.Fatalf("unexpected telemetry context: %+v", gotContext)
 	}
+	if gotContext.FailureParameter != "--version" || gotContext.OutcomeKind != telemetry.OutcomeUsageError {
+		t.Fatalf("unexpected missing-parameter telemetry context: %+v", gotContext)
+	}
 }
 
 func TestRun_MissingRequiredFlagsEmitContext(t *testing.T) {
@@ -296,6 +304,9 @@ func TestRun_MissingRequiredFlagsEmitContext(t *testing.T) {
 			}
 			if gotContext.ErrorKind != telemetry.ErrorKindMissingRequired || gotContext.FailureStage != telemetry.FailureStageValidation {
 				t.Fatalf("unexpected telemetry context: %+v", gotContext)
+			}
+			if gotContext.FailureParameter != "--app" || gotContext.OutcomeKind != telemetry.OutcomeUsageError {
+				t.Fatalf("unexpected missing-parameter telemetry context: %+v", gotContext)
 			}
 		})
 	}
@@ -433,7 +444,8 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 	}
 	if gotContext.InvocationShape != telemetry.InvocationShapeLeaf ||
 		gotContext.ErrorKind != telemetry.ErrorKindUnknownFlag ||
-		gotContext.FailureStage != telemetry.FailureStageParse {
+		gotContext.FailureStage != telemetry.FailureStageParse ||
+		gotContext.OutcomeKind != telemetry.OutcomeUsageError {
 		t.Fatalf("unexpected telemetry context: %+v", gotContext)
 	}
 	if gotContext.FailureParameter != "--build-id" {
@@ -778,14 +790,18 @@ func TestRun_HelpSkipsAuthResolution(t *testing.T) {
 	}
 }
 
-func TestRun_HelpSkipsTelemetry(t *testing.T) {
+func TestRun_HelpEmitsHelpTelemetry(t *testing.T) {
 	resetReportFlags(t)
 	originalEmitTelemetry := emitTelemetry
 	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
 
 	var telemetryCalls int
-	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, _ telemetry.EventContext) {
+	var commandName string
+	var gotContext telemetry.EventContext
+	emitTelemetry = func(command string, _ string, _ time.Duration, _ int, eventContext telemetry.EventContext) {
 		telemetryCalls++
+		commandName = command
+		gotContext = eventContext
 	}
 
 	captureCommandOutput(t, func() {
@@ -793,8 +809,14 @@ func TestRun_HelpSkipsTelemetry(t *testing.T) {
 			t.Fatalf("Run() exit code = %d, want %d", code, ExitSuccess)
 		}
 	})
-	if telemetryCalls != 0 {
-		t.Fatalf("telemetry calls = %d, want 0 for help", telemetryCalls)
+	if telemetryCalls != 1 {
+		t.Fatalf("telemetry calls = %d, want 1 for help", telemetryCalls)
+	}
+	if commandName != "asc builds" {
+		t.Fatalf("telemetry command = %q, want %q", commandName, "asc builds")
+	}
+	if gotContext.EventKind != telemetry.EventKindHelp || gotContext.OutcomeKind != telemetry.OutcomeSuccess {
+		t.Fatalf("unexpected help telemetry context: %+v", gotContext)
 	}
 }
 

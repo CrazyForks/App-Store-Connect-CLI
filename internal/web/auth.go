@@ -194,6 +194,13 @@ func (e *APIError) Error() string {
 	return strings.Join(parts, ", ")
 }
 
+func (e *APIError) HTTPStatusCode() int {
+	if e == nil {
+		return 0
+	}
+	return e.Status
+}
+
 // rawResponseBody exposes the body to package-internal helpers only.
 func (e *APIError) rawResponseBody() []byte {
 	return e.rawBody
