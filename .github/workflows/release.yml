@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - '[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing release tag to rebuild
+        required: true
+        type: string
 
 jobs:
   release:
@@ -13,10 +19,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.version) || github.ref }}
 
       - name: Validate release tag
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}"
 
           if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Release tags must match x.y.z. Got: ${TAG}"
@@ -56,19 +64,12 @@ jobs:
           p12-password: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
 
       - parallel:
-          - name: Build and sign macOS binaries
-            env:
-              APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+          - name: Build macOS binaries
             run: |
               COMMIT=$(git rev-parse --short HEAD)
               DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
               GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_macOS_amd64 .
               GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_macOS_arm64 .
-              if [ -n "${APPLE_DEVELOPER_ID}" ]; then
-                for binary in release/asc_*_macOS_*; do
-                  codesign --force --sign "${APPLE_DEVELOPER_ID}" --timestamp --options=runtime "$binary"
-                done
-              fi
 
           - name: Build for Linux
             run: |
@@ -82,6 +83,19 @@ jobs:
               COMMIT=$(git rev-parse --short HEAD)
               DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
               GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_windows_amd64.exe .
+
+      - name: Sign and verify macOS binaries
+        env:
+          APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+        run: |
+          if [ -z "${APPLE_DEVELOPER_ID}" ]; then
+            echo "::error::APPLE_DEVELOPER_ID not set"
+            exit 1
+          fi
+          for binary in release/asc_*_macOS_*; do
+            codesign --force --sign "${APPLE_DEVELOPER_ID}" --timestamp --options=runtime "$binary"
+            codesign --verify --deep --strict --verbose=2 "$binary"
+          done
 
       - name: Create checksums
         run: |
