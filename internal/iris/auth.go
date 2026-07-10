@@ -758,6 +758,13 @@ func (e *twoFAVerificationFailedError) Error() string {
 	return fmt.Sprintf("%s 2FA failed (status %d)", e.Kind, e.Status)
 }
 
+func (e *twoFAVerificationFailedError) HTTPStatusCode() int {
+	if e == nil {
+		return 0
+	}
+	return e.Status
+}
+
 func appleSessionHeaders(session *AuthSession) http.Header {
 	header := make(http.Header)
 	header.Set("X-Apple-ID-Session-Id", session.AppleIDSessionID)
