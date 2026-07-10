@@ -54,9 +54,6 @@ func Run(args []string, versionInfo string) int {
 			fmt.Fprint(os.Stderr, parseOutput.String())
 		}
 		if errors.Is(parseErr, flag.ErrHelp) {
-			emitImmediateTelemetry(args, root, versionInfo, ExitSuccess, telemetry.EventContext{
-				InvocationShape: analysis.shape,
-			})
 			return ExitSuccess
 		}
 		if parseOutput.Len() == 0 {
@@ -148,9 +145,6 @@ func Run(args []string, versionInfo string) int {
 	}
 
 	if renderGroupHelp {
-		emitTelemetry(commandName, versionInfo, elapsed, ExitSuccess, telemetry.EventContext{
-			InvocationShape: analysis.shape,
-		})
 		return ExitSuccess
 	}
 
