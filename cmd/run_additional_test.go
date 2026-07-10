@@ -31,6 +31,13 @@ import (
 
 func TestRun_VersionFlag(t *testing.T) {
 	resetReportFlags(t)
+	originalEmitTelemetry := emitTelemetry
+	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
+
+	var telemetryCalls int
+	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, _ telemetry.EventContext) {
+		telemetryCalls++
+	}
 
 	stdout, _ := captureCommandOutput(t, func() {
 		code := Run([]string{"--version"}, "9.9.9")
@@ -41,6 +48,9 @@ func TestRun_VersionFlag(t *testing.T) {
 
 	if !strings.Contains(stdout, "9.9.9") {
 		t.Fatalf("expected version in stdout, got %q", stdout)
+	}
+	if telemetryCalls != 0 {
+		t.Fatalf("telemetry calls = %d, want 0 for version", telemetryCalls)
 	}
 }
 
@@ -165,9 +175,9 @@ func TestRun_BareGroupPrintsHelpToStdoutAndExitsSuccessfully(t *testing.T) {
 	originalEmitTelemetry := emitTelemetry
 	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
 
-	var gotContext telemetry.EventContext
-	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, eventContext telemetry.EventContext) {
-		gotContext = eventContext
+	var telemetryCalls int
+	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, _ telemetry.EventContext) {
+		telemetryCalls++
 	}
 
 	stdout, stderr := captureCommandOutput(t, func() {
@@ -182,11 +192,8 @@ func TestRun_BareGroupPrintsHelpToStdoutAndExitsSuccessfully(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if gotContext.InvocationShape != telemetry.InvocationShapeBareGroup {
-		t.Fatalf("InvocationShape = %q, want %q", gotContext.InvocationShape, telemetry.InvocationShapeBareGroup)
-	}
-	if gotContext.ErrorKind != "" || gotContext.FailureStage != "" {
-		t.Fatalf("successful help should not carry failure context: %+v", gotContext)
+	if telemetryCalls != 0 {
+		t.Fatalf("telemetry calls = %d, want 0 for group help", telemetryCalls)
 	}
 }
 
@@ -731,34 +738,23 @@ func TestRun_HelpSkipsAuthResolution(t *testing.T) {
 	}
 }
 
-func TestRun_HelpEmitsTelemetry(t *testing.T) {
+func TestRun_HelpSkipsTelemetry(t *testing.T) {
+	resetReportFlags(t)
 	originalEmitTelemetry := emitTelemetry
 	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
 
-	var commandName string
-	var duration time.Duration
-	var exitCode int
-	emitTelemetry = func(command, _ string, elapsed time.Duration, code int, _ telemetry.EventContext) {
-		commandName = command
-		duration = elapsed
-		exitCode = code
+	var telemetryCalls int
+	emitTelemetry = func(_ string, _ string, _ time.Duration, _ int, _ telemetry.EventContext) {
+		telemetryCalls++
 	}
 
-	emitImmediateTelemetry(
-		[]string{"builds", "--help"},
-		RootCommand("1.0.0"),
-		"1.0.0",
-		ExitSuccess,
-		telemetry.EventContext{InvocationShape: telemetry.InvocationShapeGroupWithFlags},
-	)
-	if commandName != "asc builds" {
-		t.Fatalf("telemetry command = %q, want %q", commandName, "asc builds")
-	}
-	if duration != 0 {
-		t.Fatalf("telemetry duration = %s, want 0 for help", duration)
-	}
-	if exitCode != ExitSuccess {
-		t.Fatalf("telemetry exit code = %d, want %d", exitCode, ExitSuccess)
+	captureCommandOutput(t, func() {
+		if code := Run([]string{"builds", "--help"}, "1.0.0"); code != ExitSuccess {
+			t.Fatalf("Run() exit code = %d, want %d", code, ExitSuccess)
+		}
+	})
+	if telemetryCalls != 0 {
+		t.Fatalf("telemetry calls = %d, want 0 for help", telemetryCalls)
 	}
 }
 
