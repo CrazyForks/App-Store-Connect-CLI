@@ -555,11 +555,11 @@ func TestRun_NoArgsShowsHelpReturnsSuccess(t *testing.T) {
 func TestRun_InvokesSkillsUpdateCheckForSubcommand(t *testing.T) {
 	resetReportFlags(t)
 
-	origCheck := maybeCheckForSkillUpdates
-	t.Cleanup(func() { maybeCheckForSkillUpdates = origCheck })
+	origCheck := maybeScheduleSkillsUpdateCheck
+	t.Cleanup(func() { maybeScheduleSkillsUpdateCheck = origCheck })
 
 	called := make(chan struct{}, 1)
-	maybeCheckForSkillUpdates = func(ctx context.Context) {
+	maybeScheduleSkillsUpdateCheck = func() {
 		select {
 		case called <- struct{}{}:
 		default:
@@ -583,11 +583,11 @@ func TestRun_InvokesSkillsUpdateCheckForSubcommand(t *testing.T) {
 func TestRun_SkipsSkillsUpdateCheckForRootInvocation(t *testing.T) {
 	resetReportFlags(t)
 
-	origCheck := maybeCheckForSkillUpdates
-	t.Cleanup(func() { maybeCheckForSkillUpdates = origCheck })
+	origCheck := maybeScheduleSkillsUpdateCheck
+	t.Cleanup(func() { maybeScheduleSkillsUpdateCheck = origCheck })
 
 	called := false
-	maybeCheckForSkillUpdates = func(ctx context.Context) {
+	maybeScheduleSkillsUpdateCheck = func() {
 		called = true
 	}
 
@@ -600,6 +600,40 @@ func TestRun_SkipsSkillsUpdateCheckForRootInvocation(t *testing.T) {
 
 	if called {
 		t.Fatal("expected skills update check to be skipped for root invocation")
+	}
+}
+
+func TestRun_SkipsSkillsUpdateCheckForHelpAndVersionInvocations(t *testing.T) {
+	origCheck := maybeScheduleSkillsUpdateCheck
+	t.Cleanup(func() { maybeScheduleSkillsUpdateCheck = origCheck })
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "root help", args: []string{"--help"}},
+		{name: "subcommand help", args: []string{"completion", "--help"}},
+		{name: "version flag", args: []string{"--version"}},
+		{name: "version command", args: []string{"version"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetReportFlags(t)
+			called := false
+			maybeScheduleSkillsUpdateCheck = func() {
+				called = true
+			}
+
+			_, _ = captureCommandOutput(t, func() {
+				if code := Run(tt.args, "1.0.0"); code != ExitSuccess {
+					t.Fatalf("Run() exit code = %d, want %d", code, ExitSuccess)
+				}
+			})
+			if called {
+				t.Fatalf("skills update check scheduled for %v", tt.args)
+			}
+		})
 	}
 }
 
@@ -661,6 +695,12 @@ func TestShouldRunSkillsUpdateCheck(t *testing.T) {
 	t.Run("skips for install-skills command", func(t *testing.T) {
 		if shouldRunSkillsUpdateCheck("asc install-skills", context.Background(), nil) {
 			t.Fatal("expected skills update check to be skipped for install-skills command")
+		}
+	})
+
+	t.Run("skips for version command", func(t *testing.T) {
+		if shouldRunSkillsUpdateCheck("asc version", context.Background(), nil) {
+			t.Fatal("expected skills update check to be skipped for version command")
 		}
 	})
 
