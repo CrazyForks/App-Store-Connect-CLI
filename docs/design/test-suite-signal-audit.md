@@ -4,7 +4,7 @@
 
 This change removes tests that do not protect shipped behavior. It does not
 change the CLI command hierarchy, flags, output, exit codes, API requests, or
-authentication behavior.
+shipped CLI and Studio authentication behavior.
 
 The audit covered every Go test file and top-level test, exact duplicate test
 bodies, skipped tests, the largest and slowest packages, command-constructor
@@ -43,7 +43,10 @@ shipped dependency graph, which contains `internal/web` and excludes
 After removal, run focused tests for every affected active command package,
 then the repository format, documentation, lint, build, and full test gates.
 Verify the built binary can construct help and perform one read-only,
-authenticated App Store Connect request. No live mutation is needed.
+authenticated App Store Connect request. Recheck the shipped dependency graph
+to confirm no removed package is referenced, and rerun the duplicate-test AST
+audit to confirm no exact duplicate top-level test bodies remain. No live
+mutation is needed.
 
 ## Alternatives
 
