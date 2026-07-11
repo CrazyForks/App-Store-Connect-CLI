@@ -63,25 +63,10 @@ class ChangeScopeTest(unittest.TestCase):
             "full",
         )
 
-    def test_studio_go_source_requires_full_quality_checks(self) -> None:
-        self.assertEqual(ci_change_scope.classify(["apps/studio/main.go"]), "full")
-
-    def test_studio_scope_requires_only_non_go_studio_files(self) -> None:
-        self.assertEqual(
-            ci_change_scope.classify(["apps/studio/frontend/src/App.tsx"]),
-            "studio",
-        )
-        self.assertEqual(
-            ci_change_scope.classify(
-                ["apps/studio/frontend/src/App.tsx", "guides/studio.mdx"]
-            ),
-            "full",
-        )
-
     def test_mixed_specialized_changes_require_full_suite(self) -> None:
         self.assertEqual(
             ci_change_scope.classify(
-                ["apps/studio/main.go", "internal/telemetry/client.go"]
+                ["main.go", "internal/telemetry/client.go"]
             ),
             "full",
         )
@@ -112,10 +97,6 @@ class ChangeScopeTest(unittest.TestCase):
     def test_dedicated_workflow_impact_matches_owned_paths(self) -> None:
         self.assertTrue(ci_change_scope.affects_website(["guides/testflight.mdx"]))
         self.assertFalse(ci_change_scope.affects_website(["docs/TESTING.md"]))
-        self.assertTrue(ci_change_scope.affects_studio(["apps/studio/main.go"]))
-        self.assertTrue(ci_change_scope.affects_studio(["internal/asc/client.go"]))
-        self.assertTrue(ci_change_scope.affects_studio(["go.mod"]))
-        self.assertFalse(ci_change_scope.affects_studio(["internal/telemetry/client.go"]))
 
 
 if __name__ == "__main__":

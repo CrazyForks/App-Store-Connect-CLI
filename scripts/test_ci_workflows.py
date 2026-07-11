@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parent.parent
 PR_WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
 MAIN_WORKFLOW = ROOT / ".github/workflows/main-branch.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
-STUDIO_WORKFLOW = ROOT / ".github/workflows/studio-checks.yml"
 WEBSITE_WORKFLOW = ROOT / ".github/workflows/website-checks.yml"
 
 
@@ -36,7 +35,6 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     changes = job_block(workflow, "changes")
     assert "scope: ${{ steps.scope.outputs.scope }}" in changes
     assert "website_affected: ${{ steps.scope.outputs.website_affected }}" in changes
-    assert "studio_affected: ${{ steps.scope.outputs.studio_affected }}" in changes
     assert "python3 scripts/ci_change_scope.py --github-output" in changes
     assert "git diff --name-only --no-renames" in changes
     for guarded_path in (
@@ -51,8 +49,7 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     )
     assert 'if [ "$force_full" = true ]; then' in changes
     assert "website_affected=true" in changes
-    assert "studio_affected=true" in changes
-    assert "wall|docs|website|studio|telemetry|full" in changes
+    assert "wall|docs|website|telemetry|full" in changes
     assert "invalid CI scope" in changes
 
     assert "runs-on: ubuntu-latest" in job_block(workflow, "wall-only-check")
@@ -61,13 +58,9 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     assert "runs-on: ubuntu-latest" in quality
     assert "python3 scripts/test_ci_change_scope.py" in quality
     assert "contains(fromJSON('[\"telemetry\", \"full\"]'), needs.changes.outputs.scope)" in quality
-    for called_job, called_workflow in (
-        ("website-checks", "website-checks.yml"),
-        ("studio-checks", "studio-checks.yml"),
-    ):
-        called = job_block(workflow, called_job)
-        assert f"uses: ./.github/workflows/{called_workflow}" in called
-        assert f"needs.changes.outputs.{called_job.removesuffix('-checks')}_affected == 'true'" in called
+    website = job_block(workflow, "website-checks")
+    assert "uses: ./.github/workflows/website-checks.yml" in website
+    assert "needs.changes.outputs.website_affected == 'true'" in website
     tests = job_block(workflow, test_job)
     assert "runs-on: ubuntu-latest" in tests
     assert "needs.changes.outputs.scope == 'full'" in tests
@@ -102,18 +95,13 @@ def main() -> None:
     for required_job in ("format-and-lint", "unit-tests", "build"):
         assert "if: always()" in job_block(pr, required_job), f"required job {required_job} must always resolve"
     quality_gate = job_block(pr, "format-and-lint")
-    assert "needs: [changes, wall-only-check, quality-checks, website-checks, studio-checks]" in quality_gate
+    assert "needs: [changes, wall-only-check, quality-checks, website-checks]" in quality_gate
     assert "needs.website-checks.result" in quality_gate
-    assert "needs.studio-checks.result" in quality_gate
 
     website = WEBSITE_WORKFLOW.read_text()
     assert "workflow_call:" in website
     assert "runs-on: ubuntu-latest" in job_block(website, "website")
     assert "make check-website-docs" in website
-
-    studio = STUDIO_WORKFLOW.read_text()
-    assert "workflow_call:" in studio
-    assert "runs-on: macos-latest" in job_block(studio, "studio")
 
     main = MAIN_WORKFLOW.read_text()
     assert "git diff-tree --no-commit-id --name-only --no-renames -r" in main

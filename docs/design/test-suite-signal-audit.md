@@ -4,12 +4,12 @@
 
 This change removes tests that do not protect shipped behavior. It does not
 change the CLI command hierarchy, flags, output, exit codes, API requests, or
-shipped CLI and Studio authentication behavior.
+shipped CLI authentication behavior.
 
 The audit covered every Go test file and top-level test, exact duplicate test
 bodies, skipped tests, the largest and slowest packages, command-constructor
-smoke tests, and packages outside the dependency graph of the shipped CLI and
-Studio binaries.
+smoke tests, and packages outside the dependency graph of the shipped CLI
+binary.
 
 ## Findings
 
@@ -24,8 +24,8 @@ Three groups are safe to remove:
    `OfferCodePricesCommand`. The shipped offer-code price command lives in the
    subscriptions tree; the old top-level `offer-codes` wrapper was removed in
    commit `066f0ed0`, leaving this command group unreachable.
-3. `internal/iris` is absent from the dependency graph of the CLI and Studio
-   binaries. It is an obsolete predecessor of `internal/web`; no production Go
+3. `internal/iris` is absent from the dependency graph of the CLI binary. It is
+   an obsolete predecessor of `internal/web`; no production Go
    file imports it. Its test file also contains the only exact duplicate test
    bodies found by the audit, duplicated in the active `internal/web` package.
    Removing only the tests would leave an untested dead implementation, so the

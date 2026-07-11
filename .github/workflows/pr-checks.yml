@@ -18,7 +18,6 @@ jobs:
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
       website_affected: ${{ steps.scope.outputs.website_affected }}
-      studio_affected: ${{ steps.scope.outputs.studio_affected }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -47,13 +46,13 @@ jobs:
           done <<< "$files"
 
           if [ "$force_full" = true ]; then
-            selection="$(printf '%s\n' 'scope=full' 'website_affected=true' 'studio_affected=true')"
+            selection="$(printf '%s\n' 'scope=full' 'website_affected=true')"
           else
             selection="$(printf '%s\n' "$files" | python3 scripts/ci_change_scope.py --github-output)"
           fi
           scope="$(printf '%s\n' "$selection" | sed -n 's/^scope=//p')"
           case "$scope" in
-            wall|docs|website|studio|telemetry|full) ;;
+            wall|docs|website|telemetry|full) ;;
             *) echo "invalid CI scope: $scope" >&2; exit 1 ;;
           esac
           printf '%s\n' "$selection" >> "$GITHUB_OUTPUT"
@@ -79,11 +78,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.website_affected == 'true'
     uses: ./.github/workflows/website-checks.yml
-
-  studio-checks:
-    needs: changes
-    if: needs.changes.outputs.studio_affected == 'true'
-    uses: ./.github/workflows/studio-checks.yml
 
   quality-checks:
     needs: changes
@@ -143,7 +137,7 @@ jobs:
               make lint
 
   format-and-lint:
-    needs: [changes, wall-only-check, quality-checks, website-checks, studio-checks]
+    needs: [changes, wall-only-check, quality-checks, website-checks]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -158,7 +152,6 @@ jobs:
             wall) required="${{ needs.wall-only-check.result }}" ;;
             docs|telemetry|full) required="${{ needs.quality-checks.result }}" ;;
             website) required="${{ needs.website-checks.result }}" ;;
-            studio) required="${{ needs.studio-checks.result }}" ;;
             *) echo "unknown CI scope"; exit 1 ;;
           esac
 
@@ -168,10 +161,6 @@ jobs:
           fi
           if [ "${{ needs.changes.outputs.website_affected }}" = "true" ] && [ "${{ needs.website-checks.result }}" != "success" ]; then
             echo "website checks result: ${{ needs.website-checks.result }}"
-            exit 1
-          fi
-          if [ "${{ needs.changes.outputs.studio_affected }}" = "true" ] && [ "${{ needs.studio-checks.result }}" != "success" ]; then
-            echo "studio checks result: ${{ needs.studio-checks.result }}"
             exit 1
           fi
 
