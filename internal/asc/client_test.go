@@ -977,6 +977,38 @@ func TestBuildAppSearchKeywordsQuery(t *testing.T) {
 	}
 }
 
+func TestBuildAppClipDefaultExperiencesQuery(t *testing.T) {
+	query := &appClipDefaultExperiencesQuery{}
+	WithAppClipDefaultExperiencesReleaseWithVersionExists(true)(query)
+
+	values, err := url.ParseQuery(buildAppClipDefaultExperiencesQuery(query))
+	if err != nil {
+		t.Fatalf("ParseQuery() error: %v", err)
+	}
+	if got := values.Get("exists[releaseWithAppStoreVersion]"); got != "true" {
+		t.Fatalf("exists[releaseWithAppStoreVersion] = %q, want true", got)
+	}
+}
+
+func TestAppStoreVersionStateOptionsOverwritePreviousValues(t *testing.T) {
+	query := &appStoreVersionsQuery{}
+	WithAppStoreVersionsStates([]string{"READY_FOR_SALE", "READY_FOR_DISTRIBUTION"})(query)
+	WithAppStoreVersionsStates([]string{"PREPARE_FOR_SUBMISSION"})(query)
+
+	if got := strings.Join(query.states, ","); got != "PREPARE_FOR_SUBMISSION" {
+		t.Fatalf("app store states = %q, want PREPARE_FOR_SUBMISSION", got)
+	}
+	if len(query.appVersionStates) != 0 {
+		t.Fatalf("app version states = %v, want empty", query.appVersionStates)
+	}
+
+	WithAppStoreVersionsVersionStates([]string{"READY_FOR_DISTRIBUTION"})(query)
+	WithAppStoreVersionsVersionStates([]string{"PROCESSING_FOR_DISTRIBUTION"})(query)
+	if got := strings.Join(query.appVersionStates, ","); got != "PROCESSING_FOR_DISTRIBUTION" {
+		t.Fatalf("app version states = %q, want PROCESSING_FOR_DISTRIBUTION", got)
+	}
+}
+
 func TestBuildAppStoreVersionQuery(t *testing.T) {
 	query := &appStoreVersionQuery{}
 	WithAppStoreVersionInclude([]string{"appStoreReviewDetail", "ageRatingDeclaration"})(query)
@@ -2020,10 +2052,9 @@ func TestBuildAndroidToIosAppMappingDetailsQuery(t *testing.T) {
 }
 
 func TestBuildAlternativeDistributionDomainsQuery(t *testing.T) {
-	query := &alternativeDistributionDomainsQuery{
-		listQuery: listQuery{limit: 20},
-		fields:    []string{"domain", "referenceName"},
-	}
+	query := &alternativeDistributionDomainsQuery{}
+	WithAlternativeDistributionDomainsLimit(20)(query)
+	WithAlternativeDistributionDomainsFields([]string{"domain", "referenceName"})(query)
 	values, err := url.ParseQuery(buildAlternativeDistributionDomainsQuery(query))
 	if err != nil {
 		t.Fatalf("ParseQuery() error: %v", err)
@@ -2037,12 +2068,10 @@ func TestBuildAlternativeDistributionDomainsQuery(t *testing.T) {
 }
 
 func TestBuildAlternativeDistributionKeysQuery(t *testing.T) {
-	existsApp := true
-	query := &alternativeDistributionKeysQuery{
-		listQuery: listQuery{limit: 15},
-		fields:    []string{"publicKey"},
-		existsApp: &existsApp,
-	}
+	query := &alternativeDistributionKeysQuery{}
+	WithAlternativeDistributionKeysLimit(15)(query)
+	WithAlternativeDistributionKeysFields([]string{"publicKey"})(query)
+	WithAlternativeDistributionKeysExistsApp(true)(query)
 	values, err := url.ParseQuery(buildAlternativeDistributionKeysQuery(query))
 	if err != nil {
 		t.Fatalf("ParseQuery() error: %v", err)
@@ -2072,10 +2101,9 @@ func TestBuildAlternativeDistributionPackageVersionsQuery(t *testing.T) {
 }
 
 func TestBuildAlternativeDistributionPackageVariantsQuery(t *testing.T) {
-	query := &alternativeDistributionPackageVariantsQuery{
-		listQuery: listQuery{limit: 9},
-		fields:    []string{"url", "fileChecksum"},
-	}
+	query := &alternativeDistributionPackageVariantsQuery{}
+	WithAlternativeDistributionPackageVariantsLimit(9)(query)
+	WithAlternativeDistributionPackageVariantsFields([]string{"url", "fileChecksum"})(query)
 	values, err := url.ParseQuery(buildAlternativeDistributionPackageVariantsQuery(query))
 	if err != nil {
 		t.Fatalf("ParseQuery() error: %v", err)
@@ -2089,10 +2117,9 @@ func TestBuildAlternativeDistributionPackageVariantsQuery(t *testing.T) {
 }
 
 func TestBuildAlternativeDistributionPackageDeltasQuery(t *testing.T) {
-	query := &alternativeDistributionPackageDeltasQuery{
-		listQuery: listQuery{limit: 11},
-		fields:    []string{"url", "fileChecksum"},
-	}
+	query := &alternativeDistributionPackageDeltasQuery{}
+	WithAlternativeDistributionPackageDeltasLimit(11)(query)
+	WithAlternativeDistributionPackageDeltasFields([]string{"url", "fileChecksum"})(query)
 	values, err := url.ParseQuery(buildAlternativeDistributionPackageDeltasQuery(query))
 	if err != nil {
 		t.Fatalf("ParseQuery() error: %v", err)

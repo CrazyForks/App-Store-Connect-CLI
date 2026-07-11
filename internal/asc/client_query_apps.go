@@ -516,6 +516,13 @@ func WithAppClipDefaultExperiencesNextURL(next string) AppClipDefaultExperiences
 	}
 }
 
+// WithAppClipDefaultExperiencesReleaseWithVersionExists filters default experiences by release version presence.
+func WithAppClipDefaultExperiencesReleaseWithVersionExists(exists bool) AppClipDefaultExperiencesOption {
+	return func(q *appClipDefaultExperiencesQuery) {
+		q.releaseWithVersionExists = &exists
+	}
+}
+
 // WithAppClipDefaultExperienceInclude sets include for default experience detail.
 func WithAppClipDefaultExperienceInclude(include []string) AppClipDefaultExperienceOption {
 	return func(q *appClipDefaultExperienceQuery) {

@@ -259,6 +259,13 @@ func WithAlternativeDistributionDomainsNextURL(next string) AlternativeDistribut
 	}
 }
 
+// WithAlternativeDistributionDomainsFields sets fields[alternativeDistributionDomains].
+func WithAlternativeDistributionDomainsFields(fields []string) AlternativeDistributionDomainsOption {
+	return func(q *alternativeDistributionDomainsQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
 // WithAlternativeDistributionKeysLimit sets the max number of keys to return.
 func WithAlternativeDistributionKeysLimit(limit int) AlternativeDistributionKeysOption {
 	return func(q *alternativeDistributionKeysQuery) {
@@ -274,6 +281,20 @@ func WithAlternativeDistributionKeysNextURL(next string) AlternativeDistribution
 		if strings.TrimSpace(next) != "" {
 			q.nextURL = strings.TrimSpace(next)
 		}
+	}
+}
+
+// WithAlternativeDistributionKeysFields sets fields[alternativeDistributionKeys].
+func WithAlternativeDistributionKeysFields(fields []string) AlternativeDistributionKeysOption {
+	return func(q *alternativeDistributionKeysQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
+// WithAlternativeDistributionKeysExistsApp filters keys by whether they belong to an app.
+func WithAlternativeDistributionKeysExistsApp(exists bool) AlternativeDistributionKeysOption {
+	return func(q *alternativeDistributionKeysQuery) {
+		q.existsApp = &exists
 	}
 }
 
@@ -313,6 +334,13 @@ func WithAlternativeDistributionPackageVariantsNextURL(next string) AlternativeD
 	}
 }
 
+// WithAlternativeDistributionPackageVariantsFields sets fields[alternativeDistributionPackageVariants].
+func WithAlternativeDistributionPackageVariantsFields(fields []string) AlternativeDistributionPackageVariantsOption {
+	return func(q *alternativeDistributionPackageVariantsQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
 // WithAlternativeDistributionPackageDeltasLimit sets the max number of package deltas to return.
 func WithAlternativeDistributionPackageDeltasLimit(limit int) AlternativeDistributionPackageDeltasOption {
 	return func(q *alternativeDistributionPackageDeltasQuery) {
@@ -328,6 +356,13 @@ func WithAlternativeDistributionPackageDeltasNextURL(next string) AlternativeDis
 		if strings.TrimSpace(next) != "" {
 			q.nextURL = strings.TrimSpace(next)
 		}
+	}
+}
+
+// WithAlternativeDistributionPackageDeltasFields sets fields[alternativeDistributionPackageDeltas].
+func WithAlternativeDistributionPackageDeltasFields(fields []string) AlternativeDistributionPackageDeltasOption {
+	return func(q *alternativeDistributionPackageDeltasQuery) {
+		q.fields = normalizeList(fields)
 	}
 }
 
@@ -406,6 +441,27 @@ func WithWebhookDeliveriesCreatedAfter(values []string) WebhookDeliveriesOption 
 func WithWebhookDeliveriesCreatedBefore(values []string) WebhookDeliveriesOption {
 	return func(q *webhookDeliveriesQuery) {
 		q.createdBefore = normalizeList(values)
+	}
+}
+
+// WithWebhookDeliveriesFields sets fields[webhookDeliveries].
+func WithWebhookDeliveriesFields(fields []string) WebhookDeliveriesOption {
+	return func(q *webhookDeliveriesQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
+// WithWebhookDeliveriesEventFields sets fields[webhookEvents].
+func WithWebhookDeliveriesEventFields(fields []string) WebhookDeliveriesOption {
+	return func(q *webhookDeliveriesQuery) {
+		q.eventFields = normalizeList(fields)
+	}
+}
+
+// WithWebhookDeliveriesInclude sets related resources to include.
+func WithWebhookDeliveriesInclude(include []string) WebhookDeliveriesOption {
+	return func(q *webhookDeliveriesQuery) {
+		q.include = normalizeList(include)
 	}
 }
 

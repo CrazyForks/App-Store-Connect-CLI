@@ -557,16 +557,21 @@ func WithAppStoreVersionsStates(states []string) AppStoreVersionsOption {
 	return func(q *appStoreVersionsQuery) {
 		normalized := normalizeUpperList(states)
 		if shouldUseAppVersionStateFilter(normalized) {
-			q.appVersionStates = append(q.appVersionStates, normalized...)
+			q.states = nil
+			q.appVersionStates = normalized
 			return
 		}
+		appStoreStates := make([]string, 0, len(normalized))
+		appVersionStates := make([]string, 0, len(normalized))
 		for _, state := range normalized {
 			if isAppVersionStateOnly(state) {
-				q.appVersionStates = append(q.appVersionStates, state)
+				appVersionStates = append(appVersionStates, state)
 				continue
 			}
-			q.states = append(q.states, state)
+			appStoreStates = append(appStoreStates, state)
 		}
+		q.states = appStoreStates
+		q.appVersionStates = appVersionStates
 	}
 }
 
