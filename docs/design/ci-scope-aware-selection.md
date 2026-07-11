@@ -47,6 +47,8 @@ optimization change, with Darwin-only screenshot tests on the macOS leg.
   always receive the full suite.
 - Go source is always treated as code, even when it lives under a documentation
   directory.
+- The OpenAPI snapshot receives the full suite because Go tests consume it as
+  schema-drift input.
 - A manual PR workflow dispatch has no changed-file list and therefore receives
   the full suite.
 

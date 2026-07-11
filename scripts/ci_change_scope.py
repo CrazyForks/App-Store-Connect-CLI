@@ -9,6 +9,7 @@ from collections.abc import Iterable
 
 
 WALL_SOURCE = "docs/wall-of-apps.json"
+OPENAPI_SNAPSHOT = "docs/openapi/latest.json"
 WEBSITE_FILES = {".mintignore", "docs.json"}
 WEBSITE_PREFIXES = (
     ".mintlify/",
@@ -35,6 +36,8 @@ STUDIO_FILES = {"go.mod", "go.sum"}
 def path_kind(path: str) -> str:
     if path == WALL_SOURCE:
         return "wall"
+    if path == OPENAPI_SNAPSHOT:
+        return "full"
     if path.startswith(TELEMETRY_PREFIXES):
         return "telemetry"
     if path.startswith("apps/studio/"):

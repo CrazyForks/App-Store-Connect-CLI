@@ -28,6 +28,12 @@ class ChangeScopeTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(ci_change_scope.classify([path]), "full")
 
+    def test_openapi_snapshot_requires_schema_drift_tests(self) -> None:
+        self.assertEqual(
+            ci_change_scope.classify(["docs/openapi/latest.json"]),
+            "full",
+        )
+
     def test_mintlify_content_uses_website_scope(self) -> None:
         self.assertEqual(
             ci_change_scope.classify(["docs.json", "guides/getting-started.mdx"]),
