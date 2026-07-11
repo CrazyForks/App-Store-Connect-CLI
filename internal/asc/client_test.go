@@ -990,7 +990,7 @@ func TestBuildAppClipDefaultExperiencesQuery(t *testing.T) {
 	}
 }
 
-func TestAppStoreVersionStateOptionsAccumulateWithoutDroppingPreviousValues(t *testing.T) {
+func TestAppStoreVersionStateOptionsPreserveExistingComposition(t *testing.T) {
 	query := &appStoreVersionsQuery{}
 	WithAppStoreVersionsStates([]string{"READY_FOR_SALE", "READY_FOR_DISTRIBUTION"})(query)
 	WithAppStoreVersionsStates([]string{"PREPARE_FOR_SUBMISSION"})(query)
@@ -1003,9 +1003,13 @@ func TestAppStoreVersionStateOptionsAccumulateWithoutDroppingPreviousValues(t *t
 	}
 
 	WithAppStoreVersionsVersionStates([]string{"WAITING_FOR_REVIEW"})(query)
+	if got := strings.Join(query.appVersionStates, ","); got != "WAITING_FOR_REVIEW" {
+		t.Fatalf("app version states = %q, want explicit value to replace inferred states", got)
+	}
+
 	WithAppStoreVersionsVersionStates([]string{"PROCESSING_FOR_DISTRIBUTION"})(query)
-	if got := strings.Join(query.appVersionStates, ","); got != "READY_FOR_DISTRIBUTION,WAITING_FOR_REVIEW,PROCESSING_FOR_DISTRIBUTION" {
-		t.Fatalf("app version states = %q, want accumulated values", got)
+	if got := strings.Join(query.appVersionStates, ","); got != "PROCESSING_FOR_DISTRIBUTION" {
+		t.Fatalf("app version states = %q, want last explicit value", got)
 	}
 }
 

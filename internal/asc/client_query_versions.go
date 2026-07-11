@@ -573,7 +573,7 @@ func WithAppStoreVersionsStates(states []string) AppStoreVersionsOption {
 // WithAppStoreVersionsVersionStates filters versions by app version state.
 func WithAppStoreVersionsVersionStates(states []string) AppStoreVersionsOption {
 	return func(q *appStoreVersionsQuery) {
-		q.appVersionStates = append(q.appVersionStates, normalizeUpperList(states)...)
+		q.appVersionStates = normalizeUpperList(states)
 	}
 }
 
