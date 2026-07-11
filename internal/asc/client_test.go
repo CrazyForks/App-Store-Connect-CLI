@@ -990,22 +990,22 @@ func TestBuildAppClipDefaultExperiencesQuery(t *testing.T) {
 	}
 }
 
-func TestAppStoreVersionStateOptionsOverwritePreviousValues(t *testing.T) {
+func TestAppStoreVersionStateOptionsAccumulateWithoutDroppingPreviousValues(t *testing.T) {
 	query := &appStoreVersionsQuery{}
 	WithAppStoreVersionsStates([]string{"READY_FOR_SALE", "READY_FOR_DISTRIBUTION"})(query)
 	WithAppStoreVersionsStates([]string{"PREPARE_FOR_SUBMISSION"})(query)
 
-	if got := strings.Join(query.states, ","); got != "PREPARE_FOR_SUBMISSION" {
-		t.Fatalf("app store states = %q, want PREPARE_FOR_SUBMISSION", got)
+	if got := strings.Join(query.states, ","); got != "READY_FOR_SALE,PREPARE_FOR_SUBMISSION" {
+		t.Fatalf("app store states = %q, want READY_FOR_SALE,PREPARE_FOR_SUBMISSION", got)
 	}
-	if len(query.appVersionStates) != 0 {
-		t.Fatalf("app version states = %v, want empty", query.appVersionStates)
+	if got := strings.Join(query.appVersionStates, ","); got != "READY_FOR_DISTRIBUTION" {
+		t.Fatalf("app version states = %q, want READY_FOR_DISTRIBUTION", got)
 	}
 
-	WithAppStoreVersionsVersionStates([]string{"READY_FOR_DISTRIBUTION"})(query)
+	WithAppStoreVersionsVersionStates([]string{"WAITING_FOR_REVIEW"})(query)
 	WithAppStoreVersionsVersionStates([]string{"PROCESSING_FOR_DISTRIBUTION"})(query)
-	if got := strings.Join(query.appVersionStates, ","); got != "PROCESSING_FOR_DISTRIBUTION" {
-		t.Fatalf("app version states = %q, want PROCESSING_FOR_DISTRIBUTION", got)
+	if got := strings.Join(query.appVersionStates, ","); got != "READY_FOR_DISTRIBUTION,WAITING_FOR_REVIEW,PROCESSING_FOR_DISTRIBUTION" {
+		t.Fatalf("app version states = %q, want accumulated values", got)
 	}
 }
 
