@@ -17,16 +17,13 @@ def job_block(workflow: str, job: str) -> str:
         raise AssertionError(f"missing job {job!r}")
 
     end = len(workflow)
-    for line_start in range(start + len(marker), len(workflow)):
-        if line_start > 0 and workflow[line_start - 1] != "\n":
-            continue
-        line_end = workflow.find("\n", line_start)
-        if line_end < 0:
-            line_end = len(workflow)
-        line = workflow[line_start:line_end]
-        if line.startswith("  ") and not line.startswith("    ") and line.endswith(":"):
-            end = line_start
+    offset = start + len(marker)
+    for line in workflow[offset:].splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        if content.startswith("  ") and not content.startswith("    ") and content.endswith(":"):
+            end = offset
             break
+        offset += len(line)
     return workflow[start:end]
 
 
@@ -42,6 +39,8 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     for runner in ("macos-latest", "ubuntu-latest", "windows-latest"):
         assert f"runner: {runner}" in build_platforms, f"{path}: missing native build runner {runner}"
     assert "go test -short ./internal/screenshots" in build_platforms, f"{path}: missing Darwin-only tests"
+    assert "asc_dev_macos_amd64" in build_platforms
+    assert "asc_dev_macos_arm64" in build_platforms
 
     build = job_block(workflow, "build")
     assert "needs: [changes, build-platforms]" in build
