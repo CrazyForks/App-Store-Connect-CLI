@@ -248,21 +248,18 @@ func TestUploadScreenshotsFanoutAppliesMaxDuringFallbackDiscovery(t *testing.T) 
 		t.Fatalf("WriteFile() error: %v", err)
 	}
 
-	origTransport := http.DefaultTransport
-	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/version-1/appStoreVersionLocalizations" {
-			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}}],"links":{}}`)
+			writeAssetsTestJSON(w, http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}}],"links":{}}`)
+			return
 		}
-		t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-		return nil, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = origTransport
-	})
+		t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		http.Error(w, "unexpected request", http.StatusNotFound)
+	}))
 
 	var gotFiles []string
 	_, err := uploadScreenshotsFanout(context.Background(), screenshotUploadFanoutConfig{
-		Client:         newAssetsUploadTestClient(t),
+		Client:         client,
 		VersionID:      "version-1",
 		RootPath:       rootDir,
 		DisplayType:    asc.CanonicalScreenshotDisplayTypeForAPI("APP_IPHONE_65"),

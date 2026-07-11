@@ -118,20 +118,18 @@ func TestAssetsScreenshotsDownloadCommandRequiredFlags(t *testing.T) {
 }
 
 func TestResolveScreenshotDownloadURLPreservesMetadataFetchError(t *testing.T) {
-	origTransport := http.DefaultTransport
-	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet || req.URL.Path != "/v1/appScreenshots/shot-1" {
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
 		}
-		return assetsJSONResponse(http.StatusServiceUnavailable, `{"errors":[{"status":"503","detail":"metadata unavailable"}]}`)
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = origTransport
-	})
+		writeAssetsTestJSON(w, http.StatusServiceUnavailable, `{"errors":[{"status":"503","detail":"metadata unavailable"}]}`)
+	}))
 
 	_, err := resolveScreenshotDownloadURL(
 		context.Background(),
-		newAssetsUploadTestClient(t),
+		client,
 		asc.Resource[asc.AppScreenshotAttributes]{
 			ID:         "shot-1",
 			Attributes: asc.AppScreenshotAttributes{FileName: "home.png"},
