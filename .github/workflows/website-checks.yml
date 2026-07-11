@@ -1,0 +1,48 @@
+name: Website Checks
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - '.mintignore'
+      - '.mintlify/**'
+      - '*.mdx'
+      - 'commands/**'
+      - 'concepts/**'
+      - 'configuration/**'
+      - 'docs.json'
+      - 'guides/**'
+      - 'resources/**'
+  push:
+    branches: [main]
+    paths:
+      - '.mintignore'
+      - '.mintlify/**'
+      - '*.mdx'
+      - 'commands/**'
+      - 'concepts/**'
+      - 'configuration/**'
+      - 'docs.json'
+      - 'guides/**'
+      - 'resources/**'
+
+jobs:
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: true
+
+      - name: Self-test documentation validators
+        run: python3 scripts/test_check_docs.py
+
+      - name: Check website documentation
+        run: make check-website-docs

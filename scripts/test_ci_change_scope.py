@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Tests for conservative CI change-scope classification."""
+
+import unittest
+
+import ci_change_scope
+
+
+class ChangeScopeTest(unittest.TestCase):
+    def test_empty_change_list_requires_full_suite(self) -> None:
+        self.assertEqual(ci_change_scope.classify([]), "full")
+
+    def test_wall_source_is_the_only_wall_only_change(self) -> None:
+        self.assertEqual(ci_change_scope.classify(["docs/wall-of-apps.json"]), "wall")
+        self.assertEqual(
+            ci_change_scope.classify(["docs/wall-of-apps.json", "README.md"]),
+            "full",
+        )
+
+    def test_repository_documentation_uses_docs_scope(self) -> None:
+        self.assertEqual(
+            ci_change_scope.classify(["README.md", "docs/TESTING.md"]),
+            "docs",
+        )
+
+    def test_mintlify_content_uses_website_scope(self) -> None:
+        self.assertEqual(
+            ci_change_scope.classify(["docs.json", "guides/getting-started.mdx"]),
+            "website",
+        )
+
+    def test_telemetry_scope_requires_only_telemetry_files(self) -> None:
+        self.assertEqual(
+            ci_change_scope.classify(["internal/telemetry/client.go"]),
+            "telemetry",
+        )
+        self.assertEqual(
+            ci_change_scope.classify(
+                ["internal/telemetry/client.go", "commands/telemetry.mdx"]
+            ),
+            "full",
+        )
+
+    def test_studio_scope_requires_only_studio_files(self) -> None:
+        self.assertEqual(ci_change_scope.classify(["apps/studio/main.go"]), "studio")
+        self.assertEqual(
+            ci_change_scope.classify(
+                ["apps/studio/main.go", "guides/studio.mdx"]
+            ),
+            "full",
+        )
+
+    def test_mixed_specialized_changes_require_full_suite(self) -> None:
+        self.assertEqual(
+            ci_change_scope.classify(
+                ["apps/studio/main.go", "internal/telemetry/client.go"]
+            ),
+            "full",
+        )
+
+    def test_general_go_and_ci_changes_require_full_suite(self) -> None:
+        for path in ("main.go", "internal/asc/client.go", ".github/workflows/pr-checks.yml"):
+            with self.subTest(path=path):
+                self.assertEqual(ci_change_scope.classify([path]), "full")
+
+
+if __name__ == "__main__":
+    unittest.main()
