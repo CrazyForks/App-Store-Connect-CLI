@@ -387,5 +387,3 @@ func renderScreenshotDownloadResult(result *screenshotDownloadResult, markdown b
 
 	return nil
 }
-
-// AssetsScreenshotsDeleteCommand returns the screenshot delete subcommand.
