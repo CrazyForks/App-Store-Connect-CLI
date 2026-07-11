@@ -22,7 +22,7 @@ scope:
 | Repository documentation only | Formatting and documentation validation |
 | Mintlify website content only | Dedicated website validator workflow |
 | `apps/studio` only | Dedicated Studio frontend, Go test, and build workflow |
-| Telemetry packages only | Formatting, targeted Linux and Windows tests, and `go build .` |
+| Telemetry packages only | Formatting, targeted Linux and Windows tests, and Linux/macOS `go build .` |
 | Any general, mixed, or unknown change | Full required suite and native platform builds |
 
 The three required PR jobs always resolve. The required `format-and-lint`

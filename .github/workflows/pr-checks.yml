@@ -302,7 +302,16 @@ jobs:
   ordinary-build:
     needs: changes
     if: needs.changes.outputs.scope == 'telemetry'
-    runs-on: ubuntu-latest
+    name: ordinary build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            runner: ubuntu-latest
+          - name: macOS
+            runner: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
