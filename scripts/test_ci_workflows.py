@@ -64,7 +64,7 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     assert "needs.changes.outputs.scope == 'full'" in build_platforms
     for runner in ("macos-latest", "ubuntu-latest", "windows-latest"):
         assert f"runner: {runner}" in build_platforms, f"{path}: missing native build runner {runner}"
-    assert "go test -short ./internal/screenshots" in build_platforms
+    assert "go test -short ./internal/screenshots" in build_platforms, f"{path}: missing Darwin-only tests"
 
     ordinary_build = job_block(workflow, "ordinary-build")
     assert "needs.changes.outputs.scope == 'telemetry'" in ordinary_build

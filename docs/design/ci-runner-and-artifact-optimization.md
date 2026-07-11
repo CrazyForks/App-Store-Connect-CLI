@@ -13,6 +13,7 @@ either artifact; release binaries are built independently by `release.yml`.
 - Run platform-independent formatting, documentation, lint, Wall validation,
   and unit-test shards on Ubuntu.
 - Build macOS, Linux, and Windows binaries on their native hosted runners.
+- Run the Darwin-only screenshot tests on the macOS build runner.
 - Preserve a stable aggregate `build` job for required-check compatibility.
 - Keep cross-platform compilation on pull requests and `main`.
 - Remove pull-request and main-branch artifact uploads and development
