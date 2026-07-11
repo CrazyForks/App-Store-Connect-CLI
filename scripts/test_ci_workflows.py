@@ -3,8 +3,6 @@
 
 from pathlib import Path
 
-import ci_change_scope
-
 
 ROOT = Path(__file__).resolve().parent.parent
 PR_WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
@@ -40,12 +38,22 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     assert "actions/upload-artifact" not in workflow, f"{path}: development artifacts must not be uploaded"
     changes = job_block(workflow, "changes")
     assert "scope: ${{ steps.scope.outputs.scope }}" in changes
-    assert "python3 scripts/ci_change_scope.py" in changes
+    assert "website_affected: ${{ steps.scope.outputs.website_affected }}" in changes
+    assert "studio_affected: ${{ steps.scope.outputs.studio_affected }}" in changes
+    assert "python3 scripts/ci_change_scope.py --github-output" in changes
     assert "wall|docs|website|studio|telemetry|full" in changes
     assert "invalid CI scope" in changes
 
     assert "runs-on: ubuntu-latest" in job_block(workflow, "wall-only-check")
     assert "runs-on: ubuntu-latest" in job_block(workflow, "format-and-lint")
+    assert "runs-on: ubuntu-latest" in job_block(workflow, "quality-checks")
+    for called_job, called_workflow in (
+        ("website-checks", "website-checks.yml"),
+        ("studio-checks", "studio-checks.yml"),
+    ):
+        called = job_block(workflow, called_job)
+        assert f"uses: ./.github/workflows/{called_workflow}" in called
+        assert f"needs.changes.outputs.{called_job.removesuffix('-checks')}_affected == 'true'" in called
     tests = job_block(workflow, test_job)
     assert "runs-on: ubuntu-latest" in tests
     assert "needs.changes.outputs.scope == 'full'" in tests
@@ -54,6 +62,7 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     assert "needs.changes.outputs.scope == 'full'" in build_platforms
     for runner in ("macos-latest", "ubuntu-latest", "windows-latest"):
         assert f"runner: {runner}" in build_platforms, f"{path}: missing native build runner {runner}"
+    assert "go test -short ./internal/screenshots" in build_platforms
 
     ordinary_build = job_block(workflow, "ordinary-build")
     assert "needs.changes.outputs.scope == 'telemetry'" in ordinary_build
@@ -73,19 +82,24 @@ def main() -> None:
     pr = PR_WORKFLOW.read_text()
     for required_job in ("format-and-lint", "unit-tests", "build"):
         assert "if: always()" in job_block(pr, required_job), f"required job {required_job} must always resolve"
+    quality_gate = job_block(pr, "format-and-lint")
+    assert "needs: [changes, wall-only-check, quality-checks, website-checks, studio-checks]" in quality_gate
+    assert "needs.website-checks.result" in quality_gate
+    assert "needs.studio-checks.result" in quality_gate
 
     website = WEBSITE_WORKFLOW.read_text()
+    assert "workflow_call:" in website
     assert "runs-on: ubuntu-latest" in job_block(website, "website")
     assert "make check-website-docs" in website
-    for path in ci_change_scope.WEBSITE_FILES:
-        assert f"'{path}'" in website, f"website workflow does not own {path}"
-    for prefix in ci_change_scope.WEBSITE_PREFIXES:
-        assert f"'{prefix}**'" in website, f"website workflow does not own {prefix}"
-    assert "'*.mdx'" in website
 
     studio = STUDIO_WORKFLOW.read_text()
-    assert "runs-on: ubuntu-latest" in job_block(studio, "studio")
-    assert f"'{ci_change_scope.STUDIO_PREFIX}**'" in studio
+    assert "workflow_call:" in studio
+    assert "runs-on: macos-latest" in job_block(studio, "studio")
+
+    main = MAIN_WORKFLOW.read_text()
+    main_windows = job_block(main, "telemetry-windows-tests")
+    assert "[\"telemetry\", \"full\"]" in main_windows
+    assert "needs.telemetry-windows-tests.result" in job_block(main, "test")
 
     release = RELEASE_WORKFLOW.read_text()
     assert "actions/upload-artifact" in release, "release workflow must retain official artifact publication"

@@ -63,6 +63,14 @@ class ChangeScopeTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(ci_change_scope.classify([path]), "full")
 
+    def test_dedicated_workflow_impact_matches_owned_paths(self) -> None:
+        self.assertTrue(ci_change_scope.affects_website(["guides/testflight.mdx"]))
+        self.assertFalse(ci_change_scope.affects_website(["docs/TESTING.md"]))
+        self.assertTrue(ci_change_scope.affects_studio(["apps/studio/main.go"]))
+        self.assertTrue(ci_change_scope.affects_studio(["internal/asc/client.go"]))
+        self.assertTrue(ci_change_scope.affects_studio(["go.mod"]))
+        self.assertFalse(ci_change_scope.affects_studio(["internal/telemetry/client.go"]))
+
 
 if __name__ == "__main__":
     unittest.main()

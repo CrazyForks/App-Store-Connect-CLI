@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 from collections.abc import Iterable
 
@@ -18,7 +19,17 @@ WEBSITE_PREFIXES = (
     "resources/",
 )
 TELEMETRY_PREFIXES = ("internal/telemetry/", "internal/cli/telemetry/")
-STUDIO_PREFIX = "apps/studio/"
+STUDIO_PREFIXES = (
+    "apps/studio/",
+    "internal/asc/",
+    "internal/auth/",
+    "internal/config/",
+    "internal/screenshots/",
+    "internal/validation/",
+    "internal/workflow/",
+    "internal/xcode/",
+)
+STUDIO_FILES = {"go.mod", "go.sum"}
 
 
 def path_kind(path: str) -> str:
@@ -30,7 +41,7 @@ def path_kind(path: str) -> str:
         return "website"
     if path.startswith(TELEMETRY_PREFIXES):
         return "telemetry"
-    if path.startswith(STUDIO_PREFIX):
+    if path.startswith("apps/studio/"):
         return "studio"
     if path.startswith("docs/"):
         return "docs"
@@ -61,8 +72,30 @@ def classify(paths: Iterable[str]) -> str:
     return "full"
 
 
+def affects_website(paths: Iterable[str]) -> bool:
+    return any(path_kind(path.strip()) == "website" for path in paths if path.strip())
+
+
+def affects_studio(paths: Iterable[str]) -> bool:
+    return any(
+        path.strip() in STUDIO_FILES or path.strip().startswith(STUDIO_PREFIXES)
+        for path in paths
+        if path.strip()
+    )
+
+
 def main() -> None:
-    print(classify(sys.stdin))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--github-output", action="store_true")
+    args = parser.parse_args()
+    paths = list(sys.stdin)
+
+    if args.github_output:
+        print(f"scope={classify(paths)}")
+        print(f"website_affected={str(affects_website(paths)).lower()}")
+        print(f"studio_affected={str(affects_studio(paths)).lower()}")
+        return
+    print(classify(paths))
 
 
 if __name__ == "__main__":

@@ -4,36 +4,11 @@ permissions:
   contents: read
 
 on:
-  pull_request:
-    paths:
-      - 'apps/studio/**'
-      - 'internal/asc/**'
-      - 'internal/auth/**'
-      - 'internal/config/**'
-      - 'internal/screenshots/**'
-      - 'internal/validation/**'
-      - 'internal/workflow/**'
-      - 'internal/xcode/**'
-      - 'go.mod'
-      - 'go.sum'
-  push:
-    branches:
-      - main
-    paths:
-      - 'apps/studio/**'
-      - 'internal/asc/**'
-      - 'internal/auth/**'
-      - 'internal/config/**'
-      - 'internal/screenshots/**'
-      - 'internal/validation/**'
-      - 'internal/workflow/**'
-      - 'internal/xcode/**'
-      - 'go.mod'
-      - 'go.sum'
+  workflow_call:
 
 jobs:
   studio:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     permissions:
       contents: read
     defaults:

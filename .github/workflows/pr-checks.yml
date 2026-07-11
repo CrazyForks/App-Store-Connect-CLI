@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
+      website_affected: ${{ steps.scope.outputs.website_affected }}
+      studio_affected: ${{ steps.scope.outputs.studio_affected }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -35,12 +37,13 @@ jobs:
             files=""
           fi
 
-          scope="$(printf '%s\n' "$files" | python3 scripts/ci_change_scope.py)"
+          selection="$(printf '%s\n' "$files" | python3 scripts/ci_change_scope.py --github-output)"
+          scope="$(printf '%s\n' "$selection" | sed -n 's/^scope=//p')"
           case "$scope" in
             wall|docs|website|studio|telemetry|full) ;;
             *) echo "invalid CI scope: $scope" >&2; exit 1 ;;
           esac
-          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$selection" >> "$GITHUB_OUTPUT"
 
   wall-only-check:
     needs: changes
@@ -59,32 +62,31 @@ jobs:
       - name: Check Wall of Apps source
         run: make check-wall-of-apps
 
-  format-and-lint:
+  website-checks:
     needs: changes
-    if: always()
+    if: needs.changes.outputs.website_affected == 'true'
+    uses: ./.github/workflows/website-checks.yml
+
+  studio-checks:
+    needs: changes
+    if: needs.changes.outputs.studio_affected == 'true'
+    uses: ./.github/workflows/studio-checks.yml
+
+  quality-checks:
+    needs: changes
+    if: contains(fromJSON('["docs", "telemetry", "full"]'), needs.changes.outputs.scope)
     runs-on: ubuntu-latest
     steps:
-      - name: Verify change detection
-        if: needs.changes.result != 'success'
-        run: exit 1
-
-      - name: Report delegated checks
-        if: contains(fromJSON('["wall", "website", "studio"]'), needs.changes.outputs.scope)
-        run: echo "${{ needs.changes.outputs.scope }} changes use their dedicated workflow"
-
       - name: Checkout code
-        if: contains(fromJSON('["docs", "telemetry", "full"]'), needs.changes.outputs.scope)
         uses: actions/checkout@v6
 
       - name: Set up Go
-        if: contains(fromJSON('["docs", "telemetry", "full"]'), needs.changes.outputs.scope)
         uses: actions/setup-go@v6
         with:
           go-version: '1.26.5'
           cache: true
 
       - name: Cache Go tools
-        if: contains(fromJSON('["docs", "telemetry", "full"]'), needs.changes.outputs.scope)
         id: go-tools-cache
         uses: actions/cache@v5
         with:
@@ -92,12 +94,11 @@ jobs:
           key: ${{ runner.os }}-go-tools-${{ hashFiles('Makefile') }}
 
       - name: Install tooling
-        if: contains(fromJSON('["docs", "telemetry", "full"]'), needs.changes.outputs.scope) && steps.go-tools-cache.outputs.cache-hit != 'true'
+        if: steps.go-tools-cache.outputs.cache-hit != 'true'
         run: make tools
 
       - parallel:
           - name: Check formatting
-            if: contains(fromJSON('["docs", "telemetry", "full"]'), needs.changes.outputs.scope)
             run: |
               export PATH="$(go env GOPATH)/bin:$PATH"
               make format-check
@@ -123,6 +124,39 @@ jobs:
             run: |
               export PATH="$(go env GOPATH)/bin:$PATH"
               make lint
+
+  format-and-lint:
+    needs: [changes, wall-only-check, quality-checks, website-checks, studio-checks]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify selected quality checks
+        run: |
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "change detection result: ${{ needs.changes.result }}"
+            exit 1
+          fi
+
+          case "${{ needs.changes.outputs.scope }}" in
+            wall) required="${{ needs.wall-only-check.result }}" ;;
+            docs|telemetry|full) required="${{ needs.quality-checks.result }}" ;;
+            website) required="${{ needs.website-checks.result }}" ;;
+            studio) required="${{ needs.studio-checks.result }}" ;;
+            *) echo "unknown CI scope"; exit 1 ;;
+          esac
+
+          if [ "$required" != "success" ]; then
+            echo "required quality result: $required"
+            exit 1
+          fi
+          if [ "${{ needs.changes.outputs.website_affected }}" = "true" ] && [ "${{ needs.website-checks.result }}" != "success" ]; then
+            echo "website checks result: ${{ needs.website-checks.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.changes.outputs.studio_affected }}" = "true" ] && [ "${{ needs.studio-checks.result }}" != "success" ]; then
+            echo "studio checks result: ${{ needs.studio-checks.result }}"
+            exit 1
+          fi
 
   unit-test-shards:
     needs: changes
@@ -232,6 +266,7 @@ jobs:
           - name: macOS
             runner: macos-latest
             command: |
+              ASC_BYPASS_KEYCHAIN=1 go test -short ./internal/screenshots
               GOOS=darwin GOARCH=amd64 go build -o build/asc_dev_macOS_amd64 .
               GOOS=darwin GOARCH=arm64 go build -o build/asc_dev_macOS_arm64 .
           - name: Linux

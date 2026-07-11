@@ -25,14 +25,17 @@ scope:
 | Telemetry packages only | Formatting, targeted Linux and Windows tests, and `go build ./...` |
 | Any general, mixed, or unknown change | Full required suite and native platform builds |
 
-The three required PR jobs always resolve. For delegated scopes their aggregate
-jobs report that no general test or CLI build is required. A failure in the
-change detector fails all required aggregates instead of silently selecting a
-smaller suite.
+The three required PR jobs always resolve. The required `format-and-lint`
+aggregate waits for and verifies every affected Wall, website, Studio, or
+general quality job. The test and build aggregates report when no general Go
+work is required. A failure in the change detector fails all required
+aggregates instead of silently selecting a smaller suite.
 
-Website and Studio workflows run on Ubuntu. General cross-platform compilation
-continues to use Linux, macOS, and Windows runners through the runner split from
-the preceding CI optimization change.
+Website validation is an Ubuntu reusable workflow. Studio remains a macOS
+reusable workflow because its Wails build requires native GUI development
+libraries on Linux. General cross-platform compilation continues to use Linux,
+macOS, and Windows runners through the runner split from the preceding CI
+optimization change, with Darwin-only screenshot tests on the macOS leg.
 
 ## Safety boundaries
 

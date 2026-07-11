@@ -4,29 +4,7 @@ permissions:
   contents: read
 
 on:
-  pull_request:
-    paths:
-      - '.mintignore'
-      - '.mintlify/**'
-      - '*.mdx'
-      - 'commands/**'
-      - 'concepts/**'
-      - 'configuration/**'
-      - 'docs.json'
-      - 'guides/**'
-      - 'resources/**'
-  push:
-    branches: [main]
-    paths:
-      - '.mintignore'
-      - '.mintlify/**'
-      - '*.mdx'
-      - 'commands/**'
-      - 'concepts/**'
-      - 'configuration/**'
-      - 'docs.json'
-      - 'guides/**'
-      - 'resources/**'
+  workflow_call:
 
 jobs:
   website:
