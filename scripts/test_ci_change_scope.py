@@ -66,7 +66,7 @@ class ChangeScopeTest(unittest.TestCase):
     def test_mixed_specialized_changes_require_full_suite(self) -> None:
         self.assertEqual(
             ci_change_scope.classify(
-                ["main.go", "internal/telemetry/client.go"]
+                ["docs/wall-of-apps.json", "internal/telemetry/client.go"]
             ),
             "full",
         )
