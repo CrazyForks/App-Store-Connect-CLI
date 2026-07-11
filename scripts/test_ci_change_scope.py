@@ -34,6 +34,11 @@ class ChangeScopeTest(unittest.TestCase):
             "full",
         )
 
+    def test_embedded_guides_require_runtime_docs_tests(self) -> None:
+        for path in ("docs/API_NOTES.md", "docs/WORKFLOWS.md"):
+            with self.subTest(path=path):
+                self.assertEqual(ci_change_scope.classify([path]), "full")
+
     def test_mintlify_content_uses_website_scope(self) -> None:
         self.assertEqual(
             ci_change_scope.classify(["docs.json", "guides/getting-started.mdx"]),
@@ -49,6 +54,12 @@ class ChangeScopeTest(unittest.TestCase):
             ci_change_scope.classify(
                 ["internal/telemetry/client.go", "commands/telemetry.mdx"]
             ),
+            "full",
+        )
+
+    def test_telemetry_cli_changes_require_command_coverage(self) -> None:
+        self.assertEqual(
+            ci_change_scope.classify(["internal/cli/telemetry/telemetry.go"]),
             "full",
         )
 

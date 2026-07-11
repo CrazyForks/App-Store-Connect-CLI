@@ -22,7 +22,7 @@ scope:
 | Repository documentation only | Formatting and documentation validation |
 | Mintlify website content only | Dedicated website validator workflow |
 | `apps/studio` only | Dedicated Studio frontend, Go test, and build workflow |
-| Telemetry packages only | Formatting, targeted Linux and Windows tests, and Linux/macOS `go build .` |
+| Telemetry runtime package only | Formatting, targeted Linux and Windows tests, and Linux/macOS `go build .` |
 | Any general, mixed, or unknown change | Full required suite and native platform builds |
 
 The three required PR jobs always resolve. The required `format-and-lint`
@@ -49,6 +49,11 @@ optimization change, with Darwin-only screenshot tests on the macOS leg.
   directory.
 - The OpenAPI snapshot receives the full suite because Go tests consume it as
   schema-drift input.
+- The API notes and workflow guides receive the full suite because they are
+  compiled into the `asc docs show` runtime surface.
+- Telemetry CLI command changes receive the full suite so command behavior and
+  generated documentation remain covered; only `internal/telemetry` uses the
+  targeted telemetry lane.
 - A manual PR workflow dispatch has no changed-file list and therefore receives
   the full suite.
 
