@@ -35,14 +35,16 @@ STUDIO_FILES = {"go.mod", "go.sum"}
 def path_kind(path: str) -> str:
     if path == WALL_SOURCE:
         return "wall"
-    if path in WEBSITE_FILES or path.startswith(WEBSITE_PREFIXES):
-        return "website"
-    if "/" not in path and path.endswith(".mdx"):
-        return "website"
     if path.startswith(TELEMETRY_PREFIXES):
         return "telemetry"
     if path.startswith("apps/studio/"):
         return "studio"
+    if path.endswith(".go"):
+        return "full"
+    if path in WEBSITE_FILES or path.startswith(WEBSITE_PREFIXES):
+        return "website"
+    if "/" not in path and path.endswith(".mdx"):
+        return "website"
     if path.startswith("docs/"):
         return "docs"
     if "/" not in path and path.endswith(".md"):

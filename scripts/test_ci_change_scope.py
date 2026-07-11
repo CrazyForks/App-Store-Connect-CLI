@@ -23,6 +23,11 @@ class ChangeScopeTest(unittest.TestCase):
             "docs",
         )
 
+    def test_go_source_under_documentation_requires_full_suite(self) -> None:
+        for path in ("docs/embed.go", "guides/example.go"):
+            with self.subTest(path=path):
+                self.assertEqual(ci_change_scope.classify([path]), "full")
+
     def test_mintlify_content_uses_website_scope(self) -> None:
         self.assertEqual(
             ci_change_scope.classify(["docs.json", "guides/getting-started.mdx"]),

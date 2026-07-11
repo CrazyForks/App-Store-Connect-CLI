@@ -66,7 +66,8 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
 
     ordinary_build = job_block(workflow, "ordinary-build")
     assert "needs.changes.outputs.scope == 'telemetry'" in ordinary_build
-    assert "go build ./..." in ordinary_build
+    assert "run: go build ." in ordinary_build
+    assert "go build ./..." not in ordinary_build
 
     build = job_block(workflow, "build")
     assert "needs: [changes, build-platforms, ordinary-build]" in build
