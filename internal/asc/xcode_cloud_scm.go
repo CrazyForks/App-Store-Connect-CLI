@@ -414,7 +414,7 @@ func (c *Client) GetScmRepositories(ctx context.Context, opts ...ScmRepositories
 
 // GetScmRepository retrieves an SCM repository by ID.
 func (c *Client) GetScmRepository(ctx context.Context, repositoryID string) (*ScmRepositoryResource, error) {
-	path := fmt.Sprintf("/v1/scmRepositories/%s", repositoryID)
+	path := fmt.Sprintf("/v1/scmRepositories/%s", strings.TrimSpace(repositoryID))
 	data, err := c.do(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -453,7 +453,7 @@ func (c *Client) GetScmGitReferences(ctx context.Context, repositoryID string, o
 		opt(query)
 	}
 
-	path := fmt.Sprintf("/v1/scmRepositories/%s/gitReferences", repositoryID)
+	path := fmt.Sprintf("/v1/scmRepositories/%s/gitReferences", strings.TrimSpace(repositoryID))
 	if query.nextURL != "" {
 		if err := validateNextURL(query.nextURL); err != nil {
 			return nil, fmt.Errorf("scmGitReferences: %w", err)
