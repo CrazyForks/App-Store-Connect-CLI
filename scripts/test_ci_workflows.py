@@ -39,6 +39,19 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     assert "studio_affected: ${{ steps.scope.outputs.studio_affected }}" in changes
     assert "python3 scripts/ci_change_scope.py --github-output" in changes
     assert "git diff --name-only --no-renames" in changes
+    for guarded_path in (
+        ".github/workflows/*",
+        "scripts/ci_change_scope.py",
+        "scripts/test_ci_change_scope.py",
+        "scripts/test_ci_workflows.py",
+    ):
+        assert guarded_path in changes
+    assert changes.index("force_full=false") < changes.index(
+        "python3 scripts/ci_change_scope.py --github-output"
+    )
+    assert 'if [ "$force_full" = true ]; then' in changes
+    assert "website_affected=true" in changes
+    assert "studio_affected=true" in changes
     assert "wall|docs|website|studio|telemetry|full" in changes
     assert "invalid CI scope" in changes
 

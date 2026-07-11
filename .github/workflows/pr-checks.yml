@@ -37,7 +37,20 @@ jobs:
             files=""
           fi
 
-          selection="$(printf '%s\n' "$files" | python3 scripts/ci_change_scope.py --github-output)"
+          force_full=false
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/*|scripts/ci_change_scope.py|scripts/test_ci_change_scope.py|scripts/test_ci_workflows.py)
+                force_full=true
+                ;;
+            esac
+          done <<< "$files"
+
+          if [ "$force_full" = true ]; then
+            selection="$(printf '%s\n' 'scope=full' 'website_affected=true' 'studio_affected=true')"
+          else
+            selection="$(printf '%s\n' "$files" | python3 scripts/ci_change_scope.py --github-output)"
+          fi
           scope="$(printf '%s\n' "$selection" | sed -n 's/^scope=//p')"
           case "$scope" in
             wall|docs|website|studio|telemetry|full) ;;

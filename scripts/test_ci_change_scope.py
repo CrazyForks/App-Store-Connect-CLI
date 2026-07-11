@@ -99,6 +99,16 @@ class ChangeScopeTest(unittest.TestCase):
             "full",
         )
 
+    def test_ci_bootstrap_files_require_full_scope(self) -> None:
+        for path in (
+            ".github/workflows/pr-checks.yml",
+            "scripts/ci_change_scope.py",
+            "scripts/test_ci_change_scope.py",
+            "scripts/test_ci_workflows.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(ci_change_scope.classify([path]), "full")
+
     def test_dedicated_workflow_impact_matches_owned_paths(self) -> None:
         self.assertTrue(ci_change_scope.affects_website(["guides/testflight.mdx"]))
         self.assertFalse(ci_change_scope.affects_website(["docs/TESTING.md"]))

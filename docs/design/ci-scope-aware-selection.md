@@ -42,6 +42,10 @@ optimization change, with Darwin-only screenshot tests on the macOS leg.
 - Only exact, allowlisted paths receive a reduced scope.
 - Rename detection is disabled while collecting paths so both the removed and
   added sides of a rename participate in classification.
+- Workflow and classifier-contract paths are matched in shell before executing
+  the checked-out classifier. Those changes force the full suite plus both
+  dedicated validators, so a broken classifier cannot select a reduced lane
+  for its own validation.
 - Mixed specialized areas fall back to the full suite.
 - Specialized code plus documentation falls back to the full suite so the
   documentation is not skipped.
