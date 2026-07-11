@@ -38,6 +38,7 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     assert "website_affected: ${{ steps.scope.outputs.website_affected }}" in changes
     assert "studio_affected: ${{ steps.scope.outputs.studio_affected }}" in changes
     assert "python3 scripts/ci_change_scope.py --github-output" in changes
+    assert "git diff --name-only --no-renames" in changes
     assert "wall|docs|website|studio|telemetry|full" in changes
     assert "invalid CI scope" in changes
 
@@ -46,6 +47,7 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     quality = job_block(workflow, "quality-checks")
     assert "runs-on: ubuntu-latest" in quality
     assert "python3 scripts/test_ci_change_scope.py" in quality
+    assert "contains(fromJSON('[\"telemetry\", \"full\"]'), needs.changes.outputs.scope)" in quality
     for called_job, called_workflow in (
         ("website-checks", "website-checks.yml"),
         ("studio-checks", "studio-checks.yml"),
@@ -101,6 +103,7 @@ def main() -> None:
     assert "runs-on: macos-latest" in job_block(studio, "studio")
 
     main = MAIN_WORKFLOW.read_text()
+    assert "git diff-tree --no-commit-id --name-only --no-renames -r" in main
     main_windows = job_block(main, "telemetry-windows-tests")
     assert "[\"telemetry\", \"full\"]" in main_windows
     assert "needs.telemetry-windows-tests.result" in job_block(main, "test")

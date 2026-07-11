@@ -29,9 +29,9 @@ jobs:
           before="${{ github.event.before }}"
           after="${{ github.sha }}"
           if [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ]; then
-            files="$(git diff --name-only "$before" "$after")"
+            files="$(git diff --name-only --no-renames "$before" "$after")"
           else
-            files="$(git diff-tree --no-commit-id --name-only -r "$after")"
+            files="$(git diff-tree --no-commit-id --name-only --no-renames -r "$after")"
           fi
 
           selection="$(printf '%s\n' "$files" | python3 scripts/ci_change_scope.py --github-output)"
@@ -121,7 +121,7 @@ jobs:
             run: make check-docs
 
           - name: Run lint
-            if: needs.changes.outputs.scope == 'full'
+            if: contains(fromJSON('["telemetry", "full"]'), needs.changes.outputs.scope)
             run: |
               export PATH="$(go env GOPATH)/bin:$PATH"
               make lint

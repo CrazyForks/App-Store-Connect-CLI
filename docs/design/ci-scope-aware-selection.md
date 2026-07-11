@@ -21,7 +21,7 @@ scope:
 | Wall source only | Wall source validation |
 | Repository documentation only | Formatting and documentation validation |
 | Mintlify website content only | Dedicated website validator workflow |
-| `apps/studio` only | Dedicated Studio frontend, Go test, and build workflow |
+| Non-Go `apps/studio` files only | Dedicated Studio frontend, Go test, and build workflow |
 | Telemetry runtime package only | Formatting, targeted Linux and Windows tests, and Linux/macOS `go build .` |
 | Any general, mixed, or unknown change | Full required suite and native platform builds |
 
@@ -40,6 +40,8 @@ optimization change, with Darwin-only screenshot tests on the macOS leg.
 ## Safety boundaries
 
 - Only exact, allowlisted paths receive a reduced scope.
+- Rename detection is disabled while collecting paths so both the removed and
+  added sides of a rename participate in classification.
 - Mixed specialized areas fall back to the full suite.
 - Specialized code plus documentation falls back to the full suite so the
   documentation is not skipped.
@@ -47,13 +49,15 @@ optimization change, with Darwin-only screenshot tests on the macOS leg.
   always receive the full suite.
 - Go source is always treated as code, even when it lives under a documentation
   directory.
+- Studio Go source receives the full formatting, lint, test, and native-build
+  suite in addition to the dedicated Studio workflow.
 - The OpenAPI snapshot receives the full suite because Go tests consume it as
   schema-drift input.
 - The API notes and workflow guides receive the full suite because they are
   compiled into the `asc docs show` runtime surface.
 - Telemetry CLI command changes receive the full suite so command behavior and
-  generated documentation remain covered; only `internal/telemetry` uses the
-  targeted telemetry lane.
+  generated documentation remain covered. Only `internal/telemetry` uses the
+  targeted telemetry lane, which still runs repository formatting and lint.
 - A manual PR workflow dispatch has no changed-file list and therefore receives
   the full suite.
 

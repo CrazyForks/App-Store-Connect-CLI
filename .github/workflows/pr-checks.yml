@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+            files="$(git diff --name-only --no-renames "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
           else
             files=""
           fi
@@ -124,7 +124,7 @@ jobs:
             run: make check-docs
 
           - name: Run lint
-            if: needs.changes.outputs.scope == 'full'
+            if: contains(fromJSON('["telemetry", "full"]'), needs.changes.outputs.scope)
             run: |
               export PATH="$(go env GOPATH)/bin:$PATH"
               make lint

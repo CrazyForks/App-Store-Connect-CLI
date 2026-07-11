@@ -63,11 +63,17 @@ class ChangeScopeTest(unittest.TestCase):
             "full",
         )
 
-    def test_studio_scope_requires_only_studio_files(self) -> None:
-        self.assertEqual(ci_change_scope.classify(["apps/studio/main.go"]), "studio")
+    def test_studio_go_source_requires_full_quality_checks(self) -> None:
+        self.assertEqual(ci_change_scope.classify(["apps/studio/main.go"]), "full")
+
+    def test_studio_scope_requires_only_non_go_studio_files(self) -> None:
+        self.assertEqual(
+            ci_change_scope.classify(["apps/studio/frontend/src/App.tsx"]),
+            "studio",
+        )
         self.assertEqual(
             ci_change_scope.classify(
-                ["apps/studio/main.go", "guides/studio.mdx"]
+                ["apps/studio/frontend/src/App.tsx", "guides/studio.mdx"]
             ),
             "full",
         )
@@ -84,6 +90,14 @@ class ChangeScopeTest(unittest.TestCase):
         for path in ("main.go", "internal/asc/client.go", ".github/workflows/pr-checks.yml"):
             with self.subTest(path=path):
                 self.assertEqual(ci_change_scope.classify([path]), "full")
+
+    def test_renamed_code_keeps_source_and_destination_in_full_scope(self) -> None:
+        self.assertEqual(
+            ci_change_scope.classify(
+                ["internal/asc/removed.go", "docs/removed.md"]
+            ),
+            "full",
+        )
 
     def test_dedicated_workflow_impact_matches_owned_paths(self) -> None:
         self.assertTrue(ci_change_scope.affects_website(["guides/testflight.mdx"]))

@@ -44,10 +44,10 @@ def path_kind(path: str) -> str:
         return "full"
     if path.startswith(TELEMETRY_PREFIX):
         return "telemetry"
-    if path.startswith("apps/studio/"):
-        return "studio"
     if path.endswith(".go"):
         return "full"
+    if path.startswith("apps/studio/"):
+        return "studio"
     if path in WEBSITE_FILES or path.startswith(WEBSITE_PREFIXES):
         return "website"
     if "/" not in path and path.endswith(".mdx"):
