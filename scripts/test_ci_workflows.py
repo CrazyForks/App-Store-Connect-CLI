@@ -41,6 +41,7 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     build_platforms = job_block(workflow, "build-platforms")
     for runner in ("macos-latest", "ubuntu-latest", "windows-latest"):
         assert f"runner: {runner}" in build_platforms, f"{path}: missing native build runner {runner}"
+    assert "go test -short ./internal/screenshots" in build_platforms, f"{path}: missing Darwin-only tests"
 
     build = job_block(workflow, "build")
     assert "needs: [changes, build-platforms]" in build
