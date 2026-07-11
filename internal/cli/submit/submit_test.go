@@ -2792,6 +2792,23 @@ func TestSubmitPreflightRequestContextPreservesCallerDeadlineWithoutOverride(t *
 	}
 }
 
+func TestSubmitPreflightRequestContextUsesConfiguredPhaseTimeout(t *testing.T) {
+	parentDeadline := time.Now().Add(2 * time.Minute)
+	parentCtx, parentCancel := context.WithDeadline(context.Background(), parentDeadline)
+	defer parentCancel()
+
+	ctx, cancel := submitPreflightRequestContext(parentCtx, 75*time.Millisecond)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected configured preflight context to have a deadline")
+	}
+	if budget := time.Until(deadline); budget <= 0 || budget > 500*time.Millisecond {
+		t.Fatalf("configured preflight budget = %v, want about 75ms", budget)
+	}
+}
+
 func TestPrintSubmissionErrorHintsUsesExistingRunnableCommands(t *testing.T) {
 	stderr := captureSubmitStderr(t, func() {
 		printSubmissionErrorHints(errors.New("ageRatingDeclaration contentRightsDeclaration usesNonExemptEncryption appDataUsage primaryCategory"), submissionErrorHintContext{
