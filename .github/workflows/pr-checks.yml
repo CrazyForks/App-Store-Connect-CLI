@@ -54,7 +54,7 @@ jobs:
   wall-only-check:
     needs: changes
     if: needs.changes.outputs.wall_only == 'true'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -71,7 +71,7 @@ jobs:
   format-and-lint:
     needs: changes
     if: needs.changes.outputs.wall_only != 'true'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -105,6 +105,9 @@ jobs:
           - name: Self-test docs validators
             run: python3 scripts/test_check_docs.py
 
+          - name: Check CI workflow contracts
+            run: python3 scripts/test_ci_workflows.py
+
           - name: Check documentation
             run: make check-docs
 
@@ -117,7 +120,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.wall_only != 'true'
     name: unit-test shard (${{ matrix.name }})
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -174,13 +177,29 @@ jobs:
       - name: Run telemetry tests
         run: go test -short ./internal/telemetry
 
-  build:
+  build-platforms:
     needs: changes
     if: needs.changes.outputs.wall_only != 'true'
-    runs-on: macos-latest
-    permissions:
-      contents: read
-      actions: write
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            runner: macos-latest
+            command: |
+              ASC_BYPASS_KEYCHAIN=1 go test -short ./internal/screenshots
+              GOOS=darwin GOARCH=amd64 go build -o build/asc_dev_macos_amd64 .
+              GOOS=darwin GOARCH=arm64 go build -o build/asc_dev_macos_arm64 .
+          - name: Linux
+            runner: ubuntu-latest
+            command: |
+              GOOS=linux GOARCH=amd64 go build -o build/asc_dev_linux_amd64 .
+              GOOS=linux GOARCH=arm64 go build -o build/asc_dev_linux_arm64 .
+          - name: Windows
+            runner: windows-latest
+            command: GOOS=windows GOARCH=amd64 go build -o build/asc_dev_windows_amd64.exe .
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -193,24 +212,20 @@ jobs:
 
       - name: Create build directory
         run: mkdir -p build
+        shell: bash
 
-      - parallel:
-          - name: Build for macOS
-            run: |
-              GOOS=darwin GOARCH=amd64 go build -o build/asc_dev_macOS_amd64 .
-              GOOS=darwin GOARCH=arm64 go build -o build/asc_dev_macOS_arm64 .
+      - name: Build for ${{ matrix.name }}
+        run: ${{ matrix.command }}
+        shell: bash
 
-          - name: Build for Linux
-            run: |
-              GOOS=linux GOARCH=amd64 go build -o build/asc_dev_linux_amd64 .
-              GOOS=linux GOARCH=arm64 go build -o build/asc_dev_linux_arm64 .
-
-          - name: Build for Windows
-            run: |
-              GOOS=windows GOARCH=amd64 go build -o build/asc_dev_windows_amd64.exe .
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: builds
-          path: build/
+  build:
+    needs: [changes, build-platforms]
+    if: always() && needs.changes.outputs.wall_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify platform builds
+        run: |
+          if [ "${{ needs.build-platforms.result }}" != "success" ]; then
+            echo "build-platforms result: ${{ needs.build-platforms.result }}"
+            exit 1
+          fi
