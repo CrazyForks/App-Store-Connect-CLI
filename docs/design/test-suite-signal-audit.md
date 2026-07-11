@@ -13,14 +13,18 @@ Studio binaries.
 
 ## Findings
 
-Two groups are safe to remove:
+Three groups are safe to remove:
 
-1. Twenty `Test*CommandConstructors` tests only call constructors and check
+1. Nineteen `Test*CommandConstructors` tests only call constructors and check
    that concrete `*ffcli.Command` values are non-nil, sometimes also checking
    that a name and subcommand list are non-empty. The registry test constructs
    every registered command tree, so these tests duplicate construction while
    asserting less than the registry and command-level behavior tests.
-2. `internal/iris` is absent from the dependency graph of the CLI and Studio
+2. The remaining constructor test is the only caller of the obsolete
+   `OfferCodePricesCommand`. The shipped offer-code price command lives in the
+   subscriptions tree; the old top-level `offer-codes` wrapper was removed in
+   commit `066f0ed0`, leaving this command group unreachable.
+3. `internal/iris` is absent from the dependency graph of the CLI and Studio
    binaries. It is an obsolete predecessor of `internal/web`; no production Go
    file imports it. Its test file also contains the only exact duplicate test
    bodies found by the audit, duplicated in the active `internal/web` package.
@@ -44,9 +48,9 @@ After removal, run focused tests for every affected active command package,
 then the repository format, documentation, lint, build, and full test gates.
 Verify the built binary can construct help and perform one read-only,
 authenticated App Store Connect request. Recheck the shipped dependency graph
-to confirm no removed package is referenced, and rerun the duplicate-test AST
-audit to confirm no exact duplicate top-level test bodies remain. No live
-mutation is needed.
+to confirm no removed package or command is referenced, and rerun the
+duplicate-test AST audit to confirm no exact duplicate top-level test bodies
+remain. No live mutation is needed.
 
 ## Alternatives
 
