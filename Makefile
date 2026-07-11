@@ -4,7 +4,9 @@
 BINARY_NAME := asc
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Keep local build metadata stable so unchanged builds can reuse Go's link cache.
+# Release builds set their actual build timestamp in the release workflow.
+DATE := $(shell git show -s --format=%cI HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
 # Go variables
