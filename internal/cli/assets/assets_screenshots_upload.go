@@ -18,7 +18,6 @@ func normalizeScreenshotDisplayType(input string) (string, error) {
 	if !strings.HasPrefix(value, "APP_") && !strings.HasPrefix(value, "IMESSAGE_") {
 		value = "APP_" + value
 	}
-	value = normalizeScreenshotDisplayTypeAlias(value)
 	if !asc.IsValidScreenshotDisplayType(value) {
 		return "", fmt.Errorf("unsupported screenshot display type %q", value)
 	}
@@ -28,10 +27,6 @@ func normalizeScreenshotDisplayType(input string) (string, error) {
 // NormalizeScreenshotDisplayType normalizes and validates a screenshot display type.
 func NormalizeScreenshotDisplayType(input string) (string, error) {
 	return normalizeScreenshotDisplayType(input)
-}
-
-func normalizeScreenshotDisplayTypeAlias(value string) string {
-	return value
 }
 
 func validateScreenshotDimensions(files []string, displayType string) error {

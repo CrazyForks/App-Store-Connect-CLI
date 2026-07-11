@@ -35,6 +35,9 @@ func collectScreenshotUploadFiles(path string, maxScreenshots int) ([]string, er
 }
 
 func limitScreenshotUploadFiles(files []string, maxScreenshots int, source string) ([]string, error) {
+	if maxScreenshots < 0 || maxScreenshots > appScreenshotSetMaxScreenshots {
+		return nil, fmt.Errorf("--max-screenshots must be between 0 and %d", appScreenshotSetMaxScreenshots)
+	}
 	if maxScreenshots > 0 {
 		if len(files) > maxScreenshots {
 			return append([]string(nil), files[:maxScreenshots]...), nil
@@ -69,19 +72,16 @@ func limitScreenshotFanoutUploadFiles(localeAssets []screenshotLocaleAssetFiles,
 }
 
 func limitScreenshotUploadFilesForExistingSet(files []string, maxScreenshots int, existingScreenshots []asc.Resource[asc.AppScreenshotAttributes], replace bool, setID string) ([]string, error) {
-	if replace {
-		if maxScreenshots <= 0 {
-			return files, nil
-		}
-		if len(files) > maxScreenshots {
-			return append([]string(nil), files[:maxScreenshots]...), nil
-		}
-		return files, nil
-	}
-
 	setLabel := strings.TrimSpace(setID)
 	if setLabel == "" {
 		setLabel = "target set"
+	}
+	if replace {
+		return limitScreenshotUploadFiles(files, maxScreenshots, setLabel)
+	}
+
+	if maxScreenshots < 0 || maxScreenshots > appScreenshotSetMaxScreenshots {
+		return nil, fmt.Errorf("--max-screenshots must be between 0 and %d", appScreenshotSetMaxScreenshots)
 	}
 	if maxScreenshots <= 0 {
 		total := len(existingScreenshots) + len(files)
@@ -131,7 +131,7 @@ func uploadScreenshotsFanout(ctx context.Context, cfg screenshotUploadFanoutConf
 	localeAssets := cfg.LocaleAssets
 	var err error
 	if localeAssets == nil {
-		localeAssets, err = collectLocaleAssetFiles(cfg.RootPath, cfg.DisplayType)
+		localeAssets, err = collectLocaleAssetFilesWithLimit(cfg.RootPath, cfg.DisplayType, cfg.MaxScreenshots)
 		if err != nil {
 			return zero, err
 		}

@@ -214,17 +214,9 @@ Examples:
 						destName := fmt.Sprintf("%02d_%s_%s", idx+1, strings.TrimSpace(shot.ID), base)
 						destPath := filepath.Join(destDir, destName)
 
-						imageAsset := shot.Attributes.ImageAsset
-						if imageAsset == nil || strings.TrimSpace(imageAsset.TemplateURL) == "" {
-							requestCtx, cancel := shared.ContextWithTimeout(ctx)
-							full, err := client.GetAppScreenshot(requestCtx, shot.ID)
-							cancel()
-							if err == nil {
-								imageAsset = full.Data.Attributes.ImageAsset
-							}
-						}
-
-						downloadURL, err := resolveImageAssetDownloadURL(imageAsset, shot.Attributes.FileName)
+						requestCtx, cancel := shared.ContextWithTimeout(ctx)
+						downloadURL, err := resolveScreenshotDownloadURL(requestCtx, client, shot)
+						cancel()
 						if err != nil {
 							items = append(items, screenshotDownloadItem{
 								ID:          strings.TrimSpace(shot.ID),
@@ -297,6 +289,18 @@ Examples:
 			return nil
 		},
 	}
+}
+
+func resolveScreenshotDownloadURL(ctx context.Context, client *asc.Client, shot asc.Resource[asc.AppScreenshotAttributes]) (string, error) {
+	imageAsset := shot.Attributes.ImageAsset
+	if imageAsset == nil || strings.TrimSpace(imageAsset.TemplateURL) == "" {
+		full, err := client.GetAppScreenshot(ctx, shot.ID)
+		if err != nil {
+			return "", fmt.Errorf("fetch screenshot metadata: %w", err)
+		}
+		imageAsset = full.Data.Attributes.ImageAsset
+	}
+	return resolveImageAssetDownloadURL(imageAsset, shot.Attributes.FileName)
 }
 
 func orderScreenshotsForDownload(shots []asc.Resource[asc.AppScreenshotAttributes], orderedIDs []string) []asc.Resource[asc.AppScreenshotAttributes] {
