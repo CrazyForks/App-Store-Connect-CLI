@@ -4,8 +4,8 @@
 
 Except for Wall-only changes, every pull request runs the complete formatting,
 documentation, lint, test-shard, Windows telemetry, and five-binary build suite.
-Website content and Studio changes also pay for those general CLI checks despite
-having narrower validation needs.
+Website content also pays for those general CLI checks despite having narrower
+validation needs.
 
 The protected branch requires three PR check names: `format-and-lint`,
 `unit-tests`, and `build`. Any selection scheme must keep those checks present
@@ -21,21 +21,19 @@ scope:
 | Wall source only | Wall source validation |
 | Repository documentation only | Formatting and documentation validation |
 | Mintlify website content only | Dedicated website validator workflow |
-| Non-Go `apps/studio` files only | Dedicated Studio frontend, Go test, and build workflow |
 | Telemetry runtime package only | Formatting, targeted Linux and Windows tests, and Linux/macOS `go build .` |
 | Any general, mixed, or unknown change | Full required suite and native platform builds |
 
 The three required PR jobs always resolve. The required `format-and-lint`
-aggregate waits for and verifies every affected Wall, website, Studio, or
-general quality job. The test and build aggregates report when no general Go
+aggregate waits for and verifies every affected Wall, website, or general
+quality job. The test and build aggregates report when no general Go
 work is required. A failure in the change detector fails all required
 aggregates instead of silently selecting a smaller suite.
 
-Website validation is an Ubuntu reusable workflow. Studio remains a macOS
-reusable workflow because its Wails build requires native GUI development
-libraries on Linux. General cross-platform compilation continues to use Linux,
-macOS, and Windows runners through the runner split from the preceding CI
-optimization change, with Darwin-only screenshot tests on the macOS leg.
+Website validation is an Ubuntu reusable workflow. General cross-platform
+compilation continues to use Linux, macOS, and Windows runners through the
+runner split from the preceding CI optimization change, with Darwin-only
+screenshot tests on the macOS leg.
 
 ## Safety boundaries
 
@@ -53,8 +51,6 @@ optimization change, with Darwin-only screenshot tests on the macOS leg.
   always receive the full suite.
 - Go source is always treated as code, even when it lives under a documentation
   directory.
-- Studio Go source receives the full formatting, lint, test, and native-build
-  suite in addition to the dedicated Studio workflow.
 - The OpenAPI snapshot receives the full suite because Go tests consume it as
   schema-drift input.
 - The API notes and workflow guides receive the full suite because they are

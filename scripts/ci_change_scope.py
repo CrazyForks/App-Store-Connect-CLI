@@ -22,19 +22,6 @@ WEBSITE_PREFIXES = (
 )
 TELEMETRY_PREFIX = "internal/telemetry/"
 TELEMETRY_CLI_PREFIX = "internal/cli/telemetry/"
-STUDIO_PREFIXES = (
-    "apps/studio/",
-    "internal/asc/",
-    "internal/auth/",
-    "internal/config/",
-    "internal/screenshots/",
-    "internal/validation/",
-    "internal/workflow/",
-    "internal/xcode/",
-)
-STUDIO_FILES = {"go.mod", "go.sum"}
-
-
 def path_kind(path: str) -> str:
     if path == WALL_SOURCE:
         return "wall"
@@ -46,8 +33,6 @@ def path_kind(path: str) -> str:
         return "telemetry"
     if path.endswith(".go"):
         return "full"
-    if path.startswith("apps/studio/"):
-        return "studio"
     if path in WEBSITE_FILES or path.startswith(WEBSITE_PREFIXES):
         return "website"
     if "/" not in path and path.endswith(".mdx"):
@@ -72,8 +57,6 @@ def classify(paths: Iterable[str]) -> str:
 
     if kinds == {"telemetry"}:
         return "telemetry"
-    if kinds == {"studio"}:
-        return "studio"
     if kinds == {"website"}:
         return "website"
     if kinds <= {"docs", "website"}:
@@ -85,14 +68,6 @@ def affects_website(paths: Iterable[str]) -> bool:
     return any(path_kind(path.strip()) == "website" for path in paths if path.strip())
 
 
-def affects_studio(paths: Iterable[str]) -> bool:
-    return any(
-        path.strip() in STUDIO_FILES or path.strip().startswith(STUDIO_PREFIXES)
-        for path in paths
-        if path.strip()
-    )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--github-output", action="store_true")
@@ -102,7 +77,6 @@ def main() -> None:
     if args.github_output:
         print(f"scope={classify(paths)}")
         print(f"website_affected={str(affects_website(paths)).lower()}")
-        print(f"studio_affected={str(affects_studio(paths)).lower()}")
         return
     print(classify(paths))
 
