@@ -112,6 +112,10 @@ jobs:
             if: needs.changes.outputs.scope == 'full'
             run: python3 scripts/test_ci_workflows.py
 
+          - name: Test CI change selection
+            if: needs.changes.outputs.scope == 'full'
+            run: python3 scripts/test_ci_change_scope.py
+
           - name: Check documentation
             if: contains(fromJSON('["docs", "full"]'), needs.changes.outputs.scope)
             run: make check-docs

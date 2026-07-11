@@ -46,7 +46,9 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
 
     assert "runs-on: ubuntu-latest" in job_block(workflow, "wall-only-check")
     assert "runs-on: ubuntu-latest" in job_block(workflow, "format-and-lint")
-    assert "runs-on: ubuntu-latest" in job_block(workflow, "quality-checks")
+    quality = job_block(workflow, "quality-checks")
+    assert "runs-on: ubuntu-latest" in quality
+    assert "python3 scripts/test_ci_change_scope.py" in quality
     for called_job, called_workflow in (
         ("website-checks", "website-checks.yml"),
         ("studio-checks", "studio-checks.yml"),
