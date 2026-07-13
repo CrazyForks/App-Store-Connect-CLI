@@ -43,6 +43,10 @@ type validateSubscriptionsFixture struct {
 	subscriptionAvailabilityStatusBySub       map[string]int
 	availabilityTerritoriesByAvailability     map[string]string
 	availabilityTerritoryStatusByAvailability map[string]int
+	planAvailabilitiesBySubscription          map[string]string
+	planAvailabilityStatusBySubscription      map[string]int
+	planTerritoriesByAvailability             map[string]string
+	planTerritoryStatusByAvailability         map[string]int
 	pricesBySubscription                      map[string]string
 	expectedPriceInclude                      string
 	pricesStatusBySubscription                map[string]int
@@ -148,6 +152,24 @@ func newValidateSubscriptionsClient(t *testing.T, fixture validateSubscriptionsF
 				return jsonResponse(status, apiErrorJSONForStatus(status))
 			}
 			if body, ok := fixture.availabilityTerritoriesByAvailability[availabilityID]; ok {
+				return jsonResponse(http.StatusOK, body)
+			}
+			return jsonResponse(http.StatusOK, `{"data":[]}`)
+		case strings.HasPrefix(path, "/v1/subscriptions/") && strings.HasSuffix(path, "/planAvailabilities"):
+			subscriptionID := strings.TrimSuffix(strings.TrimPrefix(path, "/v1/subscriptions/"), "/planAvailabilities")
+			if status, ok := fixture.planAvailabilityStatusBySubscription[subscriptionID]; ok {
+				return jsonResponse(status, apiErrorJSONForStatus(status))
+			}
+			if body, ok := fixture.planAvailabilitiesBySubscription[subscriptionID]; ok {
+				return jsonResponse(http.StatusOK, body)
+			}
+			return jsonResponse(http.StatusOK, `{"data":[]}`)
+		case strings.HasPrefix(path, "/v1/subscriptionPlanAvailabilities/") && strings.HasSuffix(path, "/relationships/availableTerritories"):
+			planID := strings.TrimSuffix(strings.TrimPrefix(path, "/v1/subscriptionPlanAvailabilities/"), "/relationships/availableTerritories")
+			if status, ok := fixture.planTerritoryStatusByAvailability[planID]; ok {
+				return jsonResponse(status, apiErrorJSONForStatus(status))
+			}
+			if body, ok := fixture.planTerritoriesByAvailability[planID]; ok {
 				return jsonResponse(http.StatusOK, body)
 			}
 			return jsonResponse(http.StatusOK, `{"data":[]}`)
@@ -1048,6 +1070,12 @@ func TestValidateSubscriptionsIncludesDiagnosticsMatrixForOpaqueMissingMetadata(
 	fixture.availabilityTerritoriesByAvailability = map[string]string{
 		"sub-avail-1": `{"data":[{"type":"territories","id":"USA"},{"type":"territories","id":"CAN"}]}`,
 	}
+	fixture.planAvailabilitiesBySubscription = map[string]string{
+		"sub-1": `{"data":[{"type":"subscriptionPlanAvailabilities","id":"plan-upfront","attributes":{"planType":"UPFRONT","availableInNewTerritories":true}}]}`,
+	}
+	fixture.planTerritoriesByAvailability = map[string]string{
+		"plan-upfront": `{"data":[{"type":"territories","id":"USA"},{"type":"territories","id":"CAN"}]}`,
+	}
 	fixture.reviewScreenshotBySub = map[string]string{
 		"sub-1": `{"data":{"type":"subscriptionAppStoreReviewScreenshots","id":"shot-1","attributes":{"fileName":"review.png","assetDeliveryState":{"state":"COMPLETE"}}}}`,
 	}
@@ -1092,6 +1120,8 @@ func TestValidateSubscriptionsIncludesDiagnosticsMatrixForOpaqueMissingMetadata(
 		"subscription_localizations",
 		"review_screenshot",
 		"subscription_availability",
+		"upfront_plan_availability",
+		"availability_surface_consistency",
 		"price_records",
 		"price_coverage_subscription_availability",
 		"price_coverage_app_availability",
@@ -1156,6 +1186,12 @@ func TestValidateSubscriptionsReportsOpaqueAppleStateWhenOnlyAdvisoriesRemain(t 
 	}
 	fixture.availabilityTerritoriesByAvailability = map[string]string{
 		"sub-avail-1": `{"data":[{"type":"territories","id":"USA"},{"type":"territories","id":"CAN"}]}`,
+	}
+	fixture.planAvailabilitiesBySubscription = map[string]string{
+		"sub-1": `{"data":[{"type":"subscriptionPlanAvailabilities","id":"plan-upfront","attributes":{"planType":"UPFRONT","availableInNewTerritories":true}}]}`,
+	}
+	fixture.planTerritoriesByAvailability = map[string]string{
+		"plan-upfront": `{"data":[{"type":"territories","id":"USA"},{"type":"territories","id":"CAN"}]}`,
 	}
 	fixture.reviewScreenshotBySub = map[string]string{
 		"sub-1": `{"data":{"type":"subscriptionAppStoreReviewScreenshots","id":"shot-1","attributes":{"fileName":"review.png","assetDeliveryState":{"state":"COMPLETE"}}}}`,
