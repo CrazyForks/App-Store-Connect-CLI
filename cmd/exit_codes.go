@@ -65,6 +65,9 @@ func ExitCodeFromError(err error) int {
 		// Fall back to API error code mapping
 		return APIErrorCodeToExitCode(apiErr.Code)
 	}
+	if status := httpStatusFromError(err); status > 0 {
+		return HTTPStatusToExitCode(status)
+	}
 
 	// Generic error
 	return ExitError
