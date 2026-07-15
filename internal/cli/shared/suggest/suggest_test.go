@@ -95,7 +95,7 @@ func TestFlagsCapsSuggestionsAcrossMatchingStrategies(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := Flags(test.input, test.candidates); !slices.Equal(got, test.want) {
+			if got := Flags(test.input, test.candidates); (got == nil) != (test.want == nil) || !slices.Equal(got, test.want) {
 				t.Fatalf("Flags(%q) = %v, want %v", test.input, got, test.want)
 			}
 		})
