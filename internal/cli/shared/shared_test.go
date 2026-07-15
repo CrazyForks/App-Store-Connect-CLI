@@ -1778,6 +1778,22 @@ func TestResolveAuthCredentialsMetadata_InvalidEnvKeyMaterialUsesStoredSelection
 	}
 }
 
+func TestResolveCompleteEnvCredentialMetadataDoesNotMaterializeInlineKey(t *testing.T) {
+	resetPrivateKeyTemp(t)
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_PRIVATE_KEY_B64", base64.StdEncoding.EncodeToString([]byte("inline-key")))
+	t.Setenv(keyTypeEnvVar, "")
+
+	resolved, ok := resolveCompleteEnvCredentialMetadata()
+	if !ok || resolved.KeyID != "ENVKEY" || resolved.IssuerID != "ENVISS" {
+		t.Fatalf("expected complete inline env metadata, got ok=%t metadata=%+v", ok, resolved)
+	}
+	if privateKeyTempPath != "" || len(privateKeyTempPaths) != 0 {
+		t.Fatalf("metadata resolution materialized private key files: %q %#v", privateKeyTempPath, privateKeyTempPaths)
+	}
+}
+
 func TestResolveAuthCredentialsMetadata_PrefersKeychainMetadataOverConfigDuplicate(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	t.Setenv("ASC_CONFIG_PATH", configPath)

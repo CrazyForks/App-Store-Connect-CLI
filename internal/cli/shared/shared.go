@@ -586,18 +586,33 @@ func resolveCredentialsMetadataForProfile(profileOverride string) (ResolvedAuthC
 }
 
 func resolveCompleteEnvCredentialMetadata() (ResolvedAuthCredentials, bool) {
-	envCreds, err := resolveEnvCredentials()
-	if err != nil || !envCreds.complete {
+	keyID := strings.TrimSpace(os.Getenv("ASC_KEY_ID"))
+	issuerID := strings.TrimSpace(os.Getenv("ASC_ISSUER_ID"))
+	keyType := config.NormalizeCredentialKeyType(os.Getenv(keyTypeEnvVar))
+	if !config.IsValidCredentialKeyType(keyType) {
 		return ResolvedAuthCredentials{}, false
 	}
-	issuerID := envCreds.issuerID
-	if config.IsIndividualCredentialKeyType(envCreds.keyType) {
+
+	hasValidKeyMaterial := false
+	switch {
+	case strings.TrimSpace(os.Getenv("ASC_PRIVATE_KEY_PATH")) != "":
+		hasValidKeyMaterial = true
+	case strings.TrimSpace(os.Getenv(privateKeyBase64EnvVar)) != "":
+		_, err := decodeBase64Secret(os.Getenv(privateKeyBase64EnvVar))
+		hasValidKeyMaterial = err == nil
+	case strings.TrimSpace(os.Getenv(privateKeyEnvVar)) != "":
+		hasValidKeyMaterial = true
+	}
+	if keyID == "" || !hasValidKeyMaterial || (issuerID == "" && !config.IsIndividualCredentialKeyType(keyType)) {
+		return ResolvedAuthCredentials{}, false
+	}
+	if config.IsIndividualCredentialKeyType(keyType) {
 		issuerID = ""
 	}
 	return ResolvedAuthCredentials{
-		KeyID:    envCreds.keyID,
+		KeyID:    keyID,
 		IssuerID: issuerID,
-		KeyType:  normalizedResolvedKeyType(envCreds.keyType),
+		KeyType:  normalizedResolvedKeyType(keyType),
 	}, true
 }
 
