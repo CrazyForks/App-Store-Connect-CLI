@@ -46,31 +46,49 @@ CHECKSUMS_URL="${BASE_URL}/${CHECKSUMS_ASSET}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
+# Checksum verification is mandatory. When it cannot run, abort unless the
+# caller explicitly opts out with ASC_INSTALL_INSECURE=1.
+verification_unavailable() {
+  local reason="$1"
+  if [ "${ASC_INSTALL_INSECURE:-}" = "1" ]; then
+    echo "!!! WARNING: ${reason}" >&2
+    echo "!!! ASC_INSTALL_INSECURE=1 is set; installing WITHOUT checksum verification." >&2
+    echo "!!! The downloaded binary has NOT been verified against the release checksums." >&2
+    return 0
+  fi
+  echo "Error: ${reason}" >&2
+  echo "Refusing to install without SHA-256 checksum verification." >&2
+  echo "If you understand the risk and must install anyway, re-run with ASC_INSTALL_INSECURE=1." >&2
+  exit 1
+}
+
 echo "Downloading ${ASSET}..."
 curl -fsSL "${BIN_URL}" -o "${TMP_DIR}/${ASSET}"
 
-if curl -fsSL "${CHECKSUMS_URL}" -o "${TMP_DIR}/checksums.txt"; then
-  if command -v shasum >/dev/null 2>&1 || command -v sha256sum >/dev/null 2>&1; then
-    EXPECTED="$(grep -E "[ *]${ASSET}$" "${TMP_DIR}/checksums.txt" | awk '{print $1}')"
-    if [ -n "${EXPECTED}" ]; then
-      if command -v shasum >/dev/null 2>&1; then
-        ACTUAL="$(shasum -a 256 "${TMP_DIR}/${ASSET}" | awk '{print $1}')"
-      else
-        ACTUAL="$(sha256sum "${TMP_DIR}/${ASSET}" | awk '{print $1}')"
-      fi
-      if [ "${EXPECTED}" != "${ACTUAL}" ]; then
-        echo "Checksum verification failed."
-        exit 1
-      fi
-      echo "Checksum verified."
-    else
-      echo "Warning: Asset not found in checksums.txt. Skipping verification."
-    fi
-  else
-    echo "Warning: No checksum tool (shasum/sha256sum) available. Skipping verification."
-  fi
+if ! curl -fsSL "${CHECKSUMS_URL}" -o "${TMP_DIR}/checksums.txt"; then
+  verification_unavailable "Could not download ${CHECKSUMS_ASSET} from ${CHECKSUMS_URL}."
+elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
+  verification_unavailable "No checksum tool (shasum/sha256sum) available."
 else
-  echo "Warning: Could not download checksums.txt. Skipping verification."
+  # `|| true` keeps a missing entry from tripping `set -eo pipefail` before
+  # the explicit fail-closed handling below runs.
+  EXPECTED="$(grep -E "[ *]${ASSET}$" "${TMP_DIR}/checksums.txt" | awk '{print $1}' || true)"
+  if [ -z "${EXPECTED}" ]; then
+    verification_unavailable "Asset ${ASSET} not found in ${CHECKSUMS_ASSET}."
+  else
+    if command -v shasum >/dev/null 2>&1; then
+      ACTUAL="$(shasum -a 256 "${TMP_DIR}/${ASSET}" | awk '{print $1}')"
+    else
+      ACTUAL="$(sha256sum "${TMP_DIR}/${ASSET}" | awk '{print $1}')"
+    fi
+    if [ "${EXPECTED}" != "${ACTUAL}" ]; then
+      echo "Error: Checksum verification failed for ${ASSET}." >&2
+      echo "Expected: ${EXPECTED}" >&2
+      echo "Actual:   ${ACTUAL}" >&2
+      exit 1
+    fi
+    echo "Checksum verified."
+  fi
 fi
 
 if ! mkdir -p "${INSTALL_DIR}" 2>/dev/null; then
