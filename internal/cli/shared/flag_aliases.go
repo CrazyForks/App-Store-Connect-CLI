@@ -55,6 +55,7 @@ func (f *DeprecatedStringFlagAlias) Apply(canonical *string) error {
 	if canonical != nil {
 		canonicalValue = strings.TrimSpace(*canonical)
 	}
+	fmt.Fprintf(os.Stderr, "Warning: `--%s` is deprecated. Use `--%s`.\n", f.aliasName, f.canonicalName)
 	if canonicalValue != "" && aliasValue != "" && canonicalValue != aliasValue {
 		return UsageErrorf("--%s conflicts with --%s; use only --%s", f.aliasName, f.canonicalName, f.canonicalName)
 	}
@@ -62,6 +63,5 @@ func (f *DeprecatedStringFlagAlias) Apply(canonical *string) error {
 		*canonical = aliasValue
 	}
 
-	fmt.Fprintf(os.Stderr, "Warning: `--%s` is deprecated. Use `--%s`.\n", f.aliasName, f.canonicalName)
 	return nil
 }

@@ -180,6 +180,8 @@ func TestAnalyticsRankedStringAliasesRejectConflictingValues(t *testing.T) {
 			if !strings.Contains(stderr, want) {
 				t.Fatalf("stderr = %q, want containing %q", stderr, want)
 			}
+			warning := "Warning: `--" + test.alias + "` is deprecated. Use `--" + test.canonical + "`."
+			requireStderrContainsWarning(t, stderr, warning)
 		})
 	}
 }

@@ -20,7 +20,7 @@ func TestDeprecatedStringFlagAliasApply(t *testing.T) {
 		{name: "canonical only", canonicalArg: "canonical", want: "canonical"},
 		{name: "alias only", aliasArg: "alias", want: "alias", wantWarning: true, parseAlias: true},
 		{name: "matching values", canonicalArg: "same", aliasArg: "same", want: "same", wantWarning: true, parseAlias: true},
-		{name: "conflicting values", canonicalArg: "canonical", aliasArg: "alias", want: "canonical", wantErr: "--legacy conflicts with --canonical", parseAlias: true},
+		{name: "conflicting values", canonicalArg: "canonical", aliasArg: "alias", want: "canonical", wantErr: "--legacy conflicts with --canonical", wantWarning: true, parseAlias: true},
 	}
 
 	for _, test := range tests {
