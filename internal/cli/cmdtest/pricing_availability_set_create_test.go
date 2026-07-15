@@ -2,11 +2,15 @@ package cmdtest
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
 func TestAvailabilitySet_MissingAvailabilityReturnsUpdateOnlyError(t *testing.T) {
@@ -76,6 +80,12 @@ func TestAvailabilitySet_MissingAvailabilityReturnsUpdateOnlyError(t *testing.T)
 				err := root.Run(context.Background())
 				if err == nil {
 					t.Fatal("expected missing-availability error")
+				}
+				if !errors.Is(err, asc.ErrNotFound) {
+					t.Fatalf("expected asc.ErrNotFound, got %v", err)
+				}
+				if got := cmd.ExitCodeFromError(err); got != cmd.ExitNotFound {
+					t.Fatalf("expected exit code %d, got %d", cmd.ExitNotFound, got)
 				}
 				if !strings.Contains(err.Error(), tc.wantPrefix) {
 					t.Fatalf("expected update-only error, got %q", err.Error())
