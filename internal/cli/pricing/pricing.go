@@ -16,6 +16,8 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
+var pricingAvailabilityClientFactory = shared.GetASCClient
+
 // PricingCommand returns the pricing command group.
 func PricingCommand() *ffcli.Command {
 	return &ffcli.Command{
@@ -650,7 +652,7 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			client, err := shared.GetASCClient()
+			client, err := pricingAvailabilityClientFactory()
 			if err != nil {
 				return fmt.Errorf("pricing availability get: %w", err)
 			}
