@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/storekit"
 	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
@@ -26,5 +27,12 @@ func TestExitCodeFromError_WebAPIStatus(t *testing.T) {
 				t.Fatalf("ExitCodeFromError() = %d, want %d", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestExitCodeFromError_StoreKitAPIStatusRemainsGeneric(t *testing.T) {
+	err := fmt.Errorf("storekit command failed: %w", &storekit.APIError{StatusCode: http.StatusInternalServerError})
+	if got := ExitCodeFromError(err); got != ExitError {
+		t.Fatalf("ExitCodeFromError() = %d, want %d", got, ExitError)
 	}
 }

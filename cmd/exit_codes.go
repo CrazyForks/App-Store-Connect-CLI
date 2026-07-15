@@ -7,6 +7,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
 // Exit codes following the CI/CD specification.
@@ -65,8 +66,8 @@ func ExitCodeFromError(err error) int {
 		// Fall back to API error code mapping
 		return APIErrorCodeToExitCode(apiErr.Code)
 	}
-	if status := httpStatusFromError(err); status > 0 {
-		return HTTPStatusToExitCode(status)
+	if webErr, ok := errors.AsType[*webcore.APIError](err); ok {
+		return HTTPStatusToExitCode(webErr.HTTPStatusCode())
 	}
 
 	// Generic error
