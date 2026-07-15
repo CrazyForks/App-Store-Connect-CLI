@@ -32,14 +32,14 @@ The CLI maps HTTP status codes to exit codes:
 
 **Formula:** `10 + (status - 400)`
 
-| HTTP Status       | Exit Code | Description                       |
-| ----------------- | --------- | --------------------------------- |
-| 400 Bad Request   | `10`      | Invalid request parameters        |
-| 401 Unauthorized  | `11`      | Authentication required           |
-| 403 Forbidden     | `12`      | Permission denied                 |
-| 404 Not Found     | `4`       | Resource not found (special case) |
-| 409 Conflict      | `5`       | Resource conflict (special case)  |
-| 422 Unprocessable | `22`      | Validation error                  |
+| HTTP Status       | Exit Code | Description                            |
+| ----------------- | --------- | -------------------------------------- |
+| 400 Bad Request   | `10`      | Invalid request parameters             |
+| 401 Unauthorized  | `3`       | Authentication failure (special case)  |
+| 403 Forbidden     | `3`       | Authentication failure (special case)  |
+| 404 Not Found     | `4`       | Resource not found (special case)      |
+| 409 Conflict      | `5`       | Resource conflict (special case)       |
+| 422 Unprocessable | `22`      | Validation error                       |
 
 #### 5xx Server Errors
 

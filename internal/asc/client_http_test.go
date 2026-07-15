@@ -400,6 +400,54 @@ func TestGetApps_RateLimitedIncludesRetryAfter(t *testing.T) {
 	}
 }
 
+func TestGetApps_RetryExhaustedExposesHTTPStatus(t *testing.T) {
+	t.Setenv("ASC_MAX_RETRIES", "1")
+	t.Setenv("ASC_BASE_DELAY", "1ms")
+	t.Setenv("ASC_MAX_DELAY", "1ms")
+	resetConfigCacheForTest()
+	t.Cleanup(resetConfigCacheForTest)
+
+	body := `{"errors":[{"code":"UNEXPECTED_ERROR","title":"Service Unavailable","detail":"try again later"}]}`
+	client := newTestClient(t, nil,
+		jsonResponse(http.StatusServiceUnavailable, body),
+		jsonResponse(http.StatusServiceUnavailable, body),
+	)
+
+	_, err := client.GetApps(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !IsRetryable(err) {
+		t.Fatalf("expected retryable error, got %v", err)
+	}
+	apiErr, ok := errors.AsType[*APIError](err)
+	if !ok {
+		t.Fatalf("expected *APIError in chain after retries exhausted, got %v", err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, apiErr.StatusCode)
+	}
+	var statusErr interface{ HTTPStatusCode() int }
+	if !errors.As(err, &statusErr) || statusErr.HTTPStatusCode() != http.StatusServiceUnavailable {
+		t.Fatalf("expected HTTPStatusCode() to report %d, got %v", http.StatusServiceUnavailable, err)
+	}
+}
+
+func TestBuildRetryableError_CarriesStatusWithoutBody(t *testing.T) {
+	err := buildRetryableError(http.StatusServiceUnavailable, 0, nil)
+
+	if got, want := err.Error(), "App Store Connect service unavailable (status 503)"; got != want {
+		t.Fatalf("unexpected message: got %q, want %q", got, want)
+	}
+	apiErr, ok := errors.AsType[*APIError](err)
+	if !ok {
+		t.Fatalf("expected *APIError in chain, got %v", err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, apiErr.StatusCode)
+	}
+}
+
 func TestGetApps_RetriesTransientServerErrors(t *testing.T) {
 	tests := []struct {
 		name   string
