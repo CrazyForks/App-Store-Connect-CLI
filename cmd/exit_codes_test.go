@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
 func TestExitCodeFromError(t *testing.T) {
@@ -52,6 +54,11 @@ func TestExitCodeFromError(t *testing.T) {
 		{
 			name:     "ErrForbidden returns auth failure",
 			err:      asc.ErrForbidden,
+			expected: ExitAuth,
+		},
+		{
+			name:     "wrapped invalid Apple Account credentials return auth failure",
+			err:      fmt.Errorf("SRP login failed: %w", webcore.ErrInvalidAppleAccountCredentials),
 			expected: ExitAuth,
 		},
 		{
