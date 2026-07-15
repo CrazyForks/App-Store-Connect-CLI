@@ -70,9 +70,7 @@ if ! curl -fsSL "${CHECKSUMS_URL}" -o "${TMP_DIR}/checksums.txt"; then
 elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
   verification_unavailable "No checksum tool (shasum/sha256sum) available."
 else
-  # `|| true` keeps a missing entry from tripping `set -eo pipefail` before
-  # the explicit fail-closed handling below runs.
-  EXPECTED="$(grep -E "[ *]${ASSET}$" "${TMP_DIR}/checksums.txt" | awk '{print $1}' || true)"
+  EXPECTED="$(awk -v asset="${ASSET}" '$2 == asset || $2 == "*" asset { print $1 }' "${TMP_DIR}/checksums.txt")"
   if [ -z "${EXPECTED}" ]; then
     verification_unavailable "Asset ${ASSET} not found in ${CHECKSUMS_ASSET}."
   else

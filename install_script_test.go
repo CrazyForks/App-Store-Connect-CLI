@@ -87,7 +87,7 @@ case "${url}" in
     case "${STUB_CHECKSUMS_MODE}" in
       missing) exit 22 ;;
       valid) printf '%s  %s\n' "${STUB_SHA256}" "${STUB_ASSET}" > "${out}" ;;
-      unlisted) printf '%s  %s\n' "${STUB_SHA256}" "asc_0.0.1_other_asset" > "${out}" ;;
+      unlisted) printf '%s  %s\n' "${STUB_SHA256}" "${STUB_ASSET//./x}" > "${out}" ;;
       wrong) printf '%s  %s\n' "0000000000000000000000000000000000000000000000000000000000000000" "${STUB_ASSET}" > "${out}" ;;
       *) echo "unknown STUB_CHECKSUMS_MODE" >&2; exit 1 ;;
     esac
@@ -103,7 +103,8 @@ esac
 
 	cmd := exec.Command("bash", filepath.Join(repoRoot, "install.sh"))
 	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(
+		os.Environ(),
 		"PATH="+stubDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"INSTALL_DIR="+installDir,
 		"STUB_VERSION="+version,
