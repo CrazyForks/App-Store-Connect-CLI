@@ -1706,6 +1706,42 @@ func TestResolveAuthCredentialsMetadata_UsesKeychainMetadataDefault(t *testing.T
 	}
 }
 
+func TestResolveAuthCredentialsMetadata_CompleteEnvMatchesSigningSelection(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_PROFILE", "")
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "")
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", filepath.Join(t.TempDir(), "AuthKey-Env.p8"))
+	t.Setenv("ASC_PRIVATE_KEY", "")
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+	t.Setenv(keyTypeEnvVar, "")
+
+	previousProfile := selectedProfile
+	selectedProfile = ""
+	t.Cleanup(func() { selectedProfile = previousProfile })
+
+	if err := config.SaveAt(configPath, &config.Config{
+		DefaultKeyName: "stored",
+		KeychainMetadata: []config.KeychainMetadata{{
+			Name:     "stored",
+			KeyID:    "STOREDKEY",
+			IssuerID: "STOREDISS",
+		}},
+	}); err != nil {
+		t.Fatalf("config.SaveAt() error: %v", err)
+	}
+
+	resolved, err := ResolveAuthCredentialsMetadata("")
+	if err != nil {
+		t.Fatalf("ResolveAuthCredentialsMetadata() error: %v", err)
+	}
+	if resolved.KeyID != "ENVKEY" || resolved.IssuerID != "ENVISS" || resolved.Profile != "" {
+		t.Fatalf("expected complete env metadata to match signing selection, got %+v", resolved)
+	}
+}
+
 func TestResolveAuthCredentialsMetadata_PrefersKeychainMetadataOverConfigDuplicate(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	t.Setenv("ASC_CONFIG_PATH", configPath)

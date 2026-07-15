@@ -554,6 +554,11 @@ func resolveCredentialsMetadataForProfile(profileOverride string) (ResolvedAuthC
 	if profile == "" {
 		profile = resolveProfileName()
 	}
+	if profile == "" && !auth.ShouldBypassKeychain() {
+		if envMetadata, ok := resolveCompleteEnvCredentialMetadata(); ok {
+			return envMetadata, nil
+		}
+	}
 
 	resolved, err := resolveStoredCredentialMetadata(profile)
 	if err == nil {
@@ -578,6 +583,29 @@ func resolveCredentialsMetadataForProfile(profileOverride string) (ResolvedAuthC
 		return ResolvedAuthCredentials{}, missingAuthError{msg: fmt.Sprintf("missing authentication. Run 'asc auth login' or create %s (see 'asc auth init')", path)}
 	}
 	return ResolvedAuthCredentials{}, missingAuthError{msg: "missing authentication. Run 'asc auth login' or 'asc auth init'"}
+}
+
+func resolveCompleteEnvCredentialMetadata() (ResolvedAuthCredentials, bool) {
+	keyID := strings.TrimSpace(os.Getenv("ASC_KEY_ID"))
+	issuerID := strings.TrimSpace(os.Getenv("ASC_ISSUER_ID"))
+	keyType := config.NormalizeCredentialKeyType(os.Getenv(keyTypeEnvVar))
+	if !config.IsValidCredentialKeyType(keyType) {
+		return ResolvedAuthCredentials{}, false
+	}
+	hasKeyMaterial := strings.TrimSpace(os.Getenv("ASC_PRIVATE_KEY_PATH")) != "" ||
+		strings.TrimSpace(os.Getenv(privateKeyEnvVar)) != "" ||
+		strings.TrimSpace(os.Getenv(privateKeyBase64EnvVar)) != ""
+	if keyID == "" || !hasKeyMaterial || (issuerID == "" && !config.IsIndividualCredentialKeyType(keyType)) {
+		return ResolvedAuthCredentials{}, false
+	}
+	if config.IsIndividualCredentialKeyType(keyType) {
+		issuerID = ""
+	}
+	return ResolvedAuthCredentials{
+		KeyID:    keyID,
+		IssuerID: issuerID,
+		KeyType:  normalizedResolvedKeyType(keyType),
+	}, true
 }
 
 func resolveStoredCredentialsMetadataFallback(profile string) (ResolvedAuthCredentials, error) {
