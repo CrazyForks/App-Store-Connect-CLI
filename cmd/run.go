@@ -50,15 +50,11 @@ func Run(args []string, versionInfo string) int {
 	parseErr := root.Parse(args)
 	restoreFlagOutputs()
 	if parseErr != nil {
-		if parseOutput.Len() > 0 {
-			fmt.Fprint(os.Stderr, parseOutput.String())
-		}
 		if errors.Is(parseErr, flag.ErrHelp) {
+			fmt.Fprint(os.Stderr, parseOutput.String())
 			return ExitSuccess
 		}
-		if parseOutput.Len() == 0 {
-			fmt.Fprint(os.Stderr, errfmt.FormatStderr(parseErr))
-		}
+		printParseFailure(parseErr, parseOutput.String(), analysis)
 		// Every non-help error returned by command-tree parsing is invalid usage,
 		// including NoExecError cases that do not write flag output.
 		exitCode := ExitUsage
@@ -169,6 +165,33 @@ func Run(args []string, versionInfo string) int {
 		InvocationShape: analysis.shape,
 	})
 	return ExitSuccess
+}
+
+func printParseFailure(parseErr error, parseOutput string, analysis invocationAnalysis) {
+	if !analysis.unknownFlag || !isUnknownFlagParseFailure(parseErr, parseOutput) {
+		if parseOutput != "" {
+			fmt.Fprint(os.Stderr, parseOutput)
+			return
+		}
+		fmt.Fprint(os.Stderr, errfmt.FormatStderr(parseErr))
+		return
+	}
+
+	flagName := strings.SplitN(analysis.unknownToken, "=", 2)[0]
+	fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", shared.SanitizeTerminal(flagName))
+	firstLine, usage, found := strings.Cut(parseOutput, "\n")
+	if found && strings.HasPrefix(firstLine, "flag provided but not defined:") {
+		fmt.Fprint(os.Stderr, usage)
+		return
+	}
+	if parseOutput != "" {
+		fmt.Fprint(os.Stderr, parseOutput)
+	}
+}
+
+func isUnknownFlagParseFailure(parseErr error, parseOutput string) bool {
+	const unknownFlagPrefix = "flag provided but not defined:"
+	return strings.HasPrefix(parseErr.Error(), unknownFlagPrefix) || strings.HasPrefix(parseOutput, unknownFlagPrefix)
 }
 
 func redirectCommandFlagOutput(command *ffcli.Command, output io.Writer) func() {

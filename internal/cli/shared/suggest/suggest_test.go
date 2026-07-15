@@ -32,6 +32,37 @@ func TestCommandsAdjacentTransposition(t *testing.T) {
 	}
 }
 
+func TestFlagsMatchesIdentifierShorthand(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		candidates []string
+		want       string
+	}{
+		{
+			name:       "generic ID expands to resource ID",
+			input:      "id",
+			candidates: []string{"include", "version-id", "output"},
+			want:       "version-id",
+		},
+		{
+			name:       "resource ID contracts to generic ID",
+			input:      "subscription-id",
+			candidates: []string{"id", "output", "pretty"},
+			want:       "id",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := Flags(test.input, test.candidates)
+			if len(got) == 0 || got[0] != test.want {
+				t.Fatalf("Flags(%q) = %v, want first suggestion %q", test.input, got, test.want)
+			}
+		})
+	}
+}
+
 func TestLevenshteinAndThresholdHelpers(t *testing.T) {
 	if d := levenshtein("apps", "apps"); d != 0 {
 		t.Fatalf("expected equal strings distance 0, got %d", d)
