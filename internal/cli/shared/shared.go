@@ -434,19 +434,17 @@ func resolveCredentialsForProfile(profileOverride string) (resolvedCredentials, 
 	// Environment resolution errors are surfaced below, only when stored
 	// credentials leave gaps, matching the previous behavior.
 	if profile == "" && !auth.ShouldBypassKeychain() {
-		if resolved, envErr := resolveEnvCredentials(); envErr == nil {
-			envCreds = resolved
-			envResolved = true
-			if envCreds.complete {
-				issuerID := envCreds.issuerID
-				if config.IsIndividualCredentialKeyType(envCreds.keyType) {
+		if _, complete := resolveCompleteEnvCredentialMetadata(); complete {
+			if resolved, envErr := resolveEnvCredentials(); envErr == nil {
+				issuerID := resolved.issuerID
+				if config.IsIndividualCredentialKeyType(resolved.keyType) {
 					issuerID = ""
 				}
 				return resolvedCredentials{
-					keyID:    envCreds.keyID,
+					keyID:    resolved.keyID,
 					issuerID: issuerID,
-					keyPath:  envCreds.keyPath,
-					keyType:  normalizedResolvedKeyType(envCreds.keyType),
+					keyPath:  resolved.keyPath,
+					keyType:  normalizedResolvedKeyType(resolved.keyType),
 				}, nil
 			}
 		}
