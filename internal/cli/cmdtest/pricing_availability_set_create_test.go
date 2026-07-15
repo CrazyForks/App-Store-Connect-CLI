@@ -5,12 +5,16 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestAvailabilitySet_MissingAvailabilityReturnsUpdateOnlyError(t *testing.T) {
@@ -53,13 +57,8 @@ func TestAvailabilitySet_MissingAvailabilityReturnsUpdateOnlyError(t *testing.T)
 			setupAuth(t)
 			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
-			originalTransport := http.DefaultTransport
-			t.Cleanup(func() {
-				http.DefaultTransport = originalTransport
-			})
-
 			requestCount := 0
-			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				requestCount++
 				if requestCount > 1 {
 					t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.Path)
@@ -67,8 +66,34 @@ func TestAvailabilitySet_MissingAvailabilityReturnsUpdateOnlyError(t *testing.T)
 				if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-1/appAvailabilityV2" {
 					t.Fatalf("unexpected initial availability request: %s %s", req.Method, req.URL.Path)
 				}
-				return jsonHTTPResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"not found","detail":"missing"}]}`), nil
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"errors":[{"status":"404","code":"NOT_FOUND","title":"not found","detail":"missing"}]}`))
+			}))
+			t.Cleanup(server.Close)
+			serverURL, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatalf("parse server URL: %v", err)
+			}
+			transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				cloned := req.Clone(req.Context())
+				cloned.URL.Scheme = serverURL.Scheme
+				cloned.URL.Host = serverURL.Host
+				return server.Client().Transport.RoundTrip(cloned)
 			})
+			client, err := asc.NewClientWithHTTPClient(
+				"TEST_KEY",
+				"TEST_ISSUER",
+				os.Getenv("ASC_PRIVATE_KEY_PATH"),
+				&http.Client{Transport: transport},
+			)
+			if err != nil {
+				t.Fatalf("new client: %v", err)
+			}
+			restore := shared.SetAvailabilityClientFactory(func() (*asc.Client, error) {
+				return client, nil
+			})
+			t.Cleanup(restore)
 
 			root := RootCommand("1.2.3")
 			root.FlagSet.SetOutput(io.Discard)

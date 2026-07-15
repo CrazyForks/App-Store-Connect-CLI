@@ -17,6 +17,8 @@ import (
 
 const bulkAvailabilityTimeout = 5 * time.Minute
 
+var availabilityClientFactory = getASCClient
+
 // AvailabilitySetCommandConfig configures the availability set command.
 type AvailabilitySetCommandConfig struct {
 	FlagSetName                      string
@@ -84,7 +86,7 @@ func NewAvailabilitySetCommand(config AvailabilitySetCommandConfig) *ffcli.Comma
 
 			availableValue := available.Value()
 
-			client, err := getASCClient()
+			client, err := availabilityClientFactory()
 			if err != nil {
 				return fmt.Errorf("%s: %w", config.ErrorPrefix, err)
 			}
