@@ -456,7 +456,7 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 	}
 
 	stdout, stderr := captureCommandOutput(t, func() {
-		if code := Run([]string{"versions", "attach-build", "--version-id", "VERSION_ID", "--build-id", "BUILD_ID"}, "1.0.0"); code != ExitUsage {
+		if code := Run([]string{"versions", "attach-build", "--version-id", "VERSION_ID", "--buid-id", "BUILD_ID"}, "1.0.0"); code != ExitUsage {
 			t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
 		}
 	})
@@ -464,8 +464,8 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "Did you mean: --build") {
-		t.Fatalf("expected --build suggestion, got %q", stderr)
+	if !strings.Contains(stderr, "Did you mean: --build-id") {
+		t.Fatalf("expected --build-id suggestion, got %q", stderr)
 	}
 	if gotContext.InvocationShape != telemetry.InvocationShapeLeaf ||
 		gotContext.ErrorKind != telemetry.ErrorKindUnknownFlag ||
@@ -473,8 +473,8 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 		gotContext.OutcomeKind != telemetry.OutcomeUsageError {
 		t.Fatalf("unexpected telemetry context: %+v", gotContext)
 	}
-	if gotContext.FailureParameter != "--build-id" {
-		t.Fatalf("FailureParameter = %q, want --build-id", gotContext.FailureParameter)
+	if gotContext.FailureParameter != "--buid-id" {
+		t.Fatalf("FailureParameter = %q, want --buid-id", gotContext.FailureParameter)
 	}
 }
 

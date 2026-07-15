@@ -126,6 +126,7 @@ func AppsGetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("apps get", flag.ExitOnError)
 
 	id := fs.String("id", "", "App Store Connect app ID")
+	legacyAppID := shared.BindDeprecatedStringFlagAlias(fs, "app", "id")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -140,6 +141,9 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			if err := legacyAppID.Apply(id); err != nil {
+				return err
+			}
 			idValue := strings.TrimSpace(*id)
 			if idValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
