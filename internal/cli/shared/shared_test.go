@@ -851,6 +851,47 @@ func TestCleanupTempPrivateKeysRemovesFile(t *testing.T) {
 	}
 }
 
+func TestFinalizeTempPrivateKeyRemovesFileOnChmodFailure(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "asc-key-*.p8")
+	if err != nil {
+		t.Fatalf("CreateTemp() error: %v", err)
+	}
+	// Close the handle up front so Chmod fails, exercising the error path.
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close() error: %v", err)
+	}
+
+	if err := finalizeTempPrivateKey(file, []byte("key-data")); err == nil {
+		t.Fatal("expected finalizeTempPrivateKey to fail on a closed file")
+	}
+	if _, err := os.Stat(file.Name()); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("expected temp key file to be removed after failure, got %v", err)
+	}
+}
+
+func TestFinalizeTempPrivateKeyRemovesFileOnWriteFailure(t *testing.T) {
+	temp, err := os.CreateTemp(t.TempDir(), "asc-key-*.p8")
+	if err != nil {
+		t.Fatalf("CreateTemp() error: %v", err)
+	}
+	if err := temp.Close(); err != nil {
+		t.Fatalf("Close() error: %v", err)
+	}
+
+	// Reopen read-only so Chmod succeeds but Write fails.
+	readOnly, err := os.Open(temp.Name())
+	if err != nil {
+		t.Fatalf("Open() error: %v", err)
+	}
+
+	if err := finalizeTempPrivateKey(readOnly, []byte("key-data")); err == nil {
+		t.Fatal("expected finalizeTempPrivateKey to fail writing to a read-only handle")
+	}
+	if _, err := os.Stat(temp.Name()); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("expected temp key file to be removed after failure, got %v", err)
+	}
+}
+
 func TestResolvePrivateKeyPathInvalidBase64(t *testing.T) {
 	resetPrivateKeyTemp(t)
 	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
