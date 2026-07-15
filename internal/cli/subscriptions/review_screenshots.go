@@ -277,7 +277,7 @@ func waitForSubscriptionReviewScreenshotDelivery(ctx context.Context, client *as
 			case "COMPLETE":
 				actualChecksum := strings.TrimSpace(resp.Data.Attributes.SourceFileChecksum)
 				if !strings.EqualFold(actualChecksum, strings.TrimSpace(expectedChecksum)) {
-					return struct{}{}, false, fmt.Errorf("screenshot %s checksum changed while waiting for delivery", screenshotID)
+					return struct{}{}, false, newSubscriptionReviewScreenshotConflictError("screenshot %s checksum changed while waiting for delivery", screenshotID)
 				}
 				verifiedResp = resp
 				return struct{}{}, true, nil

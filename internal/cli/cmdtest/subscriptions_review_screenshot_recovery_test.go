@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 )
 
 func TestSubscriptionsReviewScreenshotCreateSkipsCompleteMatchingAsset(t *testing.T) {
@@ -122,6 +124,9 @@ func TestSubscriptionsReviewScreenshotCreateRejectsConflictingReservationDuringR
 	if err == nil || !strings.Contains(err.Error(), "different incomplete") {
 		t.Fatalf("expected conflicting reservation error, got %v", err)
 	}
+	if got := rootcmd.ExitCodeFromError(err); got != rootcmd.ExitConflict {
+		t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitConflict, err)
+	}
 	if stdout != "" || stderr != "" || posts != 1 || reads != 2 {
 		t.Fatalf("unexpected conflict result: reads=%d posts=%d stdout=%q stderr=%q", reads, posts, stdout, stderr)
 	}
@@ -159,6 +164,9 @@ func TestSubscriptionsReviewScreenshotCreateRejectsConflictingCommitDuringReconc
 	stdout, stderr, err := runSubscriptionReviewScreenshotCreate(t, path)
 	if err == nil || !strings.Contains(err.Error(), "instead of upload reservation") {
 		t.Fatalf("expected conflicting commit error, got %v", err)
+	}
+	if got := rootcmd.ExitCodeFromError(err); got != rootcmd.ExitConflict {
+		t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitConflict, err)
 	}
 	if stdout != "" || stderr != "" || puts != 1 || patches != 1 || reads != 2 {
 		t.Fatalf("unexpected conflict result: reads=%d puts=%d patches=%d stdout=%q stderr=%q", reads, puts, patches, stdout, stderr)
@@ -222,6 +230,9 @@ func TestSubscriptionsReviewScreenshotCreateRejectsChangedChecksumDuringPoll(t *
 	stdout, stderr, err := runSubscriptionReviewScreenshotCreate(t, path)
 	if err == nil || !strings.Contains(err.Error(), "checksum changed") {
 		t.Fatalf("expected checksum race error, got %v", err)
+	}
+	if got := rootcmd.ExitCodeFromError(err); got != rootcmd.ExitConflict {
+		t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitConflict, err)
 	}
 	if stdout != "" || stderr != "" || reads != 2 {
 		t.Fatalf("unexpected checksum race result: reads=%d stdout=%q stderr=%q", reads, stdout, stderr)
@@ -351,6 +362,9 @@ func TestSubscriptionsReviewScreenshotCreateRejectsMismatchedCommitResponse(t *t
 	stdout, stderr, err := runSubscriptionReviewScreenshotCreate(t, path)
 	if err == nil || !strings.Contains(err.Error(), "instead of upload reservation") {
 		t.Fatalf("expected mismatched commit error, got %v", err)
+	}
+	if got := rootcmd.ExitCodeFromError(err); got != rootcmd.ExitConflict {
+		t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitConflict, err)
 	}
 	if stdout != "" || stderr != "" || puts != 1 || patches != 1 {
 		t.Fatalf("unexpected mismatched commit result: puts=%d patches=%d stdout=%q stderr=%q", puts, patches, stdout, stderr)
@@ -579,11 +593,12 @@ func TestSubscriptionsReviewScreenshotCreateRejectsUnsafeExistingState(t *testin
 		status   int
 		body     string
 		want     string
+		conflict bool
 	}{
-		{name: "complete conflict", checksum: func(string) string { return "different" }, state: "COMPLETE", want: "different checksum"},
+		{name: "complete conflict", checksum: func(string) string { return "different" }, state: "COMPLETE", want: "different checksum", conflict: true},
 		{name: "failed delivery", checksum: func(value string) string { return value }, state: "FAILED", want: "delivery failed"},
 		{name: "missing operations", checksum: func(string) string { return "" }, state: "", want: "no upload operations"},
-		{name: "incomplete identity mismatch", checksum: func(string) string { return "" }, state: "", ops: true, fileName: "other.png", want: "different incomplete"},
+		{name: "incomplete identity mismatch", checksum: func(string) string { return "" }, state: "", ops: true, fileName: "other.png", want: "different incomplete", conflict: true},
 		{name: "forbidden read", status: http.StatusForbidden, body: `{"errors":[{"status":"403","code":"FORBIDDEN","detail":"denied"}]}`, want: "denied"},
 	}
 
@@ -613,6 +628,11 @@ func TestSubscriptionsReviewScreenshotCreateRejectsUnsafeExistingState(t *testin
 			stdout, stderr, err := runSubscriptionReviewScreenshotCreate(t, path)
 			if err == nil || !strings.Contains(err.Error(), tt.want) || stdout != "" || stderr != "" || requests != 1 {
 				t.Fatalf("expected %q: requests=%d stdout=%q stderr=%q err=%v", tt.want, requests, stdout, stderr, err)
+			}
+			if tt.conflict {
+				if got := rootcmd.ExitCodeFromError(err); got != rootcmd.ExitConflict {
+					t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitConflict, err)
+				}
 			}
 		})
 	}
