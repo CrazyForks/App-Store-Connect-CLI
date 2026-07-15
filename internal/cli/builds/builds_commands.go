@@ -30,7 +30,7 @@ func BuildsUploadCommand() *ffcli.Command {
 	buildNumber := fs.String("build-number", "", "CFBundleVersion (e.g., 123, auto-extracted from IPA if not provided)")
 	platform := fs.String("platform", "", "Platform: IOS, MAC_OS, TV_OS, VISION_OS (auto-detected for --pkg)")
 	dryRun := fs.Bool("dry-run", false, "Reserve upload operations without uploading the file")
-	concurrency := fs.Int("concurrency", 1, "Upload concurrency (default 1)")
+	concurrency := fs.Int("concurrency", asc.DefaultUploadConcurrency, fmt.Sprintf("Upload concurrency (default %d)", asc.DefaultUploadConcurrency))
 	verifyChecksum := fs.Bool("checksum", false, "Verify upload checksums if provided by API")
 	testNotes := fs.String("test-notes", "", "What to Test notes (requires build processing)")
 	locale := fs.String("locale", "", "Locale for --test-notes (e.g., en-US)")
@@ -142,8 +142,14 @@ Examples:
 			default:
 				return fmt.Errorf("builds upload: --platform must be IOS, MAC_OS, TV_OS, or VISION_OS")
 			}
+			concurrencySet := false
+			fs.Visit(func(f *flag.Flag) {
+				if f.Name == "concurrency" {
+					concurrencySet = true
+				}
+			})
 			if *dryRun {
-				if *concurrency != 1 {
+				if concurrencySet {
 					return fmt.Errorf("builds upload: --concurrency is not supported with --dry-run")
 				}
 				if *verifyChecksum {
