@@ -1,7 +1,11 @@
 package asc
 
-//nolint:gochecknoinits // registry init is the idiomatic way to populate a type map
-func init() {
+// registerAllOutputRenderers populates the output registries with every
+// renderable response type. It runs lazily on first registry lookup (see
+// ensureOutputRegistryPopulated) instead of in a package init function, so
+// commands that never render registry output (for example `asc --version`)
+// do not pay the ~450-type registration cost at process start.
+func registerAllOutputRenderers() {
 	registerRows(feedbackRows)
 	registerRows(crashesRows)
 	registerRowsWithSingleResourceAdapter(reviewsRows)
