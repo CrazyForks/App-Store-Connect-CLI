@@ -422,7 +422,35 @@ func resolveCredentialsForProfile(profileOverride string) (resolvedCredentials, 
 		profile = resolveProfileName()
 	}
 	var envCreds envCredentials
+	envResolved := false
 	sources := credentialSource{}
+
+	// Fast path: complete environment credentials skip the keychain lookup
+	// entirely. Enumerating stored credentials costs several
+	// Security-framework round trips per command on macOS and can trigger
+	// keychain prompts in env-credentialed CI runs. Explicit profile
+	// selection (--profile/ASC_PROFILE) still resolves stored credentials,
+	// and ASC_BYPASS_KEYCHAIN keeps preferring config-file credentials.
+	// Environment resolution errors are surfaced below, only when stored
+	// credentials leave gaps, matching the previous behavior.
+	if profile == "" && !auth.ShouldBypassKeychain() {
+		if resolved, envErr := resolveEnvCredentials(); envErr == nil {
+			envCreds = resolved
+			envResolved = true
+			if envCreds.complete {
+				issuerID := envCreds.issuerID
+				if config.IsIndividualCredentialKeyType(envCreds.keyType) {
+					issuerID = ""
+				}
+				return resolvedCredentials{
+					keyID:    envCreds.keyID,
+					issuerID: issuerID,
+					keyPath:  envCreds.keyPath,
+					keyType:  normalizedResolvedKeyType(envCreds.keyType),
+				}, nil
+			}
+		}
+	}
 
 	// Priority 1: Stored credentials (keychain/config)
 	cfg, storedSource, err := getCredentialsWithSourceFn(profile)
@@ -456,11 +484,13 @@ func resolveCredentialsForProfile(profileOverride string) (resolvedCredentials, 
 	if actualKeyID == "" ||
 		(actualIssuerID == "" && !config.IsIndividualCredentialKeyType(actualKeyType)) ||
 		(actualKeyPath == "" && actualKeyPEM == "") {
-		resolved, err := resolveEnvCredentials()
-		if err != nil {
-			return resolvedCredentials{}, fmt.Errorf("invalid private key environment: %w", err)
+		if !envResolved {
+			resolved, err := resolveEnvCredentials()
+			if err != nil {
+				return resolvedCredentials{}, fmt.Errorf("invalid private key environment: %w", err)
+			}
+			envCreds = resolved
 		}
-		envCreds = resolved
 		if actualKeyID == "" && envCreds.keyID != "" {
 			actualKeyID = envCreds.keyID
 			sources.keyID = "env"

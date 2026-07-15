@@ -1286,6 +1286,234 @@ func TestResolveCredentials_DefaultSelectionErrorFallsBackToEnv(t *testing.T) {
 	}
 }
 
+func TestResolveCredentials_CompleteEnvSkipsStoredLookup(t *testing.T) {
+	resetPrivateKeyTemp(t)
+
+	tempDir := t.TempDir()
+	envKeyPath := filepath.Join(tempDir, "AuthKey-Env.p8")
+	writeECDSAPEM(t, envKeyPath)
+
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "")
+	t.Setenv("ASC_PROFILE", "")
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_KEY_TYPE", "")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", envKeyPath)
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	previousProfile := selectedProfile
+	selectedProfile = ""
+	t.Cleanup(func() { selectedProfile = previousProfile })
+
+	storedLookups := 0
+	previous := getCredentialsWithSourceFn
+	getCredentialsWithSourceFn = func(string) (*config.Config, string, error) {
+		storedLookups++
+		return nil, "", errors.New("keychain must not be consulted when env credentials are complete")
+	}
+	t.Cleanup(func() { getCredentialsWithSourceFn = previous })
+
+	creds, err := resolveCredentials()
+	if err != nil {
+		t.Fatalf("resolveCredentials() error: %v", err)
+	}
+	if storedLookups != 0 {
+		t.Fatalf("expected zero stored-credential lookups, got %d", storedLookups)
+	}
+	if creds.keyID != "ENVKEY" || creds.issuerID != "ENVISS" || creds.keyPath != envKeyPath {
+		t.Fatalf("expected env credentials, got %+v", creds)
+	}
+	if creds.profile != "" {
+		t.Fatalf("expected empty profile for env credentials, got %q", creds.profile)
+	}
+}
+
+func TestResolveCredentials_CompleteEnvIndividualSkipsStoredLookupAndIgnoresIssuerID(t *testing.T) {
+	resetPrivateKeyTemp(t)
+
+	tempDir := t.TempDir()
+	envKeyPath := filepath.Join(tempDir, "AuthKey-Env.p8")
+	writeECDSAPEM(t, envKeyPath)
+
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "")
+	t.Setenv("ASC_PROFILE", "")
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "STRAYISS")
+	t.Setenv("ASC_KEY_TYPE", config.CredentialKeyTypeIndividual)
+	t.Setenv("ASC_PRIVATE_KEY_PATH", envKeyPath)
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	previousProfile := selectedProfile
+	selectedProfile = ""
+	t.Cleanup(func() { selectedProfile = previousProfile })
+
+	storedLookups := 0
+	previous := getCredentialsWithSourceFn
+	getCredentialsWithSourceFn = func(string) (*config.Config, string, error) {
+		storedLookups++
+		return nil, "", errors.New("keychain must not be consulted when env credentials are complete")
+	}
+	t.Cleanup(func() { getCredentialsWithSourceFn = previous })
+
+	creds, err := resolveCredentials()
+	if err != nil {
+		t.Fatalf("resolveCredentials() error: %v", err)
+	}
+	if storedLookups != 0 {
+		t.Fatalf("expected zero stored-credential lookups, got %d", storedLookups)
+	}
+	if creds.keyID != "ENVKEY" || creds.keyType != config.CredentialKeyTypeIndividual || creds.keyPath != envKeyPath {
+		t.Fatalf("expected individual env credentials, got %+v", creds)
+	}
+	if creds.issuerID != "" {
+		t.Fatalf("expected individual credentials to ignore issuer ID, got %q", creds.issuerID)
+	}
+}
+
+func TestResolveCredentials_PartialEnvStillMergesStoredKeyMaterial(t *testing.T) {
+	resetPrivateKeyTemp(t)
+
+	tempDir := t.TempDir()
+	storedKeyPath := filepath.Join(tempDir, "AuthKey-Stored.p8")
+	writeECDSAPEM(t, storedKeyPath)
+
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "")
+	t.Setenv("ASC_PROFILE", "")
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_KEY_TYPE", "")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	previousProfile := selectedProfile
+	selectedProfile = ""
+	t.Cleanup(func() { selectedProfile = previousProfile })
+
+	previousStrict := strictAuth
+	strictAuth = false
+	t.Cleanup(func() { strictAuth = previousStrict })
+	t.Setenv(strictAuthEnvVar, "")
+
+	storedLookups := 0
+	previous := getCredentialsWithSourceFn
+	getCredentialsWithSourceFn = func(string) (*config.Config, string, error) {
+		storedLookups++
+		return &config.Config{PrivateKeyPath: storedKeyPath}, "keychain", nil
+	}
+	t.Cleanup(func() { getCredentialsWithSourceFn = previous })
+
+	creds, err := resolveCredentials()
+	if err != nil {
+		t.Fatalf("resolveCredentials() error: %v", err)
+	}
+	if storedLookups != 1 {
+		t.Fatalf("expected one stored-credential lookup, got %d", storedLookups)
+	}
+	if creds.keyID != "ENVKEY" || creds.issuerID != "ENVISS" || creds.keyPath != storedKeyPath {
+		t.Fatalf("expected env credentials merged with stored key material, got %+v", creds)
+	}
+}
+
+func TestResolveCredentials_ProfileFlagStillPrefersStoredOverCompleteEnv(t *testing.T) {
+	resetPrivateKeyTemp(t)
+
+	tempDir := t.TempDir()
+	storedKeyPath := filepath.Join(tempDir, "AuthKey-Stored.p8")
+	envKeyPath := filepath.Join(tempDir, "AuthKey-Env.p8")
+	writeECDSAPEM(t, storedKeyPath)
+	writeECDSAPEM(t, envKeyPath)
+
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "")
+	t.Setenv("ASC_PROFILE", "")
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_KEY_TYPE", "")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", envKeyPath)
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	previousProfile := selectedProfile
+	selectedProfile = "work"
+	t.Cleanup(func() { selectedProfile = previousProfile })
+
+	requestedProfiles := []string{}
+	previous := getCredentialsWithSourceFn
+	getCredentialsWithSourceFn = func(profile string) (*config.Config, string, error) {
+		requestedProfiles = append(requestedProfiles, profile)
+		return &config.Config{
+			KeyID:          "STOREDKEY",
+			IssuerID:       "STOREDISS",
+			PrivateKeyPath: storedKeyPath,
+			DefaultKeyName: "work",
+		}, "keychain", nil
+	}
+	t.Cleanup(func() { getCredentialsWithSourceFn = previous })
+
+	creds, err := resolveCredentials()
+	if err != nil {
+		t.Fatalf("resolveCredentials() error: %v", err)
+	}
+	if len(requestedProfiles) != 1 || requestedProfiles[0] != "work" {
+		t.Fatalf("expected one stored lookup for profile %q, got %v", "work", requestedProfiles)
+	}
+	if creds.keyID != "STOREDKEY" || creds.issuerID != "STOREDISS" || creds.keyPath != storedKeyPath {
+		t.Fatalf("expected stored profile credentials to win, got %+v", creds)
+	}
+	if creds.profile != "work" {
+		t.Fatalf("expected profile %q, got %q", "work", creds.profile)
+	}
+}
+
+func TestResolveCredentials_ProfileEnvVarStillPrefersStoredOverCompleteEnv(t *testing.T) {
+	resetPrivateKeyTemp(t)
+
+	tempDir := t.TempDir()
+	storedKeyPath := filepath.Join(tempDir, "AuthKey-Stored.p8")
+	envKeyPath := filepath.Join(tempDir, "AuthKey-Env.p8")
+	writeECDSAPEM(t, storedKeyPath)
+	writeECDSAPEM(t, envKeyPath)
+
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "")
+	t.Setenv("ASC_PROFILE", "work")
+	t.Setenv("ASC_KEY_ID", "ENVKEY")
+	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_KEY_TYPE", "")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", envKeyPath)
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	previousProfile := selectedProfile
+	selectedProfile = ""
+	t.Cleanup(func() { selectedProfile = previousProfile })
+
+	requestedProfiles := []string{}
+	previous := getCredentialsWithSourceFn
+	getCredentialsWithSourceFn = func(profile string) (*config.Config, string, error) {
+		requestedProfiles = append(requestedProfiles, profile)
+		return &config.Config{
+			KeyID:          "STOREDKEY",
+			IssuerID:       "STOREDISS",
+			PrivateKeyPath: storedKeyPath,
+			DefaultKeyName: "work",
+		}, "keychain", nil
+	}
+	t.Cleanup(func() { getCredentialsWithSourceFn = previous })
+
+	creds, err := resolveCredentials()
+	if err != nil {
+		t.Fatalf("resolveCredentials() error: %v", err)
+	}
+	if len(requestedProfiles) != 1 || requestedProfiles[0] != "work" {
+		t.Fatalf("expected one stored lookup for profile %q, got %v", "work", requestedProfiles)
+	}
+	if creds.keyID != "STOREDKEY" || creds.issuerID != "STOREDISS" || creds.keyPath != storedKeyPath {
+		t.Fatalf("expected stored profile credentials to win, got %+v", creds)
+	}
+}
+
 func TestResolveCredentials_AllowsStoredPEMWithoutPath(t *testing.T) {
 	tempDir := t.TempDir()
 	keyPath := filepath.Join(tempDir, "AuthKey.p8")
@@ -1374,10 +1602,12 @@ func TestResolveCredentials_KeychainAccessDeniedStopsFallback(t *testing.T) {
 	keyPath := filepath.Join(tempDir, "AuthKey.p8")
 	writeECDSAPEM(t, keyPath)
 
+	// Partial env credentials (no issuer ID) force the stored-credential
+	// lookup; complete env credentials skip the keychain entirely.
 	t.Setenv("ASC_BYPASS_KEYCHAIN", "")
 	t.Setenv("ASC_PROFILE", "")
 	t.Setenv("ASC_KEY_ID", "ENVKEY")
-	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_ISSUER_ID", "")
 	t.Setenv("ASC_PRIVATE_KEY_PATH", keyPath)
 	t.Setenv("ASC_PRIVATE_KEY_B64", "")
 	t.Setenv("ASC_PRIVATE_KEY", "")
@@ -1411,10 +1641,12 @@ func TestResolveCredentials_KeychainGenericErrorStopsEnvFallback(t *testing.T) {
 	keyPath := filepath.Join(tempDir, "AuthKey.p8")
 	writeECDSAPEM(t, keyPath)
 
+	// Partial env credentials (no issuer ID) force the stored-credential
+	// lookup; complete env credentials skip the keychain entirely.
 	t.Setenv("ASC_BYPASS_KEYCHAIN", "")
 	t.Setenv("ASC_PROFILE", "")
 	t.Setenv("ASC_KEY_ID", "ENVKEY")
-	t.Setenv("ASC_ISSUER_ID", "ENVISS")
+	t.Setenv("ASC_ISSUER_ID", "")
 	t.Setenv("ASC_PRIVATE_KEY_PATH", keyPath)
 	t.Setenv("ASC_PRIVATE_KEY_B64", "")
 	t.Setenv("ASC_PRIVATE_KEY", "")
