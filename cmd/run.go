@@ -20,6 +20,8 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/telemetry"
 )
 
+const unknownFlagErrorPrefix = "flag provided but not defined:"
+
 var (
 	maybeScheduleSkillsUpdateCheck = install.MaybeScheduleSkillsUpdateCheck
 	emitTelemetry                  = telemetry.EmitWithContext
@@ -180,7 +182,7 @@ func printParseFailure(parseErr error, parseOutput string, analysis invocationAn
 	flagName := strings.SplitN(analysis.unknownToken, "=", 2)[0]
 	fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", shared.SanitizeTerminal(flagName))
 	firstLine, usage, found := strings.Cut(parseOutput, "\n")
-	if found && strings.HasPrefix(firstLine, "flag provided but not defined:") {
+	if found && strings.HasPrefix(firstLine, unknownFlagErrorPrefix) {
 		fmt.Fprint(os.Stderr, usage)
 		return
 	}
@@ -190,8 +192,7 @@ func printParseFailure(parseErr error, parseOutput string, analysis invocationAn
 }
 
 func isUnknownFlagParseFailure(parseErr error, parseOutput string) bool {
-	const unknownFlagPrefix = "flag provided but not defined:"
-	return strings.HasPrefix(parseErr.Error(), unknownFlagPrefix) || strings.HasPrefix(parseOutput, unknownFlagPrefix)
+	return strings.HasPrefix(parseErr.Error(), unknownFlagErrorPrefix) || strings.HasPrefix(parseOutput, unknownFlagErrorPrefix)
 }
 
 func redirectCommandFlagOutput(command *ffcli.Command, output io.Writer) func() {

@@ -1,6 +1,9 @@
 package suggest
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestCommandsPrefixSuggestion(t *testing.T) {
 	got := Commands("buil", []string{"builds", "reviews", "apps"})
@@ -58,6 +61,42 @@ func TestFlagsMatchesIdentifierShorthand(t *testing.T) {
 			got := Flags(test.input, test.candidates)
 			if len(got) == 0 || got[0] != test.want {
 				t.Fatalf("Flags(%q) = %v, want first suggestion %q", test.input, got, test.want)
+			}
+		})
+	}
+}
+
+func TestFlagsCapsSuggestionsAcrossMatchingStrategies(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		candidates []string
+		want       []string
+	}{
+		{
+			name:       "direct matches return at cap",
+			input:      "app",
+			candidates: []string{"appstore", "application", "apple", "build-app"},
+			want:       []string{"apple", "application", "appstore"},
+		},
+		{
+			name:       "suffix matches top up to cap",
+			input:      "id",
+			candidates: []string{"ids", "version-id", "build-id", "app-id"},
+			want:       []string{"ids", "app-id", "build-id"},
+		},
+		{
+			name:       "no match remains empty",
+			input:      "zzzzzzzzzz",
+			candidates: []string{"output", "pretty"},
+			want:       nil,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := Flags(test.input, test.candidates); !slices.Equal(got, test.want) {
+				t.Fatalf("Flags(%q) = %v, want %v", test.input, got, test.want)
 			}
 		})
 	}
