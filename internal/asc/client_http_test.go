@@ -408,7 +408,8 @@ func TestGetApps_RetryExhaustedExposesHTTPStatus(t *testing.T) {
 	t.Cleanup(resetConfigCacheForTest)
 
 	body := `{"errors":[{"code":"UNEXPECTED_ERROR","title":"Service Unavailable","detail":"try again later"}]}`
-	client := newTestClient(t, nil,
+	client := newTestClient(
+		t, nil,
 		jsonResponse(http.StatusServiceUnavailable, body),
 		jsonResponse(http.StatusServiceUnavailable, body),
 	)
