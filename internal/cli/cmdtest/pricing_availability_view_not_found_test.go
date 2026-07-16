@@ -71,6 +71,10 @@ func TestPricingAvailabilityViewMissingRecordReturnsNotFound(t *testing.T) {
 	if !errors.Is(runErr, asc.ErrNotFound) {
 		t.Fatalf("expected asc.ErrNotFound, got %v", runErr)
 	}
+	var apiErr *asc.APIError
+	if !errors.As(runErr, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected wrapped 404 API error, got %v", runErr)
+	}
 	if got := cmd.ExitCodeFromError(runErr); got != cmd.ExitNotFound {
 		t.Fatalf("expected exit code %d, got %d", cmd.ExitNotFound, got)
 	}

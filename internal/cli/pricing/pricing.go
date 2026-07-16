@@ -668,7 +668,10 @@ Examples:
 			}
 			if err != nil {
 				if idValue == "" && shared.IsAppAvailabilityMissing(err) {
-					return fmt.Errorf("pricing availability get: app availability not found for app %q: %w", appValue, asc.ErrNotFound)
+					return shared.NewErrorWithCause(
+						fmt.Errorf("pricing availability get: app availability not found for app %q: %w", appValue, asc.ErrNotFound),
+						err,
+					)
 				}
 				return fmt.Errorf("pricing availability get: %w", err)
 			}
