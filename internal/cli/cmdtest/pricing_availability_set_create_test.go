@@ -109,6 +109,10 @@ func TestAvailabilitySet_MissingAvailabilityReturnsUpdateOnlyError(t *testing.T)
 				if !errors.Is(err, asc.ErrNotFound) {
 					t.Fatalf("expected asc.ErrNotFound, got %v", err)
 				}
+				var apiErr *asc.APIError
+				if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+					t.Fatalf("expected wrapped 404 API error, got %v", err)
+				}
 				if got := cmd.ExitCodeFromError(err); got != cmd.ExitNotFound {
 					t.Fatalf("expected exit code %d, got %d", cmd.ExitNotFound, got)
 				}
