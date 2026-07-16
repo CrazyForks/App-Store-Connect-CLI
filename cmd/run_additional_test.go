@@ -499,6 +499,12 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
+	if !strings.Contains(stderr, "Unknown flag: --build-id") {
+		t.Fatalf("expected normalized unknown flag diagnostic, got %q", stderr)
+	}
+	if strings.Contains(stderr, "flag provided but not defined") {
+		t.Fatalf("did not expect raw Go flag diagnostic, got %q", stderr)
+	}
 	if !strings.Contains(stderr, "Did you mean: --build") {
 		t.Fatalf("expected --build suggestion, got %q", stderr)
 	}
@@ -510,6 +516,66 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 	}
 	if gotContext.FailureParameter != "--build-id" {
 		t.Fatalf("FailureParameter = %q, want --build-id", gotContext.FailureParameter)
+	}
+}
+
+func TestRun_UnknownIdentifierFlagsSuggestCommandSpecificFlags(t *testing.T) {
+	resetReportFlags(t)
+
+	tests := []struct {
+		name           string
+		args           []string
+		wantSuggestion string
+	}{
+		{
+			name:           "generic version ID",
+			args:           []string{"versions", "view", "--id", "VERSION_ID"},
+			wantSuggestion: "Did you mean: --version-id?",
+		},
+		{
+			name:           "qualified subscription ID",
+			args:           []string{"subscriptions", "view", "--subscription-id", "SUBSCRIPTION_ID"},
+			wantSuggestion: "Did you mean: --id?",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr := captureCommandOutput(t, func() {
+				if code := Run(test.args, "1.0.0"); code != ExitUsage {
+					t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantSuggestion) {
+				t.Fatalf("expected %q, got %q", test.wantSuggestion, stderr)
+			}
+		})
+	}
+}
+
+func TestRun_UnknownFlagDoesNotSuggestHiddenCompatibilityFlag(t *testing.T) {
+	resetReportFlags(t)
+
+	stdout, stderr := captureCommandOutput(t, func() {
+		if code := Run([]string{"iap", "setup", "--nam", "value"}, "1.0.0"); code != ExitUsage {
+			t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "Unknown flag: --nam") {
+		t.Fatalf("expected normalized unknown flag diagnostic, got %q", stderr)
+	}
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.HasPrefix(line, "Did you mean: ") && strings.Contains(line, "--name") {
+			t.Fatalf("hidden compatibility flag must not be suggested, got %q", stderr)
+		}
 	}
 }
 
