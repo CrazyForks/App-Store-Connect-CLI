@@ -528,7 +528,7 @@ func buildSubscriptionAvailabilityDiagnosticRow(sub Subscription) SubscriptionDi
 	if strings.TrimSpace(sub.AvailabilityID) == "" {
 		row.Status = DiagnosticStatusNo
 		row.Evidence = "none"
-		row.Remediation = fmt.Sprintf("Configure subscription availability with `asc subscriptions availability edit --subscription-id %q --territories \"USA\"`.", fallbackString(strings.TrimSpace(sub.ID), "SUB_ID"))
+		row.Remediation = fmt.Sprintf("Configure subscription availability with `asc subscriptions pricing availability edit --subscription-id %q --territories \"USA\"`.", fallbackString(strings.TrimSpace(sub.ID), "SUB_ID"))
 		return row
 	}
 
@@ -536,7 +536,7 @@ func buildSubscriptionAvailabilityDiagnosticRow(sub Subscription) SubscriptionDi
 	if len(territories) == 0 {
 		row.Status = DiagnosticStatusNo
 		row.Evidence = fmt.Sprintf("id=%s territories=none", strings.TrimSpace(sub.AvailabilityID))
-		row.Remediation = fmt.Sprintf("Add at least one available territory with `asc subscriptions availability edit --subscription-id %q --territories \"USA\"`.", fallbackString(strings.TrimSpace(sub.ID), "SUB_ID"))
+		row.Remediation = fmt.Sprintf("Add at least one available territory with `asc subscriptions pricing availability edit --subscription-id %q --territories \"USA\"`.", fallbackString(strings.TrimSpace(sub.ID), "SUB_ID"))
 		return row
 	}
 

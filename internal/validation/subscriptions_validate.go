@@ -558,7 +558,7 @@ func subscriptionMetadataDiagnostics(subs []Subscription) []CheckResult {
 				ResourceType: "subscription",
 				ResourceID:   strings.TrimSpace(sub.ID),
 				Message:      fmt.Sprintf("%s has no subscription availability configured", label),
-				Remediation:  "Configure subscription availability via `asc subscriptions availability edit`",
+				Remediation:  "Configure subscription availability via `asc subscriptions pricing availability edit`",
 			})
 		} else if len(sortedUniqueNonEmpty(sub.AvailabilityTerritories)) == 0 {
 			checks = append(checks, CheckResult{
@@ -568,7 +568,7 @@ func subscriptionMetadataDiagnostics(subs []Subscription) []CheckResult {
 				ResourceType: "subscription",
 				ResourceID:   strings.TrimSpace(sub.ID),
 				Message:      fmt.Sprintf("%s has subscription availability configured but no available territories", label),
-				Remediation:  "Enable at least one subscription availability territory via `asc subscriptions availability edit`",
+				Remediation:  "Enable at least one subscription availability territory via `asc subscriptions pricing availability edit`",
 			})
 		}
 
