@@ -270,10 +270,11 @@ func printUnknownFlagSuggestion(analysis invocationAnalysis) {
 		return
 	}
 	input := strings.TrimLeft(strings.SplitN(analysis.unknownToken, "=", 2)[0], "-")
-	candidates := make([]string, 0)
-	analysis.command.FlagSet.VisitAll(func(f *flag.Flag) {
+	visibleFlags := shared.VisibleHelpFlags(analysis.command.FlagSet)
+	candidates := make([]string, 0, len(visibleFlags))
+	for _, f := range visibleFlags {
 		candidates = append(candidates, f.Name)
-	})
+	}
 	printFlagSuggestions(input, candidates)
 }
 

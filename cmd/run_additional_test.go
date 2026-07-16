@@ -522,6 +522,26 @@ func TestRun_UnknownIdentifierFlagsSuggestCommandSpecificFlags(t *testing.T) {
 	}
 }
 
+func TestRun_UnknownFlagDoesNotSuggestHiddenCompatibilityFlag(t *testing.T) {
+	resetReportFlags(t)
+
+	stdout, stderr := captureCommandOutput(t, func() {
+		if code := Run([]string{"iap", "setup", "--nam", "value"}, "1.0.0"); code != ExitUsage {
+			t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "Unknown flag: --nam") {
+		t.Fatalf("expected normalized unknown flag diagnostic, got %q", stderr)
+	}
+	if strings.Contains(stderr, "Did you mean: --name?") {
+		t.Fatalf("hidden compatibility flag must not be suggested, got %q", stderr)
+	}
+}
+
 func TestRun_UnknownGroupFlagIsNotClassifiedAsBareGroup(t *testing.T) {
 	resetReportFlags(t)
 	originalEmitTelemetry := emitTelemetry
