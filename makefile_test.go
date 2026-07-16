@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,45 @@ func TestMakeCleanRemovesReleaseDirectory(t *testing.T) {
 
 	if _, err := os.Stat(staleArtifact); !os.IsNotExist(err) {
 		t.Fatalf("expected make clean to remove %s, stat err=%v\n%s", staleArtifact, err, output)
+	}
+}
+
+// makeDryRun returns the commands make would execute for a target without
+// running them.
+func makeDryRun(t *testing.T, target string) string {
+	t.Helper()
+
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+
+	cmd := exec.Command("make", "-n", "-f", filepath.Join(repoRoot, "Makefile"), "-C", t.TempDir(), target)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make -n %s failed: %v\n%s", target, err, output)
+	}
+	return string(output)
+}
+
+func TestMakeBuildAllUsesStrippedTrimmedReleaseFlags(t *testing.T) {
+	output := makeDryRun(t, "build-all")
+	for _, want := range []string{"-trimpath", `-ldflags "-s -w `} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected build-all recipe to contain %q, got:\n%s", want, output)
+		}
+	}
+}
+
+func TestMakeBuildKeepsDebugSymbolsForDevBuilds(t *testing.T) {
+	output := makeDryRun(t, "build")
+	for _, unwanted := range []string{"-trimpath", "-s -w"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("expected dev build recipe to stay unstripped, found %q in:\n%s", unwanted, output)
+		}
+	}
+	if !strings.Contains(output, "-X main.version=") {
+		t.Fatalf("expected dev build recipe to inject version metadata, got:\n%s", output)
 	}
 }
 

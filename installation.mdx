@@ -60,7 +60,7 @@ For automated setups or environments without Homebrew:
   </Step>
 
   <Step title="Verify checksums">
-    Validates the downloaded binary using SHA-256 checksums (if `shasum` or `sha256sum` is available)
+    Validates the downloaded binary against the release SHA-256 checksums. The script aborts if verification cannot run (missing `checksums.txt`, missing `shasum`/`sha256sum`, or an unlisted asset); set `ASC_INSTALL_INSECURE=1` to explicitly skip verification in emergencies. A checksum mismatch always aborts.
   </Step>
 
   <Step title="Install to bin directory">

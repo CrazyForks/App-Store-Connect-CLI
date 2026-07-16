@@ -75,6 +75,30 @@ func TestReleaseWorkflowKeepsDocsGuardrails(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowBuildsStrippedTrimmedBinaries(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	buildLines := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.Contains(line, "go build") {
+			continue
+		}
+		buildLines++
+		if !strings.Contains(line, "-trimpath") {
+			t.Errorf("release build line missing -trimpath: %s", strings.TrimSpace(line))
+		}
+		if !strings.Contains(line, "-s -w") {
+			t.Errorf("release build line missing -s -w: %s", strings.TrimSpace(line))
+		}
+	}
+	if buildLines == 0 {
+		t.Fatal("release workflow contains no go build lines")
+	}
+}
+
 func TestReleaseWorkflowDoesNotInterpolateDispatchInputIntoShell(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
