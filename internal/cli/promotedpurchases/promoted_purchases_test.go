@@ -22,10 +22,10 @@ func TestPromotedPurchasesListValidation(t *testing.T) {
 	}
 }
 
-func TestScopedPromotedPurchasesDetailCommandsUseScopedPaths(t *testing.T) {
+func TestScopedPromotedPurchasesCommandsUseScopedPaths(t *testing.T) {
 	cmd := scopedPromotedPurchasesCommandForTest()
 
-	for _, name := range []string{"view", "update", "delete"} {
+	for _, name := range []string{"list", "view", "update", "delete", "link"} {
 		t.Run(name, func(t *testing.T) {
 			subcommand := findDirectSubcommand(cmd, name)
 			if subcommand == nil {

@@ -41,6 +41,25 @@ func TestBuildsListCommand_HelpMentionsCombinedFilters(t *testing.T) {
 	}
 }
 
+func TestBuildsUploadCommand_HelpShowsConcurrencyDefaultOnce(t *testing.T) {
+	cmd := BuildsUploadCommand()
+	usage := cmd.UsageFunc(cmd)
+
+	var concurrencyLine string
+	for line := range strings.SplitSeq(usage, "\n") {
+		if strings.Contains(line, "--concurrency") {
+			concurrencyLine = line
+			break
+		}
+	}
+	if concurrencyLine == "" {
+		t.Fatalf("expected rendered help to include --concurrency, got %q", usage)
+	}
+	if count := strings.Count(concurrencyLine, "default"); count != 1 {
+		t.Fatalf("expected one concurrency default annotation, got %q", concurrencyLine)
+	}
+}
+
 func TestBuildsListCommand_ProcessingStateFlagDescription(t *testing.T) {
 	cmd := BuildsListCommand()
 
