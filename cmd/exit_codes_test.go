@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
 func TestExitCodeFromError(t *testing.T) {
@@ -52,6 +54,11 @@ func TestExitCodeFromError(t *testing.T) {
 		{
 			name:     "ErrForbidden returns auth failure",
 			err:      asc.ErrForbidden,
+			expected: ExitAuth,
+		},
+		{
+			name:     "wrapped invalid Apple Account credentials return auth failure",
+			err:      fmt.Errorf("SRP login failed: %w", webcore.ErrInvalidAppleAccountCredentials),
 			expected: ExitAuth,
 		},
 		{
@@ -633,6 +640,68 @@ func TestAuthTokenConfirmInvalidBooleanExitCode(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "confirm") {
 		t.Fatalf("expected stderr to mention confirm flag, got %q", stderr)
+	}
+}
+
+func TestAuthLoginInvalidPrivateKeyExitCodes(t *testing.T) {
+	tmpDir := t.TempDir()
+	binaryPath := buildASCBlackboxBinary(t)
+	missingKeyPath := filepath.Join(tmpDir, "missing-key.p8")
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "app store connect",
+			args: []string{
+				"auth", "login", "--name", "demo", "--key-id", "KEY", "--issuer-id", "ISS",
+				"--private-key", missingKeyPath, "--bypass-keychain", "--local",
+			},
+		},
+		{
+			name: "apple ads",
+			args: []string{
+				"ads", "auth", "login", "--name", "demo", "--client-id", "CLIENT", "--team-id", "TEAM",
+				"--key-id", "KEY", "--private-key", missingKeyPath, "--bypass-keychain", "--local",
+			},
+		},
+		{
+			name: "storekit",
+			args: []string{
+				"storekit", "auth", "login", "--name", "demo", "--key-id", "KEY", "--issuer-id", "ISS",
+				"--private-key", missingKeyPath, "--bundle-id", "com.example.app", "--bypass-keychain", "--local",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runCmd := exec.Command(binaryPath, test.args...)
+			runCmd.Env = isolatedCLITestEnv(filepath.Join(tmpDir, test.name+"-config.json"))
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			runCmd.Stdout = &stdout
+			runCmd.Stderr = &stderr
+
+			err := runCmd.Run()
+			if err == nil {
+				t.Fatalf("expected invalid private key to fail, got stdout %q", stdout.String())
+			}
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("expected *exec.ExitError, got %T (%v)", err, err)
+			}
+			if exitErr.ExitCode() != ExitUsage {
+				t.Fatalf("exit code = %d, want %d; stderr=%q", exitErr.ExitCode(), ExitUsage, stderr.String())
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), "invalid private key") {
+				t.Fatalf("stderr = %q, want invalid private key diagnostic", stderr.String())
+			}
+		})
 	}
 }
 

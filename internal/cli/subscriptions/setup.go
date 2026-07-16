@@ -134,6 +134,22 @@ type subscriptionsSetupVerification struct {
 	MissingPriceTerritories  []string  `json:"missingPriceTerritories,omitempty"`
 }
 
+type subscriptionsSetupConflictError struct {
+	message string
+}
+
+func (e subscriptionsSetupConflictError) Error() string {
+	return e.message
+}
+
+func (e subscriptionsSetupConflictError) Unwrap() error {
+	return asc.ErrConflict
+}
+
+func newSubscriptionsSetupConflictError(format string, args ...any) error {
+	return subscriptionsSetupConflictError{message: fmt.Sprintf(format, args...)}
+}
+
 // SubscriptionsSetupCommand returns the high-level subscriptions bootstrap workflow command.
 func SubscriptionsSetupCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("setup", flag.ExitOnError)
@@ -1338,10 +1354,10 @@ func findExistingSubscriptionSetupGroupLocalization(ctx context.Context, client 
 
 func validateExistingSubscriptionSetupGroupLocalization(localization asc.Resource[asc.SubscriptionGroupLocalizationAttributes], opts subscriptionsSetupOptions) error {
 	if strings.TrimSpace(localization.Attributes.Name) != opts.GroupDisplayName {
-		return fmt.Errorf("existing group localization %q has a different name", localization.ID)
+		return newSubscriptionsSetupConflictError("existing group localization %q has a different name", localization.ID)
 	}
 	if opts.GroupCustomAppName != "" && strings.TrimSpace(localization.Attributes.CustomAppName) != opts.GroupCustomAppName {
-		return fmt.Errorf("existing group localization %q has a different custom app name", localization.ID)
+		return newSubscriptionsSetupConflictError("existing group localization %q has a different custom app name", localization.ID)
 	}
 	return nil
 }
@@ -1642,7 +1658,7 @@ func findExistingSubscriptionSetupPrice(ctx context.Context, client *asc.Client,
 }
 
 func mismatchedExistingSubscriptionSetupPriceError(subscriptionID string) error {
-	return fmt.Errorf("existing subscription %q already has prices but none match the requested price point, territory, start date, and upfront plan type; use subscriptions prices add to add the requested price", subscriptionID)
+	return newSubscriptionsSetupConflictError("existing subscription %q already has prices but none match the requested price point, territory, start date, and upfront plan type; use subscriptions prices add to add the requested price", subscriptionID)
 }
 
 func subscriptionSetupPriceMatchesTarget(price asc.Resource[asc.SubscriptionPriceAttributes], pricePointID, territoryID string, attrs asc.SubscriptionPriceCreateAttributes) bool {
@@ -1706,7 +1722,7 @@ func findExistingSubscriptionSetupAvailability(ctx context.Context, client *asc.
 }
 
 func mismatchedExistingSubscriptionSetupAvailabilityError(subscriptionID string) error {
-	return fmt.Errorf("existing subscription %q already has availability but it does not match the requested territories and available-in-new-territories setting; update availability or choose a different product ID", subscriptionID)
+	return newSubscriptionsSetupConflictError("existing subscription %q already has availability but it does not match the requested territories and available-in-new-territories setting; update availability or choose a different product ID", subscriptionID)
 }
 
 func fetchSubscriptionSetupAvailabilityTerritories(ctx context.Context, client *asc.Client, availabilityID string) (map[string]struct{}, []string, error) {
@@ -1752,26 +1768,26 @@ func fetchSubscriptionSetupAvailabilityTerritories(ctx context.Context, client *
 
 func validateExistingSubscriptionSetupSubscription(subscription asc.Resource[asc.SubscriptionAttributes], target asc.SubscriptionCreateAttributes, expectedFamilySharable bool) error {
 	if strings.TrimSpace(subscription.Attributes.Name) != strings.TrimSpace(target.Name) {
-		return fmt.Errorf("existing subscription %q has a different reference name; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
+		return newSubscriptionsSetupConflictError("existing subscription %q has a different reference name; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
 	}
 	if target.SubscriptionPeriod != "" && strings.TrimSpace(subscription.Attributes.SubscriptionPeriod) != strings.TrimSpace(target.SubscriptionPeriod) {
-		return fmt.Errorf("existing subscription %q has a different subscription period; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
+		return newSubscriptionsSetupConflictError("existing subscription %q has a different subscription period; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
 	}
 	if subscription.Attributes.FamilySharable != expectedFamilySharable {
-		return fmt.Errorf("existing subscription %q has a different family sharing setting; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
+		return newSubscriptionsSetupConflictError("existing subscription %q has a different family sharing setting; update it or choose a different product ID", strings.TrimSpace(subscription.ID))
 	}
 	return nil
 }
 
 func validateExistingSubscriptionSetupLocalization(localization asc.Resource[asc.SubscriptionLocalizationAttributes], opts subscriptionsSetupOptions) error {
 	if strings.TrimSpace(localization.Attributes.Locale) != strings.TrimSpace(opts.Locale) {
-		return fmt.Errorf("existing subscription localization %q has a different locale; update it or choose a different locale", strings.TrimSpace(localization.ID))
+		return newSubscriptionsSetupConflictError("existing subscription localization %q has a different locale; update it or choose a different locale", strings.TrimSpace(localization.ID))
 	}
 	if strings.TrimSpace(opts.DisplayName) != "" && strings.TrimSpace(localization.Attributes.Name) != strings.TrimSpace(opts.DisplayName) {
-		return fmt.Errorf("existing subscription localization %q has a different display name; update it or choose a different locale", strings.TrimSpace(localization.ID))
+		return newSubscriptionsSetupConflictError("existing subscription localization %q has a different display name; update it or choose a different locale", strings.TrimSpace(localization.ID))
 	}
 	if strings.TrimSpace(localization.Attributes.Description) != strings.TrimSpace(opts.Description) {
-		return fmt.Errorf("existing subscription localization %q has a different description; update it or choose a different locale", strings.TrimSpace(localization.ID))
+		return newSubscriptionsSetupConflictError("existing subscription localization %q has a different description; update it or choose a different locale", strings.TrimSpace(localization.ID))
 	}
 	return nil
 }
