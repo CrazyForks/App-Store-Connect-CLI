@@ -317,6 +317,48 @@ func TestSubscriptionMetadataDiagnostics_UsesInfoChecksWhenLocalizationVerificat
 	}
 }
 
+func TestSubscriptionMetadataDiagnostics_UsesCanonicalAvailabilityCommand(t *testing.T) {
+	tests := []struct {
+		name         string
+		subscription Subscription
+		checkID      string
+		want         string
+	}{
+		{
+			name:         "missing availability record",
+			subscription: Subscription{ID: "sub-1", State: "MISSING_METADATA"},
+			checkID:      "subscriptions.diagnostics.availability_missing",
+			want:         "Configure subscription availability via `asc subscriptions pricing availability edit`",
+		},
+		{
+			name: "availability has no territories",
+			subscription: Subscription{
+				ID:             "sub-1",
+				State:          "MISSING_METADATA",
+				AvailabilityID: "availability-1",
+			},
+			checkID: "subscriptions.diagnostics.availability_territories_missing",
+			want:    "Enable at least one subscription availability territory via `asc subscriptions pricing availability edit`",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checks := subscriptionMetadataDiagnostics([]Subscription{tt.subscription})
+			for _, check := range checks {
+				if check.ID != tt.checkID {
+					continue
+				}
+				if check.Remediation != tt.want {
+					t.Fatalf("remediation = %q, want %q", check.Remediation, tt.want)
+				}
+				return
+			}
+			t.Fatalf("missing check %q in %+v", tt.checkID, checks)
+		})
+	}
+}
+
 func TestValidateIncludesPricingCoverageCheck(t *testing.T) {
 	report := Validate(Input{
 		AppID:                "app-1",
