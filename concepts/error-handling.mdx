@@ -32,14 +32,14 @@ The CLI maps HTTP status codes to exit codes:
 
 **Formula:** `10 + (status - 400)`
 
-| HTTP Status       | Exit Code | Description                       |
-| ----------------- | --------- | --------------------------------- |
-| 400 Bad Request   | `10`      | Invalid request parameters        |
-| 401 Unauthorized  | `11`      | Authentication required           |
-| 403 Forbidden     | `12`      | Permission denied                 |
-| 404 Not Found     | `4`       | Resource not found (special case) |
-| 409 Conflict      | `5`       | Resource conflict (special case)  |
-| 422 Unprocessable | `22`      | Validation error                  |
+| HTTP Status       | Exit Code | Description                            |
+| ----------------- | --------- | -------------------------------------- |
+| 400 Bad Request   | `10`      | Invalid request parameters             |
+| 401 Unauthorized  | `3`       | Authentication failure (special case)  |
+| 403 Forbidden     | `3`       | Authentication failure (special case)  |
+| 404 Not Found     | `4`       | Resource not found (special case)      |
+| 409 Conflict      | `5`       | Resource conflict (special case)       |
+| 422 Unprocessable | `22`      | Validation error                       |
 
 #### 5xx Server Errors
 
@@ -261,11 +261,11 @@ Common authentication failures and solutions:
 ```bash  theme={null}
 asc apps list
 # Error: missing authentication. Run 'asc auth login' or 'asc auth init'
-# Exit code: 1 (generic error, not 3)
+# Exit code: 3 (authentication failure)
 ```
 
 <Note>
-  Missing credentials return exit code `1`, not `3`. Exit code `3` is reserved for **failed authentication** (invalid credentials), not missing credentials.
+  Missing, invalid, unauthorized, and forbidden credentials all return exit code `3`, so scripts can handle authentication failures consistently.
 </Note>
 
 ### Invalid API Key

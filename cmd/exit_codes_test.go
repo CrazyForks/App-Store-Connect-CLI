@@ -2,11 +2,19 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"encoding/xml"
 	"errors"
 	"flag"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -143,6 +151,127 @@ func TestAPIErrorCodeToExitCode(t *testing.T) {
 				t.Errorf("APIErrorCodeToExitCode(%q) = %d, want %d", tt.code, result, tt.expected)
 			}
 		})
+	}
+}
+
+// rewriteHostTransport redirects every request to the test server so client
+// requests built against the production base URL hit the httptest server.
+type rewriteHostTransport struct {
+	target *url.URL
+}
+
+func (t *rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.URL.Scheme = t.target.Scheme
+	clone.URL.Host = t.target.Host
+	return http.DefaultTransport.RoundTrip(clone)
+}
+
+// newHTTPStatusTestClient builds an asc.Client whose requests are routed to
+// the given httptest server URL.
+func newHTTPStatusTestClient(t *testing.T, serverURL string) *asc.Client {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error: %v", err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("MarshalPKCS8PrivateKey() error: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	keyPath := filepath.Join(t.TempDir(), "AuthKey_TEST.p8")
+	if err := os.WriteFile(keyPath, pemBytes, 0o600); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	target, err := url.Parse(serverURL)
+	if err != nil {
+		t.Fatalf("url.Parse(%q) error: %v", serverURL, err)
+	}
+	client, err := asc.NewClientWithHTTPClient("KEY123", "ISS456", keyPath, &http.Client{
+		Transport: &rewriteHostTransport{target: target},
+	})
+	if err != nil {
+		t.Fatalf("NewClientWithHTTPClient() error: %v", err)
+	}
+	return client
+}
+
+// TestExitCodeFromError_RetryExhaustedStatuses exercises the full retry path:
+// a server that persistently fails with a retryable status must surface that
+// status in both the exit code and the telemetry HTTP status once retries are
+// exhausted, instead of collapsing to the generic exit code 1.
+func TestExitCodeFromError_RetryExhaustedStatuses(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       int
+		body         string
+		expectedExit int
+	}{
+		{
+			name:         "persistent 503 exits with service unavailable",
+			status:       http.StatusServiceUnavailable,
+			body:         `{"errors":[{"code":"UNEXPECTED_ERROR","title":"Service Unavailable","detail":"try again later"}]}`,
+			expectedExit: ExitHTTPServiceUnavailable,
+		},
+		{
+			name:         "persistent 429 exits with rate limit code",
+			status:       http.StatusTooManyRequests,
+			body:         `{"errors":[{"code":"RATE_LIMIT_EXCEEDED","title":"Too Many Requests","detail":"rate limit exceeded"}]}`,
+			expectedExit: 39, // 10 + (429 - 400)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("ASC_MAX_RETRIES", "1")
+			t.Setenv("ASC_BASE_DELAY", "1ms")
+			t.Setenv("ASC_MAX_DELAY", "1ms")
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(server.Close)
+
+			client := newHTTPStatusTestClient(t, server.URL)
+			_, err := client.GetApps(context.Background())
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if got := ExitCodeFromError(err); got != tt.expectedExit {
+				t.Errorf("ExitCodeFromError() = %d, want %d (error: %v)", got, tt.expectedExit, err)
+			}
+			if got := httpStatusFromError(err); got != tt.status {
+				t.Errorf("httpStatusFromError() = %d, want %d (error: %v)", got, tt.status, err)
+			}
+		})
+	}
+}
+
+// TestExitCodeFromError_AppleNotAuthorizedPayload verifies that a real-shaped
+// Apple 401 response (code NOT_AUTHORIZED, not UNAUTHORIZED) maps to ExitAuth.
+func TestExitCodeFromError_AppleNotAuthorizedPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"errors":[{"status":"401","code":"NOT_AUTHORIZED","title":"Authentication credentials are missing or invalid.","detail":"Provide a properly configured and signed bearer token, and make sure that it has not expired."}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := newHTTPStatusTestClient(t, server.URL)
+	_, err := client.GetApps(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got := ExitCodeFromError(err); got != ExitAuth {
+		t.Errorf("ExitCodeFromError() = %d, want %d (ExitAuth) (error: %v)", got, ExitAuth, err)
+	}
+	if got := httpStatusFromError(err); got != http.StatusUnauthorized {
+		t.Errorf("httpStatusFromError() = %d, want %d (error: %v)", got, http.StatusUnauthorized, err)
 	}
 }
 
