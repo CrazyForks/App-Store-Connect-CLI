@@ -21,7 +21,8 @@ still work in the API (parity checks can surface these gaps).
 ## Update process
 
 1. Replace `latest.json` with a newer spec file.
-2. Run `scripts/update-openapi-index.py` to regenerate `paths.txt`.
-3. Update the "Last synced" date below.
+2. Run `make update-openapi` to regenerate `paths.txt`.
+3. Run `make update-schema-index` to regenerate the runtime `asc schema` index.
+4. Update the "Last synced" date below.
 
-Last synced: 2026-06-13
+Last synced: 2026-07-16
