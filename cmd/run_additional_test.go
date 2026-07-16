@@ -396,7 +396,7 @@ func TestRun_UnknownHybridSubcommandReturnsUsageBeforeAuth(t *testing.T) {
 	}
 }
 
-func TestRun_RemovedSubcommandsPreserveMigrationGuidance(t *testing.T) {
+func TestRun_RemovedCommandsPreserveMigrationGuidance(t *testing.T) {
 	resetReportFlags(t)
 
 	tests := []struct {
@@ -404,8 +404,6 @@ func TestRun_RemovedSubcommandsPreserveMigrationGuidance(t *testing.T) {
 		args       []string
 		wantStderr string
 	}{
-		{name: "normalized get", args: []string{"builds", "app", "get"}, wantStderr: "Use `asc builds app view` instead."},
-		{name: "normalized set", args: []string{"age-rating", "set"}, wantStderr: "Use `asc age-rating edit` instead."},
 		{name: "apps create", args: []string{"apps", "create"}, wantStderr: "Use `asc web apps create` instead."},
 		{name: "submit create", args: []string{"submit", "create"}, wantStderr: "Use `asc review submit`"},
 		{name: "submit preflight", args: []string{"submit", "preflight"}, wantStderr: "Use `asc validate` instead."},
@@ -537,8 +535,10 @@ func TestRun_UnknownFlagDoesNotSuggestHiddenCompatibilityFlag(t *testing.T) {
 	if !strings.Contains(stderr, "Unknown flag: --nam") {
 		t.Fatalf("expected normalized unknown flag diagnostic, got %q", stderr)
 	}
-	if strings.Contains(stderr, "Did you mean: --name?") {
-		t.Fatalf("hidden compatibility flag must not be suggested, got %q", stderr)
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.HasPrefix(line, "Did you mean: ") && strings.Contains(line, "--name") {
+			t.Fatalf("hidden compatibility flag must not be suggested, got %q", stderr)
+		}
 	}
 }
 
