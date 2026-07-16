@@ -406,6 +406,7 @@ func BuildsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
 	appID := fs.String("app", "", "App Store Connect app ID, bundle ID, or exact app name (or ASC_APP_ID env)")
+	legacyAppID := shared.BindDeprecatedStringFlagAlias(fs, "app-id", "app")
 	output := shared.BindOutputFlags(fs)
 	sort := fs.String("sort", "", "Sort by uploadedDate or -uploadedDate")
 	version := fs.String("version", "", "Filter by marketing version string (CFBundleShortVersionString)")
@@ -442,6 +443,9 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			if err := legacyAppID.Apply(appID); err != nil {
+				return err
+			}
 			if *limit != 0 && (*limit < 1 || *limit > 200) {
 				return fmt.Errorf("builds: --limit must be between 1 and 200")
 			}

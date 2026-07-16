@@ -27,7 +27,7 @@ func SubscriptionsReviewScreenshotsCommand() *ffcli.Command {
 		LongHelp: `Manage subscription App Store review screenshots.
 
 Examples:
-  asc subscriptions review-screenshots get --screenshot-id "SHOT_ID"
+  asc subscriptions review-screenshots view --screenshot-id "SHOT_ID"
   asc subscriptions review-screenshots create --subscription-id "SUB_ID" --file "./screenshot.png"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -45,19 +45,19 @@ Examples:
 
 // SubscriptionsReviewScreenshotsGetCommand returns the review screenshots get subcommand.
 func SubscriptionsReviewScreenshotsGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("review-screenshots get", flag.ExitOnError)
+	fs := flag.NewFlagSet("review-screenshots view", flag.ExitOnError)
 
 	screenshotID := fs.String("screenshot-id", "", "Review screenshot ID")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "asc subscriptions review-screenshots get --screenshot-id \"SHOT_ID\"",
-		ShortHelp:  "Get a review screenshot by ID.",
-		LongHelp: `Get a review screenshot by ID.
+		Name:       "view",
+		ShortUsage: "asc subscriptions review-screenshots view --screenshot-id \"SHOT_ID\"",
+		ShortHelp:  "View a review screenshot by ID.",
+		LongHelp: `View a review screenshot by ID.
 
 Examples:
-  asc subscriptions review-screenshots get --screenshot-id "SHOT_ID"`,
+  asc subscriptions review-screenshots view --screenshot-id "SHOT_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -69,7 +69,7 @@ Examples:
 
 			client, err := shared.GetASCClient()
 			if err != nil {
-				return fmt.Errorf("subscriptions review-screenshots get: %w", err)
+				return fmt.Errorf("subscriptions review-screenshots view: %w", err)
 			}
 
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
@@ -77,7 +77,7 @@ Examples:
 
 			resp, err := client.GetSubscriptionAppStoreReviewScreenshot(requestCtx, id)
 			if err != nil {
-				return fmt.Errorf("subscriptions review-screenshots get: failed to fetch: %w", err)
+				return fmt.Errorf("subscriptions review-screenshots view: failed to fetch: %w", err)
 			}
 
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
@@ -218,6 +218,7 @@ func SubscriptionsReviewScreenshotsDeleteCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("review-screenshots delete", flag.ExitOnError)
 
 	screenshotID := fs.String("screenshot-id", "", "Review screenshot ID")
+	legacyID := shared.BindDeprecatedStringFlagAlias(fs, "id", "screenshot-id")
 	confirm := fs.Bool("confirm", false, "Confirm deletion")
 	output := shared.BindOutputFlags(fs)
 
@@ -232,6 +233,9 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			if err := legacyID.Apply(screenshotID); err != nil {
+				return err
+			}
 			id := strings.TrimSpace(*screenshotID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --screenshot-id is required")
@@ -277,7 +281,7 @@ func waitForSubscriptionReviewScreenshotDelivery(ctx context.Context, client *as
 			case "COMPLETE":
 				actualChecksum := strings.TrimSpace(resp.Data.Attributes.SourceFileChecksum)
 				if !strings.EqualFold(actualChecksum, strings.TrimSpace(expectedChecksum)) {
-					return struct{}{}, false, fmt.Errorf("screenshot %s checksum changed while waiting for delivery", screenshotID)
+					return struct{}{}, false, newSubscriptionReviewScreenshotConflictError("screenshot %s checksum changed while waiting for delivery", screenshotID)
 				}
 				verifiedResp = resp
 				return struct{}{}, true, nil

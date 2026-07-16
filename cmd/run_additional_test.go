@@ -356,6 +356,43 @@ func TestRun_AuthStatusValidationFailuresEmitExpectedNegative(t *testing.T) {
 	}
 }
 
+func TestRun_MetadataValidateFindingsEmitExpectedNegative(t *testing.T) {
+	resetReportFlags(t)
+	originalEmitTelemetry := emitTelemetry
+	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
+
+	var gotExitCode int
+	var gotContext telemetry.EventContext
+	emitTelemetry = func(_ string, _ string, _ time.Duration, exitCode int, eventContext telemetry.EventContext) {
+		gotExitCode = exitCode
+		gotContext = eventContext
+	}
+
+	stdout, stderr := captureCommandOutput(t, func() {
+		if code := Run([]string{"metadata", "validate", "--dir", t.TempDir()}, "1.0.0"); code != ExitError {
+			t.Fatalf("Run() exit code = %d, want %d", code, ExitError)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	var result struct {
+		Valid      bool `json:"valid"`
+		ErrorCount int  `json:"errorCount"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v; stdout=%q", err, stdout)
+	}
+	if result.Valid || result.ErrorCount != 1 {
+		t.Fatalf("unexpected validation result: %+v", result)
+	}
+	if gotExitCode != ExitError || gotContext.FailureStage != telemetry.FailureStageValidation ||
+		gotContext.OutcomeKind != telemetry.OutcomeExpectedNegative {
+		t.Fatalf("unexpected telemetry: exit=%d context=%+v", gotExitCode, gotContext)
+	}
+}
+
 func TestRun_MissingRequiredFlagsEmitContext(t *testing.T) {
 	originalEmitTelemetry := emitTelemetry
 	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
@@ -458,7 +495,7 @@ func TestRun_UnknownHybridSubcommandReturnsUsageBeforeAuth(t *testing.T) {
 	}
 }
 
-func TestRun_RemovedSubcommandsPreserveMigrationGuidance(t *testing.T) {
+func TestRun_RemovedCommandsPreserveMigrationGuidance(t *testing.T) {
 	resetReportFlags(t)
 
 	tests := []struct {
@@ -466,8 +503,6 @@ func TestRun_RemovedSubcommandsPreserveMigrationGuidance(t *testing.T) {
 		args       []string
 		wantStderr string
 	}{
-		{name: "normalized get", args: []string{"builds", "app", "get"}, wantStderr: "Use `asc builds app view` instead."},
-		{name: "normalized set", args: []string{"age-rating", "set"}, wantStderr: "Use `asc age-rating edit` instead."},
 		{name: "apps create", args: []string{"apps", "create"}, wantStderr: "Use `asc web apps create` instead."},
 		{name: "submit create", args: []string{"submit", "create"}, wantStderr: "Use `asc review submit`"},
 		{name: "submit preflight", args: []string{"submit", "preflight"}, wantStderr: "Use `asc validate` instead."},
@@ -518,7 +553,7 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 	}
 
 	stdout, stderr := captureCommandOutput(t, func() {
-		if code := Run([]string{"versions", "attach-build", "--version-id", "VERSION_ID", "--build-id", "BUILD_ID"}, "1.0.0"); code != ExitUsage {
+		if code := Run([]string{"versions", "attach-build", "--version-id", "VERSION_ID", "--buid-id", "BUILD_ID"}, "1.0.0"); code != ExitUsage {
 			t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
 		}
 	})
@@ -526,8 +561,14 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "Did you mean: --build") {
-		t.Fatalf("expected --build suggestion, got %q", stderr)
+	if !strings.Contains(stderr, "Unknown flag: --buid-id") {
+		t.Fatalf("expected normalized unknown flag diagnostic, got %q", stderr)
+	}
+	if strings.Contains(stderr, "flag provided but not defined") {
+		t.Fatalf("did not expect raw Go flag diagnostic, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "Did you mean: --build-id") {
+		t.Fatalf("expected --build-id suggestion, got %q", stderr)
 	}
 	if gotContext.InvocationShape != telemetry.InvocationShapeLeaf ||
 		gotContext.ErrorKind != telemetry.ErrorKindUnknownFlag ||
@@ -535,8 +576,68 @@ func TestRun_UnknownFlagSuggestsRealFlagAndEmitsContext(t *testing.T) {
 		gotContext.OutcomeKind != telemetry.OutcomeUsageError {
 		t.Fatalf("unexpected telemetry context: %+v", gotContext)
 	}
-	if gotContext.FailureParameter != "--build-id" {
-		t.Fatalf("FailureParameter = %q, want --build-id", gotContext.FailureParameter)
+	if gotContext.FailureParameter != "--buid-id" {
+		t.Fatalf("FailureParameter = %q, want --buid-id", gotContext.FailureParameter)
+	}
+}
+
+func TestRun_UnknownIdentifierFlagsSuggestCommandSpecificFlags(t *testing.T) {
+	resetReportFlags(t)
+
+	tests := []struct {
+		name           string
+		args           []string
+		wantSuggestion string
+	}{
+		{
+			name:           "generic version ID",
+			args:           []string{"versions", "app-clip-default-experience", "view", "--id", "VERSION_ID"},
+			wantSuggestion: "Did you mean: --version-id?",
+		},
+		{
+			name:           "qualified subscription ID",
+			args:           []string{"subscriptions", "groups", "view", "--subscription-id", "SUBSCRIPTION_ID"},
+			wantSuggestion: "Did you mean: --id?",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr := captureCommandOutput(t, func() {
+				if code := Run(test.args, "1.0.0"); code != ExitUsage {
+					t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantSuggestion) {
+				t.Fatalf("expected %q, got %q", test.wantSuggestion, stderr)
+			}
+		})
+	}
+}
+
+func TestRun_UnknownFlagDoesNotSuggestHiddenCompatibilityFlag(t *testing.T) {
+	resetReportFlags(t)
+
+	stdout, stderr := captureCommandOutput(t, func() {
+		if code := Run([]string{"iap", "setup", "--nam", "value"}, "1.0.0"); code != ExitUsage {
+			t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "Unknown flag: --nam") {
+		t.Fatalf("expected normalized unknown flag diagnostic, got %q", stderr)
+	}
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.HasPrefix(line, "Did you mean: ") && strings.Contains(line, "--name") {
+			t.Fatalf("hidden compatibility flag must not be suggested, got %q", stderr)
+		}
 	}
 }
 

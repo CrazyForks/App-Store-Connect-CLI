@@ -29,8 +29,8 @@ Examples:
   asc localizations supported-locales --version "VERSION_ID"
   asc localizations search-keywords list --localization-id "LOCALIZATION_ID"
   asc localizations preview-sets list --localization-id "LOCALIZATION_ID"
-  asc localizations preview-sets get --id "PREVIEW_SET_ID"
-  asc localizations screenshot-sets get --id "SCREENSHOT_SET_ID"
+  asc localizations preview-sets view --id "PREVIEW_SET_ID"
+  asc localizations screenshot-sets view --id "SCREENSHOT_SET_ID"
   asc localizations download --version "VERSION_ID" --path "./localizations"
   asc localizations upload --version "VERSION_ID" --path "./localizations"`,
 		FlagSet:   fs,
@@ -57,6 +57,7 @@ func LocalizationsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
 	versionID := fs.String("version", "", "App Store version ID")
+	legacyVersionID := shared.BindDeprecatedStringFlagAlias(fs, "version-id", "version")
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
 	appInfoID := fs.String("app-info", "", "App Info ID (optional override)")
 	locType := fs.String("type", shared.LocalizationTypeVersion, "Localization type: version (default) or app-info")
@@ -80,6 +81,9 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			if err := legacyVersionID.Apply(versionID); err != nil {
+				return err
+			}
 			if *limit != 0 && (*limit < 1 || *limit > 200) {
 				return fmt.Errorf("localizations list: --limit must be between 1 and 200")
 			}
