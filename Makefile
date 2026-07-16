@@ -8,6 +8,11 @@ COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 # Release builds set their actual build timestamp in the release workflow.
 DATE := $(shell git show -s --format=%cI HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+# Release builds strip symbol/DWARF tables (-s -w) and file-system paths
+# (-trimpath) for smaller, reproducible binaries. Dev builds (`make build`)
+# stay unstripped for debuggability.
+RELEASE_LDFLAGS := -s -w $(LDFLAGS)
+RELEASE_BUILD_FLAGS := -trimpath
 
 # Go variables
 GO := go
@@ -52,7 +57,7 @@ build-all: clean
 		os="$$1"; arch="$$2"; label="$$3"; suffix=""; \
 		if [ "$$os" = "windows" ]; then suffix=".exe"; fi; \
 		echo "Building $$label/$$arch..."; \
-		GOOS="$$os" GOARCH="$$arch" $(GO) build -ldflags "$(LDFLAGS)" -o "$(RELEASE_DIR)/$(BINARY_NAME)_$(VERSION)_$${label}_$${arch}$${suffix}" .; \
+		GOOS="$$os" GOARCH="$$arch" $(GO) build $(RELEASE_BUILD_FLAGS) -ldflags "$(RELEASE_LDFLAGS)" -o "$(RELEASE_DIR)/$(BINARY_NAME)_$(VERSION)_$${label}_$${arch}$${suffix}" .; \
 	done
 	@echo "$(GREEN)✓ Release binaries written to $(RELEASE_DIR)/$(NC)"
 
