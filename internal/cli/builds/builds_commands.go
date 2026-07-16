@@ -30,7 +30,7 @@ func BuildsUploadCommand() *ffcli.Command {
 	buildNumber := fs.String("build-number", "", "CFBundleVersion (e.g., 123, auto-extracted from IPA if not provided)")
 	platform := fs.String("platform", "", "Platform: IOS, MAC_OS, TV_OS, VISION_OS (auto-detected for --pkg)")
 	dryRun := fs.Bool("dry-run", false, "Reserve upload operations without uploading the file")
-	concurrency := fs.Int("concurrency", asc.DefaultUploadConcurrency, fmt.Sprintf("Upload concurrency (default %d)", asc.DefaultUploadConcurrency))
+	concurrency := fs.Int("concurrency", asc.DefaultUploadConcurrency, "Upload concurrency")
 	verifyChecksum := fs.Bool("checksum", false, "Verify upload checksums if provided by API")
 	testNotes := fs.String("test-notes", "", "What to Test notes (requires build processing)")
 	locale := fs.String("locale", "", "Locale for --test-notes (e.g., en-US)")
