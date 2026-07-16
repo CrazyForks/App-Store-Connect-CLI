@@ -24,6 +24,8 @@ import (
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/auth"
+	authcli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/auth"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/config"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/telemetry"
@@ -291,6 +293,66 @@ func TestRun_ValidateMissingRequiredFlagsReturnsUsage(t *testing.T) {
 	}
 	if gotContext.FailureParameter != "--version" || gotContext.OutcomeKind != telemetry.OutcomeUsageError {
 		t.Fatalf("unexpected missing-parameter telemetry context: %+v", gotContext)
+	}
+}
+
+func TestRun_AuthStatusValidationFailuresEmitExpectedNegative(t *testing.T) {
+	resetReportFlags(t)
+	tempDir := t.TempDir()
+	keyPath := filepath.Join(tempDir, "AuthKey.p8")
+	writeRunTestECDSAPEM(t, keyPath)
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := config.SaveAt(configPath, &config.Config{
+		DefaultKeyName: "default",
+		Keys: []config.Credential{{
+			Name:           "default",
+			KeyID:          "KEY123",
+			IssuerID:       "ISS456",
+			PrivateKeyPath: keyPath,
+		}},
+	}); err != nil {
+		t.Fatalf("SaveAt() error: %v", err)
+	}
+
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_PROFILE", "")
+	t.Setenv("ASC_KEY_ID", "")
+	t.Setenv("ASC_ISSUER_ID", "")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+	t.Setenv("ASC_PRIVATE_KEY_B64", "")
+	resetSelectedProfile(t)
+
+	restoreValidator := authcli.SetStatusValidateCredential(func(context.Context, auth.Credential) error {
+		return errors.New("validation failed")
+	})
+	t.Cleanup(restoreValidator)
+
+	originalEmitTelemetry := emitTelemetry
+	t.Cleanup(func() { emitTelemetry = originalEmitTelemetry })
+	var gotExitCode int
+	var gotContext telemetry.EventContext
+	emitTelemetry = func(_ string, _ string, _ time.Duration, exitCode int, eventContext telemetry.EventContext) {
+		gotExitCode = exitCode
+		gotContext = eventContext
+	}
+
+	stdout, stderr := captureCommandOutput(t, func() {
+		if code := Run([]string{"auth", "status", "--validate", "--output", "table"}, "1.0.0"); code != ExitError {
+			t.Fatalf("Run() exit code = %d, want %d", code, ExitError)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, "default (Key ID: KEY123): failed") {
+		t.Fatalf("expected validation failure output, got %q", stdout)
+	}
+	if gotExitCode != ExitError || gotContext.FailureStage != telemetry.FailureStageValidation ||
+		gotContext.OutcomeKind != telemetry.OutcomeExpectedNegative {
+		t.Fatalf("unexpected telemetry: exit=%d context=%+v", gotExitCode, gotContext)
 	}
 }
 

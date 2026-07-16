@@ -979,7 +979,7 @@ Examples:
 			}
 
 			if *validate && validationFailures > 0 {
-				return shared.NewReportedError(fmt.Errorf("auth status: validation failed for %d credential(s)", validationFailures))
+				return shared.NewValidationReportedError(fmt.Errorf("auth status: validation failed for %d credential(s)", validationFailures))
 			}
 			return nil
 		},
