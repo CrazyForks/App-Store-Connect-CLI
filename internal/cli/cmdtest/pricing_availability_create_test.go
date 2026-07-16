@@ -97,7 +97,7 @@ func TestPricingAvailabilityCreate_SendsPublicAPIRequest(t *testing.T) {
 		if err := root.Parse([]string{
 			"pricing", "availability", "create",
 			"--app", "app-1",
-			"--territory", "US,France",
+			"--territory", "US,USA,France",
 			"--available", "true",
 			"--available-in-new-territories", "true",
 			"--output", "json",

@@ -796,7 +796,12 @@ Examples:
 			availableInNewTerritoriesValue := availableInNewTerritories.Value()
 			availableValue := available.Value()
 			territoryAvailabilities := make([]asc.TerritoryAvailabilityCreate, 0, len(territories))
+			seenTerritories := make(map[string]struct{}, len(territories))
 			for _, territoryID := range territories {
+				if _, exists := seenTerritories[territoryID]; exists {
+					continue
+				}
+				seenTerritories[territoryID] = struct{}{}
 				territoryAvailabilities = append(territoryAvailabilities, asc.TerritoryAvailabilityCreate{
 					TerritoryID: territoryID,
 					Available:   availableValue,
