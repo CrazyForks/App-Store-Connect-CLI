@@ -1445,9 +1445,9 @@ func TestPricingValidationErrors(t *testing.T) {
 			wantErr: "Error: --available-in-new-territories is required",
 		},
 		{
-			name:    "pricing availability create removed",
+			name:    "pricing availability create missing app",
 			args:    []string{"pricing", "availability", "create"},
-			wantErr: "Pricing availability commands operate on existing availability records.",
+			wantErr: "Error: --app is required",
 		},
 	}
 
