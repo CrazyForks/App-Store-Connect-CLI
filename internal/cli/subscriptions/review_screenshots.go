@@ -218,6 +218,7 @@ func SubscriptionsReviewScreenshotsDeleteCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("review-screenshots delete", flag.ExitOnError)
 
 	screenshotID := fs.String("screenshot-id", "", "Review screenshot ID")
+	legacyID := shared.BindDeprecatedStringFlagAlias(fs, "id", "screenshot-id")
 	confirm := fs.Bool("confirm", false, "Confirm deletion")
 	output := shared.BindOutputFlags(fs)
 
@@ -232,6 +233,9 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			if err := legacyID.Apply(screenshotID); err != nil {
+				return err
+			}
 			id := strings.TrimSpace(*screenshotID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --screenshot-id is required")
