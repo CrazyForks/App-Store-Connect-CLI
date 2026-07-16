@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -279,18 +281,46 @@ func TestPricingAvailabilitySetCommand_MissingFlags(t *testing.T) {
 	}
 }
 
+func capturePricingStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	originalStderr := os.Stderr
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = originalStderr
+	}()
+
+	fn()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stderr reader: %v", err)
+	}
+	return string(output)
+}
+
 func TestPricingAvailabilityCreateCommand_MissingFlags(t *testing.T) {
 	t.Setenv("ASC_APP_ID", "")
 
 	tests := []struct {
-		name string
-		args []string
+		name       string
+		args       []string
+		wantStderr string
 	}{
-		{name: "missing app", args: []string{"--territory", "USA", "--available", "true", "--available-in-new-territories", "true"}},
-		{name: "missing territory", args: []string{"--app", "APP", "--available", "true", "--available-in-new-territories", "true"}},
-		{name: "invalid territory csv", args: []string{"--app", "APP", "--territory", ",,,", "--available", "true", "--available-in-new-territories", "true"}},
-		{name: "missing available", args: []string{"--app", "APP", "--territory", "USA", "--available-in-new-territories", "true"}},
-		{name: "missing available in new territories", args: []string{"--app", "APP", "--territory", "USA", "--available", "true"}},
+		{name: "missing app", args: []string{"--territory", "USA", "--available", "true", "--available-in-new-territories", "true"}, wantStderr: "--app is required"},
+		{name: "missing territory", args: []string{"--app", "APP", "--available", "true", "--available-in-new-territories", "true"}, wantStderr: "--territory must include at least one value"},
+		{name: "invalid territory csv", args: []string{"--app", "APP", "--territory", ",,,", "--available", "true", "--available-in-new-territories", "true"}, wantStderr: "--territory must include at least one value"},
+		{name: "missing available", args: []string{"--app", "APP", "--territory", "USA", "--available-in-new-territories", "true"}, wantStderr: "--available is required"},
+		{name: "missing available in new territories", args: []string{"--app", "APP", "--territory", "USA", "--available", "true"}, wantStderr: "--available-in-new-territories is required"},
 	}
 
 	for _, test := range tests {
@@ -300,8 +330,13 @@ func TestPricingAvailabilityCreateCommand_MissingFlags(t *testing.T) {
 				t.Fatalf("failed to parse flags: %v", err)
 			}
 
-			if err := cmd.Exec(context.Background(), []string{}); !errors.Is(err, flag.ErrHelp) {
-				t.Fatalf("expected flag.ErrHelp, got %v", err)
+			stderr := capturePricingStderr(t, func() {
+				if err := cmd.Exec(context.Background(), []string{}); !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected flag.ErrHelp, got %v", err)
+				}
+			})
+			if !strings.Contains(stderr, test.wantStderr) {
+				t.Fatalf("expected stderr to contain %q, got %q", test.wantStderr, stderr)
 			}
 		})
 	}
