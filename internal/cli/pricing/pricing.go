@@ -16,6 +16,8 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
+var pricingAvailabilityClientFactory = shared.GetASCClient
+
 // PricingCommand returns the pricing command group.
 func PricingCommand() *ffcli.Command {
 	return &ffcli.Command{
@@ -650,7 +652,7 @@ Examples:
 				return flag.ErrHelp
 			}
 
-			client, err := shared.GetASCClient()
+			client, err := pricingAvailabilityClientFactory()
 			if err != nil {
 				return fmt.Errorf("pricing availability view: %w", err)
 			}
@@ -666,7 +668,10 @@ Examples:
 			}
 			if err != nil {
 				if idValue == "" && shared.IsAppAvailabilityMissing(err) {
-					return fmt.Errorf("pricing availability view: app availability not found for app %q", appValue)
+					return shared.NewErrorWithCause(
+						fmt.Errorf("pricing availability view: app availability not found for app %q: %w", appValue, asc.ErrNotFound),
+						err,
+					)
 				}
 				return fmt.Errorf("pricing availability view: %w", err)
 			}
