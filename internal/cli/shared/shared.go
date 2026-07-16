@@ -955,19 +955,33 @@ func writeTempPrivateKey(data []byte, cacheKey string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return "", err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return "", err
-	}
-	if err := file.Close(); err != nil {
+	if err := finalizeTempPrivateKey(file, data); err != nil {
 		return "", err
 	}
 	registerTempPrivateKey(file.Name(), cacheKey)
 	return file.Name(), nil
+}
+
+// finalizeTempPrivateKey restricts permissions, writes the key material, and
+// closes the temp file. On any failure it removes the file so partial private
+// key material never lingers on disk.
+func finalizeTempPrivateKey(file *os.File, data []byte) error {
+	fail := func(err error) error {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		return fail(err)
+	}
+	if _, err := file.Write(data); err != nil {
+		return fail(err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(file.Name())
+		return err
+	}
+	return nil
 }
 
 func registerTempPrivateKey(path, cacheKey string) {
