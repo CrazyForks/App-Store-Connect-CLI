@@ -153,6 +153,7 @@ func IAPLocalizationsUpdateCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("localizations update", flag.ExitOnError)
 
 	localizationID := fs.String("localization-id", "", "Localization ID")
+	legacyID := shared.BindDeprecatedStringFlagAlias(fs, "id", "localization-id")
 	name := fs.String("name", "", "Localization name")
 	description := fs.String("description", "", "Description")
 	output := shared.BindOutputFlags(fs)
@@ -169,6 +170,9 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			if err := legacyID.Apply(localizationID); err != nil {
+				return err
+			}
 			locValue := strings.TrimSpace(*localizationID)
 			if locValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --localization-id is required")

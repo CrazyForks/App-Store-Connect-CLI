@@ -600,6 +600,7 @@ func SubscriptionsGetCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("view", flag.ExitOnError)
 
 	subID := fs.String("id", "", "Subscription ID")
+	legacySubscriptionID := shared.BindDeprecatedStringFlagAlias(fs, "subscription-id", "id")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -613,6 +614,9 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			if err := legacySubscriptionID.Apply(subID); err != nil {
+				return err
+			}
 			id := strings.TrimSpace(*subID)
 			if id == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
