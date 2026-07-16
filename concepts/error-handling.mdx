@@ -261,11 +261,11 @@ Common authentication failures and solutions:
 ```bash  theme={null}
 asc apps list
 # Error: missing authentication. Run 'asc auth login' or 'asc auth init'
-# Exit code: 1 (generic error, not 3)
+# Exit code: 3 (authentication failure)
 ```
 
 <Note>
-  Missing credentials return exit code `1`, not `3`. Exit code `3` is reserved for **failed authentication** (invalid credentials), not missing credentials.
+  Missing, invalid, unauthorized, and forbidden credentials all return exit code `3`, so scripts can handle authentication failures consistently.
 </Note>
 
 ### Invalid API Key
