@@ -79,6 +79,20 @@ for arg in "$@"; do
   esac
   prev="${arg}"
 done
+
+retry_target=""
+case "${url}" in
+  *_checksums.txt) retry_target="checksums" ;;
+  */releases/download/*) retry_target="binary" ;;
+esac
+if [ -n "${retry_target}" ] && [ "${STUB_FAIL_ONCE:-}" = "${retry_target}" ]; then
+  attempt_file="${STUB_STATE_DIR}/${retry_target}-attempted"
+  if [ ! -e "${attempt_file}" ]; then
+    touch "${attempt_file}"
+    exit 22
+  fi
+fi
+
 case "${url}" in
   */releases/latest)
     printf '%s' "https://github.com/rorkai/App-Store-Connect-CLI/releases/tag/${STUB_VERSION}"
@@ -100,6 +114,9 @@ esac
 	if writeErr := os.WriteFile(filepath.Join(stubDir, "curl"), []byte(curlStub), 0o755); writeErr != nil {
 		t.Fatalf("write curl stub: %v", writeErr)
 	}
+	if writeErr := os.WriteFile(filepath.Join(stubDir, "sleep"), []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); writeErr != nil {
+		t.Fatalf("write sleep stub: %v", writeErr)
+	}
 
 	cmd := exec.Command("bash", filepath.Join(repoRoot, "install.sh"))
 	cmd.Dir = workDir
@@ -111,11 +128,38 @@ esac
 		"STUB_ASSET="+asset,
 		"STUB_SHA256="+checksum,
 		"STUB_CHECKSUMS_MODE="+checksumsMode,
+		"STUB_STATE_DIR="+workDir,
 	)
 	cmd.Env = append(cmd.Env, extraEnv...)
 
 	combined, runErr := cmd.CombinedOutput()
 	return string(combined), filepath.Join(installDir, "asc"), runErr
+}
+
+func TestInstallScriptRetriesTransientBinaryDownloadFailure(t *testing.T) {
+	output, installedBinary, err := runInstallScript(t, "valid", "STUB_FAIL_ONCE=binary")
+	if err != nil {
+		t.Fatalf("expected transient binary download failure to recover: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "Download failed; retrying (2/3)") {
+		t.Fatalf("expected retry diagnostic, got:\n%s", output)
+	}
+	if _, statErr := os.Stat(installedBinary); statErr != nil {
+		t.Fatalf("expected binary installed at %s: %v\n%s", installedBinary, statErr, output)
+	}
+}
+
+func TestInstallScriptRetriesTransientChecksumDownloadFailure(t *testing.T) {
+	output, installedBinary, err := runInstallScript(t, "valid", "STUB_FAIL_ONCE=checksums")
+	if err != nil {
+		t.Fatalf("expected transient checksum download failure to recover: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "Download failed; retrying (2/3)") {
+		t.Fatalf("expected retry diagnostic, got:\n%s", output)
+	}
+	if _, statErr := os.Stat(installedBinary); statErr != nil {
+		t.Fatalf("expected binary installed at %s: %v\n%s", installedBinary, statErr, output)
+	}
 }
 
 func TestInstallScriptSyntaxIsValid(t *testing.T) {
