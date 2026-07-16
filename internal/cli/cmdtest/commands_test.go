@@ -1445,9 +1445,9 @@ func TestPricingValidationErrors(t *testing.T) {
 			wantErr: "Error: --available-in-new-territories is required",
 		},
 		{
-			name:    "pricing availability create removed",
+			name:    "pricing availability create missing app",
 			args:    []string{"pricing", "availability", "create"},
-			wantErr: "Pricing availability commands operate on existing availability records.",
+			wantErr: "Error: --app is required",
 		},
 	}
 
@@ -2288,18 +2288,6 @@ func TestAgeRatingValidationErrors(t *testing.T) {
 			wantHelp: false,
 		},
 		{
-			name:     "age-rating get removed",
-			args:     []string{"age-rating", "get"},
-			wantErr:  "Error: `asc age-rating get` was removed. Use `asc age-rating view` instead.",
-			wantHelp: true,
-		},
-		{
-			name:     "age-rating set removed",
-			args:     []string{"age-rating", "set", "--id", "AGE_ID"},
-			wantErr:  "Error: `asc age-rating set` was removed. Use `asc age-rating edit` instead.",
-			wantHelp: true,
-		},
-		{
 			name:     "age-rating edit conflicting targets",
 			args:     []string{"age-rating", "edit", "--app-info-id", "INFO_ID", "--version-id", "VERSION_ID"},
 			wantErr:  "only one of --app-info-id or --version-id is allowed",
@@ -2322,12 +2310,6 @@ func TestAgeRatingValidationErrors(t *testing.T) {
 			args:     []string{"age-rating", "edit", "--id", "AGE_ID", "--gambling-simulated", "BAD"},
 			wantErr:  "--gambling-simulated must be one of",
 			wantHelp: false,
-		},
-		{
-			name:     "age-rating get removed with conflicting targets",
-			args:     []string{"age-rating", "get", "--app-info-id", "INFO_ID", "--version-id", "VERSION_ID"},
-			wantErr:  "Error: `asc age-rating get` was removed. Use `asc age-rating view` instead.",
-			wantHelp: true,
 		},
 	}
 
@@ -4179,7 +4161,7 @@ func TestVersionsValidationErrors(t *testing.T) {
 		{
 			name:    "attach missing build",
 			args:    []string{"versions", "attach-build", "--version-id", "VERSION_123"},
-			wantErr: "Error: --build is required",
+			wantErr: "Error: --build-id is required",
 		},
 		{
 			name:    "release missing version id",

@@ -6501,6 +6501,46 @@ func TestResolveCiWorkflowByName_NoMatch(t *testing.T) {
 	}
 }
 
+func TestResolveCiWorkflowByName_FollowsPagination(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/ciProducts/prod-1/workflows?cursor=abc"
+	client := newTestClient(
+		t, func(req *http.Request) {
+			assertAuthorized(t, req)
+		},
+		jsonResponse(http.StatusOK, `{"data":[{"type":"ciWorkflows","id":"wf-1","attributes":{"name":"Deploy"}}],"links":{"next":"`+next+`"}}`),
+		jsonResponse(http.StatusOK, `{"data":[{"type":"ciWorkflows","id":"wf-2","attributes":{"name":"CI Build"}}]}`),
+	)
+
+	workflow, err := client.ResolveCiWorkflowByName(context.Background(), "prod-1", "ci build")
+	if err != nil {
+		t.Fatalf("ResolveCiWorkflowByName() error: %v", err)
+	}
+	if workflow.ID != "wf-2" {
+		t.Fatalf("expected workflow ID wf-2, got %q", workflow.ID)
+	}
+}
+
+func TestResolveCiWorkflowByName_RejectsRepeatedNextURL(t *testing.T) {
+	next := "https://api.appstoreconnect.apple.com/v1/ciProducts/prod-1/workflows?cursor=repeat"
+	requests := 0
+	client := newTestClient(
+		t, func(req *http.Request) {
+			requests++
+			assertAuthorized(t, req)
+		},
+		jsonResponse(http.StatusOK, `{"data":[{"type":"ciWorkflows","id":"wf-1","attributes":{"name":"Deploy"}}],"links":{"next":"`+next+`"}}`),
+		jsonResponse(http.StatusOK, `{"data":[{"type":"ciWorkflows","id":"wf-2","attributes":{"name":"Release"}}],"links":{"next":"`+next+`"}}`),
+	)
+
+	_, err := client.ResolveCiWorkflowByName(context.Background(), "prod-1", "ci build")
+	if !errors.Is(err, ErrRepeatedPaginationURL) {
+		t.Fatalf("expected ErrRepeatedPaginationURL, got %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected repeated next URL to stop after two requests, got %d", requests)
+	}
+}
+
 func TestResolveGitReferenceByName_CanonicalMatch(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":[{"type":"scmGitReferences","id":"ref-1","attributes":{"name":"main","canonicalName":"refs/heads/main","isDeleted":false}}]}`)
 	client := newTestClient(t, func(req *http.Request) {

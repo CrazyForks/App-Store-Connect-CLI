@@ -621,29 +621,23 @@ func (c *Client) ResolveCiProductForApp(ctx context.Context, appID string) (*CiP
 // ResolveCiWorkflowByName finds a workflow by name for a given product.
 // Returns an error if no workflow or multiple workflows match the name.
 func (c *Client) ResolveCiWorkflowByName(ctx context.Context, productID, workflowName string) (*CiWorkflowResource, error) {
-	var allWorkflows []CiWorkflowResource
-	var nextURL string
-
-	for {
-		var resp *CiWorkflowsResponse
-		var err error
-
-		if nextURL != "" {
-			resp, err = c.GetCiWorkflows(ctx, productID, WithCiWorkflowsNextURL(nextURL))
-		} else {
-			resp, err = c.GetCiWorkflows(ctx, productID, WithCiWorkflowsLimit(200))
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch CI workflows: %w", err)
-		}
-
-		allWorkflows = append(allWorkflows, resp.Data...)
-
-		if resp.Links.Next == "" {
-			break
-		}
-		nextURL = resp.Links.Next
+	firstPage, err := c.GetCiWorkflows(ctx, productID, WithCiWorkflowsLimit(200))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch CI workflows: %w", err)
 	}
+
+	result, err := PaginateAll(ctx, firstPage, func(ctx context.Context, nextURL string) (PaginatedResponse, error) {
+		return c.GetCiWorkflows(ctx, productID, WithCiWorkflowsNextURL(nextURL))
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch CI workflows: %w", err)
+	}
+
+	workflows, ok := result.(*CiWorkflowsResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected paginated response type %T", result)
+	}
+	allWorkflows := workflows.Data
 
 	if len(allWorkflows) == 0 {
 		return nil, fmt.Errorf("no Xcode Cloud workflows found for product %q", productID)

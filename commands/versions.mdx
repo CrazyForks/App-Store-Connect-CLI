@@ -245,14 +245,14 @@ Attach a build to an app store version.
   App Store version ID
 </ParamField>
 
-<ParamField path="--build" type="string" required>
+<ParamField path="--build-id" type="string" required>
   Build ID to attach
 </ParamField>
 
 **Examples:**
 
 ```bash  theme={null}
-asc versions attach-build --version-id "VERSION_ID" --build "BUILD_ID"
+asc versions attach-build --version-id "VERSION_ID" --build-id "BUILD_ID"
 ```
 
 **Response:**
@@ -302,7 +302,7 @@ asc versions release --version-id "VERSION_ID" --confirm
 
 ```bash  theme={null}
 asc versions create --app "123456789" --version "2.0.0" --platform IOS
-asc versions attach-build --version-id "VERSION_ID" --build "BUILD_ID"
+asc versions attach-build --version-id "VERSION_ID" --build-id "BUILD_ID"
 ```
 
 ### List versions in a specific state

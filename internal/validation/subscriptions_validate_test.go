@@ -317,6 +317,89 @@ func TestSubscriptionMetadataDiagnostics_UsesInfoChecksWhenLocalizationVerificat
 	}
 }
 
+func TestSubscriptionMetadataDiagnostics_UsesCanonicalAvailabilityCommand(t *testing.T) {
+	tests := []struct {
+		name         string
+		subscription Subscription
+		checkID      string
+		want         string
+	}{
+		{
+			name:         "missing availability record",
+			subscription: Subscription{ID: "sub-1", State: "MISSING_METADATA"},
+			checkID:      "subscriptions.diagnostics.availability_missing",
+			want:         "Configure subscription availability via `asc subscriptions pricing availability edit`",
+		},
+		{
+			name: "availability has no territories",
+			subscription: Subscription{
+				ID:             "sub-1",
+				State:          "MISSING_METADATA",
+				AvailabilityID: "availability-1",
+			},
+			checkID: "subscriptions.diagnostics.availability_territories_missing",
+			want:    "Enable at least one subscription availability territory via `asc subscriptions pricing availability edit`",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checks := subscriptionMetadataDiagnostics([]Subscription{tt.subscription})
+			for _, check := range checks {
+				if check.ID != tt.checkID {
+					continue
+				}
+				if check.Remediation != tt.want {
+					t.Fatalf("remediation = %q, want %q", check.Remediation, tt.want)
+				}
+				return
+			}
+			t.Fatalf("missing check %q in %+v", tt.checkID, checks)
+		})
+	}
+}
+
+func TestValidateSubscriptionsDiagnosticsUseCanonicalAvailabilityCommand(t *testing.T) {
+	tests := []struct {
+		name         string
+		subscription Subscription
+		want         string
+	}{
+		{
+			name:         "missing availability record",
+			subscription: Subscription{ID: "sub-1", State: "MISSING_METADATA"},
+			want:         "Configure subscription availability with `asc subscriptions pricing availability edit --subscription-id \"sub-1\" --territories \"USA\"`.",
+		},
+		{
+			name: "availability has no territories",
+			subscription: Subscription{
+				ID:             "sub-1",
+				State:          "MISSING_METADATA",
+				AvailabilityID: "availability-1",
+			},
+			want: "Add at least one available territory with `asc subscriptions pricing availability edit --subscription-id \"sub-1\" --territories \"USA\"`.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			report := ValidateSubscriptions(SubscriptionsInput{
+				Subscriptions: []Subscription{tt.subscription},
+			}, false)
+			if len(report.Diagnostics) != 1 {
+				t.Fatalf("diagnostics = %+v, want one entry", report.Diagnostics)
+			}
+			row, ok := findSubscriptionDiagnosticRow(report.Diagnostics[0].Rows, "subscription_availability")
+			if !ok {
+				t.Fatalf("missing subscription_availability row in %+v", report.Diagnostics[0].Rows)
+			}
+			if row.Remediation != tt.want {
+				t.Fatalf("remediation = %q, want %q", row.Remediation, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidateIncludesPricingCoverageCheck(t *testing.T) {
 	report := Validate(Input{
 		AppID:                "app-1",

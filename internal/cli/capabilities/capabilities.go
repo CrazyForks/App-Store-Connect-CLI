@@ -274,23 +274,23 @@ func capabilityRows() []Capability {
 		{
 			Area:         "app-management",
 			Capability:   "Initial app availability bootstrap",
-			Status:       statusClientOnly,
+			Status:       statusCLISupported,
+			Commands:     []string{"asc pricing availability create"},
 			APIResources: []string{"POST /v2/appAvailabilities", "territoryAvailabilities"},
-			Notes:        []string{"The internal client can create appAvailabilityV2 records; stable CLI commands currently update existing availability only."},
-			NextAction:   "Candidate command: asc pricing availability create.",
+			Notes:        []string{"The CLI creates the initial appAvailabilityV2 record with inline territory availability resources."},
 		},
 		{
 			Area:       "app-management",
 			Capability: "App pricing and availability updates",
 			Status:     statusPartial,
-			Commands:   []string{"asc pricing availability view", "asc pricing availability edit", "asc pricing schedule create"},
+			Commands:   []string{"asc pricing availability view", "asc pricing availability create", "asc pricing availability edit", "asc pricing schedule create"},
 			APIResources: []string{
 				"appAvailabilities",
 				"territoryAvailabilities",
 				"appPriceSchedules",
 				"appPricePoints",
 			},
-			Notes: []string{"Existing availability records can be edited; initial bootstrap is tracked separately as client-only."},
+			Notes: []string{"Availability records can be created and edited through the public App Store Connect API."},
 		},
 		{
 			Area:       "metadata",

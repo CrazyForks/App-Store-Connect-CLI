@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	subscriptionscli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/subscriptions"
 )
@@ -714,6 +715,9 @@ func TestSubscriptionsSetupRejectsMismatchedExistingSubscription(t *testing.T) {
 	if runErr == nil || !strings.Contains(runErr.Error(), "different reference name") {
 		t.Fatalf("expected different reference name error, got %v", runErr)
 	}
+	if got := rootcmd.ExitCodeFromError(runErr); got != rootcmd.ExitConflict {
+		t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitConflict, runErr)
+	}
 
 	var result subscriptionsSetupOutput
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
@@ -1274,6 +1278,9 @@ func TestSubscriptionsSetupRejectsInitialPricePatchWhenExistingPricesMismatch(t 
 		if err == nil || !strings.Contains(err.Error(), "already has prices but none match") {
 			t.Fatalf("expected existing prices mismatch error, got %v", err)
 		}
+		if got := rootcmd.ExitCodeFromError(err); got != rootcmd.ExitConflict {
+			t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitConflict, err)
+		}
 	})
 
 	if requestCount != 2 {
@@ -1333,6 +1340,9 @@ func TestSubscriptionsSetupRejectsStaleExistingAvailabilityBeforeLocalization(t 
 		err := root.Run(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "already has availability") {
 			t.Fatalf("expected stale availability error, got %v", err)
+		}
+		if got := rootcmd.ExitCodeFromError(err); got != rootcmd.ExitConflict {
+			t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitConflict, err)
 		}
 	})
 
