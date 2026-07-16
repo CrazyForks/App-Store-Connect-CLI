@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -57,6 +58,10 @@ func TestBuildsUploadCommand_HelpShowsConcurrencyDefaultOnce(t *testing.T) {
 	}
 	if count := strings.Count(concurrencyLine, "default"); count != 1 {
 		t.Fatalf("expected one concurrency default annotation, got %q", concurrencyLine)
+	}
+	wantDefault := fmt.Sprintf("(default: %d)", asc.DefaultUploadConcurrency)
+	if !strings.Contains(concurrencyLine, wantDefault) {
+		t.Fatalf("expected concurrency default annotation %q, got %q", wantDefault, concurrencyLine)
 	}
 }
 

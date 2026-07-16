@@ -71,7 +71,7 @@ func configureScopedPromotedPurchasesListCommand(cmd *ffcli.Command, cfg ScopedP
 		return
 	}
 
-	cmd.ShortUsage = fmt.Sprintf("%s list --app APP_ID [flags]", cfg.PathPrefix)
+	cmd.ShortUsage = fmt.Sprintf("%s list (--app APP_ID | --next URL) [flags]", cfg.PathPrefix)
 	cmd.ShortHelp = fmt.Sprintf("List promoted purchases for %s in an app.", cfg.ProductPlural)
 	cmd.LongHelp = fmt.Sprintf(`List promoted purchases for %s in an app.
 
@@ -311,7 +311,7 @@ func configureScopedPromotedPurchasesLinkCommand(cmd *ffcli.Command, cfg ScopedP
 		return
 	}
 
-	cmd.ShortUsage = fmt.Sprintf("%s link --app APP_ID --promoted-purchase-id PROMO_ID[,PROMO_ID...]", cfg.PathPrefix)
+	cmd.ShortUsage = fmt.Sprintf("%s link --app APP_ID (--promoted-purchase-id PROMO_ID[,PROMO_ID...] | --clear --confirm)", cfg.PathPrefix)
 	cmd.ShortHelp = fmt.Sprintf("Link or clear promoted purchases for %s while preserving %s.", cfg.ProductPlural, otherProductPlural(cfg.ProductType))
 	cmd.LongHelp = fmt.Sprintf(`Link or clear promoted purchases for %s on an app.
 
