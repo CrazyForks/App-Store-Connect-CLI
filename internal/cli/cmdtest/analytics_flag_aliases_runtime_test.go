@@ -145,6 +145,8 @@ func TestAnalyticsRankedStringAliasesRejectConflictingValues(t *testing.T) {
 		canonical string
 	}{
 		{name: "versions view", args: []string{"versions", "view", "--version-id", "one", "--id", "two"}, alias: "id", canonical: "version-id"},
+		{name: "versions view empty canonical", args: []string{"versions", "view", "--version-id", "", "--id", "two"}, alias: "id", canonical: "version-id"},
+		{name: "versions view empty alias", args: []string{"versions", "view", "--version-id", "one", "--id", ""}, alias: "id", canonical: "version-id"},
 		{name: "versions attach-build", args: []string{"versions", "attach-build", "--version-id", "version-1", "--build-id", "one", "--build", "two"}, alias: "build", canonical: "build-id"},
 		{name: "localizations list", args: []string{"localizations", "list", "--version", "one", "--version-id", "two"}, alias: "version-id", canonical: "version"},
 		{name: "subscriptions view", args: []string{"subscriptions", "view", "--id", "one", "--subscription-id", "two"}, alias: "subscription-id", canonical: "id"},

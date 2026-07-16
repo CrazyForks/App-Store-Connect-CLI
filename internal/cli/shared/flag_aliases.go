@@ -12,6 +12,7 @@ import (
 type DeprecatedStringFlagAlias struct {
 	value         string
 	set           bool
+	flagSet       *flag.FlagSet
 	aliasName     string
 	canonicalName string
 }
@@ -35,6 +36,7 @@ func (f *DeprecatedStringFlagAlias) Set(value string) error {
 // advertising it as part of the command's canonical interface.
 func BindDeprecatedStringFlagAlias(fs *flag.FlagSet, aliasName, canonicalName string) *DeprecatedStringFlagAlias {
 	alias := &DeprecatedStringFlagAlias{
+		flagSet:       fs,
 		aliasName:     strings.TrimSpace(aliasName),
 		canonicalName: strings.TrimSpace(canonicalName),
 	}
@@ -56,12 +58,27 @@ func (f *DeprecatedStringFlagAlias) Apply(canonical *string) error {
 		canonicalValue = strings.TrimSpace(*canonical)
 	}
 	fmt.Fprintf(os.Stderr, "Warning: `--%s` is deprecated. Use `--%s`.\n", f.aliasName, f.canonicalName)
-	if canonicalValue != "" && aliasValue != "" && canonicalValue != aliasValue {
+	canonicalSet := f.canonicalWasSet()
+	if canonical != nil && (canonicalSet || canonicalValue != "") && canonicalValue != aliasValue {
 		return UsageErrorf("--%s conflicts with --%s; use only --%s", f.aliasName, f.canonicalName, f.canonicalName)
 	}
-	if canonical != nil && canonicalValue == "" {
+	if canonical != nil && !canonicalSet && canonicalValue == "" {
 		*canonical = aliasValue
 	}
 
 	return nil
+}
+
+func (f *DeprecatedStringFlagAlias) canonicalWasSet() bool {
+	if f == nil || f.flagSet == nil {
+		return false
+	}
+
+	set := false
+	f.flagSet.Visit(func(flag *flag.Flag) {
+		if flag.Name == f.canonicalName {
+			set = true
+		}
+	})
+	return set
 }

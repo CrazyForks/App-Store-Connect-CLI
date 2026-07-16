@@ -9,18 +9,22 @@ import (
 
 func TestDeprecatedStringFlagAliasApply(t *testing.T) {
 	tests := []struct {
-		name         string
-		canonicalArg string
-		aliasArg     string
-		want         string
-		wantErr      string
-		wantWarning  bool
-		parseAlias   bool
+		name           string
+		canonicalArg   string
+		aliasArg       string
+		want           string
+		wantErr        string
+		wantWarning    bool
+		parseCanonical bool
+		parseAlias     bool
 	}{
-		{name: "canonical only", canonicalArg: "canonical", want: "canonical"},
+		{name: "canonical only", canonicalArg: "canonical", want: "canonical", parseCanonical: true},
 		{name: "alias only", aliasArg: "alias", want: "alias", wantWarning: true, parseAlias: true},
-		{name: "matching values", canonicalArg: "same", aliasArg: "same", want: "same", wantWarning: true, parseAlias: true},
-		{name: "conflicting values", canonicalArg: "canonical", aliasArg: "alias", want: "canonical", wantErr: "--legacy conflicts with --canonical", wantWarning: true, parseAlias: true},
+		{name: "matching values", canonicalArg: "same", aliasArg: "same", want: "same", wantWarning: true, parseCanonical: true, parseAlias: true},
+		{name: "conflicting values", canonicalArg: "canonical", aliasArg: "alias", want: "canonical", wantErr: "--legacy conflicts with --canonical", wantWarning: true, parseCanonical: true, parseAlias: true},
+		{name: "empty canonical conflicts with alias", aliasArg: "alias", wantErr: "--legacy conflicts with --canonical", wantWarning: true, parseCanonical: true, parseAlias: true},
+		{name: "empty alias conflicts with canonical", canonicalArg: "canonical", want: "canonical", wantErr: "--legacy conflicts with --canonical", wantWarning: true, parseCanonical: true, parseAlias: true},
+		{name: "matching empty values", wantWarning: true, parseCanonical: true, parseAlias: true},
 	}
 
 	for _, test := range tests {
@@ -30,7 +34,7 @@ func TestDeprecatedStringFlagAliasApply(t *testing.T) {
 			alias := BindDeprecatedStringFlagAlias(fs, "legacy", "canonical")
 
 			args := []string{}
-			if test.canonicalArg != "" {
+			if test.parseCanonical {
 				args = append(args, "--canonical", test.canonicalArg)
 			}
 			if test.parseAlias {
