@@ -737,7 +737,7 @@ func PricingAvailabilityCreateCommand() *ffcli.Command {
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID)")
 	var availableInNewTerritories shared.OptionalBool
 	fs.Var(&availableInNewTerritories, "available-in-new-territories", "Automatically make app available in new territories: true or false (required)")
-	territory := fs.String("territory", "", "Territory IDs (comma-separated, e.g., USA,GBR,DEU)")
+	territory := fs.String("territory", "", "Territory inputs (comma-separated; accepts alpha-2, alpha-3, or exact English country names, e.g., US,USA,France)")
 	var available shared.OptionalBool
 	fs.Var(&available, "available", "Set availability for specified territories: true or false (required)")
 	output := shared.BindOutputFlags(fs)
@@ -772,7 +772,10 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
-			territories := shared.SplitCSVUpper(*territory)
+			territories, err := shared.NormalizeASCTerritoryCSV(*territory)
+			if err != nil {
+				return shared.UsageError(err.Error())
+			}
 			if len(territories) == 0 {
 				fmt.Fprintln(os.Stderr, "Error: --territory must include at least one value")
 				return shared.MissingRequiredUsageError()

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	pricingcli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/pricing"
 )
@@ -40,6 +41,9 @@ func TestPricingAvailabilityCreate_SendsPublicAPIRequest(t *testing.T) {
 		}
 		if got := payload.Data.Relationships.TerritoryAvailabilities.Data[0].ID; got != "${local-usa}" {
 			t.Fatalf("expected first local ID ${local-usa}, got %q", got)
+		}
+		if got := payload.Data.Relationships.TerritoryAvailabilities.Data[1].ID; got != "${local-fra}" {
+			t.Fatalf("expected second local ID ${local-fra}, got %q", got)
 		}
 		if len(payload.Included) != 2 {
 			t.Fatalf("expected two inline territory availabilities, got %d", len(payload.Included))
@@ -93,7 +97,7 @@ func TestPricingAvailabilityCreate_SendsPublicAPIRequest(t *testing.T) {
 		if err := root.Parse([]string{
 			"pricing", "availability", "create",
 			"--app", "app-1",
-			"--territory", "usa,gbr",
+			"--territory", "US,France",
 			"--available", "true",
 			"--available-in-new-territories", "true",
 			"--output", "json",
@@ -117,6 +121,38 @@ func TestPricingAvailabilityCreate_SendsPublicAPIRequest(t *testing.T) {
 	}
 	if output.Data.ID != "app-1" || !output.Data.Attributes.AvailableInNewTerritories {
 		t.Fatalf("unexpected output: %#v", output.Data)
+	}
+}
+
+func TestPricingAvailabilityCreate_RejectsUnknownTerritory(t *testing.T) {
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"pricing", "availability", "create",
+			"--app", "app-1",
+			"--territory", "Atlantis",
+			"--available", "true",
+			"--available-in-new-territories", "true",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if runErr == nil {
+		t.Fatal("expected unknown territory error")
+	}
+	if got := cmd.ExitCodeFromError(runErr); got != cmd.ExitUsage {
+		t.Fatalf("expected exit code %d, got %d", cmd.ExitUsage, got)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, `territory "Atlantis" could not be mapped`) {
+		t.Fatalf("unexpected stderr: %q", stderr)
 	}
 }
 
