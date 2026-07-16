@@ -15,6 +15,8 @@ func TestExitCodeFromError_WebAPIStatus(t *testing.T) {
 		status   int
 		expected int
 	}{
+		{name: "unauthorized", status: http.StatusUnauthorized, expected: ExitAuth},
+		{name: "forbidden", status: http.StatusForbidden, expected: ExitAuth},
 		{name: "not found", status: http.StatusNotFound, expected: ExitNotFound},
 		{name: "conflict", status: http.StatusConflict, expected: ExitConflict},
 		{name: "server error", status: http.StatusInternalServerError, expected: ExitHTTPInternalServer},
