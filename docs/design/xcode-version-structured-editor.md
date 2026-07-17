@@ -95,7 +95,9 @@ when SDK-specific resolution is required. Conditional-only values are editable,
 but cannot be used as a view or bump baseline without an unconditional value.
 Projects that define only one of the two structured version settings retain the
 macOS/agvtool fallback, as do legacy projects with versions stored only in
-Info.plist.
+Info.plist. An unscoped remote build bump remains available on that fallback by
+passing the resolved number to `agvtool new-version -all`; scoped legacy bumps
+are rejected before any project-wide write.
 
 Every output file is prepared and validated before mutation. Writes use a
 same-directory temporary file, preserve the original mode, `fsync`, and rename.

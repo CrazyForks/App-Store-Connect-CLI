@@ -134,6 +134,33 @@ func TestIncrementBuildString(t *testing.T) {
 	}
 }
 
+func TestParseAgvtoolVersionOutput_PreservesVariableAndLiteralValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   string
+		modern bool
+	}{
+		{name: "modern", output: "App=$(MARKETING_VERSION)\n", want: "$(MARKETING_VERSION)", modern: true},
+		{name: "literal", output: "App=1.2.3\n", want: "1.2.3", modern: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseAgvtoolVersionOutput(tt.output, "")
+			if err != nil {
+				t.Fatalf("parseAgvtoolVersionOutput() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseAgvtoolVersionOutput() = %q, want %q", got, tt.want)
+			}
+			if modern := isVariableReference(got); modern != tt.modern {
+				t.Fatalf("isVariableReference(%q) = %t, want %t", got, modern, tt.modern)
+			}
+		})
+	}
+}
+
 func TestParseAgvtoolVersionOutput_TargetFilter(t *testing.T) {
 	multiTargetOutput := "App=1.2.3\nExtension=2.0.0\n"
 
@@ -236,7 +263,7 @@ func TestSetVersionTargetedWritesRequireStructuredProject(t *testing.T) {
 	}()
 
 	_, err := SetVersion(context.Background(), SetVersionOptions{
-		ProjectDir: ".",
+		ProjectDir: t.TempDir(),
 		Target:     "App",
 		Version:    "1.2.3",
 	})
@@ -306,12 +333,54 @@ func TestBumpVersionLegacyTargetScopeIsRejectedBeforeProjectWideWrite(t *testing
 		Target:     "Extension",
 		BumpType:   BumpPatch,
 	})
-	if err == nil || !strings.Contains(err.Error(), "scoped or remote-safe bumps require structured") {
+	if err == nil || !strings.Contains(err.Error(), "scoped bumps require structured") {
 		t.Fatalf("expected structured-project requirement, got %v", err)
 	}
 
 	if logData, readErr := os.ReadFile(logPath); readErr == nil && strings.Contains(string(logData), "new-marketing-version") {
 		t.Fatalf("legacy target scope performed a project-wide write: %q", logData)
+	}
+}
+
+func TestBumpVersionLegacyRemoteBuildUsesRequestedNumber(t *testing.T) {
+	tempDir := t.TempDir()
+	projectDir := filepath.Join(tempDir, "Project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project dir: %v", err)
+	}
+	logPath := filepath.Join(tempDir, "commands.log")
+
+	restore := overrideTestEnvironment(t)
+	runtimeGOOS = "darwin"
+	lookPathFn = func(file string) (string, error) {
+		return "/usr/bin/" + file, nil
+	}
+	commandContextFn = helperCommandContext(t, logPath)
+	t.Setenv("ASC_XCODE_HELPER_SINGLE_TARGET", "1")
+	t.Cleanup(restore)
+
+	result, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir:  projectDir,
+		BumpType:    BumpBuild,
+		BuildNumber: "108",
+	})
+	if err != nil {
+		t.Fatalf("BumpVersion() error = %v", err)
+	}
+	if result.OldBuild != "41" || result.NewBuild != "108" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read helper log: %v", err)
+	}
+	logText := string(logData)
+	if !strings.Contains(logText, "agvtool|new-version|-all|108") {
+		t.Fatalf("expected requested legacy build update, got %q", logText)
+	}
+	if strings.Contains(logText, "agvtool|next-version|-all") {
+		t.Fatalf("remote build bump incremented locally: %q", logText)
 	}
 }
 

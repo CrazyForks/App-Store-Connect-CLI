@@ -225,6 +225,9 @@ func setVersionLegacy(ctx context.Context, opts SetVersionOptions) (*SetVersionR
 
 // BumpVersion increments the version or build number.
 func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResult, error) {
+	if err := validateVersionMutationValue("--build-number", opts.BuildNumber); err != nil {
+		return nil, err
+	}
 	project, err := openStructuredVersionProject(opts.ProjectDir)
 	if err == nil {
 		result := &BumpVersionResult{
@@ -277,8 +280,11 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 	if !errors.Is(err, errStructuredVersionUnavailable) {
 		return nil, err
 	}
-	if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" || strings.TrimSpace(opts.BuildNumber) != "" {
-		return nil, fmt.Errorf("scoped or remote-safe bumps require structured Xcode build settings: %w", err)
+	if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" {
+		return nil, fmt.Errorf("scoped bumps require structured Xcode build settings: %w", err)
+	}
+	if strings.TrimSpace(opts.BuildNumber) != "" && opts.BumpType != BumpBuild {
+		return nil, fmt.Errorf("--build-number is only supported for build bumps")
 	}
 	return bumpVersionLegacy(ctx, opts)
 }
@@ -304,6 +310,13 @@ func bumpVersionLegacy(ctx context.Context, opts BumpVersionOptions) (*BumpVersi
 
 	if opts.BumpType == BumpBuild {
 		result.OldBuild = current.BuildNumber
+		if requestedBuild := strings.TrimSpace(opts.BuildNumber); requestedBuild != "" {
+			if _, err := runAgvtool(ctx, opts.ProjectDir, "new-version", "-all", requestedBuild); err != nil {
+				return nil, fmt.Errorf("failed to set build number: %w", err)
+			}
+			result.NewBuild = requestedBuild
+			return result, nil
+		}
 		if _, err := runAgvtool(ctx, opts.ProjectDir, "next-version", "-all"); err != nil {
 			return nil, fmt.Errorf("failed to increment build number: %w", err)
 		}

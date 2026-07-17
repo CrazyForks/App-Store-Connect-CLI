@@ -578,6 +578,28 @@ func TestStructuredVersion_ScopedSharedXCConfigCreatesOverrideWithoutLeaking(t *
 	}
 }
 
+func TestStructuredVersion_ScopedInheritedNoOpDoesNotCreateOverride(t *testing.T) {
+	project := writeStructuredVersionProject(t, true)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	result, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir:    project,
+		Target:        "App",
+		Configuration: "Release",
+		Version:       "1.2.3",
+	})
+	if err != nil {
+		t.Fatalf("SetVersion() error = %v", err)
+	}
+	if len(result.ChangedFiles) != 0 || len(result.Changes) != 0 {
+		t.Fatalf("inherited no-op reported mutations: %#v", result)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("inherited no-op created a target-level override")
+	}
+}
+
 func TestStructuredVersion_NoOpReportsNoFilesOrChanges(t *testing.T) {
 	project := writeStructuredVersionProject(t, false)
 	result, err := SetVersion(context.Background(), SetVersionOptions{

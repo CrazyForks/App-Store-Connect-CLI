@@ -665,6 +665,9 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 				oldValue, _, resolveErr := project.resolveSetting(configuration, requested.name)
 				if resolveErr == nil {
 					found[requested.name] = true
+					if oldValue == requested.value {
+						continue
+					}
 					configuration.buildSettings[requested.name] = requested.value
 					pbxprojChanged = true
 					changes = append(changes, versionChangeForConfiguration(configuration, requested.name, oldValue, requested.value, project.pbxprojPath, "pbxproj"))
