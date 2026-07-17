@@ -321,7 +321,7 @@ func (project *structuredVersionProject) resolveSetting(configuration *versionCo
 		return "", "", err
 	}
 	if ok {
-		return project.expandSettingReferences(configuration, value, map[string]bool{setting: true})
+		return project.expandDirectSetting(configuration, setting, value, map[string]bool{setting: true})
 	}
 	if configuration.baseReferenceID != "" {
 		path, err := project.fileReferencePath(configuration.baseReferenceID)
@@ -357,6 +357,46 @@ func directBuildSetting(settings serialized.Object, setting string) (string, boo
 		)
 	}
 	return "", false, nil
+}
+
+func (project *structuredVersionProject) expandDirectSetting(
+	configuration *versionConfiguration,
+	setting string,
+	value string,
+	stack map[string]bool,
+) (string, string, error) {
+	if strings.Contains(value, "$(inherited)") || strings.Contains(value, "${inherited}") {
+		inherited, _, err := project.resolveLowerSetting(configuration, setting)
+		if err != nil {
+			return "", "", fmt.Errorf("resolve inherited %s: %w", setting, err)
+		}
+		value = strings.ReplaceAll(value, "$(inherited)", inherited)
+		value = strings.ReplaceAll(value, "${inherited}", inherited)
+	}
+	return project.expandSettingReferences(configuration, value, stack)
+}
+
+func (project *structuredVersionProject) resolveLowerSetting(configuration *versionConfiguration, setting string) (string, string, error) {
+	if configuration.baseReferenceID != "" {
+		path, err := project.fileReferencePath(configuration.baseReferenceID)
+		if err != nil {
+			return "", "", err
+		}
+		resolved, err := resolveXCConfigSetting(path, setting)
+		if err != nil {
+			return "", "", err
+		}
+		if resolved.found {
+			value, _, err := project.expandSettingReferences(configuration, resolved.value, map[string]bool{setting: true})
+			return value, resolved.path, err
+		}
+	}
+	if !configuration.projectLevel {
+		if fallback := project.projectConfiguration(configuration.name); fallback != nil {
+			return project.resolveSetting(fallback, setting)
+		}
+	}
+	return "", "", fmt.Errorf("%s: %w", setting, errVersionSettingNotFound)
 }
 
 func (project *structuredVersionProject) expandSettingReferences(configuration *versionConfiguration, value string, stack map[string]bool) (string, string, error) {
@@ -396,7 +436,7 @@ func (project *structuredVersionProject) resolveSettingReference(configuration *
 		return "", "", err
 	}
 	if ok {
-		return project.expandSettingReferences(configuration, value, stack)
+		return project.expandDirectSetting(configuration, setting, value, stack)
 	}
 	if configuration.baseReferenceID != "" {
 		path, err := project.fileReferencePath(configuration.baseReferenceID)
@@ -777,6 +817,12 @@ func validateVersionMutationValue(flagName, value string) error {
 	}
 	if strings.ContainsRune(value, '\x00') {
 		return fmt.Errorf("%s must not contain NUL", flagName)
+	}
+	if strings.Contains(value, "//") || strings.Contains(value, "/*") || strings.Contains(value, "*/") {
+		return fmt.Errorf("%s must not contain comment syntax", flagName)
+	}
+	if strings.Contains(value, "$(") || strings.Contains(value, "${") {
+		return fmt.Errorf("%s must be a static value without build-setting references", flagName)
 	}
 	return nil
 }

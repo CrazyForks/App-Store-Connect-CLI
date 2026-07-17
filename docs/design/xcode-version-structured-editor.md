@@ -81,15 +81,18 @@ not invented in unrelated layers.
 An internal lossless xcconfig scanner handles assignments, line and block
 comments, CRLF/LF endings, conditional keys, `#include`, and `#include?`.
 Includes resolve relative to the containing file, are cycle-safe, and may be
-shared by configurations. Only value byte ranges change. All matching variants
-of `MARKETING_VERSION` or `CURRENT_PROJECT_VERSION` in the selected include
-graph are updated.
+shared by configurations. Unrelated bytes remain unchanged. Existing quote
+delimiters are preserved; `+=` and `?=` are normalized to `=` when editing a
+version setting so the requested effective value is guaranteed. All matching
+variants of `MARKETING_VERSION` or `CURRENT_PROJECT_VERSION` in the selected
+include graph are updated.
 
 Reads resolve direct pbxproj settings, registered xcconfig values, and simple
-build-setting references locally. Unresolved build-system variables produce an
-explicit error rather than an invented value; callers can use Xcode when
-SDK-specific resolution is required. Conditional-only values are editable, but
-cannot be used as a view or bump baseline without an unconditional value.
+build-setting references locally, including `$(inherited)` across the next
+lower target xcconfig or project layer. Unresolved build-system variables
+produce an explicit error rather than an invented value; callers can use Xcode
+when SDK-specific resolution is required. Conditional-only values are editable,
+but cannot be used as a view or bump baseline without an unconditional value.
 Projects that define only one of the two structured version settings retain the
 macOS/agvtool fallback, as do legacy projects with versions stored only in
 Info.plist.
@@ -98,6 +101,9 @@ Every output file is prepared and validated before mutation. Writes use a
 same-directory temporary file, preserve the original mode, `fsync`, and rename.
 If a later file fails, already-written files are restored from their captured
 original bytes. The staged pbxproj is reparsed before commit.
+Mutation values containing comment syntax or build-setting expressions are
+rejected before staging so reported and subsequently resolved values cannot
+diverge.
 
 ## Compatibility and lifecycle
 
@@ -118,7 +124,8 @@ Characterization and regression coverage will include:
 - project-level and target-level settings;
 - settings inherited from one or multiple recursive xcconfig includes;
 - optional/missing includes, include cycles, shared includes, comments, quoted
-  values, conditional keys, CRLF, no final newline, and unchanged byte regions;
+  values, assignment operators, conditional keys, inherited values, CRLF, no
+  final newline, and unchanged byte regions;
 - malformed pbxproj/xcconfig, missing settings, ambiguous targets/configurations,
   multiple application targets, conditional-only baselines, partially migrated
   projects, unsafe values, symlinks, permissions, write failures, rollback, and

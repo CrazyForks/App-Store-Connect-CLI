@@ -46,7 +46,7 @@ func TestXCConfigEditorPreservesCommentsQuotesAndMissingFinalNewline(t *testing.
 	got := string(updated)
 	if !strings.Contains(got, "URL = \"https://example.com/path\" // URL comment") ||
 		!strings.Contains(got, "/* MARKETING_VERSION = 9.9.9 */") ||
-		!strings.HasSuffix(got, "MARKETING_VERSION[sdk=iphoneos*] ?= 2.0.0 // keep me") ||
+		!strings.HasSuffix(got, "MARKETING_VERSION[sdk=iphoneos*] = 2.0.0 // keep me") ||
 		strings.HasSuffix(got, "\n") {
 		t.Fatalf("lossless edit failed: %q", got)
 	}
@@ -65,6 +65,45 @@ func TestXCConfigInheritedValueAndExactPrecedence(t *testing.T) {
 	build, err := resolveXCConfigSetting(path, currentProjectSetting)
 	if err != nil || build.value != "42" || !build.exact {
 		t.Fatalf("exact resolution = %#v, err %v", build, err)
+	}
+}
+
+func TestXCConfigOperatorsQuotesAndIncludeOrder(t *testing.T) {
+	root := t.TempDir()
+	rootPath := filepath.Join(root, "Root.xcconfig")
+	childPath := filepath.Join(root, "Child.xcconfig")
+	if err := os.WriteFile(rootPath, []byte("OTHER = base\n#include \"Child.xcconfig\"\nMARKETING_VERSION ?= \"1.2.3\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(childPath, []byte("OTHER += child\nOTHER ?= ignored\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	other, err := resolveXCConfigSetting(rootPath, "OTHER")
+	if err != nil || other.value != "base child" {
+		t.Fatalf("operator/include resolution = %#v, err %v", other, err)
+	}
+	version, err := resolveXCConfigSetting(rootPath, marketingVersionSetting)
+	if err != nil || version.value != "1.2.3" {
+		t.Fatalf("quoted/default resolution = %#v, err %v", version, err)
+	}
+}
+
+func TestXCConfigEditorNormalizesOperatorsAndPreservesQuotes(t *testing.T) {
+	for _, operator := range []string{"+=", "?="} {
+		t.Run(operator, func(t *testing.T) {
+			input := []byte("MARKETING_VERSION " + operator + " \"1.2.3\" // keep\n")
+			updated, oldValues, changed, err := editXCConfig(input, marketingVersionSetting, "2.0.0")
+			if err != nil {
+				t.Fatalf("editXCConfig() error = %v", err)
+			}
+			if !changed || len(oldValues) != 1 || oldValues[0] != "1.2.3" {
+				t.Fatalf("unexpected edit metadata changed=%v old=%#v", changed, oldValues)
+			}
+			if got := string(updated); got != "MARKETING_VERSION = \"2.0.0\" // keep\n" {
+				t.Fatalf("operator/quote edit = %q", got)
+			}
+		})
 	}
 }
 

@@ -158,6 +158,41 @@ func TestStructuredVersion_InvalidValueDoesNotMutateAnyFile(t *testing.T) {
 	}
 }
 
+func TestStructuredVersion_SyntaxChangingValuesDoNotMutateAnyFile(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "line comment", value: "1.2.3 // ignored"},
+		{name: "block comment", value: "1.2.3 /* ignored */"},
+		{name: "parenthesized setting", value: "$(UNDEFINED)"},
+		{name: "braced setting", value: "${UNDEFINED}"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			project := writeStructuredVersionProject(t, true)
+			pbxprojPath := filepath.Join(project, "project.pbxproj")
+			sharedPath := filepath.Join(filepath.Dir(project), "Configs", "Shared.xcconfig")
+			beforeProject := mustReadVersionTestFile(t, pbxprojPath)
+			beforeShared := mustReadVersionTestFile(t, sharedPath)
+
+			_, err := SetVersion(context.Background(), SetVersionOptions{
+				ProjectDir: project,
+				Version:    test.value,
+			})
+			if err == nil {
+				t.Fatalf("expected %q to be rejected", test.value)
+			}
+			if got := mustReadVersionTestFile(t, pbxprojPath); got != beforeProject {
+				t.Fatal("project.pbxproj changed after value validation failure")
+			}
+			if got := mustReadVersionTestFile(t, sharedPath); got != beforeShared {
+				t.Fatal("xcconfig changed after value validation failure")
+			}
+		})
+	}
+}
+
 func TestStructuredVersion_MissingScopeErrorsWithoutMutation(t *testing.T) {
 	project := writeStructuredVersionProject(t, false)
 	pbxprojPath := filepath.Join(project, "project.pbxproj")
@@ -267,6 +302,26 @@ func TestStructuredVersion_DefaultViewSelectsApplicationAndDefaultConfiguration(
 	}
 	if view.Target != "App" || view.Configuration != "Release" || view.Version != "1.2.3" || view.BuildNumber != "42" {
 		t.Fatalf("unexpected default view: %#v", view)
+	}
+}
+
+func TestStructuredVersion_DirectInheritedValueUsesNextLowerLayer(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"999999999999999999999992 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Release; };",
+		"999999999999999999999992 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = { MARKETING_VERSION = 7.8.9; }; name = Release; };", 1)
+	contents = strings.Replace(contents,
+		"999999999999999999999994 /* App Release */ = {isa = XCBuildConfiguration;  buildSettings = { MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Release; };",
+		"999999999999999999999994 /* App Release */ = {isa = XCBuildConfiguration;  buildSettings = { MARKETING_VERSION = \"$(inherited)\"; CURRENT_PROJECT_VERSION = 42; }; name = Release; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+
+	view := mustGetStructuredVersion(t, project, "App", "Release")
+	if view.Version != "7.8.9" {
+		t.Fatalf("inherited version = %q, want project-level 7.8.9", view.Version)
 	}
 }
 
@@ -471,6 +526,27 @@ func TestStructuredVersion_BumpRefusesToFlattenDifferentValues(t *testing.T) {
 	}
 	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
 		t.Fatal("project changed after inconsistent bump validation")
+	}
+}
+
+func TestStructuredVersion_RemoteBuildBumpRefusesToFlattenDifferentValues(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	if _, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Debug", BuildNumber: "9",
+	}); err != nil {
+		t.Fatalf("prepare divergent build: %v", err)
+	}
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project, BumpType: BumpBuild, BuildNumber: "108",
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected remote mixed-value bump to fail, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("project changed after remote consistency validation")
 	}
 }
 

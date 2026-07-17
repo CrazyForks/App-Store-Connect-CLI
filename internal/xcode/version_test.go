@@ -285,7 +285,7 @@ func TestSetVersionLegacyMultiTargetUsesProjectWideWrite(t *testing.T) {
 	}
 }
 
-func TestBumpVersionLegacyMultiTargetUsesTargetForRead(t *testing.T) {
+func TestBumpVersionLegacyTargetScopeIsRejectedBeforeProjectWideWrite(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "Project")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
@@ -301,31 +301,17 @@ func TestBumpVersionLegacyMultiTargetUsesTargetForRead(t *testing.T) {
 	commandContextFn = helperCommandContext(t, logPath)
 	t.Cleanup(restore)
 
-	result, err := BumpVersion(context.Background(), BumpVersionOptions{
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{
 		ProjectDir: projectDir,
 		Target:     "Extension",
 		BumpType:   BumpPatch,
 	})
-	if err != nil {
-		t.Fatalf("expected targeted bump to succeed, got %v", err)
-	}
-	if result.OldVersion != "2.0.0" || result.NewVersion != "2.0.1" {
-		t.Fatalf("expected targeted bump to use Extension version, got %#v", result)
+	if err == nil || !strings.Contains(err.Error(), "scoped or remote-safe bumps require structured") {
+		t.Fatalf("expected structured-project requirement, got %v", err)
 	}
 
-	logData, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("read helper log: %v", err)
-	}
-	logText := string(logData)
-	if !strings.Contains(logText, "agvtool|what-marketing-version|-terse1") {
-		t.Fatalf("expected marketing version probe, got %q", logText)
-	}
-	if !strings.Contains(logText, "agvtool|what-version|-terse") {
-		t.Fatalf("expected build-number probe for current version read, got %q", logText)
-	}
-	if !strings.Contains(logText, "agvtool|new-marketing-version|2.0.1") {
-		t.Fatalf("expected targeted bump to write the Extension-derived version, got %q", logText)
+	if logData, readErr := os.ReadFile(logPath); readErr == nil && strings.Contains(string(logData), "new-marketing-version") {
+		t.Fatalf("legacy target scope performed a project-wide write: %q", logData)
 	}
 }
 

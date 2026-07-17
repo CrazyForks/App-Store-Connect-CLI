@@ -239,7 +239,7 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 			Configuration: opts.Configuration,
 		}
 		if opts.BumpType == BumpBuild {
-			currentBuild, err := project.bumpBaseline(opts, currentProjectSetting, strings.TrimSpace(opts.BuildNumber) == "")
+			currentBuild, err := project.bumpBaseline(opts, currentProjectSetting, true)
 			if err != nil {
 				return nil, err
 			}
@@ -277,7 +277,7 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 	if !errors.Is(err, errStructuredVersionUnavailable) {
 		return nil, err
 	}
-	if strings.TrimSpace(opts.Configuration) != "" || strings.TrimSpace(opts.BuildNumber) != "" {
+	if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" || strings.TrimSpace(opts.BuildNumber) != "" {
 		return nil, fmt.Errorf("scoped or remote-safe bumps require structured Xcode build settings: %w", err)
 	}
 	return bumpVersionLegacy(ctx, opts)

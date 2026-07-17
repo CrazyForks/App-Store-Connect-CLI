@@ -10,17 +10,21 @@ import (
 )
 
 var (
-	xcconfigAssignmentPattern = regexp.MustCompile(`^(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]\r\n]+\])*)(\s*(?:\+=|\?=|=)\s*)(.*?)([ \t]*)$`)
+	xcconfigAssignmentPattern = regexp.MustCompile(`^(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]\r\n]+\])*)(\s*)(\+=|\?=|=)(\s*)(.*?)([ \t]*)$`)
 	xcconfigIncludePattern    = regexp.MustCompile(`^\s*#include(\?)?\s+"([^"]+)"\s*$`)
 )
 
 type xcconfigAssignment struct {
-	lineIndex  int
-	key        string
-	baseKey    string
-	value      string
-	valueStart int
-	valueEnd   int
+	lineIndex     int
+	key           string
+	baseKey       string
+	value         string
+	operator      string
+	quote         string
+	operatorStart int
+	operatorEnd   int
+	valueStart    int
+	valueEnd      int
 }
 
 type xcconfigInclude struct {
@@ -67,14 +71,20 @@ func parseXCConfig(data []byte) (xcconfigDocument, error) {
 			continue
 		}
 		key := masked[indices[4]:indices[5]]
-		valueStart, valueEnd := indices[8], indices[9]
+		operatorStart, operatorEnd := indices[8], indices[9]
+		valueStart, valueEnd := indices[12], indices[13]
+		value, quote := parseXCConfigValue(body[valueStart:valueEnd])
 		document.assignments = append(document.assignments, xcconfigAssignment{
-			lineIndex:  index,
-			key:        key,
-			baseKey:    xcconfigBaseKey(key),
-			value:      strings.TrimSpace(body[valueStart:valueEnd]),
-			valueStart: valueStart,
-			valueEnd:   valueEnd,
+			lineIndex:     index,
+			key:           key,
+			baseKey:       xcconfigBaseKey(key),
+			value:         value,
+			operator:      body[operatorStart:operatorEnd],
+			quote:         quote,
+			operatorStart: operatorStart,
+			operatorEnd:   operatorEnd,
+			valueStart:    valueStart,
+			valueEnd:      valueEnd,
 		})
 	}
 
@@ -82,6 +92,14 @@ func parseXCConfig(data []byte) (xcconfigDocument, error) {
 		return xcconfigDocument{}, fmt.Errorf("unterminated block comment in xcconfig")
 	}
 	return document, nil
+}
+
+func parseXCConfigValue(raw string) (string, string) {
+	value := strings.TrimSpace(raw)
+	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+		return value[1 : len(value)-1], string(value[0])
+	}
+	return value, ""
 }
 
 func splitLinesPreservingEndings(value string) []string {
@@ -216,11 +234,13 @@ func collectXCConfigFiles(root string) ([]string, error) {
 }
 
 func resolveXCConfigSetting(root, setting string) (xcconfigResolvedValue, error) {
-	resolved, err := resolveXCConfigSettingRecursive(filepath.Clean(root), setting, make(map[string]bool))
+	resolved, conditional, err := resolveXCConfigSettingRecursive(
+		filepath.Clean(root), setting, make(map[string]bool), xcconfigResolvedValue{},
+	)
 	if err != nil {
 		return xcconfigResolvedValue{}, err
 	}
-	if resolved.found && !resolved.exact {
+	if !resolved.exact && conditional {
 		return xcconfigResolvedValue{}, fmt.Errorf(
 			"%s is defined only by conditional xcconfig assignments; SDK-aware resolution requires Xcode",
 			setting,
@@ -229,17 +249,22 @@ func resolveXCConfigSetting(root, setting string) (xcconfigResolvedValue, error)
 	return resolved, nil
 }
 
-func resolveXCConfigSettingRecursive(path, setting string, stack map[string]bool) (xcconfigResolvedValue, error) {
+func resolveXCConfigSettingRecursive(
+	path string,
+	setting string,
+	stack map[string]bool,
+	resolved xcconfigResolvedValue,
+) (xcconfigResolvedValue, bool, error) {
 	if stack[path] {
-		return xcconfigResolvedValue{}, nil
+		return resolved, false, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return xcconfigResolvedValue{}, err
+		return xcconfigResolvedValue{}, false, err
 	}
 	document, err := parseXCConfig(data)
 	if err != nil {
-		return xcconfigResolvedValue{}, fmt.Errorf("parse %s: %w", path, err)
+		return xcconfigResolvedValue{}, false, fmt.Errorf("parse %s: %w", path, err)
 	}
 	nextStack := clonePathSet(stack)
 	nextStack[path] = true
@@ -262,26 +287,25 @@ func resolveXCConfigSettingRecursive(path, setting string, stack map[string]bool
 		return events[left].line < events[right].line
 	})
 
-	var resolved xcconfigResolvedValue
+	conditionalFound := false
 	for _, item := range events {
 		if item.include != nil {
 			includePath, err := resolveXCConfigInclude(path, *item.include)
 			if err != nil {
-				return xcconfigResolvedValue{}, err
+				return xcconfigResolvedValue{}, false, err
 			}
 			if _, err := os.Stat(includePath); err != nil {
 				if item.include.optional && os.IsNotExist(err) {
 					continue
 				}
-				return xcconfigResolvedValue{}, fmt.Errorf("read xcconfig include %s: %w", includePath, err)
+				return xcconfigResolvedValue{}, false, fmt.Errorf("read xcconfig include %s: %w", includePath, err)
 			}
-			included, err := resolveXCConfigSettingRecursive(includePath, setting, nextStack)
+			included, includedConditional, err := resolveXCConfigSettingRecursive(includePath, setting, nextStack, resolved)
 			if err != nil {
-				return xcconfigResolvedValue{}, err
+				return xcconfigResolvedValue{}, false, err
 			}
-			if included.found && (!resolved.exact || included.exact) {
-				resolved = included
-			}
+			resolved = included
+			conditionalFound = conditionalFound || includedConditional
 			continue
 		}
 
@@ -289,17 +313,27 @@ func resolveXCConfigSettingRecursive(path, setting string, stack map[string]bool
 		if assignment.baseKey != setting {
 			continue
 		}
-		exact := assignment.key == setting
-		if !exact && resolved.exact {
+		if assignment.key != setting {
+			conditionalFound = true
 			continue
 		}
 		value := assignment.value
-		if strings.Contains(value, "$(inherited)") {
-			value = strings.ReplaceAll(value, "$(inherited)", resolved.value)
+		hasInherited := strings.Contains(value, "$(inherited)") || strings.Contains(value, "${inherited}")
+		value = strings.ReplaceAll(value, "$(inherited)", resolved.value)
+		value = strings.ReplaceAll(value, "${inherited}", resolved.value)
+		switch assignment.operator {
+		case "?=":
+			if resolved.found {
+				continue
+			}
+		case "+=":
+			if !hasInherited {
+				value = strings.TrimSpace(strings.TrimSpace(resolved.value) + " " + strings.TrimSpace(value))
+			}
 		}
-		resolved = xcconfigResolvedValue{value: strings.TrimSpace(value), path: path, found: true, exact: exact}
+		resolved = xcconfigResolvedValue{value: strings.TrimSpace(value), path: path, found: true, exact: true}
 	}
-	return resolved, nil
+	return resolved, conditionalFound, nil
 }
 
 func editXCConfig(data []byte, setting, value string) ([]byte, []string, bool, error) {
@@ -323,10 +357,12 @@ func editXCConfig(data []byte, setting, value string) ([]byte, []string, bool, e
 	changed := false
 	for index, assignment := range assignmentsByLine {
 		line := document.lines[index]
-		if assignment.value == value {
+		if assignment.value == value && assignment.operator == "=" {
 			continue
 		}
-		document.lines[index] = line[:assignment.valueStart] + value + line[assignment.valueEnd:]
+		quotedValue := assignment.quote + value + assignment.quote
+		document.lines[index] = line[:assignment.operatorStart] + "=" +
+			line[assignment.operatorEnd:assignment.valueStart] + quotedValue + line[assignment.valueEnd:]
 		changed = true
 	}
 	return []byte(strings.Join(document.lines, "")), oldValues, changed, nil
