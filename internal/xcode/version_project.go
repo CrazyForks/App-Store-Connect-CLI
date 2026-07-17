@@ -438,10 +438,22 @@ func (project *structuredVersionProject) resolveSetting(configuration *versionCo
 }
 
 func directBuildSetting(settings serialized.Object, setting string) (string, bool, error) {
+	keys := matchingBuildSettingKeys(settings, setting)
 	if value, ok := settings[setting].(string); ok {
+		for _, key := range keys {
+			if key == setting {
+				continue
+			}
+			conditionalValue, conditionalOK := settings[key].(string)
+			if !conditionalOK || strings.TrimSpace(conditionalValue) != strings.TrimSpace(value) {
+				return "", false, fmt.Errorf(
+					"%s has differing conditional build setting %s=%q (unconditional value %q); narrow the scope or use Xcode-aware resolution",
+					setting, key, conditionalValue, value,
+				)
+			}
+		}
 		return value, true, nil
 	}
-	keys := matchingBuildSettingKeys(settings, setting)
 	if len(keys) > 0 {
 		return "", false, fmt.Errorf(
 			"%s is defined only by conditional build settings (%s); SDK-aware resolution requires Xcode",
@@ -734,7 +746,15 @@ func (project *structuredVersionProject) validateSetVersion(opts SetVersionOptio
 			continue
 		}
 		for _, configuration := range effectiveMutationConfigurations(selected) {
-			mutable, err := project.configurationCanMutateSetting(configuration, requested.name, configFiles)
+			mutable, err := project.configurationCanMutateSetting(
+				configuration,
+				requested.name,
+				configFiles,
+				fileConsumers,
+				selectedIDs,
+				uncertainXCConfigConsumers,
+				strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "",
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -904,6 +924,10 @@ func (project *structuredVersionProject) configurationCanMutateSetting(
 	configuration *versionConfiguration,
 	setting string,
 	configFiles map[string][]string,
+	fileConsumers map[string]map[string]bool,
+	selectedIDs map[string]bool,
+	uncertainXCConfigConsumers bool,
+	scoped bool,
 ) (bool, error) {
 	if len(matchingBuildSettingKeys(configuration.buildSettings, setting)) > 0 {
 		return true, nil
@@ -913,21 +937,35 @@ func (project *structuredVersionProject) configurationCanMutateSetting(
 		return false, err
 	}
 	if len(defining) > 0 {
+		if !scoped || (!uncertainXCConfigConsumers && consumersSelected(defining, fileConsumers, selectedIDs)) {
+			return true, nil
+		}
+		_, _, resolveErr := project.resolveSetting(configuration, setting)
+		if resolveErr != nil {
+			return false, resolveErr
+		}
 		return true, nil
 	}
 	if !configuration.projectLevel {
 		if ancestor := project.projectConfiguration(configuration.name); ancestor != nil {
-			if len(matchingBuildSettingKeys(ancestor.buildSettings, setting)) > 0 {
+			if len(matchingBuildSettingKeys(ancestor.buildSettings, setting)) > 0 && (!scoped || selectedIDs[ancestor.id]) {
 				return true, nil
 			}
 			defining, err := xcconfigFilesDefining(configFiles[ancestor.id], setting)
 			if err != nil {
 				return false, err
 			}
-			if len(defining) > 0 {
+			if len(defining) > 0 && (!scoped || (selectedIDs[ancestor.id] && !uncertainXCConfigConsumers && consumersSelected(defining, fileConsumers, selectedIDs))) {
 				return true, nil
 			}
 		}
+	}
+	if scoped {
+		_, _, resolveErr := project.resolveSetting(configuration, setting)
+		if resolveErr != nil {
+			return false, resolveErr
+		}
+		return true, nil
 	}
 	return false, nil
 }

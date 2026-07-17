@@ -54,7 +54,7 @@ func TestXCConfigEditorPreservesCommentsQuotesAndMissingFinalNewline(t *testing.
 
 func TestXCConfigInheritedValueAndExactPrecedence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "Values.xcconfig")
-	contents := "OTHER = base\nOTHER = $(inherited)-child\nCURRENT_PROJECT_VERSION[sdk=iphoneos*] = 41\nCURRENT_PROJECT_VERSION = 42\nCURRENT_PROJECT_VERSION[sdk=macosx*] = 43\n"
+	contents := "OTHER = base\nOTHER = $(inherited)-child\nCURRENT_PROJECT_VERSION[sdk=iphoneos*] = 42\nCURRENT_PROJECT_VERSION = 42\nCURRENT_PROJECT_VERSION[sdk=macosx*] = 42\n"
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +65,19 @@ func TestXCConfigInheritedValueAndExactPrecedence(t *testing.T) {
 	build, err := resolveXCConfigSetting(path, currentProjectSetting)
 	if err != nil || build.value != "42" || !build.exact {
 		t.Fatalf("exact resolution = %#v, err %v", build, err)
+	}
+}
+
+func TestXCConfigResolverRejectsDivergentConditionalOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Values.xcconfig")
+	contents := "CURRENT_PROJECT_VERSION = 42\nCURRENT_PROJECT_VERSION[sdk=iphoneos*] = 100\n"
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := resolveXCConfigSetting(path, currentProjectSetting)
+	if err == nil || !strings.Contains(err.Error(), "differing conditional") {
+		t.Fatalf("expected divergent conditional error, got %v", err)
 	}
 }
 

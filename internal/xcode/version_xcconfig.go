@@ -45,6 +45,14 @@ type xcconfigResolvedValue struct {
 	found            bool
 	exact            bool
 	missingInherited bool
+	conditionals     []xcconfigConditionalValue
+}
+
+type xcconfigConditionalValue struct {
+	key      string
+	value    string
+	operator string
+	path     string
 }
 
 func parseXCConfig(data []byte) (xcconfigDocument, error) {
@@ -251,6 +259,21 @@ func resolveXCConfigSettingWithBase(root, setting string, base xcconfigResolvedV
 			setting,
 		)
 	}
+	if resolved.exact {
+		for _, conditionalValue := range resolved.conditionals {
+			if conditionalValue.operator != "=" || strings.TrimSpace(conditionalValue.value) != strings.TrimSpace(resolved.value) {
+				return xcconfigResolvedValue{}, fmt.Errorf(
+					"%s has differing conditional xcconfig assignment %s %s %q in %s (unconditional value %q); narrow the scope or use Xcode-aware resolution",
+					setting,
+					conditionalValue.key,
+					conditionalValue.operator,
+					conditionalValue.value,
+					conditionalValue.path,
+					resolved.value,
+				)
+			}
+		}
+	}
 	if resolved.missingInherited {
 		return xcconfigResolvedValue{}, fmt.Errorf("%s uses $(inherited) without a lower-layer value", setting)
 	}
@@ -323,6 +346,12 @@ func resolveXCConfigSettingRecursive(
 		}
 		if assignment.key != setting {
 			conditionalFound = true
+			resolved.conditionals = append(resolved.conditionals, xcconfigConditionalValue{
+				key:      assignment.key,
+				value:    assignment.value,
+				operator: assignment.operator,
+				path:     path,
+			})
 			continue
 		}
 		value := assignment.value
@@ -346,6 +375,7 @@ func resolveXCConfigSettingRecursive(
 			found:            true,
 			exact:            true,
 			missingInherited: hasInherited && !hadLowerValue,
+			conditionals:     resolved.conditionals,
 		}
 	}
 	return resolved, conditionalFound, nil

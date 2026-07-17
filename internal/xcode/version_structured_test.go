@@ -466,6 +466,56 @@ func TestStructuredVersion_RejectsConditionalOnlyPBXProjValue(t *testing.T) {
 	}
 }
 
+func TestStructuredVersion_BumpRejectsDivergentConditionalPBXProjValue(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Release;",
+		"MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; \"CURRENT_PROJECT_VERSION[sdk=iphoneos*]\" = 100; }; name = Release;", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release", BumpType: BumpBuild,
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing conditional") {
+		t.Fatalf("expected divergent conditional build-setting error, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("pbxproj changed after rejected conditional bump")
+	}
+}
+
+func TestStructuredVersion_BumpPreservesEquivalentConditionalPBXProjValues(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Release;",
+		"MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; \"CURRENT_PROJECT_VERSION[sdk=iphoneos*]\" = 42; }; name = Release;", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+
+	result, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release", BumpType: BumpBuild,
+	})
+	if err != nil {
+		t.Fatalf("BumpVersion() error = %v", err)
+	}
+	if result.OldBuild != "42" || result.NewBuild != "43" || len(result.Changes) != 2 {
+		t.Fatalf("unexpected equivalent-conditional bump: %#v", result)
+	}
+	updated := mustReadVersionTestFile(t, pbxprojPath)
+	if !strings.Contains(updated, `"CURRENT_PROJECT_VERSION" = 43;`) ||
+		!strings.Contains(updated, `"CURRENT_PROJECT_VERSION[sdk=iphoneos*]" = 43;`) {
+		t.Fatalf("equivalent conditional values were not bumped together: %s", updated)
+	}
+}
+
 func TestStructuredVersion_PartialBuildSettingsUseLegacyRouting(t *testing.T) {
 	project := writeStructuredVersionProject(t, false)
 	pbxprojPath := filepath.Join(project, "project.pbxproj")
@@ -880,10 +930,21 @@ func TestStructuredVersion_ScopedConditionalSharedSettingDoesNotReportFalseSucce
 	}
 	pbxprojPath := filepath.Join(project, "project.pbxproj")
 	beforeProject := mustReadVersionTestFile(t, pbxprojPath)
-
-	_, err := SetVersion(context.Background(), SetVersionOptions{
+	setOptions := SetVersionOptions{
 		ProjectDir: project, Target: "App", Configuration: "Release", Version: "2.0.0",
-	})
+	}
+
+	if err := ValidateSetVersion(setOptions); err == nil || !strings.Contains(err.Error(), "conditional") {
+		t.Fatalf("expected conditional-only scoped preflight error, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, sharedPath); got != conditional {
+		t.Fatal("conditional shared xcconfig changed during preflight")
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != beforeProject {
+		t.Fatal("pbxproj changed during rejected conditional preflight")
+	}
+
+	_, err := SetVersion(context.Background(), setOptions)
 	if err == nil || !strings.Contains(err.Error(), "conditional") {
 		t.Fatalf("expected conditional-only scoped edit error, got %v", err)
 	}
@@ -892,6 +953,49 @@ func TestStructuredVersion_ScopedConditionalSharedSettingDoesNotReportFalseSucce
 	}
 	if got := mustReadVersionTestFile(t, pbxprojPath); got != beforeProject {
 		t.Fatal("pbxproj changed after rejected conditional edit")
+	}
+}
+
+func TestStructuredVersion_BumpRejectsDivergentConditionalXCConfigValue(t *testing.T) {
+	project := writeStructuredVersionProject(t, true)
+	sharedPath := filepath.Join(filepath.Dir(project), "Configs", "Shared.xcconfig")
+	contents := mustReadVersionTestFile(t, sharedPath)
+	contents = strings.Replace(contents,
+		"CURRENT_PROJECT_VERSION[sdk=iphoneos*] = 42",
+		"CURRENT_PROJECT_VERSION[sdk=iphoneos*] = 100", 1)
+	if err := os.WriteFile(sharedPath, []byte(contents), 0o640); err != nil {
+		t.Fatalf("WriteFile(Shared.xcconfig) error = %v", err)
+	}
+	before := mustReadVersionTestFile(t, sharedPath)
+
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release", BumpType: BumpBuild,
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing conditional") {
+		t.Fatalf("expected divergent conditional xcconfig error, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, sharedPath); got != before {
+		t.Fatal("xcconfig changed after rejected conditional bump")
+	}
+}
+
+func TestStructuredVersion_BumpPreservesEquivalentConditionalXCConfigValues(t *testing.T) {
+	project := writeStructuredVersionProject(t, true)
+	sharedPath := filepath.Join(filepath.Dir(project), "Configs", "Shared.xcconfig")
+
+	result, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project, BumpType: BumpBuild,
+	})
+	if err != nil {
+		t.Fatalf("BumpVersion() error = %v", err)
+	}
+	if result.OldBuild != "42" || result.NewBuild != "43" {
+		t.Fatalf("unexpected equivalent-conditional xcconfig bump: %#v", result)
+	}
+	updated := mustReadVersionTestFile(t, sharedPath)
+	if !strings.Contains(updated, "CURRENT_PROJECT_VERSION = 43\r\n") ||
+		!strings.Contains(updated, "CURRENT_PROJECT_VERSION[sdk=iphoneos*] = 43\r\n") {
+		t.Fatalf("equivalent conditional xcconfig values were not bumped together: %q", updated)
 	}
 }
 
