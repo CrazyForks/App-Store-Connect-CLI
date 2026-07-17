@@ -22,6 +22,7 @@ var (
 	runExport                     = localxcode.Export
 	runValidate                   = localxcode.Validate
 	runGenerateExportOptions      = localxcode.GenerateExportOptions
+	runXcodeExportPreflight       = localxcode.PreflightExport
 	isDirectUploadExportOptionsFn = localxcode.IsDirectUploadMode
 	inferArchivePlatformFn        = localxcode.InferArchivePlatform
 	getASCClientFn                = shared.GetASCClient
@@ -227,6 +228,9 @@ Examples:
 			trimmedArchivePath := strings.TrimSpace(*archivePath)
 			exportOptionsPath := strings.TrimSpace(*exportOptions)
 			if exportOptionsPath == "" {
+				if err := runXcodeExportPreflight(ctx); err != nil {
+					return fmt.Errorf("xcode export: %w", err)
+				}
 				destination := "export"
 				if *wait {
 					destination = "upload"

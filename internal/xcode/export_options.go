@@ -103,6 +103,9 @@ func GenerateExportOptions(ctx context.Context, opts ExportOptionsGenerateOption
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
+	if _, _, err := prepareExportOptionsDestination(opts.OutputPath, opts.Overwrite); err != nil {
+		return nil, err
+	}
 
 	archiveTeamID, err := readArchiveExportOptionsTeamID(opts.ArchivePath)
 	if err != nil {

@@ -104,6 +104,12 @@ type bundleInfo struct {
 	Platform    string
 }
 
+// PreflightExport verifies that local Xcode export tooling is available before
+// callers perform any preparatory filesystem mutation.
+func PreflightExport(ctx context.Context) error {
+	return ensureXcodeAvailable(ctx)
+}
+
 func Archive(ctx context.Context, opts ArchiveOptions) (*ArchiveResult, error) {
 	opts = normalizeArchiveOptions(opts)
 	if err := validateArchiveOptions(opts); err != nil {

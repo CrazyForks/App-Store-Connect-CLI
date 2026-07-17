@@ -202,6 +202,31 @@ func TestXcodeExportGeneratesOptionsWhenPathIsOmitted(t *testing.T) {
 	}
 }
 
+func TestXcodeExportPreflightsBeforeImplicitOptionGeneration(t *testing.T) {
+	restore := overrideXcodeCommandTestHooks(t)
+	defer restore()
+
+	wantErr := errors.New("preflight sentinel")
+	runXcodeExportPreflight = func(context.Context) error { return wantErr }
+	runGenerateExportOptions = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+		t.Fatal("export options must not be generated before Xcode preflight succeeds")
+		return nil, nil
+	}
+
+	cmd := XcodeExportCommand()
+	cmd.FlagSet.SetOutput(io.Discard)
+	if err := cmd.FlagSet.Parse([]string{
+		"--archive-path", filepath.Join(t.TempDir(), "Demo.xcarchive"),
+		"--ipa-path", filepath.Join(t.TempDir(), "Demo.ipa"),
+	}); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	if err := cmd.Exec(context.Background(), nil); !errors.Is(err, wantErr) {
+		t.Fatalf("expected preflight error, got %v", err)
+	}
+}
+
 func TestXcodeExportWaitGeneratesUploadOptionsWhenPathIsOmitted(t *testing.T) {
 	restore := overrideXcodeCommandTestHooks(t)
 	defer restore()

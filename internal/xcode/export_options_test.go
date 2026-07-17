@@ -439,6 +439,34 @@ func TestGenerateExportOptions_ExistingOutputRequiresOverwriteAndReplacesAtomica
 	}
 }
 
+func TestGenerateExportOptions_ManualSigningRejectsExistingOutputBeforeLookup(t *testing.T) {
+	archivePath := writeExportOptionsTestArchive(t, "TEAM123")
+	outputPath := filepath.Join(t.TempDir(), "ExportOptions.plist")
+	const original = "do not inspect signing assets"
+	if err := os.WriteFile(outputPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	originalGenerator := manualExportOptionsGeneratorFn
+	manualExportOptionsGeneratorFn = func(context.Context, string, string) (manualExportOptions, error) {
+		t.Fatal("manual signing lookup must not run for an unusable output destination")
+		return manualExportOptions{}, nil
+	}
+	t.Cleanup(func() { manualExportOptionsGeneratorFn = originalGenerator })
+
+	_, err := GenerateExportOptions(context.Background(), ExportOptionsGenerateOptions{
+		ArchivePath:  archivePath,
+		OutputPath:   outputPath,
+		SigningStyle: "manual",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--overwrite") {
+		t.Fatalf("expected overwrite refusal, got %v", err)
+	}
+	if got := string(mustReadExportOptionsTestFile(t, outputPath)); got != original {
+		t.Fatalf("output changed after refusal: %q", got)
+	}
+}
+
 func TestGenerateExportOptions_FailedAtomicOverwritePreservesExistingOutput(t *testing.T) {
 	archivePath := writeExportOptionsTestArchive(t, "TEAM123")
 	outputPath := filepath.Join(t.TempDir(), "ExportOptions.plist")
