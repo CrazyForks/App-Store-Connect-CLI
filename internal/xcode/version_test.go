@@ -102,15 +102,6 @@ func TestIsVariableReference(t *testing.T) {
 	}
 }
 
-func TestIsModernAgvtoolOutput(t *testing.T) {
-	if !isModernAgvtoolOutput("App=$(MARKETING_VERSION)\nExtension=$(MARKETING_VERSION)\n") {
-		t.Fatal("expected MARKETING_VERSION references to be detected as modern")
-	}
-	if isModernAgvtoolOutput("App=1.2.3\nExtension=2.0.0\n") {
-		t.Fatal("expected literal target values to be treated as legacy")
-	}
-}
-
 func TestIncrementBuildString(t *testing.T) {
 	tests := []struct {
 		current string
@@ -232,7 +223,7 @@ func TestFindXcodeprojMultipleProjectsSuggestsProjectFlag(t *testing.T) {
 	}
 }
 
-func TestSetVersionRejectsTargetedWrites(t *testing.T) {
+func TestSetVersionTargetedWritesRequireStructuredProject(t *testing.T) {
 	prevOS := runtimeGOOS
 	prevLookPath := lookPathFn
 	runtimeGOOS = "darwin"
@@ -249,8 +240,8 @@ func TestSetVersionRejectsTargetedWrites(t *testing.T) {
 		Target:     "App",
 		Version:    "1.2.3",
 	})
-	if err == nil || !strings.Contains(err.Error(), "--target is only supported by xcode version view") {
-		t.Fatalf("expected targeted write rejection, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "scoped edits require structured Xcode build settings") {
+		t.Fatalf("expected structured-project requirement, got %v", err)
 	}
 }
 
@@ -286,9 +277,6 @@ func TestSetVersionLegacyMultiTargetUsesProjectWideWrite(t *testing.T) {
 		t.Fatalf("read helper log: %v", err)
 	}
 	logText := string(logData)
-	if !strings.Contains(logText, "agvtool|what-marketing-version|-terse1") {
-		t.Fatalf("expected marketing version probe, got %q", logText)
-	}
 	if !strings.Contains(logText, "agvtool|new-marketing-version|1.3.0") {
 		t.Fatalf("expected project-wide marketing version update, got %q", logText)
 	}
