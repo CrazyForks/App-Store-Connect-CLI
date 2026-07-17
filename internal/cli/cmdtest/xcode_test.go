@@ -355,6 +355,50 @@ func TestXcodeExportWithoutExportOptionsPreflightsBeforeGeneration(t *testing.T)
 	}
 }
 
+func TestXcodeExportRejectsInvalidImplicitDestinationAsUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		ipaPath   func(*testing.T) string
+		errorHint string
+	}{
+		{
+			name:      "invalid extension",
+			ipaPath:   func(t *testing.T) string { return filepath.Join(t.TempDir(), "Demo.zip") },
+			errorHint: "must end with .ipa",
+		},
+		{
+			name: "existing output without overwrite",
+			ipaPath: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "Demo.ipa")
+				if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+			errorHint: "already exists",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			var runErr error
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse([]string{"xcode", "export", "--archive-path", "Demo.xcarchive", "--ipa-path", tc.ipaPath(t)}); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				runErr = root.Run(context.Background())
+			})
+			if !errors.Is(runErr, flag.ErrHelp) {
+				t.Fatalf("expected usage error, got %v", runErr)
+			}
+			if stdout != "" || !strings.Contains(stderr, tc.errorHint) {
+				t.Fatalf("unexpected output: stdout=%q stderr=%q", stdout, stderr)
+			}
+		})
+	}
+}
+
 func TestXcodeValidateRequiresIPA(t *testing.T) {
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)

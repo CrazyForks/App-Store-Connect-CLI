@@ -104,10 +104,51 @@ type bundleInfo struct {
 	Platform    string
 }
 
+type exportDestinationUsageError struct {
+	message string
+}
+
+func (e exportDestinationUsageError) Error() string {
+	return e.message
+}
+
+// IsExportDestinationUsageError reports whether destination preflight failed
+// because of deterministic CLI input rather than a filesystem access error.
+func IsExportDestinationUsageError(err error) bool {
+	var usageErr exportDestinationUsageError
+	return errors.As(err, &usageErr)
+}
+
 // PreflightExport verifies that local Xcode export tooling is available before
 // callers perform any preparatory filesystem mutation.
 func PreflightExport(ctx context.Context) error {
 	return ensureXcodeAvailable(ctx)
+}
+
+// PreflightExportDestination validates an IPA destination without creating,
+// replacing, or removing files. Export repeats the check before mutation.
+func PreflightExportDestination(ipaPath string, overwrite, directUpload bool) error {
+	ipaPath = strings.TrimSpace(ipaPath)
+	if ipaPath == "" {
+		return exportDestinationUsageError{message: "--ipa-path is required"}
+	}
+	if !strings.EqualFold(filepath.Ext(ipaPath), ".ipa") {
+		return exportDestinationUsageError{message: "--ipa-path must end with .ipa"}
+	}
+	if directUpload {
+		return nil
+	}
+	_, err := os.Stat(ipaPath)
+	switch {
+	case err == nil && !overwrite:
+		return exportDestinationUsageError{message: fmt.Sprintf("--ipa-path already exists: %s (use --overwrite to replace it)", ipaPath)}
+	case err == nil && overwrite:
+		return nil
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	default:
+		return fmt.Errorf("stat ipa path: %w", err)
+	}
 }
 
 func Archive(ctx context.Context, opts ArchiveOptions) (*ArchiveResult, error) {

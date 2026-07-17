@@ -64,6 +64,7 @@ var (
 // DefaultExportOptionsPathForArchive returns the archive-adjacent default path
 // used when an explicit ExportOptions.plist was not supplied.
 func DefaultExportOptionsPathForArchive(archivePath string) string {
+	archivePath = normalizeDirectoryPath(archivePath)
 	extension := filepath.Ext(archivePath)
 	return strings.TrimSuffix(archivePath, extension) + "-ExportOptions.plist"
 }
@@ -72,6 +73,7 @@ func DefaultExportOptionsPathForArchive(archivePath string) string {
 // path suitable for implicit generation. The random suffix prevents an
 // implicit export from replacing a user-managed ExportOptions.plist.
 func UniqueExportOptionsPathForArchive(archivePath string) (string, error) {
+	archivePath = normalizeDirectoryPath(archivePath)
 	extension := filepath.Ext(archivePath)
 	base := strings.TrimSuffix(archivePath, extension) + "-ExportOptions-"
 	for range 32 {

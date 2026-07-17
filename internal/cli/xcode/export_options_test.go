@@ -227,6 +227,53 @@ func TestXcodeExportPreflightsBeforeImplicitOptionGeneration(t *testing.T) {
 	}
 }
 
+func TestXcodeExportValidatesIPADestinationBeforeImplicitOptionGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		ipaPath   func(*testing.T) string
+		errorHint string
+	}{
+		{
+			name:      "invalid extension",
+			ipaPath:   func(t *testing.T) string { return filepath.Join(t.TempDir(), "Demo.zip") },
+			errorHint: "must end with .ipa",
+		},
+		{
+			name: "existing output without overwrite",
+			ipaPath: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "Demo.ipa")
+				if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+			errorHint: "already exists",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			restore := overrideXcodeCommandTestHooks(t)
+			defer restore()
+
+			runGenerateExportOptions = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+				t.Fatal("export options must not be generated for an unusable IPA destination")
+				return nil, nil
+			}
+			cmd := XcodeExportCommand()
+			cmd.FlagSet.SetOutput(io.Discard)
+			if err := cmd.FlagSet.Parse([]string{
+				"--archive-path", filepath.Join(t.TempDir(), "Demo.xcarchive") + string(filepath.Separator),
+				"--ipa-path", tc.ipaPath(t),
+			}); err != nil {
+				t.Fatalf("failed to parse flags: %v", err)
+			}
+
+			if err := cmd.Exec(context.Background(), nil); err == nil || !errors.Is(err, flag.ErrHelp) || !strings.Contains(err.Error(), tc.errorHint) {
+				t.Fatalf("expected %q error, got %v", tc.errorHint, err)
+			}
+		})
+	}
+}
+
 func TestXcodeExportWaitGeneratesUploadOptionsWhenPathIsOmitted(t *testing.T) {
 	restore := overrideXcodeCommandTestHooks(t)
 	defer restore()

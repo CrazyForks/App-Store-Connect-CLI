@@ -108,11 +108,16 @@ func TestDefaultExportOptionsPathForArchive(t *testing.T) {
 	if got != want {
 		t.Fatalf("DefaultExportOptionsPathForArchive() = %q, want %q", got, want)
 	}
+	withSeparator := DefaultExportOptionsPathForArchive(filepath.Join("artifacts", "Demo.xcarchive") + string(filepath.Separator))
+	if withSeparator != want {
+		t.Fatalf("DefaultExportOptionsPathForArchive(trailing separator) = %q, want %q", withSeparator, want)
+	}
 }
 
 func TestUniqueExportOptionsPathForArchive(t *testing.T) {
-	archivePath := filepath.Join(t.TempDir(), "Demo.xcarchive")
-	wantPrefix := strings.TrimSuffix(archivePath, ".xcarchive") + "-ExportOptions-"
+	archivePath := filepath.Join(t.TempDir(), "Demo.xcarchive") + string(filepath.Separator)
+	normalizedArchivePath := filepath.Clean(archivePath)
+	wantPrefix := strings.TrimSuffix(normalizedArchivePath, ".xcarchive") + "-ExportOptions-"
 	seen := make(map[string]struct{})
 	for range 32 {
 		got, err := UniqueExportOptionsPathForArchive(archivePath)
@@ -126,6 +131,9 @@ func TestUniqueExportOptionsPathForArchive(t *testing.T) {
 			t.Fatalf("UniqueExportOptionsPathForArchive() returned duplicate path %q", got)
 		}
 		seen[got] = struct{}{}
+		if strings.HasPrefix(got, normalizedArchivePath+string(filepath.Separator)) {
+			t.Fatalf("generated export options path inside archive: %q", got)
+		}
 		if _, statErr := os.Lstat(got); !errors.Is(statErr, os.ErrNotExist) {
 			t.Fatalf("generated path already exists: %q (%v)", got, statErr)
 		}
