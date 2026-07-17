@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -322,7 +323,7 @@ func TestXcodeExportRequiresArchivePath(t *testing.T) {
 	}
 }
 
-func TestXcodeExportWithoutExportOptionsAttemptsAutomaticGeneration(t *testing.T) {
+func TestXcodeExportWithoutExportOptionsPreflightsBeforeGeneration(t *testing.T) {
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
 
@@ -343,8 +344,14 @@ func TestXcodeExportWithoutExportOptionsAttemptsAutomaticGeneration(t *testing.T
 	if strings.TrimSpace(stderr) != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
+	if runtime.GOOS != "darwin" {
+		if !strings.Contains(runErr.Error(), "supported on macOS only") || !strings.Contains(runErr.Error(), runtime.GOOS) {
+			t.Fatalf("expected platform preflight error, got %v", runErr)
+		}
+		return
+	}
 	if !strings.Contains(runErr.Error(), "generate export options") || !strings.Contains(runErr.Error(), "Demo.xcarchive") {
-		t.Fatalf("expected automatic export-options generation error, got %v", runErr)
+		t.Fatalf("expected automatic export-options generation error after preflight, got %v", runErr)
 	}
 }
 
