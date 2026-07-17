@@ -56,12 +56,12 @@ func generateManualExportOptions(ctx context.Context, archivePath, teamID string
 	if err != nil {
 		return manualExportOptions{}, fmt.Errorf("read archive export information: %w", err)
 	}
-	generator := exportoptionsgenerator.New(
-		xcodeversion.NewXcodeVersionProvider(command.NewFactory(env.NewRepository())),
-		log.NewLogger(),
-	)
 	var generated legacyexportoptions.ExportOptions
 	if _, err := captureBitriseStdout(func() error {
+		generator := exportoptionsgenerator.New(
+			xcodeversion.NewXcodeVersionProvider(command.NewFactory(env.NewRepository())),
+			log.NewLogger(),
+		)
 		var generateErr error
 		generated, generateErr = generator.GenerateApplicationExportOptions(
 			exportoptionsgenerator.ExportProductApp,

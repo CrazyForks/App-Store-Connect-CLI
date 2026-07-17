@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bitrise-io/go-utils/v2/log"
 	"howett.net/plist"
 )
 
@@ -17,12 +18,13 @@ func TestCaptureBitriseStdout(t *testing.T) {
 	wantErr := errors.New("generator sentinel")
 	captured, err := captureBitriseStdout(func() error {
 		fmt.Fprint(os.Stdout, "Checking if project uses CloudKit")
+		log.NewLogger().Warnf("profile diagnostic")
 		return wantErr
 	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("captureBitriseStdout() error = %v, want %v", err, wantErr)
 	}
-	if captured != "Checking if project uses CloudKit" {
+	if !strings.Contains(captured, "Checking if project uses CloudKit") || !strings.Contains(captured, "profile diagnostic") {
 		t.Fatalf("captureBitriseStdout() output = %q", captured)
 	}
 }
