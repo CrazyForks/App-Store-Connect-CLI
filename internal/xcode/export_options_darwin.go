@@ -5,7 +5,10 @@ package xcode
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/bitrise-io/go-utils/v2/command"
 	"github.com/bitrise-io/go-utils/v2/env"
@@ -16,6 +19,8 @@ import (
 	"github.com/bitrise-io/go-xcode/v2/xcarchive"
 	"github.com/bitrise-io/go-xcode/v2/xcodeversion"
 )
+
+var bitriseStdoutCaptureMu sync.Mutex
 
 // buildPlatformExportOptionsPayload uses Bitrise's current typed v2 model on
 // macOS, where xcodebuild and local signing asset resolution are available.
@@ -47,18 +52,68 @@ func generateManualExportOptions(ctx context.Context, archivePath, teamID string
 		xcodeversion.NewXcodeVersionProvider(command.NewFactory(env.NewRepository())),
 		log.NewLogger(),
 	)
-	generated, err := generator.GenerateApplicationExportOptions(
-		exportoptionsgenerator.ExportProductApp,
-		archiveInfo,
-		// Bitrise v2's generator currently exposes these v1 argument types.
-		legacyexportoptions.MethodAppStoreConnect,
-		legacyexportoptions.SigningStyleManual,
-		exportoptionsgenerator.Opts{TeamID: teamID},
-	)
-	if err != nil {
+	var generated legacyexportoptions.ExportOptions
+	if _, err := captureBitriseStdout(func() error {
+		var generateErr error
+		generated, generateErr = generator.GenerateApplicationExportOptions(
+			exportoptionsgenerator.ExportProductApp,
+			archiveInfo,
+			// Bitrise v2's generator currently exposes these v1 argument types.
+			legacyexportoptions.MethodAppStoreConnect,
+			legacyexportoptions.SigningStyleManual,
+			exportoptionsgenerator.Opts{TeamID: teamID},
+		)
+		return generateErr
+	}); err != nil {
 		return manualExportOptions{}, err
 	}
 	return manualExportOptionsFromHash(generated.Hash())
+}
+
+// captureBitriseStdout contains upstream status prints so structured CLI
+// output remains valid. Bitrise does not currently expose a writer for these
+// messages, and os.Stdout is process-global, so captures are serialized.
+func captureBitriseStdout(run func() error) (string, error) {
+	bitriseStdoutCaptureMu.Lock()
+	defer bitriseStdoutCaptureMu.Unlock()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return "", fmt.Errorf("capture Bitrise stdout: %w", err)
+	}
+	originalStdout := os.Stdout
+	defer func() {
+		os.Stdout = originalStdout
+		_ = writer.Close()
+		_ = reader.Close()
+	}()
+
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	readDone := make(chan readResult, 1)
+	go func() {
+		data, readErr := io.ReadAll(reader)
+		readDone <- readResult{data: data, err: readErr}
+	}()
+
+	os.Stdout = writer
+	runErr := run()
+	os.Stdout = originalStdout
+	closeErr := writer.Close()
+	result := <-readDone
+
+	if runErr != nil {
+		return string(result.data), runErr
+	}
+	if closeErr != nil {
+		return string(result.data), fmt.Errorf("close Bitrise stdout capture: %w", closeErr)
+	}
+	if result.err != nil {
+		return string(result.data), fmt.Errorf("read Bitrise stdout capture: %w", result.err)
+	}
+	return string(result.data), nil
 }
 
 func manualExportOptionsFromHash(payload map[string]interface{}) (manualExportOptions, error) {
