@@ -33,6 +33,59 @@ func TestCreateSubscriptionGroupVersionUsesRequiredGroupRelationship(t *testing.
 	}
 }
 
+func TestCreateSubscriptionGroupLocalizationV2CustomAppNameEncoding(t *testing.T) {
+	whitespace := " \t\n "
+	tests := []struct {
+		name        string
+		customName  *NullableString
+		wantPresent bool
+		wantValue   string
+	}{
+		{
+			name:        "whitespace omitted",
+			customName:  &NullableString{Value: &whitespace},
+			wantPresent: false,
+		},
+		{
+			name:        "explicit null preserved",
+			customName:  &NullableString{},
+			wantPresent: true,
+			wantValue:   "null",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newTestClient(t, func(req *http.Request) {
+				var payload struct {
+					Data struct {
+						Attributes map[string]json.RawMessage `json:"attributes"`
+					} `json:"data"`
+				}
+				if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+					t.Fatal(err)
+				}
+				got, present := payload.Data.Attributes["customAppName"]
+				if present != test.wantPresent {
+					t.Fatalf("customAppName presence = %t, want %t; payload: %s", present, test.wantPresent, got)
+				}
+				if present && string(got) != test.wantValue {
+					t.Fatalf("customAppName = %s, want %s", got, test.wantValue)
+				}
+			}, jsonResponse(http.StatusCreated, `{"data":{"type":"subscriptionGroupLocalizations","id":"loc-1"}}`))
+
+			_, err := client.CreateSubscriptionGroupLocalizationV2(context.Background(), "version-1", SubscriptionGroupLocalizationV2CreateAttributes{
+				Name:          "Premium",
+				Locale:        "en-US",
+				CustomAppName: test.customName,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestSubscriptionGroupVersionEndpoints(t *testing.T) {
 	updatedName := "Premium Plus"
 	cleared := NullableString{Value: nil}
@@ -94,7 +147,8 @@ func TestSubscriptionGroupVersionEndpoints(t *testing.T) {
 			responseBody: `{"data":{"type":"subscriptionGroupLocalizations","id":"loc-1"}}`,
 			bodyContains: []string{`"version":{"data":{"type":"subscriptionGroupVersions","id":"version-1"}}`, `"name":"Premium"`, `"locale":"en-US"`, `"customAppName":"Example"`},
 			call: func(c *Client) error {
-				_, err := c.CreateSubscriptionGroupLocalizationV2(context.Background(), "version-1", SubscriptionGroupLocalizationV2CreateAttributes{Name: "Premium", Locale: "en-US", CustomAppName: "Example"})
+				customAppName := "Example"
+				_, err := c.CreateSubscriptionGroupLocalizationV2(context.Background(), "version-1", SubscriptionGroupLocalizationV2CreateAttributes{Name: "Premium", Locale: "en-US", CustomAppName: &NullableString{Value: &customAppName}})
 				return err
 			},
 		},
