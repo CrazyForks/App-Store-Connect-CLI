@@ -18,12 +18,32 @@ import (
 // ScopedPromotedPurchasesCommandConfig customizes a promoted-purchases command tree
 // to a single product family while preserving the shared generic implementation.
 type ScopedPromotedPurchasesCommandConfig struct {
-	PathPrefix      string
-	ProductType     promotedPurchaseProductType
-	ProductSingular string
-	ProductPlural   string
-	RootShortHelp   string
-	RootLongHelp    string
+	PathPrefix         string
+	ProductType        promotedPurchaseProductType
+	ProductSingular    string
+	ProductPlural      string
+	RootShortHelp      string
+	RootLongHelp       string
+	OwnerIDFlag        string
+	OwnerIDUsage       string
+	OwnerIDPlaceholder string
+	ResolveOwnerID     func(context.Context, *asc.Client, string) (string, error)
+	FetchForOwner      func(context.Context, *asc.Client, string, ...asc.PromotedPurchaseGetOption) (*asc.PromotedPurchaseResponse, error)
+}
+
+var promotedPurchaseIAPFields = []string{
+	"name", "productId", "inAppPurchaseType", "state", "reviewNote", "familySharable",
+	"contentHosting", "inAppPurchaseLocalizations", "pricePoints", "content",
+	"appStoreReviewScreenshot", "promotedPurchase", "iapPriceSchedule",
+	"inAppPurchaseAvailability", "images", "offerCodes", "versions",
+}
+
+var promotedPurchaseSubscriptionFields = []string{
+	"name", "productId", "familySharable", "state", "subscriptionPeriod", "reviewNote",
+	"groupLevel", "subscriptionLocalizations", "appStoreReviewScreenshot", "group",
+	"introductoryOffers", "promotionalOffers", "offerCodes", "prices", "pricePoints",
+	"promotedPurchase", "subscriptionAvailability", "winBackOffers", "images",
+	"planAvailabilities", "versions",
 }
 
 type promotedPurchaseScope struct {
@@ -70,6 +90,8 @@ func configureScopedPromotedPurchasesListCommand(cmd *ffcli.Command, cfg ScopedP
 	if cmd == nil || cmd.FlagSet == nil {
 		return
 	}
+	bindStringFlagIfMissing(cmd.FlagSet, "iap-fields", promotedPurchaseFieldsUsage("iap-fields"))
+	bindStringFlagIfMissing(cmd.FlagSet, "subscription-fields", promotedPurchaseFieldsUsage("subscription-fields"))
 
 	cmd.ShortUsage = fmt.Sprintf("%s list (--app APP_ID | --next URL) [flags]", cfg.PathPrefix)
 	cmd.ShortHelp = fmt.Sprintf("List promoted purchases for %s in an app.", cfg.ProductPlural)
@@ -78,11 +100,14 @@ func configureScopedPromotedPurchasesListCommand(cmd *ffcli.Command, cfg ScopedP
 Examples:
   %s list --app "APP_ID"
   %s list --app "APP_ID" --limit 10
-  %s list --app "APP_ID" --paginate`, cfg.ProductPlural, cfg.PathPrefix, cfg.PathPrefix, cfg.PathPrefix)
+  %s list --app "APP_ID" --iap-fields versions --subscription-fields versions
+  %s list --app "APP_ID" --paginate`, cfg.ProductPlural, cfg.PathPrefix, cfg.PathPrefix, cfg.PathPrefix, cfg.PathPrefix)
 
 	cmd.Exec = func(ctx context.Context, args []string) error {
 		limit := intFlagValue(cmd.FlagSet, "limit")
 		next := stringFlagValue(cmd.FlagSet, "next")
+		iapFieldsValue := stringFlagValue(cmd.FlagSet, "iap-fields")
+		subscriptionFieldsValue := stringFlagValue(cmd.FlagSet, "subscription-fields")
 		paginate := boolFlagValue(cmd.FlagSet, "paginate")
 		output := stringFlagValue(cmd.FlagSet, "output")
 		pretty := boolFlagValue(cmd.FlagSet, "pretty")
@@ -95,6 +120,17 @@ Examples:
 		}
 		if err := shared.ValidateNextURL(next); err != nil {
 			return fmt.Errorf("%s: %w", errorPrefix, err)
+		}
+		if strings.TrimSpace(next) != "" && (flagWasSet(cmd.FlagSet, "iap-fields") || flagWasSet(cmd.FlagSet, "subscription-fields")) {
+			return shared.UsageErrorf("%s: --next cannot be combined with --iap-fields or --subscription-fields", errorPrefix)
+		}
+		iapFields, err := shared.NormalizeSelection(iapFieldsValue, promotedPurchaseIAPFields, "--iap-fields")
+		if err != nil {
+			return shared.UsageError(errorPrefix + ": " + err.Error())
+		}
+		subscriptionFields, err := shared.NormalizeSelection(subscriptionFieldsValue, promotedPurchaseSubscriptionFields, "--subscription-fields")
+		if err != nil {
+			return shared.UsageError(errorPrefix + ": " + err.Error())
 		}
 		if appID == "" && strings.TrimSpace(next) == "" {
 			fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
@@ -112,6 +148,8 @@ Examples:
 		opts := []asc.PromotedPurchasesOption{
 			asc.WithPromotedPurchasesLimit(limit),
 			asc.WithPromotedPurchasesNextURL(next),
+			asc.WithPromotedPurchasesIAPFields(iapFields),
+			asc.WithPromotedPurchasesSubscriptionFields(subscriptionFields),
 		}
 
 		if paginate {
@@ -154,21 +192,55 @@ func configureScopedPromotedPurchasesViewCommand(cmd *ffcli.Command, cfg ScopedP
 	if cmd == nil || cmd.FlagSet == nil {
 		return
 	}
+	bindStringFlagIfMissing(cmd.FlagSet, "iap-fields", promotedPurchaseFieldsUsage("iap-fields"))
+	bindStringFlagIfMissing(cmd.FlagSet, "subscription-fields", promotedPurchaseFieldsUsage("subscription-fields"))
+	ownerIDFlag := strings.TrimSpace(cfg.OwnerIDFlag)
+	ownerIDPlaceholder := strings.TrimSpace(cfg.OwnerIDPlaceholder)
+	if ownerIDPlaceholder == "" {
+		ownerIDPlaceholder = "PRODUCT_ID"
+	}
+	if ownerIDFlag != "" {
+		bindStringFlagIfMissing(cmd.FlagSet, ownerIDFlag, cfg.OwnerIDUsage)
+	}
 
-	cmd.ShortUsage = fmt.Sprintf("%s view --promoted-purchase-id PROMO_ID", cfg.PathPrefix)
+	if ownerIDFlag == "" {
+		cmd.ShortUsage = fmt.Sprintf("%s view --promoted-purchase-id PROMO_ID", cfg.PathPrefix)
+	} else {
+		cmd.ShortUsage = fmt.Sprintf("%s view (--promoted-purchase-id PROMO_ID | --%s %s) [flags]", cfg.PathPrefix, ownerIDFlag, ownerIDPlaceholder)
+	}
 	cmd.ShortHelp = fmt.Sprintf("View a promoted purchase for %s by ID.", cfg.ProductSingular)
 	cmd.LongHelp = fmt.Sprintf(`View a promoted purchase for %s by ID.
 
 Examples:
-  %s view --promoted-purchase-id "PROMO_ID"`, cfg.ProductSingular, cfg.PathPrefix)
+  %s view --promoted-purchase-id "PROMO_ID"
+  %s view --promoted-purchase-id "PROMO_ID" --iap-fields versions --subscription-fields versions`, cfg.ProductSingular, cfg.PathPrefix, cfg.PathPrefix)
+	if ownerIDFlag != "" {
+		cmd.LongHelp += fmt.Sprintf("\n  %s view --%s \"%s\" --iap-fields versions --subscription-fields versions", cfg.PathPrefix, ownerIDFlag, ownerIDPlaceholder)
+	}
 
 	cmd.Exec = func(ctx context.Context, args []string) error {
 		promotedPurchaseID := strings.TrimSpace(stringFlagValue(cmd.FlagSet, "promoted-purchase-id"))
+		ownerID := strings.TrimSpace(stringFlagValue(cmd.FlagSet, ownerIDFlag))
 		errorPrefix := promotedPurchasesCommandErrorPrefix(cfg, "view")
 
-		if promotedPurchaseID == "" {
-			fmt.Fprintln(os.Stderr, "Error: --promoted-purchase-id is required")
+		if promotedPurchaseID == "" && ownerID == "" {
+			if ownerIDFlag == "" {
+				fmt.Fprintln(os.Stderr, "Error: --promoted-purchase-id is required")
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: --promoted-purchase-id or --%s is required\n", ownerIDFlag)
+			}
 			return shared.MissingRequiredUsageError()
+		}
+		if promotedPurchaseID != "" && ownerID != "" {
+			return shared.UsageErrorf("%s: --promoted-purchase-id and --%s are mutually exclusive", errorPrefix, ownerIDFlag)
+		}
+		iapFields, err := shared.NormalizeSelection(stringFlagValue(cmd.FlagSet, "iap-fields"), promotedPurchaseIAPFields, "--iap-fields")
+		if err != nil {
+			return shared.UsageError(errorPrefix + ": " + err.Error())
+		}
+		subscriptionFields, err := shared.NormalizeSelection(stringFlagValue(cmd.FlagSet, "subscription-fields"), promotedPurchaseSubscriptionFields, "--subscription-fields")
+		if err != nil {
+			return shared.UsageError(errorPrefix + ": " + err.Error())
 		}
 
 		client, err := shared.GetASCClient()
@@ -176,14 +248,40 @@ Examples:
 			return fmt.Errorf("%s: %w", errorPrefix, err)
 		}
 
+		getOpts := []asc.PromotedPurchaseGetOption{
+			asc.WithPromotedPurchaseIAPFields(iapFields),
+			asc.WithPromotedPurchaseSubscriptionFields(subscriptionFields),
+		}
+
+		if ownerID != "" {
+			if cfg.FetchForOwner == nil {
+				return fmt.Errorf("%s: --%s is not supported", errorPrefix, ownerIDFlag)
+			}
+			if cfg.ResolveOwnerID != nil {
+				ownerID, err = cfg.ResolveOwnerID(ctx, client, ownerID)
+				if err != nil {
+					return err
+				}
+			}
+
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
+			resp, err := cfg.FetchForOwner(requestCtx, client, ownerID, getOpts...)
+			if err != nil {
+				return fmt.Errorf("%s: failed to fetch: %w", errorPrefix, err)
+			}
+			output := stringFlagValue(cmd.FlagSet, "output")
+			pretty := boolFlagValue(cmd.FlagSet, "pretty")
+			return shared.PrintOutput(resp, output, pretty)
+		}
+
 		requestCtx, cancel := shared.ContextWithTimeout(ctx)
 		defer cancel()
-
 		if err := validatePromotedPurchaseScope(requestCtx, client, promotedPurchaseID, cfg, "view"); err != nil {
 			return err
 		}
 
-		resp, err := client.GetPromotedPurchase(requestCtx, promotedPurchaseID)
+		resp, err := client.GetPromotedPurchase(requestCtx, promotedPurchaseID, getOpts...)
 		if err != nil {
 			return fmt.Errorf("%s: failed to fetch: %w", errorPrefix, err)
 		}
@@ -192,6 +290,37 @@ Examples:
 		pretty := boolFlagValue(cmd.FlagSet, "pretty")
 		return shared.PrintOutput(resp, output, pretty)
 	}
+}
+
+func promotedPurchaseFieldsUsage(flagName string) string {
+	switch flagName {
+	case "iap-fields":
+		return "fields[inAppPurchases] for included in-app purchases (comma-separated)"
+	case "subscription-fields":
+		return "fields[subscriptions] for included subscriptions (comma-separated)"
+	default:
+		return "Sparse fields for included products (comma-separated)"
+	}
+}
+
+func bindStringFlagIfMissing(fs *flag.FlagSet, name, usage string) {
+	if fs == nil || strings.TrimSpace(name) == "" || fs.Lookup(name) != nil {
+		return
+	}
+	fs.String(name, "", usage)
+}
+
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	if fs == nil || strings.TrimSpace(name) == "" {
+		return false
+	}
+	found := false
+	fs.Visit(func(parsed *flag.Flag) {
+		if parsed.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func configureScopedPromotedPurchasesUpdateCommand(cmd *ffcli.Command, cfg ScopedPromotedPurchasesCommandConfig) {
@@ -403,6 +532,7 @@ func filterPromotedPurchasesByProductType(ctx context.Context, client *asc.Clien
 	}
 
 	filtered := resp.Data[:0]
+	retainedProducts := make(map[string]struct{}, len(resp.Data))
 	for _, item := range resp.Data {
 		scope, err := promotedPurchaseScopeForResource(ctx, client, item)
 		if err != nil {
@@ -410,10 +540,59 @@ func filterPromotedPurchasesByProductType(ctx context.Context, client *asc.Clien
 		}
 		if scope.productType == productType {
 			filtered = append(filtered, item)
+			retainedProducts[promotedPurchaseProductResourceKey(scope)] = struct{}{}
 		}
 	}
 	resp.Data = filtered
+
+	included, err := filterPromotedPurchaseIncluded(resp.Included, retainedProducts)
+	if err != nil {
+		return err
+	}
+	resp.Included = included
 	return nil
+}
+
+func promotedPurchaseProductResourceKey(scope promotedPurchaseScope) string {
+	resourceType := asc.ResourceTypeInAppPurchases
+	if scope.productType == promotedPurchaseProductTypeSubscription {
+		resourceType = asc.ResourceTypeSubscriptions
+	}
+	return string(resourceType) + "\x00" + scope.productID
+}
+
+func filterPromotedPurchaseIncluded(included json.RawMessage, retainedProducts map[string]struct{}) (json.RawMessage, error) {
+	if len(included) == 0 || string(included) == "null" {
+		return included, nil
+	}
+
+	var resources []json.RawMessage
+	if err := json.Unmarshal(included, &resources); err != nil {
+		return nil, fmt.Errorf("parse promoted purchase included resources: %w", err)
+	}
+
+	filtered := make([]json.RawMessage, 0, len(resources))
+	for _, resource := range resources {
+		var identifier struct {
+			Type asc.ResourceType `json:"type"`
+			ID   string           `json:"id"`
+		}
+		if err := json.Unmarshal(resource, &identifier); err != nil {
+			return nil, fmt.Errorf("parse promoted purchase included resource: %w", err)
+		}
+		if strings.TrimSpace(string(identifier.Type)) == "" || strings.TrimSpace(identifier.ID) == "" {
+			return nil, fmt.Errorf("parse promoted purchase included resource: missing type or id")
+		}
+		if _, ok := retainedProducts[string(identifier.Type)+"\x00"+identifier.ID]; ok {
+			filtered = append(filtered, resource)
+		}
+	}
+
+	encoded, err := json.Marshal(filtered)
+	if err != nil {
+		return nil, fmt.Errorf("encode promoted purchase included resources: %w", err)
+	}
+	return encoded, nil
 }
 
 func collectPreservedPromotedPurchaseIDs(ctx context.Context, client *asc.Client, appID string, scopedType promotedPurchaseProductType) ([]string, error) {
