@@ -40,6 +40,13 @@ func generateManualExportOptions(ctx context.Context, archivePath, teamID string
 	if err := contextError(ctx); err != nil {
 		return manualExportOptions{}, err
 	}
+	platform, err := InferArchivePlatform(archivePath)
+	if err != nil {
+		return manualExportOptions{}, fmt.Errorf("infer archive platform: %w", err)
+	}
+	if platform != "IOS" && platform != "TV_OS" {
+		return manualExportOptions{}, fmt.Errorf("manual signing export options generation only supports iOS and tvOS archives; archive platform is %s", platform)
+	}
 	archive, err := xcarchive.NewIosArchive(archivePath)
 	if err != nil {
 		return manualExportOptions{}, fmt.Errorf("read iOS archive: %w", err)
