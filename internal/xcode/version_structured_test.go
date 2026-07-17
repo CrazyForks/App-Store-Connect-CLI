@@ -474,9 +474,46 @@ func TestStructuredVersion_PartialBuildSettingsUseLegacyRouting(t *testing.T) {
 		t.Fatalf("WriteFile(project) error = %v", err)
 	}
 
-	_, err := openStructuredVersionProject(project)
-	if !errors.Is(err, errStructuredVersionUnavailable) {
-		t.Fatalf("expected partial project to use legacy routing, got %v", err)
+	parsed, err := openStructuredVersionProject(project)
+	if err != nil {
+		t.Fatalf("openStructuredVersionProject() error = %v", err)
+	}
+	structured, err := parsed.hasStructuredVersionSettingsForMutation("", "")
+	if err != nil {
+		t.Fatalf("hasStructuredVersionSettingsForMutation() error = %v", err)
+	}
+	if structured {
+		t.Fatal("expected partial project to use legacy routing")
+	}
+}
+
+func TestStructuredVersion_SelectedPartialTargetUsesLegacyRouting(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"999999999999999999999994 /* App Release */ = {isa = XCBuildConfiguration;  buildSettings = { MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Release; };",
+		"999999999999999999999994 /* App Release */ = {isa = XCBuildConfiguration;  buildSettings = { MARKETING_VERSION = 1.2.3; }; name = Release; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	restore := overrideTestEnvironment(t)
+	runtimeGOOS = "darwin"
+	lookPathFn = func(file string) (string, error) { return "/usr/bin/" + file, nil }
+	commandContextFn = helperCommandContext(t, logPath)
+	t.Setenv("ASC_XCODE_HELPER_SINGLE_TARGET", "1")
+	t.Cleanup(restore)
+
+	view, err := GetVersionScoped(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App",
+	})
+	if err != nil {
+		t.Fatalf("GetVersionScoped() error = %v", err)
+	}
+	if view.Modern || view.Version != "1.2.3" || view.BuildNumber != "41" {
+		t.Fatalf("expected selected partial target to use legacy routing, got %#v", view)
 	}
 }
 
@@ -591,6 +628,29 @@ func TestStructuredVersion_ScopedBumps(t *testing.T) {
 	})
 }
 
+func TestStructuredVersion_BumpIncludesMutatedProjectSettingInBaseline(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"999999999999999999999992 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Release; };",
+		"999999999999999999999992 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = { MARKETING_VERSION = 9.0.0; }; name = Release; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project, Configuration: "Release", BumpType: BumpPatch,
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected project-level divergence error, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("project changed after project-level baseline divergence")
+	}
+}
+
 func TestStructuredVersion_BumpRefusesToFlattenDifferentValues(t *testing.T) {
 	project := writeStructuredVersionProject(t, false)
 	if _, err := SetVersion(context.Background(), SetVersionOptions{
@@ -680,6 +740,35 @@ func TestStructuredVersion_ScopedInheritedNoOpDoesNotCreateOverride(t *testing.T
 	}
 	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
 		t.Fatal("inherited no-op created a target-level override")
+	}
+}
+
+func TestStructuredVersion_DirectInheritedNoOpPreservesPBXProjAssignment(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"999999999999999999999992 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Release; };",
+		"999999999999999999999992 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = { MARKETING_VERSION = 7.8.9; }; name = Release; };", 1)
+	contents = strings.Replace(contents,
+		"999999999999999999999994 /* App Release */ = {isa = XCBuildConfiguration;  buildSettings = { MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Release; };",
+		"999999999999999999999994 /* App Release */ = {isa = XCBuildConfiguration;  buildSettings = { MARKETING_VERSION = \"$(inherited)\"; CURRENT_PROJECT_VERSION = 42; }; name = Release; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	result, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release", Version: "7.8.9",
+	})
+	if err != nil {
+		t.Fatalf("SetVersion() error = %v", err)
+	}
+	if len(result.ChangedFiles) != 0 || len(result.Changes) != 0 {
+		t.Fatalf("direct inherited no-op reported mutations: %#v", result)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("direct inherited no-op replaced inheritance with a literal")
 	}
 }
 

@@ -3,7 +3,6 @@ package xcode
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -181,12 +180,17 @@ func getVersionLegacy(ctx context.Context, projectDir, target string) (*VersionI
 // SetVersion sets the marketing version and/or build number.
 func SetVersion(ctx context.Context, opts SetVersionOptions) (*SetVersionResult, error) {
 	project, err := openStructuredVersionProject(opts.ProjectDir)
-	if err == nil {
-		return project.setVersion(opts)
-	}
-	if !errors.Is(err, errStructuredVersionUnavailable) {
+	if err != nil {
 		return nil, err
 	}
+	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	if err != nil {
+		return nil, err
+	}
+	if structured {
+		return project.setVersion(opts)
+	}
+	err = fmt.Errorf("%w: selected Xcode configurations do not resolve both MARKETING_VERSION and CURRENT_PROJECT_VERSION", errStructuredVersionUnavailable)
 	if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" {
 		return nil, fmt.Errorf("scoped edits require structured Xcode build settings: %w", err)
 	}
@@ -229,7 +233,14 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 		return nil, err
 	}
 	project, err := openStructuredVersionProject(opts.ProjectDir)
-	if err == nil {
+	if err != nil {
+		return nil, err
+	}
+	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	if err != nil {
+		return nil, err
+	}
+	if structured {
 		result := &BumpVersionResult{
 			BumpType:      string(opts.BumpType),
 			ProjectDir:    project.rootDir,
@@ -277,9 +288,7 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 		result.Changes = updated.Changes
 		return result, nil
 	}
-	if !errors.Is(err, errStructuredVersionUnavailable) {
-		return nil, err
-	}
+	err = fmt.Errorf("%w: selected Xcode configurations do not resolve both MARKETING_VERSION and CURRENT_PROJECT_VERSION", errStructuredVersionUnavailable)
 	if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" {
 		return nil, fmt.Errorf("scoped bumps require structured Xcode build settings: %w", err)
 	}
