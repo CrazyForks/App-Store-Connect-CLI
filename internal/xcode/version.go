@@ -270,6 +270,9 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 	if err := validateVersionMutationValue("--build-number", opts.BuildNumber); err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(opts.BuildNumber) != "" && opts.BumpType != BumpBuild {
+		return nil, fmt.Errorf("--build-number is only supported for build bumps")
+	}
 	project, err := openStructuredVersionProject(opts.ProjectDir)
 	if err != nil {
 		return nil, err
@@ -329,9 +332,6 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 	err = fmt.Errorf("%w: selected Xcode configurations do not resolve both MARKETING_VERSION and CURRENT_PROJECT_VERSION", errStructuredVersionUnavailable)
 	if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" {
 		return nil, fmt.Errorf("scoped bumps require structured Xcode build settings: %w", err)
-	}
-	if strings.TrimSpace(opts.BuildNumber) != "" && opts.BumpType != BumpBuild {
-		return nil, fmt.Errorf("--build-number is only supported for build bumps")
 	}
 	return bumpVersionLegacy(ctx, opts)
 }
@@ -558,8 +558,9 @@ func parseAgvtoolValueOutput(output, target string) (string, error) {
 	lines := strings.Split(output, "\n")
 	trimmedTarget := strings.TrimSpace(target)
 
-	var fallback string
+	var fallbackValues []string
 	seenTargets := make(map[string]struct{})
+	valuesByTarget := make(map[string][]string)
 	var targetNames []string
 
 	for _, line := range lines {
@@ -571,46 +572,58 @@ func parseAgvtoolValueOutput(output, target string) (string, error) {
 			name := strings.TrimSpace(line[:idx])
 			value := strings.TrimSpace(line[idx+1:])
 			if name != "" {
-				if trimmedTarget != "" && name == trimmedTarget {
-					return value, nil
-				}
 				if _, exists := seenTargets[name]; !exists {
 					seenTargets[name] = struct{}{}
 					targetNames = append(targetNames, name)
 				}
+				valuesByTarget[name] = append(valuesByTarget[name], value)
 				continue
 			}
-			if fallback == "" {
-				fallback = value
-			}
+			fallbackValues = append(fallbackValues, value)
 			continue
 		}
-		if fallback == "" {
-			fallback = line
-		}
+		fallbackValues = append(fallbackValues, line)
 	}
 
 	if trimmedTarget != "" {
+		if values, ok := valuesByTarget[trimmedTarget]; ok {
+			return consistentAgvtoolValue(values, fmt.Sprintf("target %q", trimmedTarget))
+		}
 		if len(targetNames) > 0 {
 			return "", fmt.Errorf("target %q not found in agvtool output", trimmedTarget)
 		}
-		return fallback, nil
+		return consistentAgvtoolValue(fallbackValues, fmt.Sprintf("target %q", trimmedTarget))
 	}
 
 	if len(targetNames) > 1 {
 		return "", fmt.Errorf("multiple target values found (%s); use --target", strings.Join(targetNames, ", "))
 	}
 	if len(targetNames) == 1 {
-		prefix := targetNames[0] + "="
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, prefix) {
-				return strings.TrimSpace(line[len(prefix):]), nil
-			}
-		}
+		return consistentAgvtoolValue(valuesByTarget[targetNames[0]], fmt.Sprintf("target %q", targetNames[0]))
 	}
 
-	return fallback, nil
+	return consistentAgvtoolValue(fallbackValues, "selected project")
+}
+
+func consistentAgvtoolValue(values []string, scope string) (string, error) {
+	var first string
+	seen := make(map[string]struct{})
+	var distinct []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		distinct = append(distinct, value)
+		if first == "" {
+			first = value
+		}
+	}
+	if len(distinct) > 1 {
+		return "", fmt.Errorf("agvtool reported differing values for %s (%s)", scope, strings.Join(distinct, ", "))
+	}
+	return first, nil
 }
 
 // bumpVersionString increments a semver-style version string.

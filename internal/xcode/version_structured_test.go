@@ -688,6 +688,24 @@ func TestStructuredVersion_ScopedBumps(t *testing.T) {
 	})
 }
 
+func TestStructuredVersion_NonBuildBumpRejectsBuildOverrideWithoutMutation(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir:  project,
+		BumpType:    BumpPatch,
+		BuildNumber: "99",
+	})
+	if err == nil || !strings.Contains(err.Error(), "only supported for build bumps") {
+		t.Fatalf("expected build override usage error, got %v", err)
+	}
+	if after := mustReadVersionTestFile(t, pbxprojPath); after != before {
+		t.Fatal("project changed after rejected build override")
+	}
+}
+
 func TestStructuredVersion_BumpIncludesMutatedProjectSettingInBaseline(t *testing.T) {
 	project := writeStructuredVersionProject(t, false)
 	pbxprojPath := filepath.Join(project, "project.pbxproj")

@@ -1166,6 +1166,10 @@ func TestXcodeHelperProcess(t *testing.T) {
 	if len(commandArgs) >= 2 && commandArgs[0] == "agvtool" {
 		switch commandArgs[1] {
 		case "what-marketing-version":
+			if os.Getenv("ASC_XCODE_HELPER_DIVERGENT_CONFIGURATIONS") == "1" {
+				fmt.Fprint(os.Stdout, "App=1.2.3\nApp=2.0.0\n")
+				os.Exit(0)
+			}
 			if os.Getenv("ASC_XCODE_HELPER_SINGLE_TARGET") == "1" {
 				fmt.Fprint(os.Stdout, "App=1.2.3\n")
 				os.Exit(0)

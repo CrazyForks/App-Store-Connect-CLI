@@ -191,6 +191,20 @@ func TestParseAgvtoolVersionOutput_MissingTargetErrors(t *testing.T) {
 	}
 }
 
+func TestParseAgvtoolVersionOutput_RejectsDivergentConfigurationsForTarget(t *testing.T) {
+	_, err := parseAgvtoolVersionOutput("App=1.2.3\nApp=2.0.0\n", "App")
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected divergent configuration error, got %v", err)
+	}
+}
+
+func TestParseAgvtoolVersionOutput_RejectsDivergentConfigurationsWithoutTarget(t *testing.T) {
+	_, err := parseAgvtoolVersionOutput("App=1.2.3\nApp=2.0.0\n", "")
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected divergent configuration error, got %v", err)
+	}
+}
+
 func TestParseAgvtoolBuildOutput_TargetFilter(t *testing.T) {
 	got, err := parseAgvtoolBuildOutput("App=41\nExtension=7\n", "App")
 	if err != nil {
@@ -397,6 +411,24 @@ func TestBumpVersionLegacyRemoteBuildUsesRequestedNumber(t *testing.T) {
 	}
 	if strings.Contains(logText, "agvtool|next-version|-all") {
 		t.Fatalf("remote build bump incremented locally: %q", logText)
+	}
+}
+
+func TestGetConsistentMarketingVersionLegacyRejectsDivergentConfigurations(t *testing.T) {
+	projectDir := writeLegacyVersionProject(t)
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+
+	restore := overrideTestEnvironment(t)
+	runtimeGOOS = "darwin"
+	lookPathFn = func(file string) (string, error) { return "/usr/bin/" + file, nil }
+	commandContextFn = helperCommandContext(t, logPath)
+	t.Setenv("ASC_XCODE_HELPER_DIVERGENT_CONFIGURATIONS", "1")
+	t.Setenv("ASC_XCODE_HELPER_SINGLE_TARGET", "1")
+	t.Cleanup(restore)
+
+	_, err := GetConsistentMarketingVersion(context.Background(), GetVersionOptions{ProjectDir: projectDir})
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected divergent legacy configuration error, got %v", err)
 	}
 }
 
