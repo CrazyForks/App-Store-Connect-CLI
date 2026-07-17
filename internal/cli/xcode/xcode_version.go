@@ -15,6 +15,7 @@ import (
 var (
 	runGetVersion                    = localxcode.GetVersionScoped
 	runGetConsistentMarketingVersion = localxcode.GetConsistentMarketingVersion
+	runValidateSetVersion            = localxcode.ValidateSetVersion
 	runSetVersion                    = localxcode.SetVersion
 	runBumpVersion                   = localxcode.BumpVersion
 	runResolveXcodeNextBuildNumber   = resolveXcodeNextBuildNumber
@@ -220,6 +221,18 @@ func xcodeVersionEditCommand() *ffcli.Command {
 
 			projectInput := selectedProjectInput(*projectDir, *project)
 			if *remote.next {
+				if err := validateXcodeRemoteBuildNumberOptions(remote.options(v)); err != nil {
+					return err
+				}
+				if err := runValidateSetVersion(localxcode.SetVersionOptions{
+					ProjectDir:    projectInput,
+					Target:        strings.TrimSpace(*target),
+					Configuration: strings.TrimSpace(*configuration),
+					Version:       v,
+					BuildNumber:   "1",
+				}); err != nil {
+					return fmt.Errorf("xcode version edit: validate local mutation: %w", err)
+				}
 				versionFilter := v
 				if versionFilter == "" {
 					resolvedVersion, err := runGetConsistentMarketingVersion(ctx, localxcode.GetVersionOptions{
@@ -311,6 +324,17 @@ Examples:
 			projectInput := selectedProjectInput(*projectDir, *project)
 			remoteBuildNumber := ""
 			if *remote.next {
+				if err := validateXcodeRemoteBuildNumberOptions(remote.options("")); err != nil {
+					return err
+				}
+				if err := runValidateSetVersion(localxcode.SetVersionOptions{
+					ProjectDir:    projectInput,
+					Target:        strings.TrimSpace(*target),
+					Configuration: strings.TrimSpace(*configuration),
+					BuildNumber:   "1",
+				}); err != nil {
+					return fmt.Errorf("xcode version bump: validate local mutation: %w", err)
+				}
 				versionFilter, err := runGetConsistentMarketingVersion(ctx, localxcode.GetVersionOptions{
 					ProjectDir:    projectInput,
 					Target:        strings.TrimSpace(*target),
@@ -342,6 +366,9 @@ Examples:
 }
 
 func resolveXcodeNextBuildNumber(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
+	if err := validateXcodeRemoteBuildNumberOptions(opts); err != nil {
+		return "", err
+	}
 	selection, err := shared.NormalizeLatestBuildSelectionOptions(
 		opts.AppID,
 		opts.Version,
@@ -351,9 +378,6 @@ func resolveXcodeNextBuildNumber(ctx context.Context, opts xcodeRemoteBuildNumbe
 	)
 	if err != nil {
 		return "", err
-	}
-	if opts.InitialBuildNumber < 1 {
-		return "", shared.UsageError("--initial-build-number must be >= 1")
 	}
 	client, err := shared.GetASCClient()
 	if err != nil {
@@ -369,4 +393,20 @@ func resolveXcodeNextBuildNumber(ctx context.Context, opts xcodeRemoteBuildNumbe
 		return "", err
 	}
 	return result.NextBuildNumber, nil
+}
+
+func validateXcodeRemoteBuildNumberOptions(opts xcodeRemoteBuildNumberOptions) error {
+	if _, err := shared.NormalizeLatestBuildSelectionOptions(
+		opts.AppID,
+		opts.Version,
+		opts.Platform,
+		opts.ProcessingState,
+		opts.ExcludeExpired,
+	); err != nil {
+		return err
+	}
+	if opts.InitialBuildNumber < 1 {
+		return shared.UsageError("--initial-build-number must be >= 1")
+	}
+	return nil
 }

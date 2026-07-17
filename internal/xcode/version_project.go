@@ -138,9 +138,8 @@ func openStructuredVersionProject(projectInput string) (*structuredVersionProjec
 }
 
 func (project *structuredVersionProject) hasStructuredVersionSettingsForView(target, configuration string) (bool, error) {
-	anyStructured, err := project.hasAnyStructuredVersionConfiguration()
-	if err != nil || !anyStructured {
-		return anyStructured, err
+	if !project.hasAnyStructuredVersionConfiguration() {
+		return false, nil
 	}
 	selected, err := project.selectViewConfiguration(target, configuration)
 	if err != nil {
@@ -150,9 +149,8 @@ func (project *structuredVersionProject) hasStructuredVersionSettingsForView(tar
 }
 
 func (project *structuredVersionProject) hasStructuredVersionSettingsForMutation(target, configuration string) (bool, error) {
-	anyStructured, err := project.hasAnyStructuredVersionConfiguration()
-	if err != nil || !anyStructured {
-		return anyStructured, err
+	if !project.hasAnyStructuredVersionConfiguration() {
+		return false, nil
 	}
 	selected, err := project.selectMutationConfigurations(target, configuration)
 	if err != nil {
@@ -170,24 +168,20 @@ func (project *structuredVersionProject) hasStructuredVersionSettingsForMutation
 	return false, nil
 }
 
-func (project *structuredVersionProject) hasAnyStructuredVersionConfiguration() (bool, error) {
-	var firstErr error
+func (project *structuredVersionProject) hasAnyStructuredVersionConfiguration() bool {
 	for _, configuration := range project.configurations {
 		if configuration.projectLevel {
 			continue
 		}
 		structured, err := project.configurationDefinesStructuredSettings(configuration)
 		if err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("inspect structured settings for target %q configuration %q: %w", configuration.target, configuration.name, err)
-			}
 			continue
 		}
 		if structured {
-			return true, nil
+			return true
 		}
 	}
-	return false, firstErr
+	return false
 }
 
 func (project *structuredVersionProject) configurationDefinesStructuredSettings(configuration *versionConfiguration) (bool, error) {
@@ -701,7 +695,15 @@ func (project *structuredVersionProject) fileReferencePath(referenceID string) (
 	return filepath.Clean(filepath.Join(parts...)), nil
 }
 
-func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*SetVersionResult, error) {
+type setVersionValidation struct {
+	selected                   []*versionConfiguration
+	selectedIDs                map[string]bool
+	fileConsumers              map[string]map[string]bool
+	configFiles                map[string][]string
+	uncertainXCConfigConsumers bool
+}
+
+func (project *structuredVersionProject) validateSetVersion(opts SetVersionOptions) (*setVersionValidation, error) {
 	if err := validateVersionMutationValue("--version", opts.Version); err != nil {
 		return nil, err
 	}
@@ -741,6 +743,25 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 			}
 		}
 	}
+	return &setVersionValidation{
+		selected:                   selected,
+		selectedIDs:                selectedIDs,
+		fileConsumers:              fileConsumers,
+		configFiles:                configFiles,
+		uncertainXCConfigConsumers: uncertainXCConfigConsumers,
+	}, nil
+}
+
+func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*SetVersionResult, error) {
+	validation, err := project.validateSetVersion(opts)
+	if err != nil {
+		return nil, err
+	}
+	selected := validation.selected
+	selectedIDs := validation.selectedIDs
+	fileConsumers := validation.fileConsumers
+	configFiles := validation.configFiles
+	uncertainXCConfigConsumers := validation.uncertainXCConfigConsumers
 	xcconfigMutations := make(map[string]map[string]xcconfigMutation)
 	changes := make([]VersionChange, 0)
 	pbxprojChanged := false

@@ -179,6 +179,12 @@ func getVersionLegacy(ctx context.Context, projectDir, target string) (*VersionI
 
 // SetVersion sets the marketing version and/or build number.
 func SetVersion(ctx context.Context, opts SetVersionOptions) (*SetVersionResult, error) {
+	if err := validateVersionMutationValue("--version", opts.Version); err != nil {
+		return nil, err
+	}
+	if err := validateVersionMutationValue("--build-number", opts.BuildNumber); err != nil {
+		return nil, err
+	}
 	project, err := openStructuredVersionProject(opts.ProjectDir)
 	if err != nil {
 		return nil, err
@@ -197,11 +203,36 @@ func SetVersion(ctx context.Context, opts SetVersionOptions) (*SetVersionResult,
 	return setVersionLegacy(ctx, opts)
 }
 
-func setVersionLegacy(ctx context.Context, opts SetVersionOptions) (*SetVersionResult, error) {
-	if err := requireMacOS(); err != nil {
-		return nil, err
+// ValidateSetVersion verifies that a version mutation is locally valid and
+// editable without changing any files. Callers can use it before remote work.
+func ValidateSetVersion(opts SetVersionOptions) error {
+	if err := validateVersionMutationValue("--version", opts.Version); err != nil {
+		return err
 	}
-	if err := requireAgvtool(); err != nil {
+	if err := validateVersionMutationValue("--build-number", opts.BuildNumber); err != nil {
+		return err
+	}
+	project, err := openStructuredVersionProject(opts.ProjectDir)
+	if err != nil {
+		return err
+	}
+	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	if err != nil {
+		return err
+	}
+	if structured {
+		_, err := project.validateSetVersion(opts)
+		return err
+	}
+	structuredErr := fmt.Errorf("%w: selected Xcode configurations do not resolve both MARKETING_VERSION and CURRENT_PROJECT_VERSION", errStructuredVersionUnavailable)
+	if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" {
+		return fmt.Errorf("scoped edits require structured Xcode build settings: %w", structuredErr)
+	}
+	return validateSetVersionLegacy()
+}
+
+func setVersionLegacy(ctx context.Context, opts SetVersionOptions) (*SetVersionResult, error) {
+	if err := validateSetVersionLegacy(); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(opts.Target) != "" {
@@ -225,6 +256,13 @@ func setVersionLegacy(ctx context.Context, opts SetVersionOptions) (*SetVersionR
 	}
 
 	return result, nil
+}
+
+func validateSetVersionLegacy() error {
+	if err := requireMacOS(); err != nil {
+		return err
+	}
+	return requireAgvtool()
 }
 
 // BumpVersion increments the version or build number.

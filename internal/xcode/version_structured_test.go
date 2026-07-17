@@ -548,6 +548,66 @@ func TestStructuredVersion_SelectedDirectSettingsIgnoreUnrelatedBrokenXCConfig(t
 	}
 }
 
+func TestStructuredVersion_UnrelatedBrokenXCConfigDoesNotBlockLegacyRouting(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.ReplaceAll(contents, marketingVersionSetting, "LEGACY_MARKETING_VERSION")
+	contents = strings.ReplaceAll(contents, currentProjectSetting, "LEGACY_CURRENT_PROJECT_VERSION")
+	contents = strings.Replace(contents,
+		"\t\t111111111111111111111111 /* Project object */ = {",
+		"\t\tBBBBBBBBBBBBBBBBBBBBBBBB /* Broken.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configs/Missing.xcconfig; sourceTree = SOURCE_ROOT; };\n\t\t111111111111111111111111 /* Project object */ = {", 1)
+	contents = strings.Replace(contents,
+		"999999999999999999999995 /* Widget Debug */ = {isa = XCBuildConfiguration; buildSettings = { LEGACY_MARKETING_VERSION = 1.2.3; LEGACY_CURRENT_PROJECT_VERSION = 42; }; name = Debug; };",
+		"999999999999999999999995 /* Widget Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = BBBBBBBBBBBBBBBBBBBBBBBB; buildSettings = { LEGACY_MARKETING_VERSION = 1.2.3; LEGACY_CURRENT_PROJECT_VERSION = 42; }; name = Debug; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project.pbxproj) error = %v", err)
+	}
+
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	restore := overrideTestEnvironment(t)
+	runtimeGOOS = "darwin"
+	lookPathFn = func(file string) (string, error) { return "/usr/bin/" + file, nil }
+	commandContextFn = helperCommandContext(t, logPath)
+	t.Setenv("ASC_XCODE_HELPER_SINGLE_TARGET", "1")
+	t.Cleanup(restore)
+
+	view, err := GetVersionScoped(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App",
+	})
+	if err != nil {
+		t.Fatalf("GetVersionScoped() error = %v", err)
+	}
+	if view.Modern || view.Version != "1.2.3" || view.BuildNumber != "41" {
+		t.Fatalf("expected legacy routing, got %#v", view)
+	}
+}
+
+func TestValidateSetVersionDoesNotMutateProjectOrXCConfig(t *testing.T) {
+	project := writeStructuredVersionProject(t, true)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	xcconfigPath := filepath.Join(filepath.Dir(project), "Configs", "Shared.xcconfig")
+	pbxprojBefore := mustReadVersionTestFile(t, pbxprojPath)
+	xcconfigBefore := mustReadVersionTestFile(t, xcconfigPath)
+
+	err := ValidateSetVersion(SetVersionOptions{
+		ProjectDir:    project,
+		Target:        "App",
+		Configuration: "Release",
+		Version:       "9.8.7",
+		BuildNumber:   "654",
+	})
+	if err != nil {
+		t.Fatalf("ValidateSetVersion() error = %v", err)
+	}
+	if after := mustReadVersionTestFile(t, pbxprojPath); after != pbxprojBefore {
+		t.Fatal("project.pbxproj changed during validation")
+	}
+	if after := mustReadVersionTestFile(t, xcconfigPath); after != xcconfigBefore {
+		t.Fatal("xcconfig changed during validation")
+	}
+}
+
 func TestGetConsistentMarketingVersionRejectsDivergentSelectedScope(t *testing.T) {
 	project := writeStructuredVersionProject(t, false)
 	if _, err := SetVersion(context.Background(), SetVersionOptions{

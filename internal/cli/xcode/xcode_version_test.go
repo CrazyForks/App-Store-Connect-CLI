@@ -8,6 +8,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -269,13 +270,16 @@ func TestXcodeVersionEditRejectsExplicitAndRemoteBuildNumbers(t *testing.T) {
 
 func TestXcodeVersionEditResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 	originalConsistent := runGetConsistentMarketingVersion
+	originalValidate := runValidateSetVersion
 	originalSet := runSetVersion
 	originalResolve := runResolveXcodeNextBuildNumber
 	t.Cleanup(func() {
 		runGetConsistentMarketingVersion = originalConsistent
+		runValidateSetVersion = originalValidate
 		runSetVersion = originalSet
 		runResolveXcodeNextBuildNumber = originalResolve
 	})
+	runValidateSetVersion = func(opts localxcode.SetVersionOptions) error { return nil }
 
 	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
 		return "2.4.0", nil
@@ -314,13 +318,16 @@ func TestXcodeVersionEditResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 
 func TestXcodeVersionEditRemoteNumberRejectsDivergentLocalVersions(t *testing.T) {
 	originalConsistent := runGetConsistentMarketingVersion
+	originalValidate := runValidateSetVersion
 	originalResolve := runResolveXcodeNextBuildNumber
 	originalSet := runSetVersion
 	t.Cleanup(func() {
 		runGetConsistentMarketingVersion = originalConsistent
+		runValidateSetVersion = originalValidate
 		runResolveXcodeNextBuildNumber = originalResolve
 		runSetVersion = originalSet
 	})
+	runValidateSetVersion = func(opts localxcode.SetVersionOptions) error { return nil }
 
 	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
 		return "", errors.New("MARKETING_VERSION has differing values")
@@ -342,6 +349,64 @@ func TestXcodeVersionEditRemoteNumberRejectsDivergentLocalVersions(t *testing.T)
 	}
 }
 
+func TestXcodeVersionEditValidatesLocalMutationBeforeRemoteLookup(t *testing.T) {
+	originalResolve := runResolveXcodeNextBuildNumber
+	originalSet := runSetVersion
+	t.Cleanup(func() {
+		runResolveXcodeNextBuildNumber = originalResolve
+		runSetVersion = originalSet
+	})
+
+	remoteCalled := false
+	runResolveXcodeNextBuildNumber = func(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
+		remoteCalled = true
+		return "108", nil
+	}
+	runSetVersion = func(ctx context.Context, opts localxcode.SetVersionOptions) (*localxcode.SetVersionResult, error) {
+		return nil, errors.New("--version must be a static value without build-setting references")
+	}
+
+	_, _, err := runXcodeVersionCommand(t, []string{
+		"edit", "--project", "Missing.xcodeproj", "--version", "$(FOO)",
+		"--next-build-number", "--app", "123456789",
+	})
+	if err == nil || !strings.Contains(err.Error(), "static value") {
+		t.Fatalf("expected local validation error, got %v", err)
+	}
+	if remoteCalled {
+		t.Fatal("remote lookup ran before the local mutation was validated")
+	}
+}
+
+func TestXcodeVersionEditValidatesProjectBeforeRemoteLookup(t *testing.T) {
+	originalResolve := runResolveXcodeNextBuildNumber
+	originalSet := runSetVersion
+	t.Cleanup(func() {
+		runResolveXcodeNextBuildNumber = originalResolve
+		runSetVersion = originalSet
+	})
+
+	remoteCalled := false
+	runResolveXcodeNextBuildNumber = func(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
+		remoteCalled = true
+		return "108", nil
+	}
+	runSetVersion = func(ctx context.Context, opts localxcode.SetVersionOptions) (*localxcode.SetVersionResult, error) {
+		return nil, errors.New("no .xcodeproj found")
+	}
+
+	_, _, err := runXcodeVersionCommand(t, []string{
+		"edit", "--project", filepath.Join(t.TempDir(), "Missing.xcodeproj"), "--version", "2.4.0",
+		"--next-build-number", "--app", "123456789",
+	})
+	if err == nil || !strings.Contains(err.Error(), "no such file or directory") {
+		t.Fatalf("expected local project error, got %v", err)
+	}
+	if remoteCalled {
+		t.Fatal("remote lookup ran before the local project was validated")
+	}
+}
+
 func TestXcodeVersionBumpRemoteNumberRequiresBuildType(t *testing.T) {
 	_, stderr, err := runXcodeVersionCommand(t, []string{
 		"bump", "--type", "patch", "--next-build-number", "--app", "123456789",
@@ -356,13 +421,16 @@ func TestXcodeVersionBumpRemoteNumberRequiresBuildType(t *testing.T) {
 
 func TestXcodeVersionBumpResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 	originalConsistent := runGetConsistentMarketingVersion
+	originalValidate := runValidateSetVersion
 	originalBump := runBumpVersion
 	originalResolve := runResolveXcodeNextBuildNumber
 	t.Cleanup(func() {
 		runGetConsistentMarketingVersion = originalConsistent
+		runValidateSetVersion = originalValidate
 		runBumpVersion = originalBump
 		runResolveXcodeNextBuildNumber = originalResolve
 	})
+	runValidateSetVersion = func(opts localxcode.SetVersionOptions) error { return nil }
 
 	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
 		return "3.0.0", nil
@@ -403,13 +471,16 @@ func TestXcodeVersionBumpResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 
 func TestXcodeVersionBumpRemoteNumberRejectsDivergentLocalVersions(t *testing.T) {
 	originalConsistent := runGetConsistentMarketingVersion
+	originalValidate := runValidateSetVersion
 	originalResolve := runResolveXcodeNextBuildNumber
 	originalBump := runBumpVersion
 	t.Cleanup(func() {
 		runGetConsistentMarketingVersion = originalConsistent
+		runValidateSetVersion = originalValidate
 		runResolveXcodeNextBuildNumber = originalResolve
 		runBumpVersion = originalBump
 	})
+	runValidateSetVersion = func(opts localxcode.SetVersionOptions) error { return nil }
 
 	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
 		return "", errors.New("MARKETING_VERSION has differing values")
