@@ -61,12 +61,16 @@ type appStoreVersionLocalizationsQuery struct {
 
 type appInfoLocalizationsQuery struct {
 	listQuery
-	locales []string
+	locales       []string
+	appInfoFields []string
+	include       []string
 }
 
 type appInfoQuery struct {
-	include            []string
-	localizationsLimit int
+	fields                     []string
+	ageRatingDeclarationFields []string
+	include                    []string
+	localizationsLimit         int
 }
 
 type territoryAgeRatingsQuery struct {
@@ -242,13 +246,24 @@ func buildAppStoreVersionLocalizationsQuery(query *appStoreVersionLocalizationsQ
 func buildAppInfoLocalizationsQuery(query *appInfoLocalizationsQuery) string {
 	values := url.Values{}
 	addCSV(values, "filter[locale]", query.locales)
+	addCSV(values, "fields[appInfos]", query.appInfoFields)
+	addCSV(values, "include", query.include)
 	addLimit(values, query.limit)
 	return values.Encode()
 }
 
 func buildAppInfoQuery(query *appInfoQuery) string {
 	values := url.Values{}
-	addCSV(values, "include", query.include)
+	include := normalizeUniqueList(query.include)
+	fields := normalizeUniqueList(query.fields)
+	if len(fields) > 0 {
+		// A primary sparse fieldset must retain every included relationship or
+		// ASC can omit the linkage and included resource from the response.
+		fields = normalizeUniqueList(append(fields, include...))
+	}
+	addCSV(values, "fields[appInfos]", fields)
+	addCSV(values, "fields[ageRatingDeclarations]", query.ageRatingDeclarationFields)
+	addCSV(values, "include", include)
 	if query.localizationsLimit > 0 {
 		values.Set("limit[appInfoLocalizations]", strconv.Itoa(query.localizationsLimit))
 	}
@@ -791,6 +806,34 @@ func WithAppInfoLocalizationsNextURL(next string) AppInfoLocalizationsOption {
 func WithAppInfoLocalizationLocales(locales []string) AppInfoLocalizationsOption {
 	return func(q *appInfoLocalizationsQuery) {
 		q.locales = normalizeList(locales)
+	}
+}
+
+// WithAppInfoLocalizationsAppInfoFields sets fields[appInfos].
+func WithAppInfoLocalizationsAppInfoFields(fields []string) AppInfoLocalizationsOption {
+	return func(q *appInfoLocalizationsQuery) {
+		q.appInfoFields = normalizeList(fields)
+	}
+}
+
+// WithAppInfoLocalizationsInclude includes related resources.
+func WithAppInfoLocalizationsInclude(include []string) AppInfoLocalizationsOption {
+	return func(q *appInfoLocalizationsQuery) {
+		q.include = normalizeList(include)
+	}
+}
+
+// WithAppInfoFields sets fields[appInfos].
+func WithAppInfoFields(fields []string) AppInfoOption {
+	return func(q *appInfoQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
+// WithAppInfoAgeRatingDeclarationFields sets fields[ageRatingDeclarations].
+func WithAppInfoAgeRatingDeclarationFields(fields []string) AppInfoOption {
+	return func(q *appInfoQuery) {
+		q.ageRatingDeclarationFields = normalizeList(fields)
 	}
 }
 
