@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -322,25 +323,79 @@ func TestXcodeExportRequiresArchivePath(t *testing.T) {
 	}
 }
 
-func TestXcodeExportRequiresExportOptions(t *testing.T) {
+func TestXcodeExportWithoutExportOptionsPreflightsBeforeGeneration(t *testing.T) {
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
 
+	var runErr error
 	stdout, stderr := captureOutput(t, func() {
 		if err := root.Parse([]string{"xcode", "export", "--archive-path", "Demo.xcarchive", "--ipa-path", "Demo.ipa"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
-		err := root.Run(context.Background())
-		if !errors.Is(err, flag.ErrHelp) {
-			t.Fatalf("expected ErrHelp, got %v", err)
+		runErr = root.Run(context.Background())
+		if runErr == nil || errors.Is(runErr, flag.ErrHelp) {
+			t.Fatalf("expected archive generation error, got %v", runErr)
 		}
 	})
 
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "Error: --export-options is required") {
-		t.Fatalf("expected export-options error, got %q", stderr)
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if runtime.GOOS != "darwin" {
+		if !strings.Contains(runErr.Error(), "supported on macOS only") || !strings.Contains(runErr.Error(), runtime.GOOS) {
+			t.Fatalf("expected platform preflight error, got %v", runErr)
+		}
+		return
+	}
+	if !strings.Contains(runErr.Error(), "generate export options") || !strings.Contains(runErr.Error(), "Demo.xcarchive") {
+		t.Fatalf("expected automatic export-options generation error after preflight, got %v", runErr)
+	}
+}
+
+func TestXcodeExportRejectsInvalidImplicitDestinationAsUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		ipaPath   func(*testing.T) string
+		errorHint string
+	}{
+		{
+			name:      "invalid extension",
+			ipaPath:   func(t *testing.T) string { return filepath.Join(t.TempDir(), "Demo.zip") },
+			errorHint: "must end with .ipa",
+		},
+		{
+			name: "existing output without overwrite",
+			ipaPath: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "Demo.ipa")
+				if err := os.WriteFile(path, []byte("existing"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+			errorHint: "already exists",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			var runErr error
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse([]string{"xcode", "export", "--archive-path", "Demo.xcarchive", "--ipa-path", tc.ipaPath(t)}); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				runErr = root.Run(context.Background())
+			})
+			if !errors.Is(runErr, flag.ErrHelp) {
+				t.Fatalf("expected usage error, got %v", runErr)
+			}
+			if stdout != "" || !strings.Contains(stderr, tc.errorHint) {
+				t.Fatalf("unexpected output: stdout=%q stderr=%q", stdout, stderr)
+			}
+		})
 	}
 }
 
