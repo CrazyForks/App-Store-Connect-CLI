@@ -21,6 +21,7 @@ var (
 	runArchive                    = localxcode.Archive
 	runExport                     = localxcode.Export
 	runValidate                   = localxcode.Validate
+	runGenerateExportOptions      = localxcode.GenerateExportOptions
 	isDirectUploadExportOptionsFn = localxcode.IsDirectUploadMode
 	inferArchivePlatformFn        = localxcode.InferArchivePlatform
 	getASCClientFn                = shared.GetASCClient
@@ -62,7 +63,8 @@ be passed directly into asc upload and publish commands.
 Examples:
   asc xcode inject --manifest .asc/deployment.json --set version=1.3.0 --overwrite
   asc xcode archive --workspace App.xcworkspace --scheme App --archive-path .asc/artifacts/App.xcarchive --output json
-  asc xcode export --archive-path .asc/artifacts/App.xcarchive --export-options ExportOptions.plist --ipa-path .asc/artifacts/App.ipa --output json
+  asc xcode export --archive-path .asc/artifacts/App.xcarchive --ipa-path .asc/artifacts/App.ipa --output json
+  asc xcode export-options generate --archive-path .asc/artifacts/App.xcarchive
   asc xcode version view
   asc xcode version bump --type patch
   asc xcode version edit --version "1.3.0" --build-number "42"`,
@@ -72,6 +74,7 @@ Examples:
 			XcodeInjectCommand(),
 			XcodeArchiveCommand(),
 			XcodeExportCommand(),
+			XcodeExportOptionsGroupCommand(),
 			XcodeValidateCommand(),
 			XcodeVersionCommand(),
 		},
@@ -170,7 +173,7 @@ func XcodeExportCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("xcode export", flag.ExitOnError)
 
 	archivePath := fs.String("archive-path", "", "Path to the .xcarchive input (required)")
-	exportOptions := fs.String("export-options", "", "Path to ExportOptions.plist (required)")
+	exportOptions := fs.String("export-options", "", "Path to ExportOptions.plist (generated automatically when omitted)")
 	ipaPath := fs.String("ipa-path", "", "Destination path for a local .ipa when one is produced (required)")
 	overwrite := fs.Bool("overwrite", false, "Replace an existing IPA at --ipa-path")
 	wait := fs.Bool("wait", false, "Wait for App Store Connect build discovery and processing when export uploads directly")
@@ -187,6 +190,8 @@ func XcodeExportCommand() *ffcli.Command {
 		LongHelp: `Export an archive to a deterministic IPA path or direct upload.
 
 This command runs xcodebuild -exportArchive into a temporary directory.
+When --export-options is omitted, asc generates archive-adjacent options with
+automatic signing. It uses destination=upload with --wait, otherwise export.
 When ExportOptions.plist produces a local IPA, asc moves it to --ipa-path.
 When ExportOptions.plist uses destination=upload, xcodebuild uploads directly
 to App Store Connect and asc returns archive metadata without writing a local
@@ -194,8 +199,8 @@ IPA at --ipa-path. Use --wait to poll until the uploaded build appears and
 finishes processing.
 
 Examples:
-  asc xcode export --archive-path .asc/artifacts/App.xcarchive --export-options ExportOptions.plist --ipa-path .asc/artifacts/App.ipa
-  asc xcode export --archive-path .asc/artifacts/App.xcarchive --export-options ExportOptions.plist --ipa-path .asc/artifacts/App.ipa --timeout 10m
+  asc xcode export --archive-path .asc/artifacts/App.xcarchive --ipa-path .asc/artifacts/App.ipa
+  asc xcode export --archive-path .asc/artifacts/App.xcarchive --ipa-path .asc/artifacts/App.ipa --timeout 10m
   asc xcode export --archive-path .asc/artifacts/App.xcarchive --export-options UploadExportOptions.plist --ipa-path .asc/artifacts/App.ipa --wait
   asc xcode export --archive-path .asc/artifacts/App.xcarchive --export-options ExportOptions.plist --ipa-path .asc/artifacts/App.ipa --xcodebuild-flag=-allowProvisioningUpdates --output json`,
 		FlagSet:   fs,
@@ -209,10 +214,6 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --archive-path is required")
 				return shared.MissingRequiredUsageError()
 			}
-			if strings.TrimSpace(*exportOptions) == "" {
-				fmt.Fprintln(os.Stderr, "Error: --export-options is required")
-				return shared.MissingRequiredUsageError()
-			}
 			if strings.TrimSpace(*ipaPath) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --ipa-path is required")
 				return shared.MissingRequiredUsageError()
@@ -223,7 +224,32 @@ Examples:
 			if *timeout < 0 {
 				return shared.UsageError("--timeout must be zero or greater")
 			}
+			trimmedArchivePath := strings.TrimSpace(*archivePath)
 			exportOptionsPath := strings.TrimSpace(*exportOptions)
+			if exportOptionsPath == "" {
+				destination := "export"
+				if *wait {
+					destination = "upload"
+				}
+				generatedPath, err := localxcode.UniqueExportOptionsPathForArchive(trimmedArchivePath)
+				if err != nil {
+					return fmt.Errorf("xcode export: select export options path: %w", err)
+				}
+				generated, err := runGenerateExportOptions(ctx, localxcode.ExportOptionsGenerateOptions{
+					ArchivePath:  trimmedArchivePath,
+					OutputPath:   generatedPath,
+					Destination:  destination,
+					SigningStyle: "automatic",
+					Overwrite:    false,
+				})
+				if err != nil {
+					return fmt.Errorf("xcode export: generate export options: %w", err)
+				}
+				if generated == nil || strings.TrimSpace(generated.Path) == "" {
+					return fmt.Errorf("xcode export: generate export options: generator returned an empty path")
+				}
+				exportOptionsPath = strings.TrimSpace(generated.Path)
+			}
 			if *wait && !isDirectUploadExportOptionsFn(exportOptionsPath) {
 				return shared.UsageError("--wait requires ExportOptions.plist with destination=upload")
 			}
@@ -239,7 +265,7 @@ Examples:
 
 			exportStartedAt := time.Now()
 			result, err := runExport(exportCtx, localxcode.ExportOptions{
-				ArchivePath:    strings.TrimSpace(*archivePath),
+				ArchivePath:    trimmedArchivePath,
 				ExportOptions:  exportOptionsPath,
 				IPAPath:        strings.TrimSpace(*ipaPath),
 				Overwrite:      *overwrite,
@@ -257,11 +283,12 @@ Examples:
 				exportCompletedAt = exportStartedAt
 			}
 			commandResult := xcodeExportCommandResult{
-				ArchivePath: result.ArchivePath,
-				IPAPath:     result.IPAPath,
-				BundleID:    result.BundleID,
-				Version:     result.Version,
-				BuildNumber: result.BuildNumber,
+				ArchivePath:       result.ArchivePath,
+				ExportOptionsPath: exportOptionsPath,
+				IPAPath:           result.IPAPath,
+				BundleID:          result.BundleID,
+				Version:           result.Version,
+				BuildNumber:       result.BuildNumber,
 			}
 			if *wait {
 				if strings.TrimSpace(result.BundleID) == "" {
@@ -414,18 +441,20 @@ func archiveResultRows(result *localxcode.ArchiveResult) [][]string {
 }
 
 type xcodeExportCommandResult struct {
-	ArchivePath     string `json:"archive_path"`
-	IPAPath         string `json:"ipa_path"`
-	BundleID        string `json:"bundle_id,omitempty"`
-	Version         string `json:"version,omitempty"`
-	BuildNumber     string `json:"build_number,omitempty"`
-	BuildID         string `json:"build_id,omitempty"`
-	ProcessingState string `json:"processing_state,omitempty"`
+	ArchivePath       string `json:"archive_path"`
+	ExportOptionsPath string `json:"export_options_path"`
+	IPAPath           string `json:"ipa_path"`
+	BundleID          string `json:"bundle_id,omitempty"`
+	Version           string `json:"version,omitempty"`
+	BuildNumber       string `json:"build_number,omitempty"`
+	BuildID           string `json:"build_id,omitempty"`
+	ProcessingState   string `json:"processing_state,omitempty"`
 }
 
 func exportResultRows(result xcodeExportCommandResult) [][]string {
 	rows := [][]string{
 		{"archive_path", result.ArchivePath},
+		{"export_options_path", result.ExportOptionsPath},
 	}
 	if result.IPAPath != "" {
 		rows = append(rows, []string{"ipa_path", result.IPAPath})

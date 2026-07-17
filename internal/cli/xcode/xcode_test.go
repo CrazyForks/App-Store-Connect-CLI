@@ -1656,6 +1656,7 @@ func overrideXcodeCommandTestHooks(t *testing.T) func() {
 	originalRunArchive := runArchive
 	originalRunExport := runExport
 	originalRunValidate := runValidate
+	originalRunGenerateExportOptions := runGenerateExportOptions
 	originalIsDirectUpload := isDirectUploadExportOptionsFn
 	originalInferArchivePlatform := inferArchivePlatformFn
 	originalGetASCClient := getASCClientFn
@@ -1669,6 +1670,7 @@ func overrideXcodeCommandTestHooks(t *testing.T) func() {
 		runArchive = originalRunArchive
 		runExport = originalRunExport
 		runValidate = originalRunValidate
+		runGenerateExportOptions = originalRunGenerateExportOptions
 		isDirectUploadExportOptionsFn = originalIsDirectUpload
 		inferArchivePlatformFn = originalInferArchivePlatform
 		getASCClientFn = originalGetASCClient

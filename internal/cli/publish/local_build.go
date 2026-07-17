@@ -18,8 +18,11 @@ import (
 const defaultPublishExportOptionsPath = ".asc/export-options-app-store.plist"
 
 var (
-	runPublishArchiveFn   = localxcode.Archive
-	runPublishExportFn    = localxcode.Export
+	runPublishArchiveFn            = localxcode.Archive
+	runPublishExportFn             = localxcode.Export
+	generatePublishExportOptionsFn = func(ctx context.Context, opts localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+		return localxcode.GenerateExportOptions(ctx, opts)
+	}
 	getPublishASCClientFn = func(timeout time.Duration) (*asc.Client, error) {
 		if timeout > 0 {
 			return shared.GetASCClientWithTimeout(timeout)
@@ -175,7 +178,7 @@ func resolveLocalBuildConfig(values *publishLocalBuildFlagValues, platform, vers
 	if err != nil {
 		return publishLocalBuildConfig{}, err
 	}
-	if localxcode.IsDirectUploadMode(exportOptionsPath) {
+	if exportOptionsPath != "" && localxcode.IsDirectUploadMode(exportOptionsPath) {
 		return publishLocalBuildConfig{}, shared.UsageError("--export-options with destination=upload is not supported by publish; use export options that produce a local IPA")
 	}
 	config.ExportOptionsPath = exportOptionsPath
@@ -230,9 +233,31 @@ func runPublishLocalBuild(ctx context.Context, client *asc.Client, appID, platfo
 		return nil, fmt.Errorf("archive local build: %w", err)
 	}
 
+	exportOptionsPath := strings.TrimSpace(config.ExportOptionsPath)
+	if exportOptionsPath == "" {
+		generatedPath, err := localxcode.UniqueExportOptionsPathForArchive(archiveResult.ArchivePath)
+		if err != nil {
+			return nil, fmt.Errorf("select export options path for local build: %w", err)
+		}
+		generated, err := generatePublishExportOptionsFn(ctx, localxcode.ExportOptionsGenerateOptions{
+			ArchivePath:  archiveResult.ArchivePath,
+			OutputPath:   generatedPath,
+			Destination:  "export",
+			SigningStyle: "automatic",
+			Overwrite:    false,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("generate export options for local build: %w", err)
+		}
+		if generated == nil || strings.TrimSpace(generated.Path) == "" {
+			return nil, fmt.Errorf("generate export options for local build: generator returned an empty path")
+		}
+		exportOptionsPath = strings.TrimSpace(generated.Path)
+	}
+
 	exportResult, err := runPublishExportFn(ctx, localxcode.ExportOptions{
 		ArchivePath:    archiveResult.ArchivePath,
-		ExportOptions:  config.ExportOptionsPath,
+		ExportOptions:  exportOptionsPath,
 		IPAPath:        config.IPAPath,
 		Overwrite:      true,
 		XcodebuildArgs: publishExportXcodebuildArgs(config.ExportXcodebuildArgs),
@@ -256,7 +281,7 @@ func runPublishLocalBuild(ctx context.Context, client *asc.Client, appID, platfo
 			BundleID:          firstNonEmpty(strings.TrimSpace(exportResult.BundleID), strings.TrimSpace(archiveResult.BundleID)),
 			Version:           firstNonEmpty(strings.TrimSpace(exportResult.Version), strings.TrimSpace(archiveResult.Version), strings.TrimSpace(version)),
 			BuildNumber:       firstNonEmpty(strings.TrimSpace(exportResult.BuildNumber), strings.TrimSpace(archiveResult.BuildNumber), strings.TrimSpace(buildNumber)),
-			ExportOptionsPath: config.ExportOptionsPath,
+			ExportOptionsPath: exportOptionsPath,
 			DirectUpload:      strings.TrimSpace(exportResult.IPAPath) == "",
 		},
 		Version:     firstNonEmpty(strings.TrimSpace(exportResult.Version), strings.TrimSpace(archiveResult.Version), strings.TrimSpace(version)),
@@ -326,7 +351,7 @@ func resolvePublishExportOptionsPath(explicit string) (string, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("stat %s: %w", defaultPublishExportOptionsPath, err)
 	}
-	return "", shared.UsageError(fmt.Sprintf("--export-options is required in local-build mode when %s is missing", defaultPublishExportOptionsPath))
+	return "", nil
 }
 
 func defaultPublishArchivePath(scheme, platform, version, buildNumber string) string {

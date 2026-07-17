@@ -322,25 +322,29 @@ func TestXcodeExportRequiresArchivePath(t *testing.T) {
 	}
 }
 
-func TestXcodeExportRequiresExportOptions(t *testing.T) {
+func TestXcodeExportWithoutExportOptionsAttemptsAutomaticGeneration(t *testing.T) {
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
 
+	var runErr error
 	stdout, stderr := captureOutput(t, func() {
 		if err := root.Parse([]string{"xcode", "export", "--archive-path", "Demo.xcarchive", "--ipa-path", "Demo.ipa"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
-		err := root.Run(context.Background())
-		if !errors.Is(err, flag.ErrHelp) {
-			t.Fatalf("expected ErrHelp, got %v", err)
+		runErr = root.Run(context.Background())
+		if runErr == nil || errors.Is(runErr, flag.ErrHelp) {
+			t.Fatalf("expected archive generation error, got %v", runErr)
 		}
 	})
 
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "Error: --export-options is required") {
-		t.Fatalf("expected export-options error, got %q", stderr)
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if !strings.Contains(runErr.Error(), "generate export options") || !strings.Contains(runErr.Error(), "Demo.xcarchive") {
+		t.Fatalf("expected automatic export-options generation error, got %v", runErr)
 	}
 }
 

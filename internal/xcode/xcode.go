@@ -1245,12 +1245,33 @@ func readBundleInfoFromZip(file *zip.File) (bundleInfo, error) {
 }
 
 func inferArchivePlatformFromAppBundle(archivePath string, appProps map[string]any) (string, error) {
+	payload, err := readArchivedAppInfoPlist(archivePath, appProps)
+	if err != nil {
+		return "", err
+	}
+	platform := inferAppStorePlatformFromPlist(payload)
+	if platform == "" {
+		return "", fmt.Errorf("archived app Info.plist did not contain a supported platform marker")
+	}
+	return platform, nil
+}
+
+func readArchivedAppInfoPlist(archivePath string, appProps map[string]any) (map[string]any, error) {
 	applicationPath := coercePlistValueToString(appProps["ApplicationPath"])
 	if strings.TrimSpace(applicationPath) == "" {
-		return "", fmt.Errorf("archive Info.plist missing ApplicationPath")
+		return nil, fmt.Errorf("archive Info.plist missing ApplicationPath")
 	}
 
-	appBundlePath := filepath.Join(archivePath, "Products", filepath.FromSlash(applicationPath))
+	relativeApplicationPath := filepath.Clean(filepath.FromSlash(applicationPath))
+	if filepath.IsAbs(relativeApplicationPath) || relativeApplicationPath == ".." || strings.HasPrefix(relativeApplicationPath, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("archive Info.plist contains unsafe ApplicationPath %q", applicationPath)
+	}
+	productsPath := filepath.Join(archivePath, "Products")
+	appBundlePath := filepath.Join(productsPath, relativeApplicationPath)
+	relativeToProducts, err := filepath.Rel(productsPath, appBundlePath)
+	if err != nil || relativeToProducts == ".." || strings.HasPrefix(relativeToProducts, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("archive Info.plist contains unsafe ApplicationPath %q", applicationPath)
+	}
 	candidatePaths := []string{filepath.Join(appBundlePath, "Info.plist")}
 	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(appBundlePath)), ".app") {
 		candidatePaths = append(candidatePaths, filepath.Join(appBundlePath, "Contents", "Info.plist"))
@@ -1267,17 +1288,13 @@ func inferArchivePlatformFromAppBundle(archivePath string, appProps map[string]a
 		}
 	}
 	if lastErr != nil {
-		return "", fmt.Errorf("read archived app Info.plist: %w", lastErr)
+		return nil, fmt.Errorf("read archived app Info.plist: %w", lastErr)
 	}
 	var payload map[string]any
 	if _, err := plist.Unmarshal(data, &payload); err != nil {
-		return "", fmt.Errorf("decode archived app Info.plist: %w", err)
+		return nil, fmt.Errorf("decode archived app Info.plist: %w", err)
 	}
-	platform := inferAppStorePlatformFromPlist(payload)
-	if platform == "" {
-		return "", fmt.Errorf("archived app Info.plist did not contain a supported platform marker")
-	}
-	return platform, nil
+	return payload, nil
 }
 
 func inferAppStorePlatformFromPlist(payload map[string]any) string {
