@@ -19,6 +19,7 @@ func buildPlatformExportOptionsPayload(opts ExportOptionsGenerateOptions, teamID
 	if opts.SigningStyle == exportOptionsSigningStyleManual {
 		model.SigningCertificate = manual.SigningCertificate
 		model.BundleIDProvisioningProfileMapping = cloneProvisioningProfiles(manual.ProvisioningProfiles)
+		model.ICloudContainerEnvironment = exportoptions.ICloudContainerEnvironment(manual.ICloudContainerEnvironment)
 	}
 	return model.Hash()
 }

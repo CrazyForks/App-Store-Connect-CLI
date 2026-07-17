@@ -1257,6 +1257,15 @@ func inferArchivePlatformFromAppBundle(archivePath string, appProps map[string]a
 }
 
 func readArchivedAppInfoPlist(archivePath string, appProps map[string]any) (map[string]any, error) {
+	archiveRoot, err := os.OpenRoot(archivePath)
+	if err != nil {
+		return nil, fmt.Errorf("open archive: %w", err)
+	}
+	defer func() { _ = archiveRoot.Close() }()
+	return readArchivedAppInfoPlistFromRoot(archiveRoot, appProps)
+}
+
+func readArchivedAppInfoPlistFromRoot(archiveRoot *os.Root, appProps map[string]any) (map[string]any, error) {
 	applicationPath := coercePlistValueToString(appProps["ApplicationPath"])
 	if strings.TrimSpace(applicationPath) == "" {
 		return nil, fmt.Errorf("archive Info.plist missing ApplicationPath")
@@ -1266,8 +1275,7 @@ func readArchivedAppInfoPlist(archivePath string, appProps map[string]any) (map[
 	if filepath.IsAbs(relativeApplicationPath) || relativeApplicationPath == ".." || strings.HasPrefix(relativeApplicationPath, ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("archive Info.plist contains unsafe ApplicationPath %q", applicationPath)
 	}
-	productsPath := filepath.Join(archivePath, "Products")
-	productsRoot, err := os.OpenRoot(productsPath)
+	productsRoot, err := archiveRoot.OpenRoot("Products")
 	if err != nil {
 		return nil, fmt.Errorf("open archive Products directory: %w", err)
 	}

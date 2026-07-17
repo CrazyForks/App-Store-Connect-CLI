@@ -49,9 +49,10 @@ type ExportOptionsGenerateResult struct {
 // resolved installed certificates and profiles. It deliberately does not leak
 // Bitrise's v1 ExportOptions interface into ASC's public API.
 type manualExportOptions struct {
-	TeamID               string
-	SigningCertificate   string
-	ProvisioningProfiles map[string]string
+	TeamID                     string
+	SigningCertificate         string
+	ProvisioningProfiles       map[string]string
+	ICloudContainerEnvironment string
 }
 
 var (
@@ -244,7 +245,7 @@ func readArchiveExportOptionsTeamID(archivePath string) (string, error) {
 	if bundleID == "" {
 		return "", fmt.Errorf("archive Info.plist missing CFBundleIdentifier")
 	}
-	embeddedAppInfo, err := readArchivedAppInfoPlist(archivePath, applicationProperties)
+	embeddedAppInfo, err := readArchivedAppInfoPlistFromRoot(archiveRoot, applicationProperties)
 	if err != nil {
 		return "", fmt.Errorf("validate archived application: %w", err)
 	}

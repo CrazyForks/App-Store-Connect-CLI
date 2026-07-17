@@ -283,6 +283,30 @@ func TestGenerateExportOptions_RejectsMissingAndMalformedArchives(t *testing.T) 
 		}
 	})
 
+	t.Run("products symlink escapes archive", func(t *testing.T) {
+		archivePath := writeExportOptionsTestArchive(t, "TEAM123")
+		productsPath := filepath.Join(archivePath, "Products")
+		outsidePath := filepath.Join(t.TempDir(), "Products")
+		if err := os.Rename(productsPath, outsidePath); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsidePath, productsPath); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		outputPath := filepath.Join(t.TempDir(), "ExportOptions.plist")
+
+		_, err := GenerateExportOptions(context.Background(), ExportOptionsGenerateOptions{
+			ArchivePath: archivePath,
+			OutputPath:  outputPath,
+		})
+		if err == nil {
+			t.Fatal("expected archive Products symlink escape error")
+		}
+		if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("unsafe archive created output: %v", statErr)
+		}
+	})
+
 	t.Run("unsupported archived app platform", func(t *testing.T) {
 		archivePath := writeExportOptionsTestArchive(t, "TEAM123")
 		appInfoPath := filepath.Join(archivePath, "Products", "Applications", "Demo.app", "Info.plist")
@@ -598,8 +622,9 @@ func TestGenerateExportOptions_ManualSigningWritesResolvedCertificateAndProfiles
 			t.Fatalf("manual generator team ID = %q, want archive team", teamID)
 		}
 		return manualExportOptions{
-			TeamID:             teamID,
-			SigningCertificate: "Apple Distribution: Example (TEAM123)",
+			TeamID:                     teamID,
+			SigningCertificate:         "Apple Distribution: Example (TEAM123)",
+			ICloudContainerEnvironment: "Production",
 			ProvisioningProfiles: map[string]string{
 				"com.example.demo":        "main-profile-uuid",
 				"com.example.demo.widget": "widget-profile-uuid",
@@ -632,6 +657,9 @@ func TestGenerateExportOptions_ManualSigningWritesResolvedCertificateAndProfiles
 	}
 	if payload["signingCertificate"] != "Apple Distribution: Example (TEAM123)" {
 		t.Fatalf("plist signingCertificate = %#v", payload["signingCertificate"])
+	}
+	if payload["iCloudContainerEnvironment"] != "Production" {
+		t.Fatalf("plist iCloudContainerEnvironment = %#v", payload["iCloudContainerEnvironment"])
 	}
 	profiles, ok := payload["provisioningProfiles"].(map[string]any)
 	if !ok || profiles["com.example.demo"] != "main-profile-uuid" || profiles["com.example.demo.widget"] != "widget-profile-uuid" {

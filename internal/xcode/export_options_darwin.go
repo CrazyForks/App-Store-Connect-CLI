@@ -32,6 +32,7 @@ func buildPlatformExportOptionsPayload(opts ExportOptionsGenerateOptions, teamID
 	if opts.SigningStyle == exportOptionsSigningStyleManual {
 		model.SigningCertificate = manual.SigningCertificate
 		model.BundleIDProvisioningProfileMapping = cloneProvisioningProfiles(manual.ProvisioningProfiles)
+		model.ICloudContainerEnvironment = exportoptions.ICloudContainerEnvironment(manual.ICloudContainerEnvironment)
 	}
 	return model.Hash()
 }
@@ -128,9 +129,14 @@ func manualExportOptionsFromHash(payload map[string]interface{}) (manualExportOp
 	if err != nil {
 		return manualExportOptions{}, err
 	}
+	cloudEnvironment := ""
+	if value, ok := payload["iCloudContainerEnvironment"]; ok {
+		cloudEnvironment = strings.TrimSpace(fmt.Sprint(value))
+	}
 	return manualExportOptions{
-		TeamID:               strings.TrimSpace(coercePlistValueToString(payload["teamID"])),
-		SigningCertificate:   strings.TrimSpace(coercePlistValueToString(payload["signingCertificate"])),
-		ProvisioningProfiles: profiles,
+		TeamID:                     strings.TrimSpace(coercePlistValueToString(payload["teamID"])),
+		SigningCertificate:         strings.TrimSpace(coercePlistValueToString(payload["signingCertificate"])),
+		ProvisioningProfiles:       profiles,
+		ICloudContainerEnvironment: cloudEnvironment,
 	}, nil
 }

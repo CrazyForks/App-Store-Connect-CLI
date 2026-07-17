@@ -46,3 +46,23 @@ func TestGenerateManualExportOptionsRejectsMacOSArchiveClearly(t *testing.T) {
 		t.Fatalf("expected clear macOS archive rejection, got %v", err)
 	}
 }
+
+func TestManualExportOptionsFromHashPreservesCloudKitEnvironment(t *testing.T) {
+	manual, err := manualExportOptionsFromHash(map[string]interface{}{
+		"teamID":                     "TEAM123",
+		"signingCertificate":         "Apple Distribution: Example (TEAM123)",
+		"provisioningProfiles":       map[string]string{"com.example.demo": "profile-uuid"},
+		"iCloudContainerEnvironment": "Production",
+	})
+	if err != nil {
+		t.Fatalf("manualExportOptionsFromHash() error: %v", err)
+	}
+
+	payload := buildPlatformExportOptionsPayload(ExportOptionsGenerateOptions{
+		Destination:  exportOptionsDestinationExport,
+		SigningStyle: exportOptionsSigningStyleManual,
+	}, manual.TeamID, manual)
+	if fmt.Sprint(payload["iCloudContainerEnvironment"]) != "Production" {
+		t.Fatalf("iCloudContainerEnvironment = %#v, want Production", payload["iCloudContainerEnvironment"])
+	}
+}
