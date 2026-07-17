@@ -68,6 +68,19 @@ func TestXCConfigInheritedValueAndExactPrecedence(t *testing.T) {
 	}
 }
 
+func TestXCConfigResolverRejectsConditionalOnlySetting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Conditional.xcconfig")
+	contents := "CURRENT_PROJECT_VERSION[sdk=iphoneos*] = 41\nCURRENT_PROJECT_VERSION[sdk=macosx*] = 43\n"
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := resolveXCConfigSetting(path, currentProjectSetting)
+	if err == nil || !strings.Contains(err.Error(), "conditional") {
+		t.Fatalf("expected conditional-only setting error, got %v", err)
+	}
+}
+
 func TestXCConfigParserRejectsUnterminatedBlockComment(t *testing.T) {
 	_, err := parseXCConfig([]byte("MARKETING_VERSION = 1.0\n/* never closed"))
 	if err == nil {

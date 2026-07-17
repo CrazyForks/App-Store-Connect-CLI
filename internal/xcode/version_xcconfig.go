@@ -216,7 +216,17 @@ func collectXCConfigFiles(root string) ([]string, error) {
 }
 
 func resolveXCConfigSetting(root, setting string) (xcconfigResolvedValue, error) {
-	return resolveXCConfigSettingRecursive(filepath.Clean(root), setting, make(map[string]bool))
+	resolved, err := resolveXCConfigSettingRecursive(filepath.Clean(root), setting, make(map[string]bool))
+	if err != nil {
+		return xcconfigResolvedValue{}, err
+	}
+	if resolved.found && !resolved.exact {
+		return xcconfigResolvedValue{}, fmt.Errorf(
+			"%s is defined only by conditional xcconfig assignments; SDK-aware resolution requires Xcode",
+			setting,
+		)
+	}
+	return resolved, nil
 }
 
 func resolveXCConfigSettingRecursive(path, setting string, stack map[string]bool) (xcconfigResolvedValue, error) {

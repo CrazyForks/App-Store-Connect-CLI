@@ -270,6 +270,135 @@ func TestStructuredVersion_DefaultViewSelectsApplicationAndDefaultConfiguration(
 	}
 }
 
+func TestStructuredVersion_UnscopedBumpSupportsMultipleApplicationTargets(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		`productType = "com.apple.product-type.app-extension";`,
+		`productType = "com.apple.product-type.application";`, 1)
+	contents = strings.Replace(contents,
+		`explicitFileType = "wrapper.app-extension"; path = Widget.appex;`,
+		`explicitFileType = wrapper.application; path = Widget.app;`, 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+
+	result, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project,
+		BumpType:   BumpPatch,
+	})
+	if err != nil {
+		t.Fatalf("BumpVersion() error = %v", err)
+	}
+	if result.OldVersion != "1.2.3" || result.NewVersion != "1.2.4" {
+		t.Fatalf("unexpected unscoped bump result: %#v", result)
+	}
+	for _, target := range []string{"App", "Widget"} {
+		for _, configuration := range []string{"Debug", "Release"} {
+			if view := mustGetStructuredVersion(t, project, target, configuration); view.Version != "1.2.4" {
+				t.Fatalf("%s/%s version = %q, want 1.2.4", target, configuration, view.Version)
+			}
+		}
+	}
+}
+
+func TestStructuredVersion_BumpRejectsMissingSettingWithoutMutation(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"999999999999999999999996 /* Widget Release */ = {isa = XCBuildConfiguration; buildSettings = { MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Release; };",
+		"999999999999999999999996 /* Widget Release */ = {isa = XCBuildConfiguration; buildSettings = { CURRENT_PROJECT_VERSION = 42; }; name = Release; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project,
+		BumpType:   BumpPatch,
+	})
+	if err == nil || !strings.Contains(err.Error(), "MARKETING_VERSION") {
+		t.Fatalf("expected missing MARKETING_VERSION error, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("project changed after missing-setting validation failure")
+	}
+}
+
+func TestStructuredVersion_EditRejectsMissingSettingWithoutMutation(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"999999999999999999999996 /* Widget Release */ = {isa = XCBuildConfiguration; buildSettings = { MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Release; };",
+		"999999999999999999999996 /* Widget Release */ = {isa = XCBuildConfiguration; buildSettings = { CURRENT_PROJECT_VERSION = 42; }; name = Release; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	_, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project,
+		Version:    "2.0.0",
+	})
+	if err == nil || !strings.Contains(err.Error(), "MARKETING_VERSION") {
+		t.Fatalf("expected missing MARKETING_VERSION error, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("project changed after missing-setting edit validation failure")
+	}
+}
+
+func TestStructuredVersion_RejectsConditionalOnlyPBXProjValue(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"999999999999999999999994 /* App Release */ = {isa = XCBuildConfiguration;  buildSettings = { MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Release; };",
+		"999999999999999999999994 /* App Release */ = {isa = XCBuildConfiguration;  buildSettings = { MARKETING_VERSION = 1.2.3; \"CURRENT_PROJECT_VERSION[sdk=iphoneos*]\" = 42; \"CURRENT_PROJECT_VERSION[sdk=macosx*]\" = 43; }; name = Release; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+
+	_, err := GetVersionScoped(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release",
+	})
+	if err == nil || !strings.Contains(err.Error(), "conditional") {
+		t.Fatalf("expected conditional-only build-setting error, got %v", err)
+	}
+
+	result, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release", BuildNumber: "50",
+	})
+	if err != nil {
+		t.Fatalf("conditional-only direct edit should not need SDK resolution: %v", err)
+	}
+	if len(result.Changes) != 2 {
+		t.Fatalf("expected both conditional assignments to change, got %#v", result.Changes)
+	}
+	updated := mustReadVersionTestFile(t, pbxprojPath)
+	if !strings.Contains(updated, `"CURRENT_PROJECT_VERSION[sdk=iphoneos*]" = 50;`) ||
+		!strings.Contains(updated, `"CURRENT_PROJECT_VERSION[sdk=macosx*]" = 50;`) {
+		t.Fatalf("conditional assignments were not both edited: %s", updated)
+	}
+}
+
+func TestStructuredVersion_PartialBuildSettingsUseLegacyRouting(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := strings.ReplaceAll(mustReadVersionTestFile(t, pbxprojPath), "CURRENT_PROJECT_VERSION = 42;", "")
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+
+	_, err := openStructuredVersionProject(project)
+	if !errors.Is(err, errStructuredVersionUnavailable) {
+		t.Fatalf("expected partial project to use legacy routing, got %v", err)
+	}
+}
+
 func TestStructuredVersion_GroupRelativeXCConfigReference(t *testing.T) {
 	project := writeStructuredVersionProject(t, true)
 	pbxprojPath := filepath.Join(project, "project.pbxproj")
@@ -523,7 +652,7 @@ func writeStructuredVersionProject(t *testing.T, xcconfigBacked bool) string {
 		if err := os.WriteFile(filepath.Join(configDir, "App.xcconfig"), []byte("#include \"Shared.xcconfig\"\r\nOTHER_SETTING = YES\r\n"), 0o644); err != nil {
 			t.Fatalf("WriteFile(App.xcconfig) error = %v", err)
 		}
-		shared := "// leading comment\r\nMARKETING_VERSION = 1.2.3 // keep this comment\r\nCURRENT_PROJECT_VERSION[sdk=iphoneos*] = 42\r\n/* MARKETING_VERSION = 8.8.8; */\r\n"
+		shared := "// leading comment\r\nMARKETING_VERSION = 1.2.3 // keep this comment\r\nCURRENT_PROJECT_VERSION = 42\r\nCURRENT_PROJECT_VERSION[sdk=iphoneos*] = 42\r\n/* MARKETING_VERSION = 8.8.8; */\r\n"
 		if err := os.WriteFile(filepath.Join(configDir, "Shared.xcconfig"), []byte(shared), 0o640); err != nil {
 			t.Fatalf("WriteFile(Shared.xcconfig) error = %v", err)
 		}

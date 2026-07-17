@@ -227,14 +227,6 @@ func setVersionLegacy(ctx context.Context, opts SetVersionOptions) (*SetVersionR
 func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResult, error) {
 	project, err := openStructuredVersionProject(opts.ProjectDir)
 	if err == nil {
-		current, err := project.versionInfo(GetVersionOptions{
-			ProjectDir:    opts.ProjectDir,
-			Target:        opts.Target,
-			Configuration: opts.Configuration,
-		})
-		if err != nil {
-			return nil, err
-		}
 		result := &BumpVersionResult{
 			BumpType:      string(opts.BumpType),
 			ProjectDir:    project.rootDir,
@@ -247,13 +239,14 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 			Configuration: opts.Configuration,
 		}
 		if opts.BumpType == BumpBuild {
-			result.OldBuild = current.BuildNumber
+			currentBuild, err := project.bumpBaseline(opts, currentProjectSetting, strings.TrimSpace(opts.BuildNumber) == "")
+			if err != nil {
+				return nil, err
+			}
+			result.OldBuild = currentBuild
 			newBuild := strings.TrimSpace(opts.BuildNumber)
 			if newBuild == "" {
-				if err := project.validateConsistentBumpScope(opts, currentProjectSetting, current.BuildNumber); err != nil {
-					return nil, err
-				}
-				newBuild, err = incrementBuildString(current.BuildNumber)
+				newBuild, err = incrementBuildString(currentBuild)
 				if err != nil {
 					return nil, fmt.Errorf("failed to increment build number: %w", err)
 				}
@@ -261,11 +254,12 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 			setOptions.BuildNumber = newBuild
 			result.NewBuild = newBuild
 		} else {
-			result.OldVersion = current.Version
-			if err := project.validateConsistentBumpScope(opts, marketingVersionSetting, current.Version); err != nil {
+			currentVersion, err := project.bumpBaseline(opts, marketingVersionSetting, true)
+			if err != nil {
 				return nil, err
 			}
-			newVersion, err := bumpVersionString(current.Version, opts.BumpType)
+			result.OldVersion = currentVersion
+			newVersion, err := bumpVersionString(currentVersion, opts.BumpType)
 			if err != nil {
 				return nil, err
 			}

@@ -106,16 +106,18 @@ func openStructuredVersionProject(projectInput string) (*structuredVersionProjec
 		return nil, err
 	}
 	if !structured {
-		return nil, fmt.Errorf("%w: project does not define %s or %s in build settings", errStructuredVersionUnavailable, marketingVersionSetting, currentProjectSetting)
+		return nil, fmt.Errorf("%w: project does not define both %s and %s in build settings", errStructuredVersionUnavailable, marketingVersionSetting, currentProjectSetting)
 	}
 	return project, nil
 }
 
 func (project *structuredVersionProject) hasStructuredVersionSettings() (bool, error) {
+	found := map[string]bool{}
 	for _, configuration := range project.configurations {
-		if len(matchingBuildSettingKeys(configuration.buildSettings, marketingVersionSetting)) > 0 ||
-			len(matchingBuildSettingKeys(configuration.buildSettings, currentProjectSetting)) > 0 {
-			return true, nil
+		for _, setting := range []string{marketingVersionSetting, currentProjectSetting} {
+			if len(matchingBuildSettingKeys(configuration.buildSettings, setting)) > 0 {
+				found[setting] = true
+			}
 		}
 	}
 	for _, configuration := range project.configurations {
@@ -131,16 +133,19 @@ func (project *structuredVersionProject) hasStructuredVersionSettings() (bool, e
 			return false, fmt.Errorf("resolve xcconfig for target %q configuration %q: %w", configuration.target, configuration.name, err)
 		}
 		for _, setting := range []string{marketingVersionSetting, currentProjectSetting} {
+			if found[setting] {
+				continue
+			}
 			defining, err := xcconfigFilesDefining(paths, setting)
 			if err != nil {
 				return false, err
 			}
 			if len(defining) > 0 {
-				return true, nil
+				found[setting] = true
 			}
 		}
 	}
-	return false, nil
+	return found[marketingVersionSetting] && found[currentProjectSetting], nil
 }
 
 func (project *structuredVersionProject) indexConfigurations() error {
@@ -311,7 +316,11 @@ func (project *structuredVersionProject) selectMutationConfigurations(targetName
 }
 
 func (project *structuredVersionProject) resolveSetting(configuration *versionConfiguration, setting string) (string, string, error) {
-	if value, ok := directBuildSetting(configuration.buildSettings, setting); ok {
+	value, ok, err := directBuildSetting(configuration.buildSettings, setting)
+	if err != nil {
+		return "", "", err
+	}
+	if ok {
 		return project.expandSettingReferences(configuration, value, map[string]bool{setting: true})
 	}
 	if configuration.baseReferenceID != "" {
@@ -336,23 +345,18 @@ func (project *structuredVersionProject) resolveSetting(configuration *versionCo
 	return "", "", fmt.Errorf("%s: %w", setting, errVersionSettingNotFound)
 }
 
-func directBuildSetting(settings serialized.Object, setting string) (string, bool) {
+func directBuildSetting(settings serialized.Object, setting string) (string, bool, error) {
 	if value, ok := settings[setting].(string); ok {
-		return value, true
+		return value, true, nil
 	}
-	var keys []string
-	for key := range settings {
-		if xcconfigBaseKey(key) == setting {
-			keys = append(keys, key)
-		}
+	keys := matchingBuildSettingKeys(settings, setting)
+	if len(keys) > 0 {
+		return "", false, fmt.Errorf(
+			"%s is defined only by conditional build settings (%s); SDK-aware resolution requires Xcode",
+			setting, strings.Join(keys, ", "),
+		)
 	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if value, ok := settings[key].(string); ok {
-			return value, true
-		}
-	}
-	return "", false
+	return "", false, nil
 }
 
 func (project *structuredVersionProject) expandSettingReferences(configuration *versionConfiguration, value string, stack map[string]bool) (string, string, error) {
@@ -387,7 +391,11 @@ func (project *structuredVersionProject) expandSettingReferences(configuration *
 }
 
 func (project *structuredVersionProject) resolveSettingReference(configuration *versionConfiguration, setting string, stack map[string]bool) (string, string, error) {
-	if value, ok := directBuildSetting(configuration.buildSettings, setting); ok {
+	value, ok, err := directBuildSetting(configuration.buildSettings, setting)
+	if err != nil {
+		return "", "", err
+	}
+	if ok {
 		return project.expandSettingReferences(configuration, value, stack)
 	}
 	if configuration.baseReferenceID != "" {
@@ -421,27 +429,48 @@ func (project *structuredVersionProject) projectConfiguration(name string) *vers
 	return nil
 }
 
-func (project *structuredVersionProject) validateConsistentBumpScope(opts BumpVersionOptions, setting, baseline string) error {
+func (project *structuredVersionProject) bumpBaseline(opts BumpVersionOptions, setting string, requireConsistent bool) (string, error) {
 	selected, err := project.selectMutationConfigurations(opts.Target, opts.Configuration)
 	if err != nil {
-		return err
+		return "", err
 	}
+	selected = effectiveMutationConfigurations(selected)
+	baseline := ""
+	baselineSet := false
 	for _, configuration := range selected {
 		value, _, err := project.resolveSetting(configuration, setting)
-		if errors.Is(err, errVersionSettingNotFound) {
+		if err != nil {
+			return "", fmt.Errorf("resolve %s for target %q configuration %q: %w", setting, configuration.target, configuration.name, err)
+		}
+		if !baselineSet {
+			baseline = value
+			baselineSet = true
 			continue
 		}
-		if err != nil {
-			return fmt.Errorf("resolve %s for target %q configuration %q: %w", setting, configuration.target, configuration.name, err)
-		}
-		if value != baseline {
-			return fmt.Errorf(
+		if requireConsistent && value != baseline {
+			return "", fmt.Errorf(
 				"cannot bump %s across differing values (%q for target %q configuration %q, baseline %q); narrow with --target and --configuration",
 				setting, value, configuration.target, configuration.name, baseline,
 			)
 		}
 	}
-	return nil
+	if !baselineSet {
+		return "", fmt.Errorf("%s not found in selected Xcode configurations", setting)
+	}
+	return baseline, nil
+}
+
+func effectiveMutationConfigurations(selected []*versionConfiguration) []*versionConfiguration {
+	var targetConfigurations []*versionConfiguration
+	for _, configuration := range selected {
+		if !configuration.projectLevel {
+			targetConfigurations = append(targetConfigurations, configuration)
+		}
+	}
+	if len(targetConfigurations) > 0 {
+		return targetConfigurations
+	}
+	return selected
 }
 
 func (project *structuredVersionProject) fileReferencePath(referenceID string) (string, error) {
@@ -510,6 +539,26 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 	fileConsumers, configFiles, err := project.xcconfigConsumers()
 	if err != nil {
 		return nil, err
+	}
+	for _, requested := range []struct {
+		name  string
+		value string
+	}{
+		{name: marketingVersionSetting, value: strings.TrimSpace(opts.Version)},
+		{name: currentProjectSetting, value: strings.TrimSpace(opts.BuildNumber)},
+	} {
+		if requested.value == "" {
+			continue
+		}
+		for _, configuration := range effectiveMutationConfigurations(selected) {
+			mutable, err := project.configurationCanMutateSetting(configuration, requested.name, configFiles)
+			if err != nil {
+				return nil, err
+			}
+			if !mutable {
+				return nil, fmt.Errorf("%s not found for target %q configuration %q", requested.name, configuration.target, configuration.name)
+			}
+		}
 	}
 	xcconfigMutations := make(map[string]map[string]xcconfigMutation)
 	changes := make([]VersionChange, 0)
@@ -630,6 +679,38 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 		ChangedFiles:  changedFiles,
 		Changes:       changes,
 	}, nil
+}
+
+func (project *structuredVersionProject) configurationCanMutateSetting(
+	configuration *versionConfiguration,
+	setting string,
+	configFiles map[string][]string,
+) (bool, error) {
+	if len(matchingBuildSettingKeys(configuration.buildSettings, setting)) > 0 {
+		return true, nil
+	}
+	defining, err := xcconfigFilesDefining(configFiles[configuration.id], setting)
+	if err != nil {
+		return false, err
+	}
+	if len(defining) > 0 {
+		return true, nil
+	}
+	if !configuration.projectLevel {
+		if ancestor := project.projectConfiguration(configuration.name); ancestor != nil {
+			if len(matchingBuildSettingKeys(ancestor.buildSettings, setting)) > 0 {
+				return true, nil
+			}
+			defining, err := xcconfigFilesDefining(configFiles[ancestor.id], setting)
+			if err != nil {
+				return false, err
+			}
+			if len(defining) > 0 {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 func configurationProvidesScheduledSetting(

@@ -88,8 +88,11 @@ graph are updated.
 Reads resolve direct pbxproj settings, registered xcconfig values, and simple
 build-setting references locally. Unresolved build-system variables produce an
 explicit error rather than an invented value; callers can use Xcode when
-SDK-specific resolution is required. Legacy projects with versions stored only
-in Info.plist retain the macOS/agvtool fallback.
+SDK-specific resolution is required. Conditional-only values are editable, but
+cannot be used as a view or bump baseline without an unconditional value.
+Projects that define only one of the two structured version settings retain the
+macOS/agvtool fallback, as do legacy projects with versions stored only in
+Info.plist.
 
 Every output file is prepared and validated before mutation. Writes use a
 same-directory temporary file, preserve the original mode, `fsync`, and rename.
@@ -117,8 +120,9 @@ Characterization and regression coverage will include:
 - optional/missing includes, include cycles, shared includes, comments, quoted
   values, conditional keys, CRLF, no final newline, and unchanged byte regions;
 - malformed pbxproj/xcconfig, missing settings, ambiguous targets/configurations,
-  unsafe values, symlinks, permissions, write failures, rollback, and atomic
-  replacement;
+  multiple application targets, conditional-only baselines, partially migrated
+  projects, unsafe values, symlinks, permissions, write failures, rollback, and
+  atomic replacement;
 - cross-platform view/edit/bump without `agvtool` for modern projects;
 - remote next-build-number validation, API errors, in-flight uploads, and JSON;
 - Xcode 26 and Xcode 27 project copies, reparsed and checked with
