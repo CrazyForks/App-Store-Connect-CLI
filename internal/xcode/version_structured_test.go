@@ -1166,6 +1166,70 @@ func TestStructuredVersion_XCConfigPermissionsArePreserved(t *testing.T) {
 	}
 }
 
+func TestStructuredVersion_ScopedEditTreatsXCConfigSymlinkAliasAsSharedConsumer(t *testing.T) {
+	project := writeStructuredVersionProject(t, true)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	configDir := filepath.Join(filepath.Dir(project), "Configs")
+	sharedPath := filepath.Join(configDir, "Shared.xcconfig")
+	aliasPath := filepath.Join(configDir, "Alias.xcconfig")
+	sharedBefore := mustReadVersionTestFile(t, sharedPath)
+
+	projectContents := mustReadVersionTestFile(t, pbxprojPath)
+	projectContents = strings.Replace(
+		projectContents,
+		"AAAAAAAAAAAAAAAAAAAAAAAA /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configs/App.xcconfig; sourceTree = SOURCE_ROOT; };",
+		"AAAAAAAAAAAAAAAAAAAAAAAA /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configs/App.xcconfig; sourceTree = SOURCE_ROOT; };\n\t\tBBBBBBBBBBBBBBBBBBBBBBBB /* Alias.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configs/Alias.xcconfig; sourceTree = SOURCE_ROOT; };",
+		1,
+	)
+	projectContents = strings.Replace(
+		projectContents,
+		"999999999999999999999993 /* App Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = AAAAAAAAAAAAAAAAAAAAAAAA;",
+		"999999999999999999999993 /* App Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = BBBBBBBBBBBBBBBBBBBBBBBB;",
+		1,
+	)
+	if err := os.WriteFile(pbxprojPath, []byte(projectContents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project.pbxproj) error = %v", err)
+	}
+	if err := os.Symlink("Shared.xcconfig", aliasPath); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	result, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir:    project,
+		Target:        "App",
+		Configuration: "Release",
+		Version:       "2.0.0",
+	})
+	if err != nil {
+		t.Fatalf("SetVersion() error = %v", err)
+	}
+	if got := mustReadVersionTestFile(t, sharedPath); got != sharedBefore {
+		t.Fatalf("shared xcconfig changed through its regular path despite an unselected alias consumer: %q", got)
+	}
+	if len(result.ChangedFiles) != 1 || result.ChangedFiles[0] != pbxprojPath {
+		t.Fatalf("expected only a scoped pbxproj override, got %#v", result.ChangedFiles)
+	}
+
+	release, err := GetVersionScoped(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release",
+	})
+	if err != nil {
+		t.Fatalf("GetVersionScoped(Release) error = %v", err)
+	}
+	if release.Version != "2.0.0" {
+		t.Fatalf("Release version = %q, want 2.0.0", release.Version)
+	}
+	debug, err := GetVersionScoped(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Debug",
+	})
+	if err != nil {
+		t.Fatalf("GetVersionScoped(Debug) error = %v", err)
+	}
+	if debug.Version != "1.2.3" {
+		t.Fatalf("Debug version = %q, want unchanged 1.2.3", debug.Version)
+	}
+}
+
 func TestStructuredVersion_RefusesXCConfigSymlinkBeforeMutation(t *testing.T) {
 	project := writeStructuredVersionProject(t, true)
 	pbxprojPath := filepath.Join(project, "project.pbxproj")

@@ -721,6 +721,7 @@ type setVersionValidation struct {
 	selected                   []*versionConfiguration
 	selectedIDs                map[string]bool
 	fileConsumers              map[string]map[string]bool
+	fileIdentities             map[string]string
 	configFiles                map[string][]string
 	uncertainXCConfigConsumers bool
 }
@@ -741,7 +742,7 @@ func (project *structuredVersionProject) validateSetVersion(opts SetVersionOptio
 		selectedIDs[configuration.id] = true
 	}
 
-	fileConsumers, configFiles, uncertainXCConfigConsumers, err := project.xcconfigConsumers(selectedIDs)
+	fileConsumers, configFiles, fileIdentities, uncertainXCConfigConsumers, err := project.xcconfigConsumers(selectedIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -761,6 +762,7 @@ func (project *structuredVersionProject) validateSetVersion(opts SetVersionOptio
 				requested.name,
 				configFiles,
 				fileConsumers,
+				fileIdentities,
 				selectedIDs,
 				uncertainXCConfigConsumers,
 				strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "",
@@ -777,6 +779,7 @@ func (project *structuredVersionProject) validateSetVersion(opts SetVersionOptio
 		selected:                   selected,
 		selectedIDs:                selectedIDs,
 		fileConsumers:              fileConsumers,
+		fileIdentities:             fileIdentities,
 		configFiles:                configFiles,
 		uncertainXCConfigConsumers: uncertainXCConfigConsumers,
 	}, nil
@@ -790,6 +793,7 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 	selected := validation.selected
 	selectedIDs := validation.selectedIDs
 	fileConsumers := validation.fileConsumers
+	fileIdentities := validation.fileIdentities
 	configFiles := validation.configFiles
 	uncertainXCConfigConsumers := validation.uncertainXCConfigConsumers
 	xcconfigMutations := make(map[string]map[string]xcconfigMutation)
@@ -836,7 +840,7 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 				return nil, err
 			}
 			if len(assignmentFiles) > 0 {
-				if !uncertainXCConfigConsumers && consumersSelected(assignmentFiles, fileConsumers, selectedIDs) {
+				if !uncertainXCConfigConsumers && consumersSelected(assignmentFiles, fileConsumers, fileIdentities, selectedIDs) {
 					handled[configuration.id] = true
 					for _, path := range assignmentFiles {
 						if xcconfigMutations[path] == nil {
@@ -935,6 +939,7 @@ func (project *structuredVersionProject) configurationCanMutateSetting(
 	setting string,
 	configFiles map[string][]string,
 	fileConsumers map[string]map[string]bool,
+	fileIdentities map[string]string,
 	selectedIDs map[string]bool,
 	uncertainXCConfigConsumers bool,
 	scoped bool,
@@ -947,7 +952,7 @@ func (project *structuredVersionProject) configurationCanMutateSetting(
 		return false, err
 	}
 	if len(defining) > 0 {
-		if !scoped || (!uncertainXCConfigConsumers && consumersSelected(defining, fileConsumers, selectedIDs)) {
+		if !scoped || (!uncertainXCConfigConsumers && consumersSelected(defining, fileConsumers, fileIdentities, selectedIDs)) {
 			return true, nil
 		}
 		_, _, resolveErr := project.resolveSetting(configuration, setting)
@@ -965,7 +970,7 @@ func (project *structuredVersionProject) configurationCanMutateSetting(
 			if err != nil {
 				return false, err
 			}
-			if len(defining) > 0 && (!scoped || (selectedIDs[ancestor.id] && !uncertainXCConfigConsumers && consumersSelected(defining, fileConsumers, selectedIDs))) {
+			if len(defining) > 0 && (!scoped || (selectedIDs[ancestor.id] && !uncertainXCConfigConsumers && consumersSelected(defining, fileConsumers, fileIdentities, selectedIDs))) {
 				return true, nil
 			}
 		}
@@ -1054,9 +1059,39 @@ func validateVersionMutationValue(flagName, value string) error {
 	return nil
 }
 
-func (project *structuredVersionProject) xcconfigConsumers(selectedIDs map[string]bool) (map[string]map[string]bool, map[string][]string, bool, error) {
+type xcconfigFileIdentity struct {
+	key  string
+	info os.FileInfo
+}
+
+type xcconfigFileIdentityIndex struct {
+	entries []xcconfigFileIdentity
+}
+
+func (index *xcconfigFileIdentityIndex) identity(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range index.entries {
+		if os.SameFile(info, entry.info) {
+			return entry.key, nil
+		}
+	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	key := filepath.Clean(absolutePath)
+	index.entries = append(index.entries, xcconfigFileIdentity{key: key, info: info})
+	return key, nil
+}
+
+func (project *structuredVersionProject) xcconfigConsumers(selectedIDs map[string]bool) (map[string]map[string]bool, map[string][]string, map[string]string, bool, error) {
 	consumers := make(map[string]map[string]bool)
 	configFiles := make(map[string][]string)
+	fileIdentities := make(map[string]string)
+	identityIndex := xcconfigFileIdentityIndex{}
 	uncertainConsumers := false
 	for _, configuration := range project.configurations {
 		if configuration.baseReferenceID == "" {
@@ -1065,7 +1100,7 @@ func (project *structuredVersionProject) xcconfigConsumers(selectedIDs map[strin
 		root, err := project.fileReferencePath(configuration.baseReferenceID)
 		if err != nil {
 			if selectedIDs[configuration.id] {
-				return nil, nil, false, err
+				return nil, nil, nil, false, err
 			}
 			uncertainConsumers = true
 			continue
@@ -1073,20 +1108,29 @@ func (project *structuredVersionProject) xcconfigConsumers(selectedIDs map[strin
 		files, err := collectXCConfigFiles(root)
 		if err != nil {
 			if selectedIDs[configuration.id] {
-				return nil, nil, false, fmt.Errorf("resolve xcconfig for target %q configuration %q: %w", configuration.target, configuration.name, err)
+				return nil, nil, nil, false, fmt.Errorf("resolve xcconfig for target %q configuration %q: %w", configuration.target, configuration.name, err)
 			}
 			uncertainConsumers = true
 			continue
 		}
 		configFiles[configuration.id] = files
 		for _, path := range files {
-			if consumers[path] == nil {
-				consumers[path] = make(map[string]bool)
+			identity, err := identityIndex.identity(path)
+			if err != nil {
+				if selectedIDs[configuration.id] {
+					return nil, nil, nil, false, fmt.Errorf("identify xcconfig for target %q configuration %q: %w", configuration.target, configuration.name, err)
+				}
+				uncertainConsumers = true
+				continue
 			}
-			consumers[path][configuration.id] = true
+			fileIdentities[path] = identity
+			if consumers[identity] == nil {
+				consumers[identity] = make(map[string]bool)
+			}
+			consumers[identity][configuration.id] = true
 		}
 	}
-	return consumers, configFiles, uncertainConsumers, nil
+	return consumers, configFiles, fileIdentities, uncertainConsumers, nil
 }
 
 func xcconfigFilesDefining(paths []string, setting string) ([]string, error) {
@@ -1110,9 +1154,13 @@ func xcconfigFilesDefining(paths []string, setting string) ([]string, error) {
 	return defining, nil
 }
 
-func consumersSelected(paths []string, consumers map[string]map[string]bool, selected map[string]bool) bool {
+func consumersSelected(paths []string, consumers map[string]map[string]bool, identities map[string]string, selected map[string]bool) bool {
 	for _, path := range paths {
-		for configurationID := range consumers[path] {
+		identity, ok := identities[path]
+		if !ok {
+			return false
+		}
+		for configurationID := range consumers[identity] {
 			if !selected[configurationID] {
 				return false
 			}
