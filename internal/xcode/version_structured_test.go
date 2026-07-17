@@ -454,6 +454,63 @@ func TestStructuredVersion_PartialBuildSettingsUseLegacyRouting(t *testing.T) {
 	}
 }
 
+func TestStructuredVersion_SelectedDirectSettingsIgnoreUnrelatedBrokenXCConfig(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"\t\t111111111111111111111111 /* Project object */ = {",
+		"\t\tBBBBBBBBBBBBBBBBBBBBBBBB /* Broken.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configs/Broken.xcconfig; sourceTree = SOURCE_ROOT; };\n\t\t111111111111111111111111 /* Project object */ = {", 1)
+	contents = strings.Replace(contents,
+		"999999999999999999999995 /* Widget Debug */ = {isa = XCBuildConfiguration; buildSettings = { MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Debug; };",
+		"999999999999999999999995 /* Widget Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = BBBBBBBBBBBBBBBBBBBBBBBB; buildSettings = { MARKETING_VERSION = 1.2.3; CURRENT_PROJECT_VERSION = 42; }; name = Debug; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project.pbxproj) error = %v", err)
+	}
+
+	view, err := GetVersionScoped(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release",
+	})
+	if err != nil {
+		t.Fatalf("GetVersionScoped() error = %v", err)
+	}
+	if view.Version != "1.2.3" || view.BuildNumber != "42" {
+		t.Fatalf("unexpected selected version: %#v", view)
+	}
+
+	if _, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release", BuildNumber: "43",
+	}); err != nil {
+		t.Fatalf("SetVersion() error = %v", err)
+	}
+}
+
+func TestGetConsistentMarketingVersionRejectsDivergentSelectedScope(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	if _, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Debug", Version: "2.0.0",
+	}); err != nil {
+		t.Fatalf("prepare divergent version: %v", err)
+	}
+
+	_, err := GetConsistentMarketingVersion(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App",
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected divergent marketing-version error, got %v", err)
+	}
+
+	version, err := GetConsistentMarketingVersion(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Debug",
+	})
+	if err != nil {
+		t.Fatalf("scoped consistent version error = %v", err)
+	}
+	if version != "2.0.0" {
+		t.Fatalf("scoped consistent version = %q, want 2.0.0", version)
+	}
+}
+
 func TestStructuredVersion_GroupRelativeXCConfigReference(t *testing.T) {
 	project := writeStructuredVersionProject(t, true)
 	pbxprojPath := filepath.Join(project, "project.pbxproj")

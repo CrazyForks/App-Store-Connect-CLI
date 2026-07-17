@@ -72,6 +72,29 @@ func GetVersionScoped(ctx context.Context, opts GetVersionOptions) (*VersionInfo
 	return getVersionLegacy(ctx, opts.ProjectDir, opts.Target)
 }
 
+// GetConsistentMarketingVersion resolves one marketing version across the full selected mutation scope.
+func GetConsistentMarketingVersion(ctx context.Context, opts GetVersionOptions) (string, error) {
+	project, err := openStructuredVersionProject(opts.ProjectDir)
+	if err == nil {
+		return project.bumpBaseline(BumpVersionOptions{
+			ProjectDir:    opts.ProjectDir,
+			Target:        opts.Target,
+			Configuration: opts.Configuration,
+		}, marketingVersionSetting, true)
+	}
+	if !errors.Is(err, errStructuredVersionUnavailable) {
+		return "", err
+	}
+	if strings.TrimSpace(opts.Configuration) != "" {
+		return "", fmt.Errorf("--configuration requires structured %s settings: %w", marketingVersionSetting, err)
+	}
+	legacy, err := getVersionLegacy(ctx, opts.ProjectDir, opts.Target)
+	if err != nil {
+		return "", err
+	}
+	return legacy.Version, nil
+}
+
 func openStructuredVersionProject(projectInput string) (*structuredVersionProject, error) {
 	projectPath, err := findXcodeproj(projectInput)
 	if err != nil {
@@ -119,6 +142,9 @@ func (project *structuredVersionProject) hasStructuredVersionSettings() (bool, e
 				found[setting] = true
 			}
 		}
+	}
+	if found[marketingVersionSetting] && found[currentProjectSetting] {
+		return true, nil
 	}
 	for _, configuration := range project.configurations {
 		if configuration.baseReferenceID == "" {
@@ -576,7 +602,7 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 		selectedIDs[configuration.id] = true
 	}
 
-	fileConsumers, configFiles, err := project.xcconfigConsumers()
+	fileConsumers, configFiles, uncertainXCConfigConsumers, err := project.xcconfigConsumers(selectedIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -638,7 +664,7 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 			}
 			if len(assignmentFiles) > 0 {
 				found[requested.name] = true
-				if consumersSelected(assignmentFiles, fileConsumers, selectedIDs) {
+				if !uncertainXCConfigConsumers && consumersSelected(assignmentFiles, fileConsumers, selectedIDs) {
 					for _, path := range assignmentFiles {
 						if xcconfigMutations[path] == nil {
 							xcconfigMutations[path] = make(map[string]xcconfigMutation)
@@ -830,20 +856,29 @@ func validateVersionMutationValue(flagName, value string) error {
 	return nil
 }
 
-func (project *structuredVersionProject) xcconfigConsumers() (map[string]map[string]bool, map[string][]string, error) {
+func (project *structuredVersionProject) xcconfigConsumers(selectedIDs map[string]bool) (map[string]map[string]bool, map[string][]string, bool, error) {
 	consumers := make(map[string]map[string]bool)
 	configFiles := make(map[string][]string)
+	uncertainConsumers := false
 	for _, configuration := range project.configurations {
 		if configuration.baseReferenceID == "" {
 			continue
 		}
 		root, err := project.fileReferencePath(configuration.baseReferenceID)
 		if err != nil {
-			return nil, nil, err
+			if selectedIDs[configuration.id] {
+				return nil, nil, false, err
+			}
+			uncertainConsumers = true
+			continue
 		}
 		files, err := collectXCConfigFiles(root)
 		if err != nil {
-			return nil, nil, fmt.Errorf("resolve xcconfig for target %q configuration %q: %w", configuration.target, configuration.name, err)
+			if selectedIDs[configuration.id] {
+				return nil, nil, false, fmt.Errorf("resolve xcconfig for target %q configuration %q: %w", configuration.target, configuration.name, err)
+			}
+			uncertainConsumers = true
+			continue
 		}
 		configFiles[configuration.id] = files
 		for _, path := range files {
@@ -853,7 +888,7 @@ func (project *structuredVersionProject) xcconfigConsumers() (map[string]map[str
 			consumers[path][configuration.id] = true
 		}
 	}
-	return consumers, configFiles, nil
+	return consumers, configFiles, uncertainConsumers, nil
 }
 
 func xcconfigFilesDefining(paths []string, setting string) ([]string, error) {

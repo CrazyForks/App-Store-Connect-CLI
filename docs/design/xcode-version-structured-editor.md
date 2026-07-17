@@ -48,7 +48,9 @@ asc xcode version bump --type build --next-build-number --app APP \
 `--app` or `ASC_APP_ID`, and is accepted by `bump` only with `--type build`. The selected local
 marketing version is the remote version filter unless `edit --version` is
 provided. Remote selection reuses the same processed-build and in-flight-upload
-logic as `asc builds next-build-number`.
+logic as `asc builds next-build-number`. When the version is inferred, every
+configuration selected for mutation must resolve the same marketing version;
+otherwise the command fails before the App Store Connect lookup.
 
 The remote flags are `--app`, `--platform`, `--processing-state`,
 `--exclude-expired`, and `--initial-build-number`. They have the same meanings
@@ -86,6 +88,11 @@ delimiters are preserved; `+=` and `?=` are normalized to `=` when editing a
 version setting so the requested effective value is guaranteed. All matching
 variants of `MARKETING_VERSION` or `CURRENT_PROJECT_VERSION` in the selected
 include graph are updated.
+
+Unreadable xcconfig graphs fail when the selected scope depends on them. A
+broken graph on an unrelated configuration does not block a direct pbxproj
+view or edit; mutation stays conservative when that graph makes shared-file
+consumer discovery uncertain.
 
 Reads resolve direct pbxproj settings, registered xcconfig values, and simple
 build-setting references locally, including `$(inherited)` across the next

@@ -268,17 +268,17 @@ func TestXcodeVersionEditRejectsExplicitAndRemoteBuildNumbers(t *testing.T) {
 }
 
 func TestXcodeVersionEditResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
-	originalGet := runGetVersion
+	originalConsistent := runGetConsistentMarketingVersion
 	originalSet := runSetVersion
 	originalResolve := runResolveXcodeNextBuildNumber
 	t.Cleanup(func() {
-		runGetVersion = originalGet
+		runGetConsistentMarketingVersion = originalConsistent
 		runSetVersion = originalSet
 		runResolveXcodeNextBuildNumber = originalResolve
 	})
 
-	runGetVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (*localxcode.VersionInfo, error) {
-		return &localxcode.VersionInfo{Version: "2.4.0", Target: opts.Target, Configuration: opts.Configuration}, nil
+	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
+		return "2.4.0", nil
 	}
 	runResolveXcodeNextBuildNumber = func(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
 		if opts.AppID != "com.example.demo" || opts.Version != "2.4.0" || opts.Platform != "IOS" {
@@ -312,6 +312,36 @@ func TestXcodeVersionEditResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 	}
 }
 
+func TestXcodeVersionEditRemoteNumberRejectsDivergentLocalVersions(t *testing.T) {
+	originalConsistent := runGetConsistentMarketingVersion
+	originalResolve := runResolveXcodeNextBuildNumber
+	originalSet := runSetVersion
+	t.Cleanup(func() {
+		runGetConsistentMarketingVersion = originalConsistent
+		runResolveXcodeNextBuildNumber = originalResolve
+		runSetVersion = originalSet
+	})
+
+	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
+		return "", errors.New("MARKETING_VERSION has differing values")
+	}
+	runResolveXcodeNextBuildNumber = func(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
+		t.Fatal("remote lookup ran with a divergent local version scope")
+		return "", nil
+	}
+	runSetVersion = func(ctx context.Context, opts localxcode.SetVersionOptions) (*localxcode.SetVersionResult, error) {
+		t.Fatal("mutation ran with a divergent local version scope")
+		return nil, nil
+	}
+
+	_, _, err := runXcodeVersionCommand(t, []string{
+		"edit", "--target", "App", "--next-build-number", "--app", "123456789",
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected divergent version error, got %v", err)
+	}
+}
+
 func TestXcodeVersionBumpRemoteNumberRequiresBuildType(t *testing.T) {
 	_, stderr, err := runXcodeVersionCommand(t, []string{
 		"bump", "--type", "patch", "--next-build-number", "--app", "123456789",
@@ -325,17 +355,17 @@ func TestXcodeVersionBumpRemoteNumberRequiresBuildType(t *testing.T) {
 }
 
 func TestXcodeVersionBumpResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
-	originalGet := runGetVersion
+	originalConsistent := runGetConsistentMarketingVersion
 	originalBump := runBumpVersion
 	originalResolve := runResolveXcodeNextBuildNumber
 	t.Cleanup(func() {
-		runGetVersion = originalGet
+		runGetConsistentMarketingVersion = originalConsistent
 		runBumpVersion = originalBump
 		runResolveXcodeNextBuildNumber = originalResolve
 	})
 
-	runGetVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (*localxcode.VersionInfo, error) {
-		return &localxcode.VersionInfo{Version: "3.0.0", Target: opts.Target, Configuration: opts.Configuration}, nil
+	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
+		return "3.0.0", nil
 	}
 	runResolveXcodeNextBuildNumber = func(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
 		if opts.AppID != "123456789" || opts.Version != "3.0.0" || opts.InitialBuildNumber != 7 {
@@ -368,6 +398,36 @@ func TestXcodeVersionBumpResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 	}
 	if result.NewBuild != "301" || result.Target != "Widget" || result.Configuration != "Debug" {
 		t.Fatalf("unexpected structured output: %#v", result)
+	}
+}
+
+func TestXcodeVersionBumpRemoteNumberRejectsDivergentLocalVersions(t *testing.T) {
+	originalConsistent := runGetConsistentMarketingVersion
+	originalResolve := runResolveXcodeNextBuildNumber
+	originalBump := runBumpVersion
+	t.Cleanup(func() {
+		runGetConsistentMarketingVersion = originalConsistent
+		runResolveXcodeNextBuildNumber = originalResolve
+		runBumpVersion = originalBump
+	})
+
+	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
+		return "", errors.New("MARKETING_VERSION has differing values")
+	}
+	runResolveXcodeNextBuildNumber = func(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
+		t.Fatal("remote lookup ran with a divergent local version scope")
+		return "", nil
+	}
+	runBumpVersion = func(ctx context.Context, opts localxcode.BumpVersionOptions) (*localxcode.BumpVersionResult, error) {
+		t.Fatal("mutation ran with a divergent local version scope")
+		return nil, nil
+	}
+
+	_, _, err := runXcodeVersionCommand(t, []string{
+		"bump", "--type", "build", "--target", "App", "--next-build-number", "--app", "123456789",
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected divergent version error, got %v", err)
 	}
 }
 

@@ -13,10 +13,11 @@ import (
 )
 
 var (
-	runGetVersion                  = localxcode.GetVersionScoped
-	runSetVersion                  = localxcode.SetVersion
-	runBumpVersion                 = localxcode.BumpVersion
-	runResolveXcodeNextBuildNumber = resolveXcodeNextBuildNumber
+	runGetVersion                    = localxcode.GetVersionScoped
+	runGetConsistentMarketingVersion = localxcode.GetConsistentMarketingVersion
+	runSetVersion                    = localxcode.SetVersion
+	runBumpVersion                   = localxcode.BumpVersion
+	runResolveXcodeNextBuildNumber   = resolveXcodeNextBuildNumber
 )
 
 type xcodeRemoteBuildNumberOptions struct {
@@ -221,7 +222,7 @@ func xcodeVersionEditCommand() *ffcli.Command {
 			if *remote.next {
 				versionFilter := v
 				if versionFilter == "" {
-					current, err := runGetVersion(ctx, localxcode.GetVersionOptions{
+					resolvedVersion, err := runGetConsistentMarketingVersion(ctx, localxcode.GetVersionOptions{
 						ProjectDir:    projectInput,
 						Target:        strings.TrimSpace(*target),
 						Configuration: strings.TrimSpace(*configuration),
@@ -229,7 +230,7 @@ func xcodeVersionEditCommand() *ffcli.Command {
 					if err != nil {
 						return fmt.Errorf("xcode version edit: resolve local version for remote build selection: %w", err)
 					}
-					versionFilter = current.Version
+					versionFilter = resolvedVersion
 				}
 				var err error
 				b, err = runResolveXcodeNextBuildNumber(ctx, remote.options(versionFilter))
@@ -310,7 +311,7 @@ Examples:
 			projectInput := selectedProjectInput(*projectDir, *project)
 			remoteBuildNumber := ""
 			if *remote.next {
-				current, err := runGetVersion(ctx, localxcode.GetVersionOptions{
+				versionFilter, err := runGetConsistentMarketingVersion(ctx, localxcode.GetVersionOptions{
 					ProjectDir:    projectInput,
 					Target:        strings.TrimSpace(*target),
 					Configuration: strings.TrimSpace(*configuration),
@@ -318,7 +319,7 @@ Examples:
 				if err != nil {
 					return fmt.Errorf("xcode version bump: resolve local version for remote build selection: %w", err)
 				}
-				remoteBuildNumber, err = runResolveXcodeNextBuildNumber(ctx, remote.options(current.Version))
+				remoteBuildNumber, err = runResolveXcodeNextBuildNumber(ctx, remote.options(versionFilter))
 				if err != nil {
 					return fmt.Errorf("xcode version bump: resolve next build number: %w", err)
 				}
