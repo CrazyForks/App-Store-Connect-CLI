@@ -771,6 +771,27 @@ func TestStructuredVersion_RemoteBuildBumpRefusesToFlattenDifferentValues(t *tes
 	}
 }
 
+func TestValidateBumpVersionRejectsDivergentBuildsWithoutMutation(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	if _, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Debug", BuildNumber: "9",
+	}); err != nil {
+		t.Fatalf("prepare divergent build: %v", err)
+	}
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	err := ValidateBumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir: project, BumpType: BumpBuild, BuildNumber: "108",
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected remote mixed-value bump validation to fail, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("project changed during bump validation")
+	}
+}
+
 func TestStructuredVersion_ScopedSharedXCConfigCreatesOverrideWithoutLeaking(t *testing.T) {
 	project := writeStructuredVersionProject(t, true)
 	sharedPath := filepath.Join(filepath.Dir(project), "Configs", "Shared.xcconfig")

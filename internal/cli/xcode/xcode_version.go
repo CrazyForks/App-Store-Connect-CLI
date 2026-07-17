@@ -16,6 +16,7 @@ var (
 	runGetVersion                    = localxcode.GetVersionScoped
 	runGetConsistentMarketingVersion = localxcode.GetConsistentMarketingVersion
 	runValidateSetVersion            = localxcode.ValidateSetVersion
+	runValidateBumpVersion           = localxcode.ValidateBumpVersion
 	runSetVersion                    = localxcode.SetVersion
 	runBumpVersion                   = localxcode.BumpVersion
 	runResolveXcodeNextBuildNumber   = resolveXcodeNextBuildNumber
@@ -327,10 +328,11 @@ Examples:
 				if err := validateXcodeRemoteBuildNumberOptions(remote.options("")); err != nil {
 					return err
 				}
-				if err := runValidateSetVersion(localxcode.SetVersionOptions{
+				if err := runValidateBumpVersion(ctx, localxcode.BumpVersionOptions{
 					ProjectDir:    projectInput,
 					Target:        strings.TrimSpace(*target),
 					Configuration: strings.TrimSpace(*configuration),
+					BumpType:      localxcode.BumpBuild,
 					BuildNumber:   "1",
 				}); err != nil {
 					return fmt.Errorf("xcode version bump: validate local mutation: %w", err)

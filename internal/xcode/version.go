@@ -267,11 +267,8 @@ func validateSetVersionLegacy() error {
 
 // BumpVersion increments the version or build number.
 func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResult, error) {
-	if err := validateVersionMutationValue("--build-number", opts.BuildNumber); err != nil {
+	if err := validateBumpVersionOptions(opts); err != nil {
 		return nil, err
-	}
-	if strings.TrimSpace(opts.BuildNumber) != "" && opts.BumpType != BumpBuild {
-		return nil, fmt.Errorf("--build-number is only supported for build bumps")
 	}
 	project, err := openStructuredVersionProject(opts.ProjectDir)
 	if err != nil {
@@ -282,44 +279,9 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 		return nil, err
 	}
 	if structured {
-		result := &BumpVersionResult{
-			BumpType:      string(opts.BumpType),
-			ProjectDir:    project.rootDir,
-			Target:        strings.TrimSpace(opts.Target),
-			Configuration: strings.TrimSpace(opts.Configuration),
-		}
-		setOptions := SetVersionOptions{
-			ProjectDir:    opts.ProjectDir,
-			Target:        opts.Target,
-			Configuration: opts.Configuration,
-		}
-		if opts.BumpType == BumpBuild {
-			currentBuild, err := project.bumpBaseline(opts, currentProjectSetting, true)
-			if err != nil {
-				return nil, err
-			}
-			result.OldBuild = currentBuild
-			newBuild := strings.TrimSpace(opts.BuildNumber)
-			if newBuild == "" {
-				newBuild, err = incrementBuildString(currentBuild)
-				if err != nil {
-					return nil, fmt.Errorf("failed to increment build number: %w", err)
-				}
-			}
-			setOptions.BuildNumber = newBuild
-			result.NewBuild = newBuild
-		} else {
-			currentVersion, err := project.bumpBaseline(opts, marketingVersionSetting, true)
-			if err != nil {
-				return nil, err
-			}
-			result.OldVersion = currentVersion
-			newVersion, err := bumpVersionString(currentVersion, opts.BumpType)
-			if err != nil {
-				return nil, err
-			}
-			setOptions.Version = newVersion
-			result.NewVersion = newVersion
+		result, setOptions, err := project.prepareBump(opts)
+		if err != nil {
+			return nil, err
 		}
 		updated, err := project.setVersion(setOptions)
 		if err != nil {
@@ -334,6 +296,108 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 		return nil, fmt.Errorf("scoped bumps require structured Xcode build settings: %w", err)
 	}
 	return bumpVersionLegacy(ctx, opts)
+}
+
+// ValidateBumpVersion verifies the complete local bump, including a consistent
+// baseline across the selected configurations, without changing any files.
+// Callers can use it before remote work such as resolving a build number.
+func ValidateBumpVersion(ctx context.Context, opts BumpVersionOptions) error {
+	if err := validateBumpVersionOptions(opts); err != nil {
+		return err
+	}
+	project, err := openStructuredVersionProject(opts.ProjectDir)
+	if err != nil {
+		return err
+	}
+	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	if err != nil {
+		return err
+	}
+	if structured {
+		_, setOptions, err := project.prepareBump(opts)
+		if err != nil {
+			return err
+		}
+		_, err = project.validateSetVersion(setOptions)
+		return err
+	}
+	structuredErr := fmt.Errorf("%w: selected Xcode configurations do not resolve both MARKETING_VERSION and CURRENT_PROJECT_VERSION", errStructuredVersionUnavailable)
+	if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" {
+		return fmt.Errorf("scoped bumps require structured Xcode build settings: %w", structuredErr)
+	}
+	if err := validateSetVersionLegacy(); err != nil {
+		return err
+	}
+	current, err := getVersionLegacy(ctx, opts.ProjectDir, "")
+	if err != nil {
+		return err
+	}
+	if opts.BumpType == BumpBuild {
+		if strings.TrimSpace(opts.BuildNumber) != "" {
+			return nil
+		}
+		_, err = incrementBuildString(current.BuildNumber)
+		if err != nil {
+			return fmt.Errorf("failed to increment build number: %w", err)
+		}
+		return nil
+	}
+	_, err = bumpVersionString(current.Version, opts.BumpType)
+	return err
+}
+
+func validateBumpVersionOptions(opts BumpVersionOptions) error {
+	if err := validateVersionMutationValue("--build-number", opts.BuildNumber); err != nil {
+		return err
+	}
+	if strings.TrimSpace(opts.BuildNumber) != "" && opts.BumpType != BumpBuild {
+		return fmt.Errorf("--build-number is only supported for build bumps")
+	}
+	return nil
+}
+
+func (project *structuredVersionProject) prepareBump(opts BumpVersionOptions) (*BumpVersionResult, SetVersionOptions, error) {
+	result := &BumpVersionResult{
+		BumpType:      string(opts.BumpType),
+		ProjectDir:    project.rootDir,
+		Target:        strings.TrimSpace(opts.Target),
+		Configuration: strings.TrimSpace(opts.Configuration),
+	}
+	setOptions := SetVersionOptions{
+		ProjectDir:    opts.ProjectDir,
+		Target:        opts.Target,
+		Configuration: opts.Configuration,
+	}
+	if opts.BumpType == BumpBuild {
+		currentBuild, err := project.bumpBaseline(opts, currentProjectSetting, true)
+		if err != nil {
+			return nil, SetVersionOptions{}, err
+		}
+		result.OldBuild = currentBuild
+		newBuild := strings.TrimSpace(opts.BuildNumber)
+		if newBuild == "" {
+			newBuild, err = incrementBuildString(currentBuild)
+			if err != nil {
+				return nil, SetVersionOptions{}, fmt.Errorf("failed to increment build number: %w", err)
+			}
+		}
+		setOptions.BuildNumber = newBuild
+		result.NewBuild = newBuild
+		return result, setOptions, nil
+	}
+
+	currentVersion, err := project.bumpBaseline(opts, marketingVersionSetting, true)
+	if err != nil {
+		return nil, SetVersionOptions{}, err
+	}
+	result.OldVersion = currentVersion
+	newVersion, err := bumpVersionString(currentVersion, opts.BumpType)
+	if err != nil {
+		return nil, SetVersionOptions{}, err
+	}
+	setOptions.Version = newVersion
+	result.NewVersion = newVersion
+	return result, setOptions, nil
 }
 
 func bumpVersionLegacy(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResult, error) {

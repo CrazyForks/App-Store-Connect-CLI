@@ -421,16 +421,16 @@ func TestXcodeVersionBumpRemoteNumberRequiresBuildType(t *testing.T) {
 
 func TestXcodeVersionBumpResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 	originalConsistent := runGetConsistentMarketingVersion
-	originalValidate := runValidateSetVersion
+	originalValidate := runValidateBumpVersion
 	originalBump := runBumpVersion
 	originalResolve := runResolveXcodeNextBuildNumber
 	t.Cleanup(func() {
 		runGetConsistentMarketingVersion = originalConsistent
-		runValidateSetVersion = originalValidate
+		runValidateBumpVersion = originalValidate
 		runBumpVersion = originalBump
 		runResolveXcodeNextBuildNumber = originalResolve
 	})
-	runValidateSetVersion = func(opts localxcode.SetVersionOptions) error { return nil }
+	runValidateBumpVersion = func(ctx context.Context, opts localxcode.BumpVersionOptions) error { return nil }
 
 	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
 		return "3.0.0", nil
@@ -471,16 +471,16 @@ func TestXcodeVersionBumpResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 
 func TestXcodeVersionBumpRemoteNumberRejectsDivergentLocalVersions(t *testing.T) {
 	originalConsistent := runGetConsistentMarketingVersion
-	originalValidate := runValidateSetVersion
+	originalValidate := runValidateBumpVersion
 	originalResolve := runResolveXcodeNextBuildNumber
 	originalBump := runBumpVersion
 	t.Cleanup(func() {
 		runGetConsistentMarketingVersion = originalConsistent
-		runValidateSetVersion = originalValidate
+		runValidateBumpVersion = originalValidate
 		runResolveXcodeNextBuildNumber = originalResolve
 		runBumpVersion = originalBump
 	})
-	runValidateSetVersion = func(opts localxcode.SetVersionOptions) error { return nil }
+	runValidateBumpVersion = func(ctx context.Context, opts localxcode.BumpVersionOptions) error { return nil }
 
 	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
 		return "", errors.New("MARKETING_VERSION has differing values")
@@ -499,6 +499,45 @@ func TestXcodeVersionBumpRemoteNumberRejectsDivergentLocalVersions(t *testing.T)
 	})
 	if err == nil || !strings.Contains(err.Error(), "differing values") {
 		t.Fatalf("expected divergent version error, got %v", err)
+	}
+}
+
+func TestXcodeVersionBumpValidatesBuildBaselineBeforeRemoteLookup(t *testing.T) {
+	originalValidate := runValidateBumpVersion
+	originalConsistent := runGetConsistentMarketingVersion
+	originalResolve := runResolveXcodeNextBuildNumber
+	originalBump := runBumpVersion
+	t.Cleanup(func() {
+		runValidateBumpVersion = originalValidate
+		runGetConsistentMarketingVersion = originalConsistent
+		runResolveXcodeNextBuildNumber = originalResolve
+		runBumpVersion = originalBump
+	})
+
+	runValidateBumpVersion = func(ctx context.Context, opts localxcode.BumpVersionOptions) error {
+		if opts.BumpType != localxcode.BumpBuild || opts.BuildNumber != "1" || opts.Target != "App" {
+			t.Fatalf("unexpected bump preflight options: %#v", opts)
+		}
+		return errors.New("CURRENT_PROJECT_VERSION has differing values")
+	}
+	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
+		t.Fatal("marketing-version lookup ran before build-baseline validation")
+		return "", nil
+	}
+	runResolveXcodeNextBuildNumber = func(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
+		t.Fatal("remote lookup ran before build-baseline validation")
+		return "", nil
+	}
+	runBumpVersion = func(ctx context.Context, opts localxcode.BumpVersionOptions) (*localxcode.BumpVersionResult, error) {
+		t.Fatal("mutation ran after failed build-baseline validation")
+		return nil, nil
+	}
+
+	_, _, err := runXcodeVersionCommand(t, []string{
+		"bump", "--type", "build", "--target", "App", "--next-build-number", "--app", "123456789",
+	})
+	if err == nil || !strings.Contains(err.Error(), "differing values") {
+		t.Fatalf("expected divergent build baseline error, got %v", err)
 	}
 }
 
