@@ -166,6 +166,30 @@ func TestGenerateExportOptions_RejectsMissingAndMalformedArchives(t *testing.T) 
 		}
 	})
 
+	t.Run("archive info symlink escapes archive", func(t *testing.T) {
+		archivePath := writeExportOptionsTestArchive(t, "TEAM123")
+		infoPath := filepath.Join(archivePath, "Info.plist")
+		outsidePath := filepath.Join(t.TempDir(), "Info.plist")
+		if err := os.Rename(infoPath, outsidePath); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsidePath, infoPath); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		outputPath := filepath.Join(t.TempDir(), "ExportOptions.plist")
+
+		_, err := GenerateExportOptions(context.Background(), ExportOptionsGenerateOptions{
+			ArchivePath: archivePath,
+			OutputPath:  outputPath,
+		})
+		if err == nil {
+			t.Fatal("expected archive Info.plist symlink escape error")
+		}
+		if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("unsafe archive created output: %v", statErr)
+		}
+	})
+
 	t.Run("decodable but invalid archive info", func(t *testing.T) {
 		archivePath := filepath.Join(t.TempDir(), "Invalid.xcarchive")
 		if err := os.MkdirAll(archivePath, 0o755); err != nil {
@@ -208,6 +232,54 @@ func TestGenerateExportOptions_RejectsMissingAndMalformedArchives(t *testing.T) 
 		}
 		if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
 			t.Fatalf("invalid archive created output: %v", statErr)
+		}
+	})
+
+	t.Run("archived app info symlink escapes app bundle", func(t *testing.T) {
+		archivePath := writeExportOptionsTestArchive(t, "TEAM123")
+		infoPath := filepath.Join(archivePath, "Products", "Applications", "Demo.app", "Info.plist")
+		outsidePath := filepath.Join(t.TempDir(), "Info.plist")
+		if err := os.Rename(infoPath, outsidePath); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsidePath, infoPath); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		outputPath := filepath.Join(t.TempDir(), "ExportOptions.plist")
+
+		_, err := GenerateExportOptions(context.Background(), ExportOptionsGenerateOptions{
+			ArchivePath: archivePath,
+			OutputPath:  outputPath,
+		})
+		if err == nil {
+			t.Fatal("expected archived app Info.plist symlink escape error")
+		}
+		if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("unsafe archive created output: %v", statErr)
+		}
+	})
+
+	t.Run("archived app bundle symlink escapes products", func(t *testing.T) {
+		archivePath := writeExportOptionsTestArchive(t, "TEAM123")
+		appPath := filepath.Join(archivePath, "Products", "Applications", "Demo.app")
+		outsidePath := filepath.Join(t.TempDir(), "Demo.app")
+		if err := os.Rename(appPath, outsidePath); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsidePath, appPath); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		outputPath := filepath.Join(t.TempDir(), "ExportOptions.plist")
+
+		_, err := GenerateExportOptions(context.Background(), ExportOptionsGenerateOptions{
+			ArchivePath: archivePath,
+			OutputPath:  outputPath,
+		})
+		if err == nil {
+			t.Fatal("expected archived app bundle symlink escape error")
+		}
+		if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("unsafe archive created output: %v", statErr)
 		}
 	})
 

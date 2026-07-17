@@ -1267,14 +1267,20 @@ func readArchivedAppInfoPlist(archivePath string, appProps map[string]any) (map[
 		return nil, fmt.Errorf("archive Info.plist contains unsafe ApplicationPath %q", applicationPath)
 	}
 	productsPath := filepath.Join(archivePath, "Products")
-	appBundlePath := filepath.Join(productsPath, relativeApplicationPath)
-	relativeToProducts, err := filepath.Rel(productsPath, appBundlePath)
-	if err != nil || relativeToProducts == ".." || strings.HasPrefix(relativeToProducts, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("archive Info.plist contains unsafe ApplicationPath %q", applicationPath)
+	productsRoot, err := os.OpenRoot(productsPath)
+	if err != nil {
+		return nil, fmt.Errorf("open archive Products directory: %w", err)
 	}
-	candidatePaths := []string{filepath.Join(appBundlePath, "Info.plist")}
-	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(appBundlePath)), ".app") {
-		candidatePaths = append(candidatePaths, filepath.Join(appBundlePath, "Contents", "Info.plist"))
+	defer func() { _ = productsRoot.Close() }()
+	appRoot, err := productsRoot.OpenRoot(relativeApplicationPath)
+	if err != nil {
+		return nil, fmt.Errorf("open archived app bundle: %w", err)
+	}
+	defer func() { _ = appRoot.Close() }()
+
+	candidatePaths := []string{"Info.plist"}
+	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(relativeApplicationPath)), ".app") {
+		candidatePaths = append(candidatePaths, filepath.Join("Contents", "Info.plist"))
 	}
 
 	var (
@@ -1282,9 +1288,12 @@ func readArchivedAppInfoPlist(archivePath string, appProps map[string]any) (map[
 		lastErr error
 	)
 	for _, candidatePath := range candidatePaths {
-		data, lastErr = os.ReadFile(candidatePath)
+		data, lastErr = readRegularFileFromRoot(appRoot, candidatePath)
 		if lastErr == nil {
 			break
+		}
+		if !errors.Is(lastErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("read archived app Info.plist: %w", lastErr)
 		}
 	}
 	if lastErr != nil {
@@ -1295,6 +1304,22 @@ func readArchivedAppInfoPlist(archivePath string, appProps map[string]any) (map[
 		return nil, fmt.Errorf("decode archived app Info.plist: %w", err)
 	}
 	return payload, nil
+}
+
+func readRegularFileFromRoot(root *os.Root, name string) ([]byte, error) {
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("metadata path must be a regular file: %s", name)
+	}
+	return io.ReadAll(file)
 }
 
 func inferAppStorePlatformFromPlist(payload map[string]any) string {

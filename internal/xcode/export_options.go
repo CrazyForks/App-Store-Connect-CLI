@@ -219,7 +219,12 @@ func validateExportOptionsGenerateOptions(opts ExportOptionsGenerateOptions) err
 }
 
 func readArchiveExportOptionsTeamID(archivePath string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(archivePath, "Info.plist"))
+	archiveRoot, err := os.OpenRoot(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("open archive: %w", err)
+	}
+	defer func() { _ = archiveRoot.Close() }()
+	data, err := readRegularFileFromRoot(archiveRoot, "Info.plist")
 	if err != nil {
 		return "", fmt.Errorf("read archive Info.plist: %w", err)
 	}
