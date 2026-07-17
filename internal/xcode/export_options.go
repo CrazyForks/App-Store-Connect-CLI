@@ -57,6 +57,7 @@ type manualExportOptions struct {
 
 var (
 	manualExportOptionsGeneratorFn    = generateManualExportOptions
+	preflightExportOptionsParentFn    = preflightExportOptionsParent
 	atomicWriteExportOptionsFileFn    = atomicWriteVersionFile
 	atomicWriteNewExportOptionsFileFn = atomicWriteNewExportOptionsFile
 )
@@ -120,6 +121,9 @@ func GenerateExportOptions(ctx context.Context, opts ExportOptionsGenerateOption
 
 	var manual manualExportOptions
 	if opts.SigningStyle == exportOptionsSigningStyleManual {
+		if err := preflightExportOptionsParentFn(opts.OutputPath); err != nil {
+			return nil, err
+		}
 		manual, err = manualExportOptionsGeneratorFn(ctx, opts.ArchivePath, teamID)
 		if err != nil {
 			return nil, fmt.Errorf("generate manual export options: %w", err)
@@ -358,6 +362,10 @@ func prepareExportOptionsDestination(path string, overwrite bool) (bool, os.File
 		return false, 0, fmt.Errorf("export options path already exists; pass --overwrite to replace it: %s", path)
 	}
 	return true, info.Mode().Perm(), nil
+}
+
+func preflightExportOptionsParent(path string) error {
+	return preflightWritableParent(path, "export options")
 }
 
 // atomicWriteNewExportOptionsFile publishes a fully written same-directory

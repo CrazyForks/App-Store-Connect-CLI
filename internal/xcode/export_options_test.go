@@ -648,6 +648,56 @@ func TestGenerateExportOptions_ManualGeneratorOutputIsValidatedBeforeReplacingOu
 	}
 }
 
+func TestGenerateExportOptions_ManualSigningPreflightsOutputParentBeforeLookup(t *testing.T) {
+	archivePath := writeExportOptionsTestArchive(t, "TEAM123")
+	outputPath := filepath.Join(t.TempDir(), "ExportOptions.plist")
+	preflightErr := errors.New("output parent is not writable")
+
+	originalPreflight := preflightExportOptionsParentFn
+	preflightExportOptionsParentFn = func(path string) error {
+		if path != outputPath {
+			t.Fatalf("preflight path = %q, want %q", path, outputPath)
+		}
+		return preflightErr
+	}
+	t.Cleanup(func() { preflightExportOptionsParentFn = originalPreflight })
+
+	originalGenerator := manualExportOptionsGeneratorFn
+	manualExportOptionsGeneratorFn = func(context.Context, string, string) (manualExportOptions, error) {
+		t.Fatal("manual signing lookup ran before output-parent preflight")
+		return manualExportOptions{}, nil
+	}
+	t.Cleanup(func() { manualExportOptionsGeneratorFn = originalGenerator })
+
+	_, err := GenerateExportOptions(context.Background(), ExportOptionsGenerateOptions{
+		ArchivePath:  archivePath,
+		OutputPath:   outputPath,
+		SigningStyle: "manual",
+	})
+	if !errors.Is(err, preflightErr) {
+		t.Fatalf("expected output-parent preflight error, got %v", err)
+	}
+	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("parent preflight failure created output: %v", statErr)
+	}
+}
+
+func TestPreflightExportOptionsParentCreatesParentAndRemovesProbe(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "nested", "output")
+	outputPath := filepath.Join(parent, "ExportOptions.plist")
+
+	if err := preflightExportOptionsParent(outputPath); err != nil {
+		t.Fatalf("preflightExportOptionsParent() error: %v", err)
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		t.Fatalf("read preflight parent: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("preflight left temporary entries: %#v", entries)
+	}
+}
+
 func TestGenerateExportOptions_ManualSigningWritesResolvedCertificateAndProfiles(t *testing.T) {
 	archivePath := writeExportOptionsTestArchive(t, "TEAM123")
 	outputPath := filepath.Join(t.TempDir(), "ExportOptions.plist")

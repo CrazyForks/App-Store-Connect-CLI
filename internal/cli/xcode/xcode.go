@@ -232,13 +232,19 @@ Examples:
 				if *wait {
 					destination = "upload"
 				}
-				if err := localxcode.PreflightExportDestination(strings.TrimSpace(*ipaPath), *overwrite, destination == "upload"); err != nil {
+				if err := localxcode.ValidateExportDestination(strings.TrimSpace(*ipaPath), *overwrite, destination == "upload"); err != nil {
 					if localxcode.IsExportDestinationUsageError(err) {
 						return shared.UsageError(err.Error())
 					}
 					return fmt.Errorf("xcode export: %w", err)
 				}
 				if err := runXcodeExportPreflight(ctx); err != nil {
+					return fmt.Errorf("xcode export: %w", err)
+				}
+				if err := localxcode.PreflightExportDestination(strings.TrimSpace(*ipaPath), *overwrite, destination == "upload"); err != nil {
+					if localxcode.IsExportDestinationUsageError(err) {
+						return shared.UsageError(err.Error())
+					}
 					return fmt.Errorf("xcode export: %w", err)
 				}
 				generatedPath, err := localxcode.UniqueExportOptionsPathForArchive(trimmedArchivePath)

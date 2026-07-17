@@ -1521,6 +1521,7 @@ func overridePublishCommandTestHooks(t *testing.T) func() {
 
 	originalArchive := runPublishArchiveFn
 	originalExport := runPublishExportFn
+	originalPreflightXcode := preflightPublishXcodeFn
 	originalGenerateExportOptions := generatePublishExportOptionsFn
 	originalGetClient := getPublishASCClientFn
 	originalResolveNextBuildNumber := resolvePublishNextBuildNumberFn
@@ -1529,10 +1530,12 @@ func overridePublishCommandTestHooks(t *testing.T) func() {
 	originalResolveAppID := resolvePublishAppIDWithLookupFn
 	originalWaitForProcessing := waitForPublishBuildProcessingFn
 	originalMetadataApply := applyPublishVersionMetadataFn
+	preflightPublishXcodeFn = func(context.Context) error { return nil }
 
 	return func() {
 		runPublishArchiveFn = originalArchive
 		runPublishExportFn = originalExport
+		preflightPublishXcodeFn = originalPreflightXcode
 		generatePublishExportOptionsFn = originalGenerateExportOptions
 		getPublishASCClientFn = originalGetClient
 		resolvePublishNextBuildNumberFn = originalResolveNextBuildNumber

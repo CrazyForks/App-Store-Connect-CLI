@@ -2,6 +2,7 @@ package publish
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -186,6 +187,104 @@ func TestPublishLocalBuildGeneratesExportOptionsAfterArchive(t *testing.T) {
 	}
 	if string(preserved) != string(deterministicContents) {
 		t.Fatalf("implicit generation overwrote deterministic export options: %q", preserved)
+	}
+}
+
+func TestPublishLocalBuildPreflightsIPADestinationBeforeSideEffects(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		ipaPath   func(*testing.T) string
+		wantUsage bool
+		errorHint string
+	}{
+		{
+			name:      "invalid extension",
+			ipaPath:   func(t *testing.T) string { return filepath.Join(t.TempDir(), "Demo.zip") },
+			wantUsage: true,
+			errorHint: "must end with .ipa",
+		},
+		{
+			name: "existing directory",
+			ipaPath: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "Demo.ipa")
+				if err := os.Mkdir(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+			wantUsage: true,
+			errorHint: "must not be a directory",
+		},
+		{
+			name: "filesystem error",
+			ipaPath: func(t *testing.T) string {
+				parent := filepath.Join(t.TempDir(), "not-a-directory")
+				if err := os.WriteFile(parent, []byte("file"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return filepath.Join(parent, "Demo.ipa")
+			},
+			errorHint: "lstat ipa path",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			restore := overridePublishCommandTestHooks(t)
+			defer restore()
+
+			runPublishArchiveFn = func(context.Context, localxcode.ArchiveOptions) (*localxcode.ArchiveResult, error) {
+				t.Fatal("archive ran before IPA destination preflight")
+				return nil, nil
+			}
+			generatePublishExportOptionsFn = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+				t.Fatal("export-options generation ran before IPA destination preflight")
+				return nil, nil
+			}
+			runPublishExportFn = func(context.Context, localxcode.ExportOptions) (*localxcode.ExportResult, error) {
+				t.Fatal("export ran before IPA destination preflight")
+				return nil, nil
+			}
+
+			_, err := runPublishLocalBuild(
+				context.Background(), nil, "app-123", "IOS", "1.2.3", "42",
+				5*time.Second, time.Minute, false,
+				publishLocalBuildConfig{IPAPath: tc.ipaPath(t)},
+			)
+			if err == nil || !strings.Contains(err.Error(), tc.errorHint) {
+				t.Fatalf("expected %q error, got %v", tc.errorHint, err)
+			}
+			if got := errors.Is(err, flag.ErrHelp); got != tc.wantUsage {
+				t.Fatalf("usage classification = %v, want %v: %v", got, tc.wantUsage, err)
+			}
+		})
+	}
+}
+
+func TestPublishLocalBuildChecksXcodeBeforeCreatingIPAParent(t *testing.T) {
+	restore := overridePublishCommandTestHooks(t)
+	defer restore()
+
+	wantErr := errors.New("Xcode unavailable")
+	outputParent := filepath.Join(t.TempDir(), "nested", "output")
+	preflightPublishXcodeFn = func(context.Context) error { return wantErr }
+	runPublishArchiveFn = func(context.Context, localxcode.ArchiveOptions) (*localxcode.ArchiveResult, error) {
+		t.Fatal("archive ran after failed Xcode preflight")
+		return nil, nil
+	}
+	generatePublishExportOptionsFn = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+		t.Fatal("export-options generation ran after failed Xcode preflight")
+		return nil, nil
+	}
+
+	_, err := runPublishLocalBuild(
+		context.Background(), nil, "app-123", "IOS", "1.2.3", "42",
+		5*time.Second, time.Minute, false,
+		publishLocalBuildConfig{IPAPath: filepath.Join(outputParent, "Demo.ipa")},
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected Xcode preflight error, got %v", err)
+	}
+	if _, err := os.Stat(outputParent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Xcode preflight failure created IPA output parent: %v", err)
 	}
 }
 

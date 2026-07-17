@@ -207,6 +207,7 @@ func TestXcodeExportPreflightsBeforeImplicitOptionGeneration(t *testing.T) {
 	defer restore()
 
 	wantErr := errors.New("preflight sentinel")
+	outputParent := filepath.Join(t.TempDir(), "nested", "output")
 	runXcodeExportPreflight = func(context.Context) error { return wantErr }
 	runGenerateExportOptions = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
 		t.Fatal("export options must not be generated before Xcode preflight succeeds")
@@ -217,13 +218,16 @@ func TestXcodeExportPreflightsBeforeImplicitOptionGeneration(t *testing.T) {
 	cmd.FlagSet.SetOutput(io.Discard)
 	if err := cmd.FlagSet.Parse([]string{
 		"--archive-path", filepath.Join(t.TempDir(), "Demo.xcarchive"),
-		"--ipa-path", filepath.Join(t.TempDir(), "Demo.ipa"),
+		"--ipa-path", filepath.Join(outputParent, "Demo.ipa"),
 	}); err != nil {
 		t.Fatalf("failed to parse flags: %v", err)
 	}
 
 	if err := cmd.Exec(context.Background(), nil); !errors.Is(err, wantErr) {
 		t.Fatalf("expected preflight error, got %v", err)
+	}
+	if _, err := os.Stat(outputParent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Xcode preflight failure created IPA output parent: %v", err)
 	}
 }
 
@@ -271,6 +275,35 @@ func TestXcodeExportValidatesIPADestinationBeforeImplicitOptionGeneration(t *tes
 				t.Fatalf("expected %q error, got %v", tc.errorHint, err)
 			}
 		})
+	}
+}
+
+func TestXcodeExportWaitPreflightsIPAParentBeforeImplicitOptionGeneration(t *testing.T) {
+	restore := overrideXcodeCommandTestHooks(t)
+	defer restore()
+
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parent, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGenerateExportOptions = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+		t.Fatal("upload export options must not be generated for an unusable IPA parent")
+		return nil, nil
+	}
+
+	cmd := XcodeExportCommand()
+	cmd.FlagSet.SetOutput(io.Discard)
+	if err := cmd.FlagSet.Parse([]string{
+		"--archive-path", filepath.Join(t.TempDir(), "Demo.xcarchive"),
+		"--ipa-path", filepath.Join(parent, "Demo.ipa"),
+		"--wait",
+	}); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	err := cmd.Exec(context.Background(), nil)
+	if err == nil || errors.Is(err, flag.ErrHelp) || !strings.Contains(err.Error(), "ipa output parent") {
+		t.Fatalf("expected runtime IPA-parent error, got %v", err)
 	}
 }
 

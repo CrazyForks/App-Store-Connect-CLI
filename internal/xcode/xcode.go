@@ -125,9 +125,9 @@ func PreflightExport(ctx context.Context) error {
 	return ensureXcodeAvailable(ctx)
 }
 
-// PreflightExportDestination validates an IPA destination without creating,
-// replacing, or removing files. Export repeats the check before mutation.
-func PreflightExportDestination(ipaPath string, overwrite, directUpload bool) error {
+// ValidateExportDestination checks an IPA destination without mutating the
+// filesystem.
+func ValidateExportDestination(ipaPath string, overwrite, directUpload bool) error {
 	ipaPath = strings.TrimSpace(ipaPath)
 	if ipaPath == "" {
 		return exportDestinationUsageError{message: "--ipa-path is required"}
@@ -138,8 +138,10 @@ func PreflightExportDestination(ipaPath string, overwrite, directUpload bool) er
 	if directUpload {
 		return nil
 	}
-	_, err := os.Stat(ipaPath)
+	info, err := os.Lstat(ipaPath)
 	switch {
+	case err == nil && info.IsDir():
+		return exportDestinationUsageError{message: fmt.Sprintf("--ipa-path must not be a directory: %s", ipaPath)}
 	case err == nil && !overwrite:
 		return exportDestinationUsageError{message: fmt.Sprintf("--ipa-path already exists: %s (use --overwrite to replace it)", ipaPath)}
 	case err == nil && overwrite:
@@ -147,8 +149,36 @@ func PreflightExportDestination(ipaPath string, overwrite, directUpload bool) er
 	case errors.Is(err, os.ErrNotExist):
 		return nil
 	default:
-		return fmt.Errorf("stat ipa path: %w", err)
+		return fmt.Errorf("lstat ipa path: %w", err)
 	}
+}
+
+// PreflightExportDestination validates an IPA destination and proves its
+// parent writable with a transient probe. Export repeats the check before the
+// final mutation.
+func PreflightExportDestination(ipaPath string, overwrite, directUpload bool) error {
+	if err := ValidateExportDestination(ipaPath, overwrite, directUpload); err != nil {
+		return err
+	}
+	return preflightWritableParent(strings.TrimSpace(ipaPath), "ipa output")
+}
+
+func preflightWritableParent(path, description string) error {
+	parent := filepath.Dir(path)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return fmt.Errorf("create %s parent directory: %w", description, err)
+	}
+	probe, err := os.CreateTemp(parent, ".asc-output-preflight-*")
+	if err != nil {
+		return fmt.Errorf("preflight %s parent: %w", description, err)
+	}
+	probePath := probe.Name()
+	closeErr := probe.Close()
+	removeErr := os.Remove(probePath)
+	if err := errors.Join(closeErr, removeErr); err != nil {
+		return fmt.Errorf("clean up %s parent preflight: %w", description, err)
+	}
+	return nil
 }
 
 func Archive(ctx context.Context, opts ArchiveOptions) (*ArchiveResult, error) {

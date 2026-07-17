@@ -20,6 +20,7 @@ const defaultPublishExportOptionsPath = ".asc/export-options-app-store.plist"
 var (
 	runPublishArchiveFn            = localxcode.Archive
 	runPublishExportFn             = localxcode.Export
+	preflightPublishXcodeFn        = localxcode.PreflightExport
 	generatePublishExportOptionsFn = func(ctx context.Context, opts localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
 		return localxcode.GenerateExportOptions(ctx, opts)
 	}
@@ -218,6 +219,21 @@ func resolvePublishBuildNumber(ctx context.Context, client *asc.Client, appID, v
 }
 
 func runPublishLocalBuild(ctx context.Context, client *asc.Client, appID, platform, version, buildNumber string, pollInterval, timeout time.Duration, timeoutOverride bool, config publishLocalBuildConfig) (*publishLocalBuildExecutionResult, error) {
+	if err := localxcode.ValidateExportDestination(config.IPAPath, true, false); err != nil {
+		if localxcode.IsExportDestinationUsageError(err) {
+			return nil, shared.UsageError(err.Error())
+		}
+		return nil, fmt.Errorf("validate local-build export destination: %w", err)
+	}
+	if err := preflightPublishXcodeFn(ctx); err != nil {
+		return nil, fmt.Errorf("preflight local-build Xcode: %w", err)
+	}
+	if err := localxcode.PreflightExportDestination(config.IPAPath, true, false); err != nil {
+		if localxcode.IsExportDestinationUsageError(err) {
+			return nil, shared.UsageError(err.Error())
+		}
+		return nil, fmt.Errorf("preflight local-build export destination: %w", err)
+	}
 	archiveResult, err := runPublishArchiveFn(ctx, localxcode.ArchiveOptions{
 		WorkspacePath:  config.WorkspacePath,
 		ProjectPath:    config.ProjectPath,
