@@ -10,39 +10,43 @@ import (
 )
 
 func TestGetVersion_NotMacOS(t *testing.T) {
+	projectDir := writeLegacyVersionProject(t)
 	prev := runtimeGOOS
 	runtimeGOOS = "linux"
 	defer func() { runtimeGOOS = prev }()
 
-	_, err := GetVersion(context.Background(), ".", "")
+	_, err := GetVersion(context.Background(), projectDir, "")
 	if err == nil || !strings.Contains(err.Error(), "macOS") {
 		t.Fatalf("expected macOS error, got: %v", err)
 	}
 }
 
 func TestSetVersion_NotMacOS(t *testing.T) {
+	projectDir := writeLegacyVersionProject(t)
 	prev := runtimeGOOS
 	runtimeGOOS = "linux"
 	defer func() { runtimeGOOS = prev }()
 
-	_, err := SetVersion(context.Background(), SetVersionOptions{ProjectDir: ".", Version: "1.0.0"})
+	_, err := SetVersion(context.Background(), SetVersionOptions{ProjectDir: projectDir, Version: "1.0.0"})
 	if err == nil || !strings.Contains(err.Error(), "macOS") {
 		t.Fatalf("expected macOS error, got: %v", err)
 	}
 }
 
 func TestBumpVersion_NotMacOS(t *testing.T) {
+	projectDir := writeLegacyVersionProject(t)
 	prev := runtimeGOOS
 	runtimeGOOS = "linux"
 	defer func() { runtimeGOOS = prev }()
 
-	_, err := BumpVersion(context.Background(), BumpVersionOptions{ProjectDir: ".", BumpType: BumpPatch})
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{ProjectDir: projectDir, BumpType: BumpPatch})
 	if err == nil || !strings.Contains(err.Error(), "macOS") {
 		t.Fatalf("expected macOS error, got: %v", err)
 	}
 }
 
 func TestGetVersion_MissingAgvtool(t *testing.T) {
+	projectDir := writeLegacyVersionProject(t)
 	prev := lookPathFn
 	lookPathFn = func(file string) (string, error) {
 		return "", exec.ErrNotFound
@@ -53,7 +57,7 @@ func TestGetVersion_MissingAgvtool(t *testing.T) {
 	runtimeGOOS = "darwin"
 	defer func() { runtimeGOOS = prevOS }()
 
-	_, err := GetVersion(context.Background(), ".", "")
+	_, err := GetVersion(context.Background(), projectDir, "")
 	if err == nil || !strings.Contains(err.Error(), "agvtool") {
 		t.Fatalf("expected agvtool not found error, got: %v", err)
 	}
@@ -250,6 +254,27 @@ func TestFindXcodeprojMultipleProjectsSuggestsProjectFlag(t *testing.T) {
 	}
 }
 
+func TestGetVersionDiscoveryErrorDoesNotFallBackToAgvtool(t *testing.T) {
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "commands.log")
+
+	restore := overrideTestEnvironment(t)
+	runtimeGOOS = "darwin"
+	lookPathFn = func(file string) (string, error) {
+		return "/usr/bin/" + file, nil
+	}
+	commandContextFn = helperCommandContext(t, logPath)
+	t.Cleanup(restore)
+
+	_, err := GetVersionScoped(context.Background(), GetVersionOptions{ProjectDir: tempDir})
+	if err == nil || !strings.Contains(err.Error(), "no .xcodeproj found") {
+		t.Fatalf("expected project discovery error, got %v", err)
+	}
+	if logData, readErr := os.ReadFile(logPath); readErr == nil && strings.Contains(string(logData), "agvtool") {
+		t.Fatalf("project discovery error fell back to agvtool: %q", logData)
+	}
+}
+
 func TestSetVersionTargetedWritesRequireStructuredProject(t *testing.T) {
 	prevOS := runtimeGOOS
 	prevLookPath := lookPathFn
@@ -263,7 +288,7 @@ func TestSetVersionTargetedWritesRequireStructuredProject(t *testing.T) {
 	}()
 
 	_, err := SetVersion(context.Background(), SetVersionOptions{
-		ProjectDir: t.TempDir(),
+		ProjectDir: writeLegacyVersionProject(t),
 		Target:     "App",
 		Version:    "1.2.3",
 	})
@@ -274,10 +299,7 @@ func TestSetVersionTargetedWritesRequireStructuredProject(t *testing.T) {
 
 func TestSetVersionLegacyMultiTargetUsesProjectWideWrite(t *testing.T) {
 	tempDir := t.TempDir()
-	projectDir := filepath.Join(tempDir, "Project")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		t.Fatalf("mkdir project dir: %v", err)
-	}
+	projectDir := writeLegacyVersionProject(t)
 	logPath := filepath.Join(tempDir, "commands.log")
 
 	restore := overrideTestEnvironment(t)
@@ -314,10 +336,7 @@ func TestSetVersionLegacyMultiTargetUsesProjectWideWrite(t *testing.T) {
 
 func TestBumpVersionLegacyTargetScopeIsRejectedBeforeProjectWideWrite(t *testing.T) {
 	tempDir := t.TempDir()
-	projectDir := filepath.Join(tempDir, "Project")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		t.Fatalf("mkdir project dir: %v", err)
-	}
+	projectDir := writeLegacyVersionProject(t)
 	logPath := filepath.Join(tempDir, "commands.log")
 
 	restore := overrideTestEnvironment(t)
@@ -344,10 +363,7 @@ func TestBumpVersionLegacyTargetScopeIsRejectedBeforeProjectWideWrite(t *testing
 
 func TestBumpVersionLegacyRemoteBuildUsesRequestedNumber(t *testing.T) {
 	tempDir := t.TempDir()
-	projectDir := filepath.Join(tempDir, "Project")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		t.Fatalf("mkdir project dir: %v", err)
-	}
+	projectDir := writeLegacyVersionProject(t)
 	logPath := filepath.Join(tempDir, "commands.log")
 
 	restore := overrideTestEnvironment(t)
@@ -382,6 +398,22 @@ func TestBumpVersionLegacyRemoteBuildUsesRequestedNumber(t *testing.T) {
 	if strings.Contains(logText, "agvtool|next-version|-all") {
 		t.Fatalf("remote build bump incremented locally: %q", logText)
 	}
+}
+
+func writeLegacyVersionProject(t *testing.T) string {
+	t.Helper()
+	projectPath := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(projectPath, "project.pbxproj")
+	contents, err := os.ReadFile(pbxprojPath)
+	if err != nil {
+		t.Fatalf("read legacy project fixture: %v", err)
+	}
+	legacy := strings.ReplaceAll(string(contents), marketingVersionSetting, "LEGACY_MARKETING_VERSION")
+	legacy = strings.ReplaceAll(legacy, currentProjectSetting, "LEGACY_CURRENT_PROJECT_VERSION")
+	if err := os.WriteFile(pbxprojPath, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy project fixture: %v", err)
+	}
+	return filepath.Dir(projectPath)
 }
 
 func TestBumpVersionString(t *testing.T) {

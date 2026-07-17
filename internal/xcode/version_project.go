@@ -98,7 +98,7 @@ func GetConsistentMarketingVersion(ctx context.Context, opts GetVersionOptions) 
 func openStructuredVersionProject(projectInput string) (*structuredVersionProject, error) {
 	projectPath, err := findXcodeproj(projectInput)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errStructuredVersionUnavailable, err)
+		return nil, err
 	}
 	parsed, err := xcodeproj.Open(projectPath)
 	if err != nil {
@@ -354,7 +354,7 @@ func (project *structuredVersionProject) resolveSetting(configuration *versionCo
 		if err != nil {
 			return "", "", err
 		}
-		resolved, err := resolveXCConfigSetting(path, setting)
+		resolved, err := project.resolveConfigurationXCConfig(configuration, path, setting)
 		if err != nil {
 			return "", "", err
 		}
@@ -408,7 +408,7 @@ func (project *structuredVersionProject) resolveLowerSetting(configuration *vers
 		if err != nil {
 			return "", "", err
 		}
-		resolved, err := resolveXCConfigSetting(path, setting)
+		resolved, err := project.resolveConfigurationXCConfig(configuration, path, setting)
 		if err != nil {
 			return "", "", err
 		}
@@ -469,7 +469,7 @@ func (project *structuredVersionProject) resolveSettingReference(configuration *
 		if err != nil {
 			return "", "", err
 		}
-		resolved, err := resolveXCConfigSetting(path, setting)
+		resolved, err := project.resolveConfigurationXCConfig(configuration, path, setting)
 		if err != nil {
 			return "", "", err
 		}
@@ -493,6 +493,23 @@ func (project *structuredVersionProject) projectConfiguration(name string) *vers
 		}
 	}
 	return nil
+}
+
+func (project *structuredVersionProject) resolveConfigurationXCConfig(
+	configuration *versionConfiguration,
+	path string,
+	setting string,
+) (xcconfigResolvedValue, error) {
+	base := xcconfigResolvedValue{}
+	if !configuration.projectLevel {
+		if fallback := project.projectConfiguration(configuration.name); fallback != nil {
+			value, source, err := project.resolveSetting(fallback, setting)
+			if err == nil {
+				base = xcconfigResolvedValue{value: value, path: source, found: true}
+			}
+		}
+	}
+	return resolveXCConfigSettingWithBase(path, setting, base)
 }
 
 func (project *structuredVersionProject) bumpBaseline(opts BumpVersionOptions, setting string, requireConsistent bool) (string, error) {
@@ -629,7 +646,6 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 	xcconfigMutations := make(map[string]map[string]xcconfigMutation)
 	changes := make([]VersionChange, 0)
 	pbxprojChanged := false
-	found := map[string]bool{}
 
 	settings := []struct {
 		name  string
@@ -642,10 +658,12 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 		if requested.value == "" {
 			continue
 		}
+		handled := make(map[string]bool)
+		handlingErrors := make(map[string]error)
 		for _, configuration := range selected {
 			keys := matchingBuildSettingKeys(configuration.buildSettings, requested.name)
 			if len(keys) > 0 {
-				found[requested.name] = true
+				handled[configuration.id] = true
 				for _, key := range keys {
 					oldValue, _ := configuration.buildSettings[key].(string)
 					if oldValue == requested.value {
@@ -663,8 +681,8 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 				return nil, err
 			}
 			if len(assignmentFiles) > 0 {
-				found[requested.name] = true
 				if !uncertainXCConfigConsumers && consumersSelected(assignmentFiles, fileConsumers, selectedIDs) {
+					handled[configuration.id] = true
 					for _, path := range assignmentFiles {
 						if xcconfigMutations[path] == nil {
 							xcconfigMutations[path] = make(map[string]xcconfigMutation)
@@ -682,7 +700,7 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 			if !configuration.projectLevel {
 				ancestor := project.projectConfiguration(configuration.name)
 				if ancestor != nil && selectedIDs[ancestor.id] && configurationProvidesScheduledSetting(ancestor, requested.name, configFiles, xcconfigMutations) {
-					found[requested.name] = true
+					handled[configuration.id] = true
 					continue
 				}
 			}
@@ -690,18 +708,25 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 			if strings.TrimSpace(opts.Target) != "" || strings.TrimSpace(opts.Configuration) != "" {
 				oldValue, _, resolveErr := project.resolveSetting(configuration, requested.name)
 				if resolveErr == nil {
-					found[requested.name] = true
+					handled[configuration.id] = true
 					if oldValue == requested.value {
 						continue
 					}
 					configuration.buildSettings[requested.name] = requested.value
 					pbxprojChanged = true
 					changes = append(changes, versionChangeForConfiguration(configuration, requested.name, oldValue, requested.value, project.pbxprojPath, "pbxproj"))
+				} else {
+					handlingErrors[configuration.id] = resolveErr
 				}
 			}
 		}
-		if !found[requested.name] {
-			return nil, fmt.Errorf("%s not found in selected Xcode configurations", requested.name)
+		for _, configuration := range effectiveMutationConfigurations(selected) {
+			if !handled[configuration.id] {
+				if handlingErr := handlingErrors[configuration.id]; handlingErr != nil {
+					return nil, fmt.Errorf("%s could not be updated for target %q configuration %q: %w", requested.name, configuration.target, configuration.name, handlingErr)
+				}
+				return nil, fmt.Errorf("%s could not be updated for target %q configuration %q", requested.name, configuration.target, configuration.name)
+			}
 		}
 	}
 

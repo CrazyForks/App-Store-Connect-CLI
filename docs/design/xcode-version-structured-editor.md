@@ -96,7 +96,8 @@ consumer discovery uncertain.
 
 Reads resolve direct pbxproj settings, registered xcconfig values, and simple
 build-setting references locally, including `$(inherited)` across the next
-lower target xcconfig or project layer. Unresolved build-system variables
+lower target xcconfig or project layer. Target xcconfig inheritance is seeded
+from the matching project configuration, matching Xcode's layer order. Unresolved build-system variables
 produce an explicit error rather than an invented value; callers can use Xcode
 when SDK-specific resolution is required. Conditional-only values are editable,
 but cannot be used as a view or bump baseline without an unconditional value.
@@ -104,7 +105,9 @@ Projects that define only one of the two structured version settings retain the
 macOS/agvtool fallback, as do legacy projects with versions stored only in
 Info.plist. An unscoped remote build bump remains available on that fallback by
 passing the resolved number to `agvtool new-version -all`; scoped legacy bumps
-are rejected before any project-wide write.
+are rejected before any project-wide write. Legacy fallback requires a
+discoverable, parseable Xcode project that lacks the structured settings;
+missing, unreadable, and ambiguous project paths remain discovery errors.
 
 Every output file is prepared and validated before mutation. Writes use a
 same-directory temporary file, preserve the original mode, `fsync`, and rename.
@@ -112,7 +115,9 @@ If a later file fails, already-written files are restored from their captured
 original bytes. The staged pbxproj is reparsed before commit.
 Mutation values containing comment syntax or build-setting expressions are
 rejected before staging so reported and subsequently resolved values cannot
-diverge.
+diverge. Each selected leaf configuration must either resolve the requested
+value or schedule an actual mutation; unresolved protected settings cannot
+return a false-success result.
 
 ## Compatibility and lifecycle
 

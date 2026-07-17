@@ -40,10 +40,11 @@ type xcconfigDocument struct {
 }
 
 type xcconfigResolvedValue struct {
-	value string
-	path  string
-	found bool
-	exact bool
+	value            string
+	path             string
+	found            bool
+	exact            bool
+	missingInherited bool
 }
 
 func parseXCConfig(data []byte) (xcconfigDocument, error) {
@@ -234,8 +235,12 @@ func collectXCConfigFiles(root string) ([]string, error) {
 }
 
 func resolveXCConfigSetting(root, setting string) (xcconfigResolvedValue, error) {
+	return resolveXCConfigSettingWithBase(root, setting, xcconfigResolvedValue{})
+}
+
+func resolveXCConfigSettingWithBase(root, setting string, base xcconfigResolvedValue) (xcconfigResolvedValue, error) {
 	resolved, conditional, err := resolveXCConfigSettingRecursive(
-		filepath.Clean(root), setting, make(map[string]bool), xcconfigResolvedValue{},
+		filepath.Clean(root), setting, make(map[string]bool), base,
 	)
 	if err != nil {
 		return xcconfigResolvedValue{}, err
@@ -245,6 +250,9 @@ func resolveXCConfigSetting(root, setting string) (xcconfigResolvedValue, error)
 			"%s is defined only by conditional xcconfig assignments; SDK-aware resolution requires Xcode",
 			setting,
 		)
+	}
+	if resolved.missingInherited {
+		return xcconfigResolvedValue{}, fmt.Errorf("%s uses $(inherited) without a lower-layer value", setting)
 	}
 	return resolved, nil
 }
@@ -318,6 +326,7 @@ func resolveXCConfigSettingRecursive(
 			continue
 		}
 		value := assignment.value
+		hadLowerValue := resolved.found
 		hasInherited := strings.Contains(value, "$(inherited)") || strings.Contains(value, "${inherited}")
 		value = strings.ReplaceAll(value, "$(inherited)", resolved.value)
 		value = strings.ReplaceAll(value, "${inherited}", resolved.value)
@@ -331,7 +340,13 @@ func resolveXCConfigSettingRecursive(
 				value = strings.TrimSpace(strings.TrimSpace(resolved.value) + " " + strings.TrimSpace(value))
 			}
 		}
-		resolved = xcconfigResolvedValue{value: strings.TrimSpace(value), path: path, found: true, exact: true}
+		resolved = xcconfigResolvedValue{
+			value:            strings.TrimSpace(value),
+			path:             path,
+			found:            true,
+			exact:            true,
+			missingInherited: hasInherited && !hadLowerValue,
+		}
 	}
 	return resolved, conditionalFound, nil
 }

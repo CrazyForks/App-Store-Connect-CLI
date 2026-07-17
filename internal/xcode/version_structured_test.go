@@ -325,6 +325,32 @@ func TestStructuredVersion_DirectInheritedValueUsesNextLowerLayer(t *testing.T) 
 	}
 }
 
+func TestStructuredVersion_TargetXCConfigInheritedUsesProjectLayer(t *testing.T) {
+	project := writeStructuredVersionProject(t, true)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := mustReadVersionTestFile(t, pbxprojPath)
+	contents = strings.Replace(contents,
+		"999999999999999999999992 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {}; name = Release; };",
+		"999999999999999999999992 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = { MARKETING_VERSION = 7.8.9; CURRENT_PROJECT_VERSION = 78; }; name = Release; };", 1)
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project.pbxproj) error = %v", err)
+	}
+	sharedPath := filepath.Join(filepath.Dir(project), "Configs", "Shared.xcconfig")
+	if err := os.WriteFile(sharedPath, []byte("MARKETING_VERSION = $(inherited)\nCURRENT_PROJECT_VERSION = $(inherited)\n"), 0o640); err != nil {
+		t.Fatalf("WriteFile(Shared.xcconfig) error = %v", err)
+	}
+
+	view, err := GetVersionScoped(context.Background(), GetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release",
+	})
+	if err != nil {
+		t.Fatalf("GetVersionScoped() error = %v", err)
+	}
+	if view.Version != "7.8.9" || view.BuildNumber != "78" {
+		t.Fatalf("project-layer inheritance resolved to %#v", view)
+	}
+}
+
 func TestStructuredVersion_UnscopedBumpSupportsMultipleApplicationTargets(t *testing.T) {
 	project := writeStructuredVersionProject(t, false)
 	pbxprojPath := filepath.Join(project, "project.pbxproj")
@@ -654,6 +680,30 @@ func TestStructuredVersion_ScopedInheritedNoOpDoesNotCreateOverride(t *testing.T
 	}
 	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
 		t.Fatal("inherited no-op created a target-level override")
+	}
+}
+
+func TestStructuredVersion_ScopedConditionalSharedSettingDoesNotReportFalseSuccess(t *testing.T) {
+	project := writeStructuredVersionProject(t, true)
+	sharedPath := filepath.Join(filepath.Dir(project), "Configs", "Shared.xcconfig")
+	conditional := "MARKETING_VERSION[sdk=iphoneos*] = 1.2.3\nCURRENT_PROJECT_VERSION = 42\n"
+	if err := os.WriteFile(sharedPath, []byte(conditional), 0o640); err != nil {
+		t.Fatalf("WriteFile(Shared.xcconfig) error = %v", err)
+	}
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	beforeProject := mustReadVersionTestFile(t, pbxprojPath)
+
+	_, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project, Target: "App", Configuration: "Release", Version: "2.0.0",
+	})
+	if err == nil || !strings.Contains(err.Error(), "conditional") {
+		t.Fatalf("expected conditional-only scoped edit error, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, sharedPath); got != conditional {
+		t.Fatal("conditional shared xcconfig changed after rejected edit")
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != beforeProject {
+		t.Fatal("pbxproj changed after rejected conditional edit")
 	}
 }
 
