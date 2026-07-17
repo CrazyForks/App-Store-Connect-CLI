@@ -516,7 +516,7 @@ func TestStructuredVersion_BumpPreservesEquivalentConditionalPBXProjValues(t *te
 	}
 }
 
-func TestStructuredVersion_PartialBuildSettingsUseLegacyRouting(t *testing.T) {
+func TestStructuredVersion_PartialBuildSettingsAreReported(t *testing.T) {
 	project := writeStructuredVersionProject(t, false)
 	pbxprojPath := filepath.Join(project, "project.pbxproj")
 	contents := strings.ReplaceAll(mustReadVersionTestFile(t, pbxprojPath), "CURRENT_PROJECT_VERSION = 42;", "")
@@ -529,11 +529,145 @@ func TestStructuredVersion_PartialBuildSettingsUseLegacyRouting(t *testing.T) {
 		t.Fatalf("openStructuredVersionProject() error = %v", err)
 	}
 	structured, err := parsed.hasStructuredVersionSettingsForMutation("", "")
-	if err != nil {
-		t.Fatalf("hasStructuredVersionSettingsForMutation() error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "partially") {
+		t.Fatalf("expected partial structured coverage error, got structured=%v err=%v", structured, err)
 	}
-	if structured {
-		t.Fatal("expected partial project to use legacy routing")
+}
+
+func TestStructuredVersion_PartialMarketingVersionEditAndBumpStayStructured(t *testing.T) {
+	t.Run("remote selection", func(t *testing.T) {
+		project := writeStructuredVersionProject(t, false)
+		pbxprojPath := filepath.Join(project, "project.pbxproj")
+		contents := strings.ReplaceAll(mustReadVersionTestFile(t, pbxprojPath), "CURRENT_PROJECT_VERSION = 42;", "")
+		if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+			t.Fatalf("WriteFile(project) error = %v", err)
+		}
+		restore := overrideTestEnvironment(t)
+		runtimeGOOS = "linux"
+		lookPathFn = func(file string) (string, error) { return "", errors.New("not available") }
+		t.Cleanup(restore)
+
+		version, err := GetConsistentMarketingVersion(context.Background(), GetVersionOptions{ProjectDir: project})
+		if err != nil {
+			t.Fatalf("GetConsistentMarketingVersion() error = %v", err)
+		}
+		if version != "1.2.3" {
+			t.Fatalf("consistent partial marketing version = %q, want 1.2.3", version)
+		}
+	})
+
+	t.Run("edit", func(t *testing.T) {
+		project := writeStructuredVersionProject(t, false)
+		pbxprojPath := filepath.Join(project, "project.pbxproj")
+		contents := strings.ReplaceAll(mustReadVersionTestFile(t, pbxprojPath), "CURRENT_PROJECT_VERSION = 42;", "")
+		if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+			t.Fatalf("WriteFile(project) error = %v", err)
+		}
+		restore := overrideTestEnvironment(t)
+		runtimeGOOS = "linux"
+		lookPathFn = func(file string) (string, error) { return "", errors.New("not available") }
+		t.Cleanup(restore)
+
+		result, err := SetVersion(context.Background(), SetVersionOptions{
+			ProjectDir: project, Version: "2.0.0",
+		})
+		if err != nil {
+			t.Fatalf("SetVersion() error = %v", err)
+		}
+		if result.Version != "2.0.0" || len(result.Changes) != 4 {
+			t.Fatalf("unexpected partial structured edit: %#v", result)
+		}
+		if updated := mustReadVersionTestFile(t, pbxprojPath); strings.Contains(updated, "MARKETING_VERSION = 1.2.3;") {
+			t.Fatalf("marketing version remained unchanged: %s", updated)
+		}
+	})
+
+	t.Run("bump", func(t *testing.T) {
+		project := writeStructuredVersionProject(t, false)
+		pbxprojPath := filepath.Join(project, "project.pbxproj")
+		contents := strings.ReplaceAll(mustReadVersionTestFile(t, pbxprojPath), "CURRENT_PROJECT_VERSION = 42;", "")
+		if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+			t.Fatalf("WriteFile(project) error = %v", err)
+		}
+		restore := overrideTestEnvironment(t)
+		runtimeGOOS = "linux"
+		lookPathFn = func(file string) (string, error) { return "", errors.New("not available") }
+		t.Cleanup(restore)
+
+		result, err := BumpVersion(context.Background(), BumpVersionOptions{
+			ProjectDir: project, BumpType: BumpPatch,
+		})
+		if err != nil {
+			t.Fatalf("BumpVersion() error = %v", err)
+		}
+		if result.OldVersion != "1.2.3" || result.NewVersion != "1.2.4" {
+			t.Fatalf("unexpected partial structured bump: %#v", result)
+		}
+	})
+}
+
+func TestStructuredVersion_MixedStructuredAndLegacyEditFailsBeforeMutation(t *testing.T) {
+	project := writeStructuredVersionProject(t, false)
+	pbxprojPath := filepath.Join(project, "project.pbxproj")
+	contents := strings.ReplaceAll(mustReadVersionTestFile(t, pbxprojPath), "CURRENT_PROJECT_VERSION = 42;", "")
+	if err := os.WriteFile(pbxprojPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile(project) error = %v", err)
+	}
+	before := mustReadVersionTestFile(t, pbxprojPath)
+
+	_, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir: project, Version: "2.0.0", BuildNumber: "43",
+	})
+	if err == nil || !strings.Contains(err.Error(), "partially") {
+		t.Fatalf("expected partial structured coverage error, got %v", err)
+	}
+	if got := mustReadVersionTestFile(t, pbxprojPath); got != before {
+		t.Fatal("project changed after mixed structured/legacy edit rejection")
+	}
+}
+
+func TestStructuredVersion_SelectedBrokenXCConfigNeverFallsBackToLegacy(t *testing.T) {
+	operations := map[string]func(context.Context, string) error{
+		"view": func(ctx context.Context, project string) error {
+			_, err := GetVersionScoped(ctx, GetVersionOptions{ProjectDir: project, Target: "App", Configuration: "Release"})
+			return err
+		},
+		"marketing version": func(ctx context.Context, project string) error {
+			_, err := GetConsistentMarketingVersion(ctx, GetVersionOptions{ProjectDir: project, Target: "App", Configuration: "Release"})
+			return err
+		},
+		"edit": func(ctx context.Context, project string) error {
+			_, err := SetVersion(ctx, SetVersionOptions{ProjectDir: project, Target: "App", Configuration: "Release", Version: "2.0.0"})
+			return err
+		},
+		"bump": func(ctx context.Context, project string) error {
+			_, err := BumpVersion(ctx, BumpVersionOptions{ProjectDir: project, Target: "App", Configuration: "Release", BumpType: BumpPatch})
+			return err
+		},
+	}
+	for name, operation := range operations {
+		t.Run(name, func(t *testing.T) {
+			project := writeStructuredVersionProject(t, true)
+			sharedPath := filepath.Join(filepath.Dir(project), "Configs", "Shared.xcconfig")
+			if err := os.Remove(sharedPath); err != nil {
+				t.Fatalf("Remove(Shared.xcconfig) error = %v", err)
+			}
+			logPath := filepath.Join(t.TempDir(), "commands.log")
+			restore := overrideTestEnvironment(t)
+			runtimeGOOS = "darwin"
+			lookPathFn = func(file string) (string, error) { return "/usr/bin/" + file, nil }
+			commandContextFn = helperCommandContext(t, logPath)
+			t.Setenv("ASC_XCODE_HELPER_SINGLE_TARGET", "1")
+			t.Cleanup(restore)
+
+			err := operation(context.Background(), project)
+			if err == nil || !strings.Contains(err.Error(), "Shared.xcconfig") {
+				t.Fatalf("expected selected xcconfig error, got %v", err)
+			}
+			if log, readErr := os.ReadFile(logPath); readErr == nil && len(log) > 0 {
+				t.Fatalf("legacy command ran after selected xcconfig failure: %s", log)
+			}
+		})
 	}
 }
 

@@ -189,7 +189,7 @@ func SetVersion(ctx context.Context, opts SetVersionOptions) (*SetVersionResult,
 	if err != nil {
 		return nil, err
 	}
-	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	structured, err := project.hasStructuredSettingsForMutation(opts.Target, opts.Configuration, setVersionRequestedSettings(opts)...)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func ValidateSetVersion(opts SetVersionOptions) error {
 	if err != nil {
 		return err
 	}
-	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	structured, err := project.hasStructuredSettingsForMutation(opts.Target, opts.Configuration, setVersionRequestedSettings(opts)...)
 	if err != nil {
 		return err
 	}
@@ -274,7 +274,7 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 	if err != nil {
 		return nil, err
 	}
-	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	structured, err := project.hasStructuredSettingsForMutation(opts.Target, opts.Configuration, bumpVersionSetting(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +309,7 @@ func ValidateBumpVersion(ctx context.Context, opts BumpVersionOptions) error {
 	if err != nil {
 		return err
 	}
-	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	structured, err := project.hasStructuredSettingsForMutation(opts.Target, opts.Configuration, bumpVersionSetting(opts))
 	if err != nil {
 		return err
 	}
@@ -354,6 +354,24 @@ func validateBumpVersionOptions(opts BumpVersionOptions) error {
 		return fmt.Errorf("--build-number is only supported for build bumps")
 	}
 	return nil
+}
+
+func setVersionRequestedSettings(opts SetVersionOptions) []string {
+	settings := make([]string, 0, 2)
+	if strings.TrimSpace(opts.Version) != "" {
+		settings = append(settings, marketingVersionSetting)
+	}
+	if strings.TrimSpace(opts.BuildNumber) != "" {
+		settings = append(settings, currentProjectSetting)
+	}
+	return settings
+}
+
+func bumpVersionSetting(opts BumpVersionOptions) string {
+	if opts.BumpType == BumpBuild {
+		return currentProjectSetting
+	}
+	return marketingVersionSetting
 }
 
 func (project *structuredVersionProject) prepareBump(opts BumpVersionOptions) (*BumpVersionResult, SetVersionOptions, error) {

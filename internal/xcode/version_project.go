@@ -83,7 +83,7 @@ func GetConsistentMarketingVersion(ctx context.Context, opts GetVersionOptions) 
 	if err != nil {
 		return "", err
 	}
-	structured, err := project.hasStructuredVersionSettingsForMutation(opts.Target, opts.Configuration)
+	structured, err := project.hasStructuredSettingsForMutation(opts.Target, opts.Configuration, marketingVersionSetting)
 	if err != nil {
 		return "", err
 	}
@@ -138,9 +138,6 @@ func openStructuredVersionProject(projectInput string) (*structuredVersionProjec
 }
 
 func (project *structuredVersionProject) hasStructuredVersionSettingsForView(target, configuration string) (bool, error) {
-	if !project.hasAnyStructuredVersionConfiguration() {
-		return false, nil
-	}
 	selected, err := project.selectViewConfiguration(target, configuration)
 	if err != nil {
 		return false, err
@@ -149,52 +146,65 @@ func (project *structuredVersionProject) hasStructuredVersionSettingsForView(tar
 }
 
 func (project *structuredVersionProject) hasStructuredVersionSettingsForMutation(target, configuration string) (bool, error) {
-	if !project.hasAnyStructuredVersionConfiguration() {
+	return project.hasStructuredSettingsForMutation(target, configuration, marketingVersionSetting, currentProjectSetting)
+}
+
+func (project *structuredVersionProject) hasStructuredSettingsForMutation(target, configuration string, settings ...string) (bool, error) {
+	anyProjectSetting, err := project.hasAnyStructuredSetting(settings...)
+	if err != nil {
+		return false, err
+	}
+	if !anyProjectSetting {
 		return false, nil
 	}
 	selected, err := project.selectMutationConfigurations(target, configuration)
 	if err != nil {
 		return false, err
 	}
+	anyDefined := false
+	allDefined := len(settings) > 0
 	for _, candidate := range effectiveMutationConfigurations(selected) {
-		structured, err := project.configurationDefinesStructuredSettings(candidate)
-		if err != nil {
-			return false, err
-		}
-		if structured {
-			return true, nil
+		for _, setting := range settings {
+			defined, err := project.configurationDefinesSetting(candidate, setting)
+			if err != nil {
+				return false, err
+			}
+			anyDefined = anyDefined || defined
+			allDefined = allDefined && defined
 		}
 	}
-	return false, nil
+	if anyDefined && !allDefined {
+		return false, fmt.Errorf(
+			"selected Xcode configurations only partially define structured build settings (%s); narrow the scope or edit structured and legacy settings separately",
+			strings.Join(settings, ", "),
+		)
+	}
+	return allDefined, nil
 }
 
-func (project *structuredVersionProject) hasAnyStructuredVersionConfiguration() bool {
+func (project *structuredVersionProject) hasAnyStructuredSetting(settings ...string) (bool, error) {
+	var firstInspectionError error
 	for _, configuration := range project.configurations {
 		if configuration.projectLevel {
 			continue
 		}
-		structured, err := project.configurationDefinesStructuredSettings(configuration)
-		if err != nil {
-			continue
-		}
-		if structured {
-			return true
-		}
-	}
-	return false
-}
-
-func (project *structuredVersionProject) configurationDefinesStructuredSettings(configuration *versionConfiguration) (bool, error) {
-	for _, setting := range []string{marketingVersionSetting, currentProjectSetting} {
-		defined, err := project.configurationDefinesSetting(configuration, setting)
-		if err != nil {
-			return false, err
-		}
-		if !defined {
-			return false, nil
+		for _, setting := range settings {
+			defined, err := project.configurationDefinesSetting(configuration, setting)
+			if err != nil {
+				if firstInspectionError == nil {
+					firstInspectionError = err
+				}
+				continue
+			}
+			if defined {
+				return true, nil
+			}
 		}
 	}
-	return true, nil
+	if firstInspectionError != nil {
+		return false, firstInspectionError
+	}
+	return false, nil
 }
 
 func (project *structuredVersionProject) configurationDefinesSetting(configuration *versionConfiguration, setting string) (bool, error) {
