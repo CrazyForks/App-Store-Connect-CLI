@@ -146,27 +146,36 @@ func TestSearchPrioritizesCanonicalPublishWorkflowForNaturalLanguage(t *testing.
 }
 
 func TestSearchKeepsExactBuildUploadAheadOfBroaderPublishWorkflows(t *testing.T) {
-	var code int
-	stdout, stderr := captureOutput(t, func() {
-		code = rootcmd.Run([]string{"search", "--output", "json", "--limit", "5", "upload", "build"}, "1.2.3")
-	})
+	for _, query := range [][]string{
+		{"upload", "build"},
+		{"upload", "build", "app"},
+	} {
+		t.Run(strings.Join(query, " "), func(t *testing.T) {
+			var code int
+			stdout, stderr := captureOutput(t, func() {
+				args := []string{"search", "--output", "json", "--limit", "5"}
+				args = append(args, query...)
+				code = rootcmd.Run(args, "1.2.3")
+			})
 
-	if code != 0 {
-		t.Fatalf("expected exit code 0, got %d with stderr %q", code, stderr)
-	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
-	}
+			if code != 0 {
+				t.Fatalf("expected exit code 0, got %d with stderr %q", code, stderr)
+			}
+			if stderr != "" {
+				t.Fatalf("expected empty stderr, got %q", stderr)
+			}
 
-	var response searchResponse
-	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
-		t.Fatalf("failed to unmarshal search JSON: %v\nstdout=%s", err, stdout)
-	}
-	if len(response.Results) == 0 {
-		t.Fatalf("expected search results, got %#v", response)
-	}
-	if response.Results[0].Command != "asc builds upload" {
-		t.Fatalf("expected exact build upload command first, got %#v", response.Results)
+			var response searchResponse
+			if err := json.Unmarshal([]byte(stdout), &response); err != nil {
+				t.Fatalf("failed to unmarshal search JSON: %v\nstdout=%s", err, stdout)
+			}
+			if len(response.Results) == 0 {
+				t.Fatalf("expected search results, got %#v", response)
+			}
+			if response.Results[0].Command != "asc builds upload" {
+				t.Fatalf("expected exact build upload command first, got %#v", response.Results)
+			}
+		})
 	}
 }
 

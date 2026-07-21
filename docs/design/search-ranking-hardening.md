@@ -45,6 +45,8 @@ RED-GREEN coverage will assert that:
 - `asc search "ship app"` ranks `asc publish appstore` first;
 - `asc search "release app"` includes and prioritizes the canonical publish
   workflow within a five-result limit;
+- `asc search "upload build app"` keeps the direct `asc builds upload` command
+  ahead of broader publish workflows;
 - the built binary emits valid JSON to stdout, nothing to stderr, and exits zero
   for both natural-language queries.
 

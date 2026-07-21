@@ -458,6 +458,10 @@ func scoreTerm(doc commandDoc, term, reason string) (int, []string) {
 }
 
 func canonicalBoostFor(command string, queryTokens []string) (int, string) {
+	if tokenContains(queryTokens, "upload") && tokenContains(queryTokens, "build") {
+		return 0, ""
+	}
+
 	for _, rule := range canonicalIntentRules {
 		if command != rule.command {
 			continue
