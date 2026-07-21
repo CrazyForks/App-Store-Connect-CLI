@@ -66,7 +66,7 @@ type canonicalIntentRule struct {
 var canonicalIntentRules = []canonicalIntentRule{
 	{
 		command:  "asc publish appstore",
-		actions:  []string{"ship", "shipping", "publish", "release", "submit", "submission", "review", "upload"},
+		actions:  []string{"ship", "shipping", "publish", "release", "submit", "submission", "upload"},
 		subjects: []string{"app", "appstore", "store"},
 		reason:   "canonical:appstore-publish",
 	},

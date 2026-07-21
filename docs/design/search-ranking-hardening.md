@@ -47,6 +47,8 @@ RED-GREEN coverage will assert that:
   workflow within a five-result limit;
 - `asc search "upload build app"` keeps the direct `asc builds upload` command
   ahead of broader publish workflows;
+- `asc search "app review"` does not apply a publish-workflow boost to the
+  generic review intent;
 - the built binary emits valid JSON to stdout, nothing to stderr, and exits zero
   for both natural-language queries.
 
