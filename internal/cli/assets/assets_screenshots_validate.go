@@ -220,46 +220,7 @@ func validateScreenshotAssets(pathValue, displayType string) (*screenshotValidat
 		}
 
 		if !hasError {
-			digest, err := decodedScreenshotPixelDigest(filePath)
-			if err != nil {
-				hasError = true
-				appendScreenshotValidateIssue(result, screenshotValidateIssue{
-					Code:        "read_failure",
-					Severity:    screenshotValidateSeverityError,
-					FilePath:    filePath,
-					FileName:    fileName,
-					Message:     err.Error(),
-					Remediation: "Replace this file with a valid PNG or JPEG screenshot.",
-				})
-			} else {
-				duplicateOf, err := findDecodedScreenshotDuplicate(filePath, seenPixelDigests[digest])
-				if err != nil {
-					hasError = true
-					appendScreenshotValidateIssue(result, screenshotValidateIssue{
-						Code:        "read_failure",
-						Severity:    screenshotValidateSeverityError,
-						FilePath:    filePath,
-						FileName:    fileName,
-						Message:     err.Error(),
-						Remediation: "Replace this file with a valid PNG or JPEG screenshot.",
-					})
-				} else if duplicateOf != "" {
-					hasError = true
-					duplicateName := filepath.Base(duplicateOf)
-					appendScreenshotValidateIssue(result, screenshotValidateIssue{
-						Code:        "duplicate_content",
-						Severity:    screenshotValidateSeverityError,
-						FilePath:    filePath,
-						FileName:    fileName,
-						DuplicateOf: duplicateName,
-						Match:       "pixels",
-						Message:     fmt.Sprintf("screenshot %q has decoded pixels identical to %q", fileName, duplicateName),
-						Remediation: "Remove one duplicate or replace it with a distinct screenshot before uploading.",
-					})
-				} else {
-					seenPixelDigests[digest] = append(seenPixelDigests[digest], filePath)
-				}
-			}
+			hasError = checkDecodedPixelDuplicate(result, filePath, fileName, seenPixelDigests)
 		}
 
 		switch {
@@ -278,6 +239,51 @@ func validateScreenshotAssets(pathValue, displayType string) (*screenshotValidat
 	}
 
 	return result, nil
+}
+
+func checkDecodedPixelDuplicate(result *screenshotValidateResult, filePath, fileName string, seenPixelDigests map[screenshotPixelDigest][]string) bool {
+	digest, err := decodedScreenshotPixelDigest(filePath)
+	if err != nil {
+		appendScreenshotValidateIssue(result, screenshotValidateIssue{
+			Code:        "read_failure",
+			Severity:    screenshotValidateSeverityError,
+			FilePath:    filePath,
+			FileName:    fileName,
+			Message:     err.Error(),
+			Remediation: "Replace this file with a valid PNG or JPEG screenshot.",
+		})
+		return true
+	}
+
+	duplicateOf, err := findDecodedScreenshotDuplicate(filePath, seenPixelDigests[digest])
+	if err != nil {
+		appendScreenshotValidateIssue(result, screenshotValidateIssue{
+			Code:        "read_failure",
+			Severity:    screenshotValidateSeverityError,
+			FilePath:    filePath,
+			FileName:    fileName,
+			Message:     err.Error(),
+			Remediation: "Replace this file with a valid PNG or JPEG screenshot.",
+		})
+		return true
+	}
+	if duplicateOf == "" {
+		seenPixelDigests[digest] = append(seenPixelDigests[digest], filePath)
+		return false
+	}
+
+	duplicateName := filepath.Base(duplicateOf)
+	appendScreenshotValidateIssue(result, screenshotValidateIssue{
+		Code:        "duplicate_content",
+		Severity:    screenshotValidateSeverityError,
+		FilePath:    filePath,
+		FileName:    fileName,
+		DuplicateOf: duplicateName,
+		Match:       "pixels",
+		Message:     fmt.Sprintf("screenshot %q has decoded pixels identical to %q", fileName, duplicateName),
+		Remediation: "Remove one duplicate or replace it with a distinct screenshot before uploading.",
+	})
+	return true
 }
 
 func findDecodedScreenshotDuplicate(path string, candidates []string) (string, error) {

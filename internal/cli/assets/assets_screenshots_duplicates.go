@@ -28,7 +28,7 @@ func decodedScreenshotPixelDigest(path string) (screenshotPixelDigest, error) {
 	binary.BigEndian.PutUint64(dimensions[8:16], uint64(bounds.Dy()))
 	_, _ = hasher.Write(dimensions[:])
 
-	row := make([]byte, bounds.Dx()*4)
+	row := make([]byte, bounds.Dx()*8)
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		normalizeScreenshotPixelRow(row, img, y)
 		_, _ = hasher.Write(row)
@@ -55,8 +55,8 @@ func decodedScreenshotPixelsEqual(leftPath, rightPath string) (bool, error) {
 		return false, nil
 	}
 
-	leftRow := make([]byte, leftBounds.Dx()*4)
-	rightRow := make([]byte, rightBounds.Dx()*4)
+	leftRow := make([]byte, leftBounds.Dx()*8)
+	rightRow := make([]byte, rightBounds.Dx()*8)
 	for offsetY := 0; offsetY < leftBounds.Dy(); offsetY++ {
 		normalizeScreenshotPixelRow(leftRow, left, leftBounds.Min.Y+offsetY)
 		normalizeScreenshotPixelRow(rightRow, right, rightBounds.Min.Y+offsetY)
@@ -84,11 +84,11 @@ func decodeScreenshotPixels(path string) (image.Image, error) {
 func normalizeScreenshotPixelRow(dst []byte, img image.Image, y int) {
 	bounds := img.Bounds()
 	for offsetX := 0; offsetX < bounds.Dx(); offsetX++ {
-		pixel := color.NRGBAModel.Convert(img.At(bounds.Min.X+offsetX, y)).(color.NRGBA)
-		index := offsetX * 4
-		dst[index] = pixel.R
-		dst[index+1] = pixel.G
-		dst[index+2] = pixel.B
-		dst[index+3] = pixel.A
+		pixel := color.NRGBA64Model.Convert(img.At(bounds.Min.X+offsetX, y)).(color.NRGBA64)
+		index := offsetX * 8
+		binary.BigEndian.PutUint16(dst[index:index+2], pixel.R)
+		binary.BigEndian.PutUint16(dst[index+2:index+4], pixel.G)
+		binary.BigEndian.PutUint16(dst[index+4:index+6], pixel.B)
+		binary.BigEndian.PutUint16(dst[index+6:index+8], pixel.A)
 	}
 }

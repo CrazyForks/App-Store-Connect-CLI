@@ -160,6 +160,24 @@ func TestValidateScreenshotAssetsReportsDecodedPixelDuplicatesDeterministically(
 	}
 }
 
+func TestValidateScreenshotAssetsPreserves16BitSamplesWhenDetectingDuplicates(t *testing.T) {
+	dir := t.TempDir()
+	writeAssetsScreenshotValidatePNG64(t, dir, "01-first.png", 312, 390, color.NRGBA64{R: 0x1201, G: 0x3400, B: 0x5600, A: 0xffff})
+	writeAssetsScreenshotValidatePNG64(t, dir, "02-second.png", 312, 390, color.NRGBA64{R: 0x1202, G: 0x3400, B: 0x5600, A: 0xffff})
+
+	result, err := validateScreenshotAssets(dir, "APP_WATCH_SERIES_3")
+	if err != nil {
+		t.Fatalf("validateScreenshotAssets() error: %v", err)
+	}
+
+	if result.ErrorCount != 0 {
+		t.Fatalf("expected distinct 16-bit samples to pass, got %d error(s): %+v", result.ErrorCount, result.Issues)
+	}
+	if result.ReadyFiles != 2 {
+		t.Fatalf("expected 2 ready files, got %d", result.ReadyFiles)
+	}
+}
+
 func TestRenderScreenshotValidateResultSkipsRedundantAPIDisplayTypeRow(t *testing.T) {
 	result := &screenshotValidateResult{
 		Path:         "/tmp/screenshots",
@@ -239,4 +257,22 @@ func writeAssetsScreenshotValidatePNG(t *testing.T, dir, name string, width, hei
 		t.Fatalf("encode png: %v", err)
 	}
 	return path
+}
+
+func writeAssetsScreenshotValidatePNG64(t *testing.T, dir, name string, width, height int, marker color.NRGBA64) {
+	t.Helper()
+
+	path := filepath.Join(dir, name)
+	img := image.NewNRGBA64(image.Rect(0, 0, width, height))
+	img.SetNRGBA64(0, 0, marker)
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create png: %v", err)
+	}
+	defer file.Close()
+
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
 }
