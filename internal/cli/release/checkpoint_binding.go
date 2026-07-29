@@ -39,6 +39,9 @@ func verifyResumedCheckpointBinding(
 	}
 
 	for name := range checkpoint.Completed {
+		if name == stepSubmitReview && !opts.SubmitForReview {
+			return fmt.Errorf("checkpoint completed step %q requires resuming with --submit-for-review", name)
+		}
 		if !isReleasePipelineStep(name, opts.SubmitForReview) {
 			return fmt.Errorf("checkpoint records unknown completed step %q", name)
 		}

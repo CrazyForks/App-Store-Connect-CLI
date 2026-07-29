@@ -96,6 +96,34 @@ func TestVerifyResumedCheckpointBindingRejectsCompletedStepsWithoutVersionBindin
 	}
 }
 
+// TestVerifyResumedCheckpointBindingExplainsMissingSubmitForReviewFlag proves
+// that resuming a checkpoint with a completed submit_review step but without
+// --submit-for-review reports the flag mismatch instead of claiming the
+// checkpoint records an unknown step.
+func TestVerifyResumedCheckpointBindingExplainsMissingSubmitForReviewFlag(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+	})
+
+	opts := checkpointBindingOptions()
+	opts.SubmitForReview = false
+	checkpoint := runCheckpoint{
+		VersionID:    "VERSION_123",
+		SubmissionID: "SUBMISSION_123",
+		Completed:    map[string]bool{stepSubmitReview: true},
+	}
+	err := verifyResumedCheckpointBinding(context.Background(), client, opts, &checkpoint, nil)
+	if err == nil {
+		t.Fatal("expected checkpoint verification to reject the missing --submit-for-review flag")
+	}
+	if !strings.Contains(err.Error(), "--submit-for-review") {
+		t.Fatalf("expected error naming --submit-for-review, got %v", err)
+	}
+	if strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("expected a flag mismatch error, not an unknown-step error, got %v", err)
+	}
+}
+
 func TestVerifyResumedCheckpointBindingRejectsUnknownCompletedStep(t *testing.T) {
 	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
