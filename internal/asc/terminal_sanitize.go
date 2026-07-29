@@ -15,6 +15,8 @@ import "strings"
 //   - Bidirectional marks, embeddings, overrides, and isolates (U+061C, U+200E,
 //     U+200F, U+202A-U+202E, U+2066-U+2069), which can visually reorder a
 //     rendered cell
+//   - Unicode line and paragraph separators (U+2028, U+2029), which
+//     browser-backed log and Markdown viewers render as mandatory breaks
 //
 // Line breaks and tabs are removed rather than preserved so a single value
 // cannot forge extra rows or columns in table, Markdown, or log output.
@@ -56,6 +58,8 @@ func isInterpretedTerminalRune(r rune) bool {
 	case r == 0x200e, r == 0x200f:
 		return true
 	case r >= 0x202a && r <= 0x202e:
+		return true
+	case r == 0x2028, r == 0x2029:
 		return true
 	case r >= 0x2066 && r <= 0x2069:
 		return true
