@@ -54,6 +54,11 @@ func TestSanitizeTerminalTextRemovesInterpretedSequences(t *testing.T) {
 			want:  "abc",
 		},
 		{
+			name:  "arabic letter mark",
+			input: "total\u061c123",
+			want:  "total123",
+		},
+		{
 			name:  "newline and tab",
 			input: "line one\nline\ttwo",
 			want:  "line onelinetwo",
@@ -79,7 +84,7 @@ func TestSanitizeTerminalTextRemovesInterpretedSequences(t *testing.T) {
 }
 
 func TestHasInterpretedTerminalSequenceDetectsControls(t *testing.T) {
-	unsafe := []string{"\x1b[0m", "\u009b0m", "\u202e", "\u2069", "\x7f", "\r", "\n"}
+	unsafe := []string{"\x1b[0m", "\u009b0m", "\u202e", "\u2069", "\u061c", "\x7f", "\r", "\n"}
 	for _, value := range unsafe {
 		if !HasInterpretedTerminalSequence(value) {
 			t.Fatalf("HasInterpretedTerminalSequence(%q) = false, want true", value)

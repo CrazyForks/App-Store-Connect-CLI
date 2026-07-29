@@ -12,8 +12,9 @@ import "strings"
 //     introducer used by CSI/OSC sequences as well as BEL, CR, LF, and TAB
 //   - C1 controls (U+0080-U+009F), which include the single-byte CSI (U+009B)
 //     and OSC (U+009D) forms
-//   - Bidirectional marks, embeddings, overrides, and isolates (U+200E, U+200F,
-//     U+202A-U+202E, U+2066-U+2069), which can visually reorder a rendered cell
+//   - Bidirectional marks, embeddings, overrides, and isolates (U+061C, U+200E,
+//     U+200F, U+202A-U+202E, U+2066-U+2069), which can visually reorder a
+//     rendered cell
 //
 // Line breaks and tabs are removed rather than preserved so a single value
 // cannot forge extra rows or columns in table, Markdown, or log output.
@@ -49,6 +50,8 @@ func isInterpretedTerminalRune(r rune) bool {
 	case r < 0x20, r == 0x7f:
 		return true
 	case r >= 0x80 && r <= 0x9f:
+		return true
+	case r == 0x061c:
 		return true
 	case r == 0x200e, r == 0x200f:
 		return true
