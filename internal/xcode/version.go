@@ -62,6 +62,9 @@ type SetVersionOptions struct {
 	Configuration string
 	Version       string
 	BuildNumber   string
+	// AllowExternalXCConfig authorizes rewriting xcconfig files that the project
+	// references outside its own directory. Without it, such a mutation fails.
+	AllowExternalXCConfig bool
 }
 
 // VersionChange describes one concrete build-setting mutation.
@@ -93,6 +96,9 @@ type BumpVersionOptions struct {
 	Configuration string
 	BumpType      BumpType
 	BuildNumber   string
+	// AllowExternalXCConfig authorizes rewriting xcconfig files that the project
+	// references outside its own directory. Without it, such a mutation fails.
+	AllowExternalXCConfig bool
 }
 
 // BumpVersionResult holds the result of a bump operation.
@@ -382,9 +388,10 @@ func (project *structuredVersionProject) prepareBump(opts BumpVersionOptions) (*
 		Configuration: strings.TrimSpace(opts.Configuration),
 	}
 	setOptions := SetVersionOptions{
-		ProjectDir:    opts.ProjectDir,
-		Target:        opts.Target,
-		Configuration: opts.Configuration,
+		ProjectDir:            opts.ProjectDir,
+		Target:                opts.Target,
+		Configuration:         opts.Configuration,
+		AllowExternalXCConfig: opts.AllowExternalXCConfig,
 	}
 	if opts.BumpType == BumpBuild {
 		currentBuild, err := project.bumpBaseline(opts, currentProjectSetting, true)

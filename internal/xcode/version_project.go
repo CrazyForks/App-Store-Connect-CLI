@@ -12,6 +12,8 @@ import (
 
 	"github.com/bitrise-io/go-xcode/xcodeproject/serialized"
 	"github.com/bitrise-io/go-xcode/xcodeproject/xcodeproj"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 const (
@@ -777,6 +779,18 @@ func (project *structuredVersionProject) validateSetVersion(opts SetVersionOptio
 			if !mutable {
 				return nil, fmt.Errorf("%s not found for target %q configuration %q", requested.name, configuration.target, configuration.name)
 			}
+			if err := project.validateXCConfigMutationTargets(
+				configuration,
+				requested.name,
+				configFiles,
+				fileConsumers,
+				fileIdentities,
+				selectedIDs,
+				uncertainXCConfigConsumers,
+				opts.AllowExternalXCConfig,
+			); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return &setVersionValidation{
@@ -787,6 +801,61 @@ func (project *structuredVersionProject) validateSetVersion(opts SetVersionOptio
 		configFiles:                configFiles,
 		uncertainXCConfigConsumers: uncertainXCConfigConsumers,
 	}, nil
+}
+
+// validateXCConfigMutationTargets refuses to rewrite an xcconfig file the project
+// references outside its own directory unless the operator authorized it. The
+// check runs during validation so it fails before any local mutation or remote
+// build-number lookup.
+func (project *structuredVersionProject) validateXCConfigMutationTargets(
+	configuration *versionConfiguration,
+	setting string,
+	configFiles map[string][]string,
+	fileConsumers map[string]map[string]bool,
+	fileIdentities map[string]string,
+	selectedIDs map[string]bool,
+	uncertainXCConfigConsumers bool,
+	allowExternal bool,
+) error {
+	if len(matchingBuildSettingKeys(configuration.buildSettings, setting)) > 0 {
+		return nil
+	}
+	assignmentFiles, err := xcconfigFilesDefining(configFiles[configuration.id], setting)
+	if err != nil {
+		return err
+	}
+	if len(assignmentFiles) == 0 {
+		return nil
+	}
+	if uncertainXCConfigConsumers || !consumersSelected(assignmentFiles, fileConsumers, fileIdentities, selectedIDs) {
+		return nil
+	}
+	for _, path := range assignmentFiles {
+		if err := project.checkXCConfigWritable(path, allowExternal); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (project *structuredVersionProject) checkXCConfigWritable(path string, allowExternal bool) error {
+	if allowExternal {
+		return nil
+	}
+	root, err := rootfs.New(project.rootDir)
+	if err != nil {
+		return err
+	}
+	if err := root.AllowingInternalSymlinks().CheckContained(path); err != nil {
+		return fmt.Errorf(
+			"refusing to modify xcconfig %s outside project directory %s: %w; "+
+				"move the file inside the project or rerun with --allow-external-xcconfig",
+			path,
+			project.rootDir,
+			err,
+		)
+	}
+	return nil
 }
 
 func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*SetVersionResult, error) {
@@ -908,6 +977,9 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 	}
 	sort.Strings(xcconfigPaths)
 	for _, path := range xcconfigPaths {
+		if err := project.checkXCConfigWritable(path, opts.AllowExternalXCConfig); err != nil {
+			return nil, err
+		}
 		write, fileChanges, changed, err := prepareXCConfigWrite(path, xcconfigMutations[path])
 		if err != nil {
 			return nil, err
