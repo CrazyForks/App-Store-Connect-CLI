@@ -34,16 +34,30 @@ const (
 // bounded and reviewable. Larger campaigns split cleanly into several files.
 const reviewBatchMaxTargets = 500
 
+// reviewBatchMaxResponseBytes bounds the decoded size of a single response
+// body before it is expanded across its review ids.
+//
+// App Store Connect caps a review response at 5,970 characters and a character
+// costs at most four bytes in UTF-8, so no response the API accepts exceeds
+// 23,880 decoded bytes. 24 KiB admits every legitimate response — including
+// one written entirely in a four-byte script — while stopping a single
+// multi-megabyte body from being multiplied into up to reviewBatchMaxTargets
+// request payloads.
+const reviewBatchMaxResponseBytes = 24 << 10
+
 // reviewBatchMaxFileBytes bounds how much of --file is expanded into memory
 // before it is parsed.
 //
-// App Store Connect caps a review response body at 5,970 characters, so even a
-// pathological-but-legitimate file that pairs a distinct maximum-length
-// response with each of the reviewBatchMaxTargets permitted review ids stays
-// near 3 MB. 4 MiB keeps that shape accepted and rejects anything that is no
-// longer a usable review batch. Neither limit has an override flag: raising the
-// ceiling is the same as removing it.
-const reviewBatchMaxFileBytes = 4 << 20
+// The worst-case legitimate batch pairs each of the reviewBatchMaxTargets
+// permitted review ids with a distinct response of reviewBatchMaxResponseBytes,
+// which serializes to about 12 MiB of raw UTF-8 — and tooling that escapes
+// non-ASCII characters on output (for example Python's default ensure_ascii
+// encoding) triples that on disk for a four-byte script, to about 37 MiB,
+// because every character becomes a twelve-byte surrogate-pair escape. 64 MiB
+// accepts every plausible encoding of a maximal batch and rejects anything
+// that is no longer a usable review batch. None of these limits has an
+// override flag: raising the ceiling is the same as removing it.
+const reviewBatchMaxFileBytes = 64 << 20
 
 type reviewBatchInput struct {
 	Replies []reviewBatchReplyInput `json:"replies"`
@@ -111,7 +125,8 @@ The input file must contain a top-level replies array. Each reply has one
 response body and one or more reviewIds.
 
 A single run accepts at most %d bytes of input and %d review ids across
-all replies. Split larger campaigns into several files.
+all replies, and each response must not exceed %d bytes. Split larger
+campaigns into several files.
 
 Example input:
   {
@@ -127,7 +142,7 @@ Examples:
   asc reviews respond-batch --app "123456789" --file replies.json --dry-run
   asc reviews respond-batch --app "123456789" --file replies.json --skip-existing --output json
   asc reviews respond-batch --app "123456789" --file replies.json --response-state unresponded`,
-			reviewBatchMaxFileBytes, reviewBatchMaxTargets),
+			reviewBatchMaxFileBytes, reviewBatchMaxTargets, reviewBatchMaxResponseBytes),
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -214,6 +229,9 @@ func loadReviewBatchTargets(path string) ([]reviewBatchTarget, error) {
 		response := strings.TrimSpace(reply.Response)
 		if response == "" {
 			return nil, fmt.Errorf("replies[%d].response is required", replyIndex)
+		}
+		if len(response) > reviewBatchMaxResponseBytes {
+			return nil, fmt.Errorf("replies[%d].response must not exceed %d bytes", replyIndex, reviewBatchMaxResponseBytes)
 		}
 		if len(reply.ReviewIDs) == 0 {
 			return nil, fmt.Errorf("replies[%d].reviewIds must contain at least one review id", replyIndex)

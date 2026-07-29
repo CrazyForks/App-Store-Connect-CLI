@@ -72,8 +72,9 @@ func writeReviewBatchFile(t *testing.T, body string) string {
 // Documented respond-batch ceilings, restated here so the CLI-level tests fail
 // if the enforced limits ever drift from the published contract.
 const (
-	reviewBatchFileByteLimit = 4 << 20
-	reviewBatchTargetLimit   = 500
+	reviewBatchFileByteLimit     = 64 << 20
+	reviewBatchTargetLimit       = 500
+	reviewBatchResponseByteLimit = 24 << 10
 )
 
 // reviewBatchJSONOfSize returns a valid single-target batch document whose byte
@@ -413,8 +414,34 @@ func TestReviewsRespondBatchRejectsOversizedFileWithoutRequests(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
-	if !strings.Contains(stderr, "--file must not exceed 4194304 bytes") {
+	if !strings.Contains(stderr, "--file must not exceed 67108864 bytes") {
 		t.Fatalf("expected batch file size rejection, got %q", stderr)
+	}
+}
+
+func TestReviewsRespondBatchRejectsOversizedResponseWithoutRequests(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("expected no HTTP request, got %s %s", req.Method, req.URL.String())
+		return nil, nil
+	}))
+
+	oversized := `{"replies":[{"response":"` + strings.Repeat("a", reviewBatchResponseByteLimit+1) + `","reviewIds":["review-1"]}]}`
+	inputPath := writeReviewBatchFile(t, oversized)
+
+	stdout, stderr := captureOutput(t, func() {
+		code := cmd.Run([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--dry-run"}, "1.2.3")
+		if code != cmd.ExitUsage {
+			t.Fatalf("expected exit code %d, got %d", cmd.ExitUsage, code)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "replies[0].response must not exceed 24576 bytes") {
+		t.Fatalf("expected response size rejection, got %q", stderr)
 	}
 }
 
