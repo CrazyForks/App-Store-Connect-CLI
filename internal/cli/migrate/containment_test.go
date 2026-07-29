@@ -236,6 +236,79 @@ func TestMigrateExportWritesOrdinaryFiles(t *testing.T) {
 	}
 }
 
+func TestResolveImportInputsRejectsAbsoluteDeliverfileMetadataPath(t *testing.T) {
+	workDir := t.TempDir()
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	deliverfile := "metadata_path \"" + external + "\"\nskip_screenshots true\n"
+	writeMigrateContainmentFile(t, filepath.Join(workDir, "Deliverfile"), deliverfile)
+
+	_, _, err := resolveImportInputs(importInputOptions{WorkDir: workDir})
+	if err == nil {
+		t.Fatal("resolveImportInputs() error = nil, want rejection of absolute Deliverfile metadata_path")
+	}
+	if !strings.Contains(err.Error(), "must be relative") && !strings.Contains(err.Error(), "escapes trusted root") {
+		t.Fatalf("resolveImportInputs() error = %v, want containment rejection", err)
+	}
+}
+
+func TestResolveImportInputsRejectsTraversingDeliverfileMetadataPath(t *testing.T) {
+	base := t.TempDir()
+	workDir := filepath.Join(base, "checkout")
+	external := filepath.Join(base, "outside")
+	if err := os.MkdirAll(filepath.Join(external, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	deliverfile := "metadata_path \"../outside\"\nskip_screenshots true\n"
+	writeMigrateContainmentFile(t, filepath.Join(workDir, "Deliverfile"), deliverfile)
+
+	_, _, err := resolveImportInputs(importInputOptions{WorkDir: workDir})
+	if err == nil {
+		t.Fatal("resolveImportInputs() error = nil, want rejection of traversing Deliverfile metadata_path")
+	}
+	if !strings.Contains(err.Error(), "escapes trusted root") {
+		t.Fatalf("resolveImportInputs() error = %v, want containment rejection", err)
+	}
+}
+
+func TestScanFastlaneMetadataLocaleDirsRefusesSymlinkedInTreeMetadataDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	workDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeMigrateContainmentFile(t, filepath.Join(external, "en-US", "description.txt"), "local secret")
+
+	if err := os.MkdirAll(filepath.Join(workDir, "fastlane"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(workDir, "fastlane", "metadata")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	// The default fastlane/metadata layout ships with the checkout, so a
+	// symlinked metadata directory must be refused, not silently followed.
+	_, _, err = scanFastlaneMetadataLocaleDirs(filepath.Join(workDir, "fastlane", "metadata"))
+	if err == nil {
+		t.Fatal("scanFastlaneMetadataLocaleDirs() error = nil, want symlink rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("scanFastlaneMetadataLocaleDirs() error = %v, want symlink rejection", err)
+	}
+}
+
 func writeMigrateContainmentFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

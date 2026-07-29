@@ -535,11 +535,43 @@ func readFastlaneAppInfoMetadata(metadataDir string) ([]AppInfoFastlaneLocalizat
 	return readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
 }
 
-// newMigrateMetadataRoot anchors metadata reads to the resolved metadata
-// directory so repository-controlled locale directories and files cannot
-// redirect reads to local secrets before they are published upstream.
-func newMigrateMetadataRoot(metadataDir string) (rootfs.Root, error) {
-	return rootfs.New(metadataDir)
+// newMigrateMetadataRoot anchors metadata reads for metadataDir so
+// repository-controlled locale directories and files cannot redirect reads to
+// local secrets before they are published upstream. A metadata directory inside
+// the working directory (including the default fastlane/metadata layout, whose
+// components ship with the checkout) is anchored at the working directory so
+// every component below it is validated; an operator-selected directory outside
+// the working directory is its own trusted root. The returned prefix is the
+// root-relative metadata directory.
+func newMigrateMetadataRoot(metadataDir string) (rootfs.Root, string, error) {
+	absolute, err := filepath.Abs(strings.TrimSpace(metadataDir))
+	if err != nil {
+		return rootfs.Root{}, "", err
+	}
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		if root, rootErr := rootfs.New(cwd); rootErr == nil {
+			if relative, relErr := filepath.Rel(root.Path(), absolute); relErr == nil {
+				if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+					return root, relative, nil
+				}
+			}
+		}
+	}
+	root, err := rootfs.New(absolute)
+	if err != nil {
+		return rootfs.Root{}, "", err
+	}
+	return root, ".", nil
+}
+
+// checkMetadataRootContained refuses a repository-controlled metadata directory
+// whose components below the trusted root traverse a symlink. The prefix "."
+// marks an operator-selected external directory, which is trusted as given.
+func checkMetadataRootContained(root rootfs.Root, prefix string) error {
+	if prefix == "." {
+		return nil
+	}
+	return root.CheckContained(prefix)
 }
 
 // newMigrateExportRoot anchors export writes to the operator-selected output
@@ -717,6 +749,13 @@ type fastlaneLocaleDir struct {
 }
 
 func scanFastlaneMetadataLocaleDirs(metadataDir string) ([]fastlaneLocaleDir, []SkippedItem, error) {
+	root, prefix, err := newMigrateMetadataRoot(metadataDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkMetadataRootContained(root, prefix); err != nil {
+		return nil, nil, err
+	}
 	entries, err := os.ReadDir(metadataDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read metadata directory: %w", err)
@@ -773,8 +812,11 @@ func scanFastlaneMetadataLocaleDirs(metadataDir string) ([]fastlaneLocaleDir, []
 }
 
 func readFastlaneMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) ([]FastlaneLocalization, error) {
-	root, err := newMigrateMetadataRoot(metadataDir)
+	root, prefix, err := newMigrateMetadataRoot(metadataDir)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkMetadataRootContained(root, prefix); err != nil {
 		return nil, err
 	}
 
@@ -795,7 +837,7 @@ func readFastlaneMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlan
 			{"marketing_url.txt", &loc.MarketingURL},
 		}
 		for _, field := range fields {
-			value, err := readMetadataFile(root, filepath.Join(ld.DirName, field.file))
+			value, err := readMetadataFile(root, filepath.Join(prefix, ld.DirName, field.file))
 			if err != nil {
 				return nil, err
 			}
@@ -808,22 +850,25 @@ func readFastlaneMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlan
 }
 
 func readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) ([]AppInfoFastlaneLocalization, error) {
-	root, err := newMigrateMetadataRoot(metadataDir)
+	root, prefix, err := newMigrateMetadataRoot(metadataDir)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkMetadataRootContained(root, prefix); err != nil {
 		return nil, err
 	}
 
 	localizations := make([]AppInfoFastlaneLocalization, 0, len(localeDirs))
 	for _, ld := range localeDirs {
-		name, err := readMetadataFile(root, filepath.Join(ld.DirName, "name.txt"))
+		name, err := readMetadataFile(root, filepath.Join(prefix, ld.DirName, "name.txt"))
 		if err != nil {
 			return nil, err
 		}
-		subtitle, err := readMetadataFile(root, filepath.Join(ld.DirName, "subtitle.txt"))
+		subtitle, err := readMetadataFile(root, filepath.Join(prefix, ld.DirName, "subtitle.txt"))
 		if err != nil {
 			return nil, err
 		}
-		privacyURL, err := readMetadataFile(root, filepath.Join(ld.DirName, "privacy_url.txt"))
+		privacyURL, err := readMetadataFile(root, filepath.Join(prefix, ld.DirName, "privacy_url.txt"))
 		if err != nil {
 			return nil, err
 		}

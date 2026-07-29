@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 type pathSource string
@@ -66,8 +68,14 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 		DeliverfileConfig: config,
 	}
 
-	metadataDir, metadataSource := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.MetadataDir, config.MetadataPath, "metadata")
-	screenshotsDir, screenshotsSource := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots")
+	metadataDir, metadataSource, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.MetadataDir, config.MetadataPath, "metadata")
+	if err != nil {
+		return importInputs{}, nil, err
+	}
+	screenshotsDir, screenshotsSource, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots")
+	if err != nil {
+		return importInputs{}, nil, err
+	}
 	skipScreenshots := opts.SkipScreenshots || config.SkipScreenshots
 
 	skipped := []SkippedItem{}
@@ -90,25 +98,49 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 	return inputs, skipped, nil
 }
 
-func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deliverfilePathValue, defaultDir string) (string, pathSource) {
+func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deliverfilePathValue, defaultDir string) (string, pathSource, error) {
 	if strings.TrimSpace(explicitPath) != "" {
-		return explicitPath, pathSourceFlag
+		return explicitPath, pathSourceFlag, nil
 	}
 	if strings.TrimSpace(fastlaneDir) != "" {
-		return filepath.Join(fastlaneDir, defaultDir), pathSourceFlag
+		return filepath.Join(fastlaneDir, defaultDir), pathSourceFlag, nil
 	}
 	if strings.TrimSpace(deliverfilePathValue) != "" {
 		base := workDir
 		if deliverfilePath != "" {
 			base = filepath.Dir(deliverfilePath)
 		}
-		return resolveRelativePath(base, deliverfilePathValue), pathSourceDeliverfile
+		resolved, err := containDeliverfilePath(workDir, base, deliverfilePathValue)
+		if err != nil {
+			return "", pathSourceDeliverfile, err
+		}
+		return resolved, pathSourceDeliverfile, nil
 	}
 	base := workDir
 	if deliverfilePath != "" {
 		base = filepath.Dir(deliverfilePath)
 	}
-	return filepath.Join(base, defaultDir), pathSourceDefault
+	return filepath.Join(base, defaultDir), pathSourceDefault, nil
+}
+
+// containDeliverfilePath resolves a repository-controlled Deliverfile path
+// value against the Deliverfile's own directory and requires the result to stay
+// inside the working directory, because the Deliverfile ships with the checkout
+// and must not select files outside it.
+func containDeliverfilePath(workDir, base, value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if err := rootfs.ValidateRelativeAllowingTraversal(trimmed); err != nil {
+		return "", fmt.Errorf("deliverfile path %q: %w", value, err)
+	}
+	root, err := rootfs.New(workDir)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := root.Resolve(filepath.Clean(filepath.Join(base, trimmed)))
+	if err != nil {
+		return "", fmt.Errorf("deliverfile path %q must stay inside %s: %w", value, root.Path(), err)
+	}
+	return resolved, nil
 }
 
 func validateResolvedDir(path string, source pathSource, label string, skipped []SkippedItem) (string, []SkippedItem, error) {
@@ -151,13 +183,6 @@ func discoverDeliverfilePath(workDir, fastlaneDir string) (string, error) {
 		}
 	}
 	return "", nil
-}
-
-func resolveRelativePath(base, value string) string {
-	if filepath.IsAbs(value) {
-		return value
-	}
-	return filepath.Join(base, value)
 }
 
 func ensureDirExists(path string) error {

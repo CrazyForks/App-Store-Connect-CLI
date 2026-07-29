@@ -24,8 +24,11 @@ type ReviewInformation struct {
 const reviewInformationDir = "review_information"
 
 func readFastlaneReviewInformation(metadataDir string) (*ReviewInformation, error) {
-	root, err := newMigrateMetadataRoot(metadataDir)
+	root, prefix, err := newMigrateMetadataRoot(metadataDir)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkMetadataRootContained(root, prefix); err != nil {
 		return nil, err
 	}
 	if exists, err := dirExists(filepath.Join(metadataDir, reviewInformationDir)); err != nil {
@@ -49,7 +52,7 @@ func readFastlaneReviewInformation(metadataDir string) (*ReviewInformation, erro
 		{"notes.txt", &info.Notes},
 	}
 	for _, field := range fields {
-		value, ok, err := readOptionalFile(root, reviewInformationRelativePath(field.file))
+		value, ok, err := readOptionalFile(root, filepath.Join(prefix, reviewInformationRelativePath(field.file)))
 		if err != nil {
 			return nil, err
 		}
@@ -61,7 +64,7 @@ func readFastlaneReviewInformation(metadataDir string) (*ReviewInformation, erro
 		assigned++
 	}
 
-	required, err := readOptionalReviewRequired(root)
+	required, err := readOptionalReviewRequired(root, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -139,9 +142,9 @@ func reviewInformationMatches(existing asc.AppStoreReviewDetailAttributes, info 
 	return true
 }
 
-func readOptionalReviewRequired(root rootfs.Root) (*bool, error) {
-	primary := reviewInformationRelativePath("demo_account_required.txt")
-	secondary := reviewInformationRelativePath("demo_required.txt")
+func readOptionalReviewRequired(root rootfs.Root, prefix string) (*bool, error) {
+	primary := filepath.Join(prefix, reviewInformationRelativePath("demo_account_required.txt"))
+	secondary := filepath.Join(prefix, reviewInformationRelativePath("demo_required.txt"))
 
 	primaryValue, primaryExists, err := readOptionalFile(root, primary)
 	if err != nil {
