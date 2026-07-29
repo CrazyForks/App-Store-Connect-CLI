@@ -757,10 +757,13 @@ func addIssueLabels(ctx context.Context, token string, issueNumber int, labels [
 	return nil
 }
 
+// readGitHubAPIError embeds the GitHub response body in the returned error.
+// The body is attacker-influenced text that reaches stderr, so terminal control
+// and bidi sequences are removed here at the source.
 func readGitHubAPIError(resp *http.Response) error {
 	limited := io.LimitReader(resp.Body, maxResponseBodyBytes)
 	respBody, _ := io.ReadAll(limited)
-	return fmt.Errorf("GitHub returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	return fmt.Errorf("GitHub returned %d: %s", resp.StatusCode, asc.SanitizeTerminalText(strings.TrimSpace(string(respBody))))
 }
 
 func writeLocalLog(entry LogEntry) error {

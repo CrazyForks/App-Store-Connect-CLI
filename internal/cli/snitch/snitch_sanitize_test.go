@@ -2,6 +2,7 @@ package snitch
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -156,5 +157,24 @@ func TestSnitchFlushKeepsLogEntriesIntactOnDisk(t *testing.T) {
 	}
 	if entries[0].Description != hostileTitle {
 		t.Fatalf("stored description = %q, want the original %q", entries[0].Description, hostileTitle)
+	}
+}
+
+func TestReadGitHubAPIErrorRemovesTerminalControls(t *testing.T) {
+	body := "{\"message\":\"boom\x1b]0;pwned\x07\u009b2K\u202e\",\"line\":\"two\u2028three\"}"
+	resp := &http.Response{
+		StatusCode: http.StatusUnprocessableEntity,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	err := readGitHubAPIError(resp)
+	if err == nil {
+		t.Fatalf("expected an error for a non-2xx response")
+	}
+	if !strings.Contains(err.Error(), "422") {
+		t.Fatalf("error %q should include the status code", err.Error())
+	}
+	if asc.HasInterpretedTerminalSequence(err.Error()) {
+		t.Fatalf("readGitHubAPIError() = %q contains interpreted terminal sequences", err.Error())
 	}
 }
