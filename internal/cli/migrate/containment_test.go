@@ -361,6 +361,31 @@ func TestDiscoverScreenshotPlanRefusesSymlinkedInTreeScreenshotsDirectory(t *tes
 	}
 }
 
+func TestResolveImportInputsRefusesSymlinkedExternalFastlaneMetadataChild(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	fastlane := t.TempDir()
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeMigrateContainmentFile(t, filepath.Join(external, "en-US", "description.txt"), "local secret")
+	if err := os.Symlink(external, filepath.Join(fastlane, "metadata")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	// The fastlane checkout's contents are repository-controlled even when the
+	// operator selected the fastlane root, so a symlinked metadata child must be
+	// refused.
+	_, _, err := resolveImportInputs(importInputOptions{FastlaneDir: fastlane, SkipScreenshots: true})
+	if err == nil {
+		t.Fatal("resolveImportInputs() error = nil, want symlink rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("resolveImportInputs() error = %v, want symlink rejection", err)
+	}
+}
+
 func writeMigrateContainmentFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

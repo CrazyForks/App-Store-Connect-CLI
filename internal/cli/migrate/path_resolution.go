@@ -103,7 +103,11 @@ func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deli
 		return explicitPath, pathSourceFlag, nil
 	}
 	if strings.TrimSpace(fastlaneDir) != "" {
-		return filepath.Join(fastlaneDir, defaultDir), pathSourceFlag, nil
+		resolved, err := containFastlaneChild(fastlaneDir, defaultDir)
+		if err != nil {
+			return "", pathSourceFlag, err
+		}
+		return resolved, pathSourceFlag, nil
 	}
 	if strings.TrimSpace(deliverfilePathValue) != "" {
 		base := workDir
@@ -121,6 +125,21 @@ func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deli
 		base = filepath.Dir(deliverfilePath)
 	}
 	return filepath.Join(base, defaultDir), pathSourceDefault, nil
+}
+
+// containFastlaneChild resolves a conventional child directory beneath the
+// operator-selected fastlane root and refuses a symlinked child, because the
+// fastlane checkout's contents are repository-controlled even when the root
+// itself was chosen by the operator.
+func containFastlaneChild(fastlaneDir, child string) (string, error) {
+	root, err := rootfs.New(fastlaneDir)
+	if err != nil {
+		return "", err
+	}
+	if err := root.CheckContained(child); err != nil {
+		return "", err
+	}
+	return filepath.Join(fastlaneDir, child), nil
 }
 
 // containDeliverfilePath resolves a repository-controlled Deliverfile path

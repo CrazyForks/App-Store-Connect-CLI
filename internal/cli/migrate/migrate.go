@@ -918,7 +918,10 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
-			metadataDir := filepath.Join(*fastlaneDir, "metadata")
+			metadataDir, err := containFastlaneChild(*fastlaneDir, "metadata")
+			if err != nil {
+				return fmt.Errorf("migrate validate: %w", err)
+			}
 
 			// Read metadata from fastlane structure
 			localeDirs, skipped, err := scanFastlaneMetadataLocaleDirs(metadataDir)
