@@ -24,6 +24,16 @@ type ScreenshotUploadResult struct {
 }
 
 func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedItem, error) {
+	// A screenshots directory inside the working directory ships with the
+	// checkout, so refuse symlinked components before traversing it; an
+	// operator-selected external directory remains its own trusted root.
+	root, prefix, err := newMigrateContentRoot(screenshotsDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkContentRootContained(root, prefix); err != nil {
+		return nil, nil, err
+	}
 	entries, err := os.ReadDir(screenshotsDir)
 	if err != nil {
 		return nil, nil, err

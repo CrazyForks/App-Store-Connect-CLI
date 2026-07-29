@@ -136,7 +136,14 @@ func containDeliverfilePath(workDir, base, value string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resolved, err := root.Resolve(filepath.Clean(filepath.Join(base, trimmed)))
+	// The Deliverfile directory may itself be relative to the process working
+	// directory; make it absolute so joining below cannot re-resolve it against
+	// the trusted root and duplicate the leading components.
+	absoluteBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := root.Resolve(filepath.Clean(filepath.Join(absoluteBase, trimmed)))
 	if err != nil {
 		return "", fmt.Errorf("deliverfile path %q must stay inside %s: %w", value, root.Path(), err)
 	}

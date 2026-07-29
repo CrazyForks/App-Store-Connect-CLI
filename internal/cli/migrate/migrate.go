@@ -535,16 +535,16 @@ func readFastlaneAppInfoMetadata(metadataDir string) ([]AppInfoFastlaneLocalizat
 	return readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
 }
 
-// newMigrateMetadataRoot anchors metadata reads for metadataDir so
-// repository-controlled locale directories and files cannot redirect reads to
-// local secrets before they are published upstream. A metadata directory inside
-// the working directory (including the default fastlane/metadata layout, whose
-// components ship with the checkout) is anchored at the working directory so
-// every component below it is validated; an operator-selected directory outside
-// the working directory is its own trusted root. The returned prefix is the
-// root-relative metadata directory.
-func newMigrateMetadataRoot(metadataDir string) (rootfs.Root, string, error) {
-	absolute, err := filepath.Abs(strings.TrimSpace(metadataDir))
+// newMigrateContentRoot anchors metadata and screenshot reads for dir so
+// repository-controlled directories and files cannot redirect reads to local
+// secrets before they are published upstream. A directory inside the working
+// directory (including the default fastlane/metadata and fastlane/screenshots
+// layouts, whose components ship with the checkout) is anchored at the working
+// directory so every component below it is validated; an operator-selected
+// directory outside the working directory is its own trusted root. The returned
+// prefix is the root-relative content directory.
+func newMigrateContentRoot(dir string) (rootfs.Root, string, error) {
+	absolute, err := filepath.Abs(strings.TrimSpace(dir))
 	if err != nil {
 		return rootfs.Root{}, "", err
 	}
@@ -564,10 +564,10 @@ func newMigrateMetadataRoot(metadataDir string) (rootfs.Root, string, error) {
 	return root, ".", nil
 }
 
-// checkMetadataRootContained refuses a repository-controlled metadata directory
+// checkContentRootContained refuses a repository-controlled content directory
 // whose components below the trusted root traverse a symlink. The prefix "."
 // marks an operator-selected external directory, which is trusted as given.
-func checkMetadataRootContained(root rootfs.Root, prefix string) error {
+func checkContentRootContained(root rootfs.Root, prefix string) error {
 	if prefix == "." {
 		return nil
 	}
@@ -749,11 +749,11 @@ type fastlaneLocaleDir struct {
 }
 
 func scanFastlaneMetadataLocaleDirs(metadataDir string) ([]fastlaneLocaleDir, []SkippedItem, error) {
-	root, prefix, err := newMigrateMetadataRoot(metadataDir)
+	root, prefix, err := newMigrateContentRoot(metadataDir)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := checkMetadataRootContained(root, prefix); err != nil {
+	if err := checkContentRootContained(root, prefix); err != nil {
 		return nil, nil, err
 	}
 	entries, err := os.ReadDir(metadataDir)
@@ -812,11 +812,11 @@ func scanFastlaneMetadataLocaleDirs(metadataDir string) ([]fastlaneLocaleDir, []
 }
 
 func readFastlaneMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) ([]FastlaneLocalization, error) {
-	root, prefix, err := newMigrateMetadataRoot(metadataDir)
+	root, prefix, err := newMigrateContentRoot(metadataDir)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkMetadataRootContained(root, prefix); err != nil {
+	if err := checkContentRootContained(root, prefix); err != nil {
 		return nil, err
 	}
 
@@ -850,11 +850,11 @@ func readFastlaneMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlan
 }
 
 func readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) ([]AppInfoFastlaneLocalization, error) {
-	root, prefix, err := newMigrateMetadataRoot(metadataDir)
+	root, prefix, err := newMigrateContentRoot(metadataDir)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkMetadataRootContained(root, prefix); err != nil {
+	if err := checkContentRootContained(root, prefix); err != nil {
 		return nil, err
 	}
 

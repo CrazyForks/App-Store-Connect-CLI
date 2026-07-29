@@ -24,11 +24,11 @@ type ReviewInformation struct {
 const reviewInformationDir = "review_information"
 
 func readFastlaneReviewInformation(metadataDir string) (*ReviewInformation, error) {
-	root, prefix, err := newMigrateMetadataRoot(metadataDir)
+	root, prefix, err := newMigrateContentRoot(metadataDir)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkMetadataRootContained(root, prefix); err != nil {
+	if err := checkContentRootContained(root, prefix); err != nil {
 		return nil, err
 	}
 	if exists, err := dirExists(filepath.Join(metadataDir, reviewInformationDir)); err != nil {

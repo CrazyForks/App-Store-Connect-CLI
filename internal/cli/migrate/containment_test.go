@@ -309,6 +309,58 @@ func TestScanFastlaneMetadataLocaleDirsRefusesSymlinkedInTreeMetadataDirectory(t
 	}
 }
 
+func TestResolveImportInputsResolvesDeliverfilePathsFromRelativeWorkDir(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+
+	metadataDir := filepath.Join(cwd, "checkout", "fastlane", "metadata")
+	if err := os.MkdirAll(filepath.Join(metadataDir, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	deliverfile := "metadata_path \"./fastlane/metadata\"\nskip_screenshots true\n"
+	writeMigrateContainmentFile(t, filepath.Join(cwd, "checkout", "Deliverfile"), deliverfile)
+
+	inputs, _, err := resolveImportInputs(importInputOptions{WorkDir: "checkout"})
+	if err != nil {
+		t.Fatalf("resolveImportInputs() error = %v, want relative work dir to resolve", err)
+	}
+	if inputs.MetadataDir != metadataDir {
+		t.Fatalf("MetadataDir = %q, want %q", inputs.MetadataDir, metadataDir)
+	}
+}
+
+func TestDiscoverScreenshotPlanRefusesSymlinkedInTreeScreenshotsDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	workDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, "fastlane"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(workDir, "fastlane", "screenshots")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	// The default fastlane/screenshots layout ships with the checkout, so a
+	// symlinked screenshots directory must be refused before any traversal.
+	_, _, err = discoverScreenshotPlan(filepath.Join(workDir, "fastlane", "screenshots"))
+	if err == nil {
+		t.Fatal("discoverScreenshotPlan() error = nil, want symlink rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("discoverScreenshotPlan() error = %v, want symlink rejection", err)
+	}
+}
+
 func writeMigrateContainmentFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
