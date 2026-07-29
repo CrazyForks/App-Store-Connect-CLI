@@ -195,7 +195,7 @@ func xcodeVersionEditCommand() *ffcli.Command {
 	configuration := fs.String("configuration", "", "Xcode build configuration name to edit")
 	version := fs.String("version", "", "Marketing version (CFBundleShortVersionString)")
 	buildNumber := fs.String("build-number", "", "Build number (CFBundleVersion)")
-	allowExternalXCConfig := fs.Bool("allow-external-xcconfig", false, "Allow rewriting xcconfig files referenced outside the project directory")
+	allowExternalXCConfig := fs.Bool("allow-external-xcconfig", false, "[experimental] Allow rewriting xcconfig files referenced outside the project directory")
 	remote := bindXcodeRemoteBuildNumberFlags(fs)
 	output := shared.BindOutputFlags(fs)
 
@@ -208,8 +208,8 @@ func xcodeVersionEditCommand() *ffcli.Command {
 Modern project and xcconfig build settings are edited structurally.
 
 By default only xcconfig files inside the project directory are rewritten.
-Pass --allow-external-xcconfig to authorize rewriting an xcconfig the project
-references outside that directory.
+Pass the experimental --allow-external-xcconfig flag to authorize rewriting an
+xcconfig the project references outside that directory.
 
 Examples:
   asc xcode version edit --version "1.3.0"
@@ -297,7 +297,7 @@ func xcodeVersionBumpCommand() *ffcli.Command {
 	target := fs.String("target", "", "Xcode target name to bump")
 	configuration := fs.String("configuration", "", "Xcode build configuration name to bump")
 	bumpType := fs.String("type", "", "Bump type: major, minor, patch, or build (required)")
-	allowExternalXCConfig := fs.Bool("allow-external-xcconfig", false, "Allow rewriting xcconfig files referenced outside the project directory")
+	allowExternalXCConfig := fs.Bool("allow-external-xcconfig", false, "[experimental] Allow rewriting xcconfig files referenced outside the project directory")
 	remote := bindXcodeRemoteBuildNumberFlags(fs)
 	output := shared.BindOutputFlags(fs)
 
@@ -318,8 +318,8 @@ Note:
   multiple sibling projects.
   --target and --configuration scope both the read and write.
   --next-build-number is accepted with --type build and uses App Store Connect.
-  Only xcconfig files inside the project directory are rewritten unless
-  --allow-external-xcconfig is passed.
+  Only xcconfig files inside the project directory are rewritten unless the
+  experimental --allow-external-xcconfig flag is passed.
 
 Examples:
   asc xcode version bump --type patch
