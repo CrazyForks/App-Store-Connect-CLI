@@ -1,6 +1,7 @@
 package install
 
 import (
+	"net/url"
 	"runtime"
 	"strings"
 )
@@ -31,6 +32,22 @@ var skillsCheckUnixEnvAllowlist = []string{
 	"XDG_CACHE_HOME",
 	"XDG_CONFIG_HOME",
 	"XDG_DATA_HOME",
+}
+
+// Proxy configuration is connectivity, not identity: the update check is a
+// network operation, so without these variables it silently fails behind a
+// corporate proxy. Proxy URLs may embed credentials in their userinfo, and a
+// credential must not cross the helper boundary, so HTTP_PROXY and HTTPS_PROXY
+// are forwarded with their userinfo stripped; a value that cannot be provably
+// sanitized is dropped. Authenticated proxies therefore still fail closed —
+// the check degrades to its cached result rather than forwarding a secret.
+// NO_PROXY is a host list with no credential form and is forwarded verbatim.
+// Names are matched case-insensitively on every platform because both the
+// upper- and lowercase spellings are conventional.
+var skillsCheckProxyEnvAllowlist = []string{
+	"HTTP_PROXY",
+	"HTTPS_PROXY",
+	"NO_PROXY",
 }
 
 // Windows names are stored uppercase because Windows environment variable names
@@ -78,8 +95,14 @@ func filterSkillsCheckEnvironment(base []string, goos string) []string {
 	allowed := skillsCheckEnvAllowlistFor(goos)
 	filtered := make([]string, 0, len(allowed))
 	for _, entry := range base {
-		key, _, found := strings.Cut(entry, "=")
+		key, value, found := strings.Cut(entry, "=")
 		if !found {
+			continue
+		}
+		if proxyName, isProxy := skillsCheckProxyEnvName(key); isProxy {
+			if safe, ok := sanitizeSkillsCheckProxyValue(proxyName, value); ok {
+				filtered = append(filtered, key+"="+safe)
+			}
 			continue
 		}
 		if _, ok := allowed[normalizeSkillsCheckEnvKey(key, goos)]; ok {
@@ -87,6 +110,43 @@ func filterSkillsCheckEnvironment(base []string, goos string) []string {
 		}
 	}
 	return filtered
+}
+
+// skillsCheckProxyEnvName reports whether key names proxy configuration and
+// returns its canonical uppercase form.
+func skillsCheckProxyEnvName(key string) (string, bool) {
+	upper := strings.ToUpper(key)
+	for _, name := range skillsCheckProxyEnvAllowlist {
+		if upper == name {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// sanitizeSkillsCheckProxyValue returns the proxy value safe to forward. A
+// proxy URL keeps its scheme, host, and port; userinfo, query, and fragment are
+// stripped because they can carry credentials. A value containing "@" that
+// cannot be parsed into a URL with explicit userinfo is dropped entirely: the
+// credential position cannot be proven, so the value is not forwarded.
+func sanitizeSkillsCheckProxyValue(canonicalName, value string) (string, bool) {
+	if canonicalName == "NO_PROXY" {
+		return value, true
+	}
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || !strings.Contains(trimmed, "@") {
+		return value, true
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.User == nil || parsed.Host == "" {
+		return "", false
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	parsed.RawFragment = ""
+	return parsed.String(), true
 }
 
 func skillsCheckEnvAllowlistFor(goos string) map[string]struct{} {

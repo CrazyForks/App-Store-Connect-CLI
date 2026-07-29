@@ -186,6 +186,91 @@ func TestFilterSkillsCheckEnvironmentMatchesWindowsCaseInsensitively(t *testing.
 	}
 }
 
+func TestSkillsCheckEnvironmentForwardsProxyConfigurationWithoutCredentials(t *testing.T) {
+	const proxyPasswordSentinel = "asc-red-sentinel-proxy-pw-5d11c9"
+	base := []string{
+		"HTTP_PROXY=http://proxy.corp.example:3128",
+		"https_proxy=https://scanner:" + proxyPasswordSentinel + "@proxy.corp.example:3128",
+		"no_proxy=localhost,127.0.0.1,.corp.example",
+		"ALL_PROXY=socks5://scanner:" + proxyPasswordSentinel + "@proxy.corp.example:1080",
+		"NPM_TOKEN=" + skillsCheckCredentialSentinels["NPM_TOKEN"],
+	}
+
+	filtered := filterSkillsCheckEnvironment(base, "darwin")
+	values := envMap(filtered)
+
+	if values["HTTP_PROXY"] != "http://proxy.corp.example:3128" {
+		t.Fatalf("HTTP_PROXY = %q, want it forwarded verbatim", values["HTTP_PROXY"])
+	}
+	if values["https_proxy"] != "https://proxy.corp.example:3128" {
+		t.Fatalf("https_proxy = %q, want the proxy URL with its userinfo stripped", values["https_proxy"])
+	}
+	if values["no_proxy"] != "localhost,127.0.0.1,.corp.example" {
+		t.Fatalf("no_proxy = %q, want the host list forwarded verbatim", values["no_proxy"])
+	}
+	if _, ok := values["ALL_PROXY"]; ok {
+		t.Fatalf("ALL_PROXY should stay outside the allowlist: %v", filtered)
+	}
+	joined := strings.Join(filtered, "\n")
+	if strings.Contains(joined, proxyPasswordSentinel) {
+		t.Fatalf("proxy credential crossed the helper boundary: %v", filtered)
+	}
+	assertNoCredentialSentinels(t, "proxy-aware filter", filtered)
+}
+
+func TestSkillsCheckEnvironmentDropsProxyValuesItCannotSanitize(t *testing.T) {
+	const proxyPasswordSentinel = "asc-red-sentinel-proxy-pw-5d11c9"
+	base := []string{
+		// No scheme, so the credential position cannot be proven; the value
+		// must be dropped rather than forwarded.
+		"HTTP_PROXY=scanner:" + proxyPasswordSentinel + "@proxy.corp.example:3128",
+	}
+
+	filtered := filterSkillsCheckEnvironment(base, "darwin")
+
+	if len(filtered) != 0 {
+		t.Fatalf("unsanitizable proxy value was forwarded: %v", filtered)
+	}
+}
+
+func TestSkillsCheckEnvironmentForwardsProxyConfigurationOnWindows(t *testing.T) {
+	const proxyPasswordSentinel = "asc-red-sentinel-proxy-pw-5d11c9"
+	base := []string{
+		"Http_Proxy=http://scanner:" + proxyPasswordSentinel + "@proxy.corp.example:3128",
+	}
+
+	filtered := filterSkillsCheckEnvironment(base, "windows")
+
+	values := envMap(filtered)
+	if values["Http_Proxy"] != "http://proxy.corp.example:3128" {
+		t.Fatalf("Http_Proxy = %q, want the proxy URL with its userinfo stripped", values["Http_Proxy"])
+	}
+	if strings.Contains(strings.Join(filtered, "\n"), proxyPasswordSentinel) {
+		t.Fatalf("proxy credential crossed the helper boundary: %v", filtered)
+	}
+}
+
+func TestSkillsCheckWorkerEnvironmentForwardsProxyConfiguration(t *testing.T) {
+	const proxyPasswordSentinel = "asc-red-sentinel-proxy-pw-5d11c9"
+	t.Setenv("HTTP_PROXY", "http://scanner:"+proxyPasswordSentinel+"@proxy.corp.example:3128")
+	seedSkillsCheckCredentials(t)
+
+	env := skillsCheckWorkerEnvironment(os.Environ(), skillsCheckWorkerSpec{
+		cachePath: filepath.Join(t.TempDir(), "cache.json"),
+		lockPath:  filepath.Join(t.TempDir(), "lock"),
+		token:     "worker-token",
+	})
+
+	values := envMap(env)
+	if values["HTTP_PROXY"] != "http://proxy.corp.example:3128" {
+		t.Fatalf("worker HTTP_PROXY = %q, want the proxy URL with its userinfo stripped", values["HTTP_PROXY"])
+	}
+	if strings.Contains(strings.Join(env, "\n"), proxyPasswordSentinel) {
+		t.Fatalf("proxy credential reached the detached worker: %v", env)
+	}
+	assertNoCredentialSentinels(t, "proxy-aware worker", env)
+}
+
 func envMap(env []string) map[string]string {
 	values := make(map[string]string, len(env))
 	for _, entry := range env {
