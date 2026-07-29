@@ -433,11 +433,14 @@ func renderLocalizationDiffMarkdown(plan localizationDiffPlan) {
 func buildLocalizationDiffRows(plan localizationDiffPlan) [][]string {
 	rows := make([][]string, 0, len(plan.Adds)+len(plan.Updates)+len(plan.Deletes))
 
+	// Key and Locale can come from repository-controlled local files or remote
+	// data, so they get the same cell sanitization as the values. Field and
+	// Reason are internal constants.
 	for _, item := range plan.Adds {
 		rows = append(rows, []string{
 			"add",
-			item.Key,
-			item.Locale,
+			sanitizeDiffCell(item.Key),
+			sanitizeDiffCell(item.Locale),
 			item.Field,
 			item.Reason,
 			"",
@@ -447,8 +450,8 @@ func buildLocalizationDiffRows(plan localizationDiffPlan) [][]string {
 	for _, item := range plan.Updates {
 		rows = append(rows, []string{
 			"update",
-			item.Key,
-			item.Locale,
+			sanitizeDiffCell(item.Key),
+			sanitizeDiffCell(item.Locale),
 			item.Field,
 			item.Reason,
 			sanitizeDiffCell(item.From),
@@ -458,8 +461,8 @@ func buildLocalizationDiffRows(plan localizationDiffPlan) [][]string {
 	for _, item := range plan.Deletes {
 		rows = append(rows, []string{
 			"delete",
-			item.Key,
-			item.Locale,
+			sanitizeDiffCell(item.Key),
+			sanitizeDiffCell(item.Locale),
 			item.Field,
 			item.Reason,
 			sanitizeDiffCell(item.From),

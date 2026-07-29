@@ -12,7 +12,7 @@ func reviewSubmissionsRows(resp *ReviewSubmissionsResponse) ([]string, [][]strin
 		appID := reviewSubmissionAppID(item.Relationships)
 		itemCount := reviewSubmissionItemCount(item.Relationships)
 		rows = append(rows, []string{
-			item.ID,
+			SanitizeTerminalText(item.ID),
 			SanitizeTerminalText(string(item.Attributes.SubmissionState)),
 			SanitizeTerminalText(string(item.Attributes.Platform)),
 			SanitizeTerminalText(item.Attributes.SubmittedDate),
@@ -30,7 +30,7 @@ func reviewSubmissionItemsRows(resp *ReviewSubmissionItemsResponse) ([]string, [
 		itemType, itemID := reviewSubmissionItemTarget(item.Relationships)
 		submissionID := reviewSubmissionItemSubmissionID(item.Relationships)
 		rows = append(rows, []string{
-			item.ID,
+			SanitizeTerminalText(item.ID),
 			SanitizeTerminalText(item.Attributes.State),
 			SanitizeTerminalText(itemType),
 			SanitizeTerminalText(itemID),

@@ -134,3 +134,26 @@ func TestLocalizationDiffRowsRemoveTerminalControlsAndJSONKeepsOriginals(t *test
 		t.Fatalf("JSON update value = %q, want the original %q", decoded.Updates[0].To, hostile)
 	}
 }
+
+func TestLocalizationDiffRowsSanitizeLocaleAndKey(t *testing.T) {
+	hostileLocale := "en-US\x1b[31m\u202e"
+	plan := buildLocalizationDiffPlan(
+		"123456789",
+		localizationDiffEndpoint{Kind: "local", Path: "./metadata"},
+		localizationDiffEndpoint{Kind: "remote", VersionID: "VERSION_ID"},
+		map[string]map[string]string{hostileLocale: {"whatsNew": "Bug fixes"}},
+		map[string]map[string]string{hostileLocale: {"whatsNew": "New features"}},
+	)
+
+	rows := buildLocalizationDiffRows(plan)
+	if len(rows) == 0 {
+		t.Fatalf("expected at least one diff row")
+	}
+	for _, row := range rows {
+		for i, cell := range row {
+			if asc.HasInterpretedTerminalSequence(cell) {
+				t.Fatalf("diff row column %d = %q contains interpreted terminal sequences", i, cell)
+			}
+		}
+	}
+}
