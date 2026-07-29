@@ -162,9 +162,9 @@ func skillsCheckProxyEnvName(key string) (string, bool) {
 // hierarchical proxy URL is reduced to its scheme, host, and port: userinfo,
 // path, query, and fragment can all carry credentials. The common schemeless
 // host:port form is forwarded verbatim only when it contains none of "@", "?",
-// or "#", because without those separators the value has no structured place
-// for a credential. Anything else is dropped entirely: a credential position
-// that cannot be proven safe is not forwarded.
+// "#", or "/", because without those separators the value has no structured
+// place for a credential. Anything else is dropped entirely: a credential
+// position that cannot be proven safe is not forwarded.
 func sanitizeSkillsCheckProxyValue(canonicalName, value string) (string, bool) {
 	if canonicalName == "NO_PROXY" {
 		return value, true
@@ -177,7 +177,7 @@ func sanitizeSkillsCheckProxyValue(canonicalName, value string) (string, bool) {
 		safe := url.URL{Scheme: parsed.Scheme, Host: parsed.Host}
 		return safe.String(), true
 	}
-	if !strings.ContainsAny(trimmed, "@?#") {
+	if !strings.ContainsAny(trimmed, "@?#/") {
 		return value, true
 	}
 	return "", false

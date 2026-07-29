@@ -252,6 +252,8 @@ func TestSkillsCheckEnvironmentDropsProxyValuesItCannotSanitize(t *testing.T) {
 		// No scheme, so the credential position cannot be proven; the value
 		// must be dropped rather than forwarded.
 		"HTTP_PROXY=scanner:" + proxyPasswordSentinel + "@proxy.corp.example:3128",
+		// A schemeless value with a path segment can hide a secret there.
+		"HTTPS_PROXY=proxy.corp.example:3128/" + proxyPasswordSentinel,
 	}
 
 	filtered := filterSkillsCheckEnvironment(base, "darwin")
