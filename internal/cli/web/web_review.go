@@ -17,6 +17,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
@@ -486,54 +487,53 @@ func normalizeAttachmentFilename(attachment webcore.ReviewAttachment) string {
 	return id + ".bin"
 }
 
-func ensurePathWithinDir(root, candidate string) error {
-	absRoot, err := filepath.Abs(root)
+// newDownloadRoot anchors attachment downloads to the operator-selected output
+// directory, which may legitimately live outside the current repository.
+func newDownloadRoot(outDir string) (rootfs.Root, error) {
+	root, err := rootfs.New(outDir)
 	if err != nil {
-		return fmt.Errorf("failed to resolve output directory %q: %w", root, err)
+		return rootfs.Root{}, fmt.Errorf("failed to resolve output directory %q: %w", outDir, err)
 	}
-	absCandidate, err := filepath.Abs(candidate)
-	if err != nil {
-		return fmt.Errorf("failed to resolve destination path %q: %w", candidate, err)
-	}
-	rel, err := filepath.Rel(absRoot, absCandidate)
-	if err != nil {
-		return fmt.Errorf("failed to compare destination path %q: %w", candidate, err)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("destination path escapes output directory")
-	}
-	return nil
+	return root, nil
 }
 
-func resolveDownloadPath(outDir, fileName string, overwrite bool) (string, error) {
-	base := filepath.Join(outDir, fileName)
-	if err := ensurePathWithinDir(outDir, base); err != nil {
+// resolveDownloadPath returns the root-relative destination name for fileName.
+// Names that traverse outside the root, or that resolve through a symlinked
+// parent or destination, are rejected before anything is written.
+func resolveDownloadPath(root rootfs.Root, fileName string, overwrite bool) (string, error) {
+	if err := root.CheckContained(fileName); err != nil {
 		return "", err
 	}
+	base := filepath.Join(root.Path(), fileName)
 	if overwrite {
-		return base, nil
+		return fileName, nil
 	}
-	if _, err := os.Stat(base); err == nil {
+	if _, err := os.Lstat(base); err == nil {
 		ext := filepath.Ext(fileName)
 		stem := strings.TrimSuffix(fileName, ext)
 		if stem == "" {
 			stem = "attachment"
 		}
 		for i := 1; i <= 10_000; i++ {
-			candidate := filepath.Join(outDir, fmt.Sprintf("%s-%d%s", stem, i, ext))
-			if err := ensurePathWithinDir(outDir, candidate); err != nil {
+			candidate := fmt.Sprintf("%s-%d%s", stem, i, ext)
+			if err := root.CheckContained(candidate); err != nil {
 				return "", err
 			}
-			if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
+			if _, err := os.Lstat(filepath.Join(root.Path(), candidate)); errors.Is(err, os.ErrNotExist) {
 				return candidate, nil
 			}
 		}
 		return "", fmt.Errorf("failed to generate unique filename for %q", fileName)
 	} else if errors.Is(err, os.ErrNotExist) {
-		return base, nil
+		return fileName, nil
 	} else {
 		return "", fmt.Errorf("failed to check destination path %q: %w", base, err)
 	}
+}
+
+// writeDownloadedAttachment writes an attachment body beneath the download root.
+func writeDownloadedAttachment(root rootfs.Root, name string, body []byte) error {
+	return root.WriteFile(name, body, 0o600)
 }
 
 func attachmentRefreshKey(attachment webcore.ReviewAttachment) string {
@@ -632,7 +632,11 @@ func downloadAttachmentsForShow(
 	if len(selected) == 0 {
 		return []reviewAttachmentDownloadResult{}, nil, nil
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	root, err := newDownloadRoot(outDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := root.MkdirAll(".", 0o755); err != nil {
 		return nil, nil, fmt.Errorf("failed to create output directory %q: %w", outDir, err)
 	}
 
@@ -667,16 +671,16 @@ func downloadAttachmentsForShow(
 			continue
 		}
 
-		outputPath, err := resolveDownloadPath(outDir, attachment.FileName, overwrite)
+		outputName, err := resolveDownloadPath(root, attachment.FileName, overwrite)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", attachment.FileName, err))
 			continue
 		}
-		if err := os.WriteFile(outputPath, body, 0o600); err != nil {
+		if err := writeDownloadedAttachment(root, outputName, body); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", attachment.FileName, err))
 			continue
 		}
-		results = append(results, attachmentDownloadResult(attachment, outputPath, refreshed))
+		results = append(results, attachmentDownloadResult(attachment, filepath.Join(root.Path(), outputName), refreshed))
 	}
 	return results, failures, nil
 }
