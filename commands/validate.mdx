@@ -81,15 +81,20 @@ fi
 ```yaml  theme={null}
 # GitHub Actions
 - name: Validate version
+  env:
+    APP_ID: ${{ secrets.APP_ID }}
+    TAG_NAME: ${{ github.ref_name }}
   run: |
-    asc validate --app ${{ secrets.APP_ID }} --version ${{ github.ref_name }}
-    if [ $? -ne 0 ]; then
+    if ! asc validate --app "$APP_ID" --version "$TAG_NAME"; then
       echo "Validation failed"
       exit 1
     fi
 
 - name: Publish to App Store
-  run: asc publish appstore --app ${{ secrets.APP_ID }} --ipa ./build/MyApp.ipa --version ${{ github.ref_name }} --submit --confirm
+  env:
+    APP_ID: ${{ secrets.APP_ID }}
+    TAG_NAME: ${{ github.ref_name }}
+  run: asc publish appstore --app "$APP_ID" --ipa ./build/MyApp.ipa --version "$TAG_NAME" --submit --confirm
 ```
 
 ## Exit codes
