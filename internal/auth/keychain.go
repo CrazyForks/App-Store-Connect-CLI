@@ -608,12 +608,19 @@ func writePrivateKeyPEMFile(keyDir, name, privateKeyPEM string) error {
 		if strings.TrimSpace(string(existing)) != strings.TrimSpace(privateKeyPEM) {
 			return fmt.Errorf("refusing to overwrite existing private key file: %s", resolved)
 		}
-		info, err := os.Lstat(resolved)
+		// Tighten permissions through a no-follow descriptor so an entry swapped
+		// for a symlink after the read can never chmod a file outside keyDir.
+		file, err := root.OpenFile(name)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		info, err := file.Stat()
 		if err != nil {
 			return err
 		}
 		if filePermissionsTooPermissive(info.Mode()) {
-			if err := os.Chmod(resolved, 0o600); err != nil {
+			if err := file.Chmod(0o600); err != nil {
 				return err
 			}
 		}

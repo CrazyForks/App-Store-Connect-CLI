@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -81,6 +82,32 @@ func TestWritePrivateKeyPEMFileRejectsSymlinkedDestination(t *testing.T) {
 	}
 	if string(data) != "original" {
 		t.Fatalf("sentinel content = %q, want %q", data, "original")
+	}
+}
+
+func TestWritePrivateKeyPEMFileTightensLoosePermissionsWithoutFollowingSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not reported faithfully on Windows")
+	}
+	keyDir := filepath.Join(t.TempDir(), "keys")
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	path := filepath.Join(keyDir, "AuthKey_team_ABC123.p8")
+	if err := os.WriteFile(path, []byte("PRIVATE KEY MATERIAL"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if err := writePrivateKeyPEMFile(keyDir, "AuthKey_team_ABC123.p8", "PRIVATE KEY MATERIAL"); err != nil {
+		t.Fatalf("writePrivateKeyPEMFile() error = %v", err)
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("Lstat() error = %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("key mode = %v, want tightened to 0600", info.Mode().Perm())
 	}
 }
 
