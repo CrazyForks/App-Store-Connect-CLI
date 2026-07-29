@@ -158,6 +158,11 @@ func TestSetVersionReportsSymlinkedXCConfigAsSymlinkRejection(t *testing.T) {
 	if strings.Contains(err.Error(), "outside project directory") {
 		t.Fatalf("SetVersion() error = %v, want the symlink-specific message, not the containment one", err)
 	}
+	// The write path rejects symlinked xcconfig files even when authorized, so
+	// the error must not present --allow-external-xcconfig as a remedy.
+	if strings.Contains(err.Error(), "--allow-external-xcconfig") {
+		t.Fatalf("SetVersion() error = %v, want no --allow-external-xcconfig guidance for symlinks", err)
+	}
 	if after := mustReadVersionTestFile(t, externalPath); after != before {
 		t.Fatal("symlink target was rewritten despite the rejection")
 	}

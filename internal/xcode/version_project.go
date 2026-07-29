@@ -848,9 +848,12 @@ func (project *structuredVersionProject) checkXCConfigWritable(path string, allo
 	}
 	if err := root.AllowingInternalSymlinks().CheckContained(path); err != nil {
 		if errors.Is(err, rootfs.ErrSymlink) {
+			// The write path refuses symlinked xcconfig files even when
+			// --allow-external-xcconfig is set, so do not present the flag as a
+			// remedy here.
 			return fmt.Errorf(
 				"refusing to modify xcconfig %s through a symlink: %w; "+
-					"replace the symlink with a regular file or rerun with --allow-external-xcconfig",
+					"replace the symlink with a regular file",
 				path,
 				err,
 			)
