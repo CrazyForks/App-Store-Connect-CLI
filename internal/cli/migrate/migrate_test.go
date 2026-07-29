@@ -9,10 +9,11 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc/types"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
-func TestReadFileIfExists_FileExists(t *testing.T) {
+func TestReadMetadataFile_FileExists(t *testing.T) {
 	// Create a temp file
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.txt")
@@ -20,27 +21,36 @@ func TestReadFileIfExists_FileExists(t *testing.T) {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 
-	got := readFileIfExists(path)
+	got, err := readMetadataFile(mustMigrateRoot(t, dir), "test.txt")
+	if err != nil {
+		t.Fatalf("readMetadataFile() error: %v", err)
+	}
 	if got != "hello world" {
 		t.Errorf("expected 'hello world', got %q", got)
 	}
 }
 
-func TestReadFileIfExists_FileDoesNotExist(t *testing.T) {
-	got := readFileIfExists("/nonexistent/path/file.txt")
+func TestReadMetadataFile_FileDoesNotExist(t *testing.T) {
+	got, err := readMetadataFile(mustMigrateRoot(t, t.TempDir()), "missing/file.txt")
+	if err != nil {
+		t.Fatalf("readMetadataFile() error: %v", err)
+	}
 	if got != "" {
 		t.Errorf("expected empty string, got %q", got)
 	}
 }
 
-func TestReadFileIfExists_TrimsWhitespace(t *testing.T) {
+func TestReadMetadataFile_TrimsWhitespace(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.txt")
 	if err := os.WriteFile(path, []byte("  trimmed  \n\n"), 0o644); err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 
-	got := readFileIfExists(path)
+	got, err := readMetadataFile(mustMigrateRoot(t, dir), "test.txt")
+	if err != nil {
+		t.Fatalf("readMetadataFile() error: %v", err)
+	}
 	if got != "trimmed" {
 		t.Errorf("expected 'trimmed', got %q", got)
 	}
@@ -50,7 +60,10 @@ func TestWriteAndCount_EmptyContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.txt")
 
-	count := writeAndCount(path, "")
+	count, err := writeAndCount(mustMigrateRoot(t, dir), "test.txt", "")
+	if err != nil {
+		t.Fatalf("writeAndCount() error: %v", err)
+	}
 	if count != 0 {
 		t.Errorf("expected 0, got %d", count)
 	}
@@ -65,7 +78,10 @@ func TestWriteAndCount_WritesContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.txt")
 
-	count := writeAndCount(path, "content")
+	count, err := writeAndCount(mustMigrateRoot(t, dir), "test.txt", "content")
+	if err != nil {
+		t.Fatalf("writeAndCount() error: %v", err)
+	}
 	if count != 1 {
 		t.Errorf("expected 1, got %d", count)
 	}
@@ -78,6 +94,15 @@ func TestWriteAndCount_WritesContent(t *testing.T) {
 	if string(data) != "content\n" {
 		t.Errorf("expected 'content\\n', got %q", string(data))
 	}
+}
+
+func mustMigrateRoot(t *testing.T, dir string) rootfs.Root {
+	t.Helper()
+	root, err := rootfs.New(dir)
+	if err != nil {
+		t.Fatalf("rootfs.New(%q) error: %v", dir, err)
+	}
+	return root
 }
 
 func TestCountNonEmptyFields_AllEmpty(t *testing.T) {

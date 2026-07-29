@@ -13,6 +13,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
@@ -147,8 +148,14 @@ Examples:
 				}
 				skipped = append(skipped, metadataSkipped...)
 
-				localizations = readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
-				appInfoLocs = readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
+				localizations, err = readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
+				if err != nil {
+					return fmt.Errorf("migrate import: %w", err)
+				}
+				appInfoLocs, err = readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
+				if err != nil {
+					return fmt.Errorf("migrate import: %w", err)
+				}
 
 				reviewInfo, err = readFastlaneReviewInformation(metadataDir)
 				if err != nil {
@@ -345,9 +352,12 @@ Examples:
 				return fmt.Errorf("migrate export: %w", err)
 			}
 
-			// Create output directory structure
-			metadataDir := filepath.Join(*outputDir, "metadata")
-			if err := os.MkdirAll(metadataDir, 0o755); err != nil {
+			// Create output directory structure beneath the operator-selected root
+			root, err := newMigrateExportRoot(*outputDir)
+			if err != nil {
+				return fmt.Errorf("migrate export: %w", err)
+			}
+			if err := root.MkdirAll("metadata", 0o755); err != nil {
 				return fmt.Errorf("migrate export: failed to create directory: %w", err)
 			}
 
@@ -356,18 +366,33 @@ Examples:
 			totalFiles := 0
 			for _, loc := range resp.Data {
 				locale := loc.Attributes.Locale
-				localeDir := filepath.Join(metadataDir, locale)
-				if err := os.MkdirAll(localeDir, 0o755); err != nil {
+				localeDir, err := migrateExportLocaleDir(locale)
+				if err != nil {
+					return fmt.Errorf("migrate export: %w", err)
+				}
+				if err := root.MkdirAll(localeDir, 0o755); err != nil {
 					return fmt.Errorf("migrate export: failed to create locale directory: %w", err)
 				}
 
 				// Write files (only non-empty content creates files)
-				totalFiles += writeAndCount(filepath.Join(localeDir, "description.txt"), loc.Attributes.Description)
-				totalFiles += writeAndCount(filepath.Join(localeDir, "keywords.txt"), loc.Attributes.Keywords)
-				totalFiles += writeAndCount(filepath.Join(localeDir, "release_notes.txt"), loc.Attributes.WhatsNew)
-				totalFiles += writeAndCount(filepath.Join(localeDir, "promotional_text.txt"), loc.Attributes.PromotionalText)
-				totalFiles += writeAndCount(filepath.Join(localeDir, "support_url.txt"), loc.Attributes.SupportURL)
-				totalFiles += writeAndCount(filepath.Join(localeDir, "marketing_url.txt"), loc.Attributes.MarketingURL)
+				files := []struct {
+					name    string
+					content string
+				}{
+					{"description.txt", loc.Attributes.Description},
+					{"keywords.txt", loc.Attributes.Keywords},
+					{"release_notes.txt", loc.Attributes.WhatsNew},
+					{"promotional_text.txt", loc.Attributes.PromotionalText},
+					{"support_url.txt", loc.Attributes.SupportURL},
+					{"marketing_url.txt", loc.Attributes.MarketingURL},
+				}
+				for _, file := range files {
+					written, err := writeAndCount(root, filepath.Join(localeDir, file.name), file.content)
+					if err != nil {
+						return fmt.Errorf("migrate export: %w", err)
+					}
+					totalFiles += written
+				}
 
 				exported = append(exported, locale)
 			}
@@ -382,12 +407,27 @@ Examples:
 				appInfoLocs, err := client.GetAppInfoLocalizations(requestCtx, appInfoID)
 				if err == nil {
 					for _, loc := range appInfoLocs.Data {
-						locale := loc.Attributes.Locale
-						localeDir := filepath.Join(metadataDir, locale)
+						localeDir, err := migrateExportLocaleDir(loc.Attributes.Locale)
+						if err != nil {
+							return fmt.Errorf("migrate export: %w", err)
+						}
 						// Create locale dir if it doesn't exist (may have App Info but no version localizations)
-						if err := os.MkdirAll(localeDir, 0o755); err == nil {
-							totalFiles += writeAndCount(filepath.Join(localeDir, "name.txt"), loc.Attributes.Name)
-							totalFiles += writeAndCount(filepath.Join(localeDir, "subtitle.txt"), loc.Attributes.Subtitle)
+						if err := root.MkdirAll(localeDir, 0o755); err != nil {
+							return fmt.Errorf("migrate export: failed to create locale directory: %w", err)
+						}
+						files := []struct {
+							name    string
+							content string
+						}{
+							{"name.txt", loc.Attributes.Name},
+							{"subtitle.txt", loc.Attributes.Subtitle},
+						}
+						for _, file := range files {
+							written, err := writeAndCount(root, filepath.Join(localeDir, file.name), file.content)
+							if err != nil {
+								return fmt.Errorf("migrate export: %w", err)
+							}
+							totalFiles += written
 						}
 					}
 				}
@@ -483,7 +523,7 @@ func readFastlaneMetadata(metadataDir string) ([]FastlaneLocalization, error) {
 	if err != nil {
 		return nil, err
 	}
-	return readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs), nil
+	return readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
 }
 
 // readFastlaneAppInfoMetadata reads app-level metadata (name, subtitle) from fastlane structure.
@@ -492,27 +532,58 @@ func readFastlaneAppInfoMetadata(metadataDir string) ([]AppInfoFastlaneLocalizat
 	if err != nil {
 		return nil, err
 	}
-	return readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs), nil
+	return readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
 }
 
-// readFileIfExists reads a file's contents if it exists, returning empty string otherwise.
-func readFileIfExists(path string) string {
-	data, err := os.ReadFile(path)
+// newMigrateMetadataRoot anchors metadata reads to the resolved metadata
+// directory so repository-controlled locale directories and files cannot
+// redirect reads to local secrets before they are published upstream.
+func newMigrateMetadataRoot(metadataDir string) (rootfs.Root, error) {
+	return rootfs.New(metadataDir)
+}
+
+// newMigrateExportRoot anchors export writes to the operator-selected output
+// directory, which may legitimately live outside the current repository.
+func newMigrateExportRoot(outputDir string) (rootfs.Root, error) {
+	return rootfs.New(outputDir)
+}
+
+// migrateExportLocaleDir builds the export-relative locale directory for a
+// locale returned by App Store Connect.
+func migrateExportLocaleDir(locale string) (string, error) {
+	trimmed := strings.TrimSpace(locale)
+	if trimmed == "" {
+		return "", fmt.Errorf("app store connect returned an empty locale")
+	}
+	if err := rootfs.ValidateRelative(trimmed); err != nil {
+		return "", err
+	}
+	return filepath.Join("metadata", trimmed), nil
+}
+
+// readMetadataFile reads an optional metadata file beneath the metadata root.
+// A missing file yields an empty value; a symlinked file is an error.
+func readMetadataFile(root rootfs.Root, name string) (string, error) {
+	data, found, err := root.ReadFileOptional(name)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return strings.TrimSpace(string(data))
+	if !found {
+		return "", nil
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
-// writeAndCount writes content to a file and returns 1 if written, 0 if skipped.
-func writeAndCount(path, content string) int {
+// writeAndCount writes content beneath root and returns 1 when a file was
+// written and 0 when the content was empty.
+func writeAndCount(root rootfs.Root, name, content string) (int, error) {
 	if content == "" {
-		return 0
+		return 0, nil
 	}
-	if err := os.WriteFile(path, []byte(content+"\n"), 0o644); err != nil {
-		return 0
+	if err := root.WriteFile(name, []byte(content+"\n"), 0o644); err != nil {
+		return 0, err
 	}
-	return 1
+	return 1, nil
 }
 
 // printMigrateOutput handles output for migrate-specific result types.
@@ -655,13 +726,26 @@ func scanFastlaneMetadataLocaleDirs(metadataDir string) ([]fastlaneLocaleDir, []
 	dirs := make([]fastlaneLocaleDir, 0, len(entries))
 	skipped := []SkippedItem{}
 	for _, entry := range entries {
+		dirName := entry.Name()
+		if entry.Type()&os.ModeSymlink != 0 {
+			// A symlinked locale directory would read metadata from outside the
+			// metadata root, so report it instead of silently following it.
+			skipped = append(skipped, SkippedItem{
+				Path:   filepath.Join(metadataDir, dirName),
+				Reason: fmt.Sprintf("skipped symlinked metadata entry %q", dirName),
+			})
+			continue
+		}
 		if !entry.IsDir() {
 			continue
 		}
 
-		dirName := entry.Name()
 		if dirName == "review_information" || dirName == "default" {
 			continue // Skip special directories
+		}
+
+		if err := rootfs.ValidateRelative(dirName); err != nil {
+			return nil, nil, err
 		}
 
 		normalized, err := normalizeLocale(dirName)
@@ -688,32 +772,61 @@ func scanFastlaneMetadataLocaleDirs(metadataDir string) ([]fastlaneLocaleDir, []
 	return dirs, skipped, nil
 }
 
-func readFastlaneMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) []FastlaneLocalization {
+func readFastlaneMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) ([]FastlaneLocalization, error) {
+	root, err := newMigrateMetadataRoot(metadataDir)
+	if err != nil {
+		return nil, err
+	}
+
 	localizations := make([]FastlaneLocalization, 0, len(localeDirs))
 	for _, ld := range localeDirs {
-		localeDir := filepath.Join(metadataDir, ld.DirName)
 		loc := FastlaneLocalization{Locale: ld.Locale}
 
 		// Read each metadata file (version-level localization fields only)
-		loc.Description = readFileIfExists(filepath.Join(localeDir, "description.txt"))
-		loc.Keywords = readFileIfExists(filepath.Join(localeDir, "keywords.txt"))
-		loc.WhatsNew = readFileIfExists(filepath.Join(localeDir, "release_notes.txt"))
-		loc.PromotionalText = readFileIfExists(filepath.Join(localeDir, "promotional_text.txt"))
-		loc.SupportURL = readFileIfExists(filepath.Join(localeDir, "support_url.txt"))
-		loc.MarketingURL = readFileIfExists(filepath.Join(localeDir, "marketing_url.txt"))
+		fields := []struct {
+			file  string
+			field *string
+		}{
+			{"description.txt", &loc.Description},
+			{"keywords.txt", &loc.Keywords},
+			{"release_notes.txt", &loc.WhatsNew},
+			{"promotional_text.txt", &loc.PromotionalText},
+			{"support_url.txt", &loc.SupportURL},
+			{"marketing_url.txt", &loc.MarketingURL},
+		}
+		for _, field := range fields {
+			value, err := readMetadataFile(root, filepath.Join(ld.DirName, field.file))
+			if err != nil {
+				return nil, err
+			}
+			*field.field = value
+		}
 
 		localizations = append(localizations, loc)
 	}
-	return localizations
+	return localizations, nil
 }
 
-func readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) []AppInfoFastlaneLocalization {
+func readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir string, localeDirs []fastlaneLocaleDir) ([]AppInfoFastlaneLocalization, error) {
+	root, err := newMigrateMetadataRoot(metadataDir)
+	if err != nil {
+		return nil, err
+	}
+
 	localizations := make([]AppInfoFastlaneLocalization, 0, len(localeDirs))
 	for _, ld := range localeDirs {
-		localeDir := filepath.Join(metadataDir, ld.DirName)
-		name := readFileIfExists(filepath.Join(localeDir, "name.txt"))
-		subtitle := readFileIfExists(filepath.Join(localeDir, "subtitle.txt"))
-		privacyURL := readFileIfExists(filepath.Join(localeDir, "privacy_url.txt"))
+		name, err := readMetadataFile(root, filepath.Join(ld.DirName, "name.txt"))
+		if err != nil {
+			return nil, err
+		}
+		subtitle, err := readMetadataFile(root, filepath.Join(ld.DirName, "subtitle.txt"))
+		if err != nil {
+			return nil, err
+		}
+		privacyURL, err := readMetadataFile(root, filepath.Join(ld.DirName, "privacy_url.txt"))
+		if err != nil {
+			return nil, err
+		}
 
 		// Only include if at least one field has content
 		if name != "" || subtitle != "" || privacyURL != "" {
@@ -725,7 +838,7 @@ func readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir string, localeDirs []
 			})
 		}
 	}
-	return localizations
+	return localizations, nil
 }
 
 // MigrateValidateCommand returns the migrate validate subcommand.
@@ -770,10 +883,16 @@ Examples:
 				}
 				return fmt.Errorf("migrate validate: %w", err)
 			}
-			localizations := readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
+			localizations, err := readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
+			if err != nil {
+				return fmt.Errorf("migrate validate: %w", err)
+			}
 
 			// Read App Info metadata (name, subtitle)
-			appInfoLocs := readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
+			appInfoLocs, err := readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
+			if err != nil {
+				return fmt.Errorf("migrate validate: %w", err)
+			}
 
 			// Validate and collect issues
 			var issues []ValidationIssue
