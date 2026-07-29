@@ -194,6 +194,19 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 	requestCtx, cancel := shared.ContextWithTimeoutDuration(ctx, opts.Timeout)
 	defer cancel()
 
+	if result.Resumed || strings.TrimSpace(checkpoint.VersionID) != "" {
+		if err := verifyResumedCheckpointBinding(requestCtx, client, opts, &checkpoint, nil); err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			result.VersionID = ""
+			result.SubmissionID = ""
+			return result, err
+		}
+		result.Resumed = len(checkpoint.Completed) > 0
+		result.VersionID = strings.TrimSpace(checkpoint.VersionID)
+		result.SubmissionID = strings.TrimSpace(checkpoint.SubmissionID)
+	}
+
 	versionID := strings.TrimSpace(checkpoint.VersionID)
 	submissionID := strings.TrimSpace(checkpoint.SubmissionID)
 	versionPlannedCreate := false
