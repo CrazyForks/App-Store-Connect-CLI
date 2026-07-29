@@ -924,8 +924,10 @@ func TestWebAuthLoginPromptInterruptSkipsSkillsAutoCheck(t *testing.T) {
 
 	markerPath := filepath.Join(tmpDir, "skills-check-ran")
 	scriptPath := filepath.Join(scriptDir, "skills")
+	// Marker paths are baked into the script: helper processes receive an
+	// allowlisted environment, so arbitrary test variables cannot reach them.
 	script := "#!/bin/sh\n" +
-		"printf 'ran' > \"$SKILLS_MARKER\"\n" +
+		"printf 'ran' > '" + markerPath + "'\n" +
 		"sleep 2\n" +
 		"printf 'update available\\n'\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
@@ -941,7 +943,6 @@ func TestWebAuthLoginPromptInterruptSkipsSkillsAutoCheck(t *testing.T) {
 		"ASC_IRIS_SESSION_CACHE=0",
 		"ASC_SKILLS_AUTO_CHECK=1",
 		"CI=",
-		"SKILLS_MARKER="+markerPath,
 		"PATH="+scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 	runCmd.Env = env
@@ -1031,10 +1032,12 @@ func TestSkillsAutoCheckDoesNotDelayForegroundCommand(t *testing.T) {
 		}
 	})
 	scriptPath := filepath.Join(scriptDir, "skills")
+	// Marker paths are baked into the script: helper processes receive an
+	// allowlisted environment, so arbitrary test variables cannot reach them.
 	script := "#!/bin/sh\n" +
-		"printf 'ran' > \"$SKILLS_MARKER\"\n" +
+		"printf 'ran' > '" + markerPath + "'\n" +
 		"sleep 10 &\n" +
-		"printf '%s' \"$!\" > \"$SKILLS_SLEEP_PID\"\n" +
+		"printf '%s' \"$!\" > '" + sleepPIDPath + "'\n" +
 		"printf '2 updates available\\n'\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("failed to write fake skills command: %v", err)
@@ -1045,8 +1048,6 @@ func TestSkillsAutoCheckDoesNotDelayForegroundCommand(t *testing.T) {
 		isolatedCLITestEnv(configPath),
 		"ASC_SKILLS_AUTO_CHECK=1",
 		"CI=",
-		"SKILLS_MARKER="+markerPath,
-		"SKILLS_SLEEP_PID="+sleepPIDPath,
 		"PATH="+scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 

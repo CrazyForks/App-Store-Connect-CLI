@@ -141,6 +141,29 @@ asc apps list --output json | jq '.data[0].id'
 asc apps view --id APP_ID > output.json 2> errors.log
 ```
 
+### Credentials in Error Messages
+
+Errors never repeat the credential-bearing parts of a URL. Asset upload
+failures — Game Center images, App Clip assets, screenshots, previews — report
+the scheme, host, and path of the presigned URL but drop its userinfo, query
+values, and fragment, so an expired or refused upload cannot print the signature
+or token:
+
+```
+Error: upload operation 0: upload request failed for https://upload.example.com/v1/assets/chunk-1 (timeout)
+```
+
+`asc notify slack` reports only the scheme and host, because the webhook path is
+itself the secret:
+
+```
+Error: notify slack: failed to send: webhook POST failed for https://hooks.slack.com
+```
+
+The failure class (`timeout`, `canceled`) and the HTTP status of non-transport
+failures are preserved, and the underlying error stays wrapped so programmatic
+inspection keeps working.
+
 ## Handling Errors in Scripts
 
 ### Exit Code Checks

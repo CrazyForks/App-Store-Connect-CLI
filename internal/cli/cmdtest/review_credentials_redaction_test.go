@@ -13,29 +13,32 @@ import (
 // Unique sentinels make a leak unambiguous: no fixture, help text, or unrelated
 // field can produce these strings by accident.
 const (
-	appStoreDemoPasswordSentinel  = "asc-red-sentinel-appstore-demo-pw-9f31c7"
+	appStoreDemoPasswordSentinel   = "asc-red-sentinel-appstore-demo-pw-9f31c7"
 	testFlightDemoPasswordSentinel = "asc-red-sentinel-testflight-demo-pw-4b82ad"
-	redactedDemoPasswordText      = "(redacted)"
-	includeSensitiveWarningText   = "Warning: --include-sensitive prints secrets"
+	redactedDemoPasswordText       = "(redacted)"
+	includeSensitiveWarningText    = "Warning: --include-sensitive prints secrets"
 )
 
-func appStoreReviewDetailJSON(password string) string {
+func appStoreReviewDetailJSON() string {
 	return `{"data":{"type":"appStoreReviewDetails","id":"detail-1","attributes":{` +
 		`"contactFirstName":"Dev","contactLastName":"Support","contactEmail":"dev@example.com",` +
-		`"demoAccountRequired":true,"demoAccountName":"reviewer@example.com","demoAccountPassword":"` + password + `",` +
+		`"demoAccountRequired":true,"demoAccountName":"reviewer@example.com",` +
+		`"demoAccountPassword":"` + appStoreDemoPasswordSentinel + `",` +
 		`"notes":"Reviewer notes"}}}`
 }
 
-func betaAppReviewDetailsJSON(password string) string {
+func betaAppReviewDetailsJSON() string {
 	return `{"data":[{"type":"betaAppReviewDetails","id":"detail-1","attributes":{` +
 		`"contactFirstName":"Dev","contactLastName":"Support","contactEmail":"dev@example.com",` +
-		`"demoAccountRequired":true,"demoAccountName":"reviewer@example.com","demoAccountPassword":"` + password + `",` +
+		`"demoAccountRequired":true,"demoAccountName":"reviewer@example.com",` +
+		`"demoAccountPassword":"` + testFlightDemoPasswordSentinel + `",` +
 		`"notes":"Reviewer notes"}}],"links":{"self":"https://api.appstoreconnect.apple.com/v1/betaAppReviewDetails"}}`
 }
 
-func betaAppReviewDetailJSON(password string) string {
+func betaAppReviewDetailJSON() string {
 	return `{"data":{"type":"betaAppReviewDetails","id":"detail-1","attributes":{` +
-		`"demoAccountRequired":true,"demoAccountName":"reviewer@example.com","demoAccountPassword":"` + password + `"}}}`
+		`"demoAccountRequired":true,"demoAccountName":"reviewer@example.com",` +
+		`"demoAccountPassword":"` + testFlightDemoPasswordSentinel + `"}}}`
 }
 
 func assertNoSentinel(t *testing.T, label, sentinel, content string) {
@@ -64,7 +67,7 @@ func TestReviewDetailsGetRedactsDemoAccountPasswordInEveryFormat(t *testing.T) {
 				if req.Method != http.MethodGet || req.URL.Path != "/v1/appStoreReviewDetails/detail-1" {
 					t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
 				}
-				return jsonResponse(http.StatusOK, appStoreReviewDetailJSON(appStoreDemoPasswordSentinel))
+				return jsonResponse(http.StatusOK, appStoreReviewDetailJSON())
 			})
 
 			root := RootCommand("1.2.3")
@@ -98,7 +101,7 @@ func TestReviewDetailsGetIncludesDemoAccountPasswordWithIncludeSensitive(t *test
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 	stubTransport(t, func(req *http.Request) (*http.Response, error) {
-		return jsonResponse(http.StatusOK, appStoreReviewDetailJSON(appStoreDemoPasswordSentinel))
+		return jsonResponse(http.StatusOK, appStoreReviewDetailJSON())
 	})
 
 	root := RootCommand("1.2.3")
@@ -143,7 +146,7 @@ func TestReviewDetailsForVersionRedactsDemoAccountPassword(t *testing.T) {
 		if req.URL.Path != "/v1/appStoreVersions/version-1/appStoreReviewDetail" {
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
 		}
-		return jsonResponse(http.StatusOK, appStoreReviewDetailJSON(appStoreDemoPasswordSentinel))
+		return jsonResponse(http.StatusOK, appStoreReviewDetailJSON())
 	})
 
 	root := RootCommand("1.2.3")
@@ -181,7 +184,7 @@ func TestReviewDetailsCreateSendsPasswordButRedactsResponse(t *testing.T) {
 		if strings.Contains(string(payload), `"demoAccountPassword":"`+appStoreDemoPasswordSentinel+`"`) {
 			sentRealPassword = true
 		}
-		return jsonResponse(http.StatusCreated, appStoreReviewDetailJSON(appStoreDemoPasswordSentinel))
+		return jsonResponse(http.StatusCreated, appStoreReviewDetailJSON())
 	})
 
 	root := RootCommand("1.2.3")
@@ -226,7 +229,7 @@ func TestReviewDetailsUpdateSendsPasswordButRedactsResponse(t *testing.T) {
 		if strings.Contains(string(payload), `"demoAccountPassword":"`+appStoreDemoPasswordSentinel+`"`) {
 			sentRealPassword = true
 		}
-		return jsonResponse(http.StatusOK, appStoreReviewDetailJSON(appStoreDemoPasswordSentinel))
+		return jsonResponse(http.StatusOK, appStoreReviewDetailJSON())
 	})
 
 	root := RootCommand("1.2.3")
@@ -257,7 +260,7 @@ func TestTestFlightReviewViewRedactsDemoAccountPassword(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 	stubTransport(t, func(req *http.Request) (*http.Response, error) {
-		return jsonResponse(http.StatusOK, betaAppReviewDetailsJSON(testFlightDemoPasswordSentinel))
+		return jsonResponse(http.StatusOK, betaAppReviewDetailsJSON())
 	})
 
 	root := RootCommand("1.2.3")
@@ -295,7 +298,7 @@ func TestTestFlightReviewEditSendsPasswordButRedactsResponse(t *testing.T) {
 		if strings.Contains(string(payload), `"demoAccountPassword":"`+testFlightDemoPasswordSentinel+`"`) {
 			sentRealPassword = true
 		}
-		return jsonResponse(http.StatusOK, betaAppReviewDetailJSON(testFlightDemoPasswordSentinel))
+		return jsonResponse(http.StatusOK, betaAppReviewDetailJSON())
 	})
 
 	root := RootCommand("1.2.3")
@@ -326,7 +329,7 @@ func TestTestFlightReviewViewIncludesDemoAccountPasswordWithIncludeSensitive(t *
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 	stubTransport(t, func(req *http.Request) (*http.Response, error) {
-		return jsonResponse(http.StatusOK, betaAppReviewDetailsJSON(testFlightDemoPasswordSentinel))
+		return jsonResponse(http.StatusOK, betaAppReviewDetailsJSON())
 	})
 
 	root := RootCommand("1.2.3")
