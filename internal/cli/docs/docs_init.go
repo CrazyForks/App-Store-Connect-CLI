@@ -86,28 +86,41 @@ Examples:
 }
 
 // InitReference generates ASC.md in the target repo and links agent files.
+// Every validation, including the symlink containment checks on the ASC.md
+// destination and the agent files, runs before the first write, so a failed
+// init leaves the repository untouched.
 func InitReference(opts InitOptions) (InitResult, error) {
 	targetPath, linkRoot, err := resolveOutputPath(opts.Path)
 	if err != nil {
 		return InitResult{}, err
 	}
 
-	created, overwritten, err := writeASCReference(targetPath, opts.Force)
+	ascPlan, err := planASCReference(targetPath, opts.Force)
 	if err != nil {
 		return InitResult{}, err
 	}
 
-	linked := []string{}
+	linkPlan := agentLinkPlan{}
 	if opts.Link {
 		relRef, err := filepath.Rel(linkRoot, targetPath)
 		if err != nil {
 			relRef = ascReferenceFile
 		}
 		relRef = normalizeReferencePath(relRef)
-		linked, err = linkAgentFiles(linkRoot, relRef)
+		linkPlan, err = planAgentFileLinks(linkRoot, relRef)
 		if err != nil {
 			return InitResult{}, err
 		}
+	}
+
+	created, overwritten, err := writeASCReference(ascPlan)
+	if err != nil {
+		return InitResult{}, err
+	}
+
+	linked, err := applyAgentFileLinks(linkPlan)
+	if err != nil {
+		return InitResult{}, err
 	}
 
 	return InitResult{
@@ -218,10 +231,18 @@ func findRepoRoot(start string) (string, error) {
 	}
 }
 
-func writeASCReference(path string, force bool) (bool, bool, error) {
+// ascReferencePlan is a fully validated, not-yet-applied ASC.md write.
+type ascReferencePlan struct {
+	root   rootfs.Root
+	name   string
+	exists bool
+}
+
+// planASCReference validates the ASC.md destination without writing anything.
+func planASCReference(path string, force bool) (ascReferencePlan, error) {
 	root, err := rootfs.New(filepath.Dir(path))
 	if err != nil {
-		return false, false, err
+		return ascReferencePlan{}, err
 	}
 	name := filepath.Base(path)
 
@@ -231,57 +252,92 @@ func writeASCReference(path string, force bool) (bool, bool, error) {
 	if _, err := os.Lstat(path); err == nil {
 		exists = true
 	} else if !os.IsNotExist(err) {
-		return false, false, err
+		return ascReferencePlan{}, err
 	}
 
 	if exists && !force {
-		return false, false, fmt.Errorf("%w: %s (use --force to overwrite)", ErrASCReferenceExists, path)
+		return ascReferencePlan{}, fmt.Errorf("%w: %s (use --force to overwrite)", ErrASCReferenceExists, path)
 	}
 
+	// Reject a symlinked destination while planning so the failure happens
+	// before any file is written; the rooted write re-checks at write time.
+	if err := root.CheckContained(name); err != nil {
+		return ascReferencePlan{}, err
+	}
+
+	return ascReferencePlan{root: root, name: name, exists: exists}, nil
+}
+
+func writeASCReference(plan ascReferencePlan) (bool, bool, error) {
 	content := ascTemplate
 	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
 
-	if err := root.WriteFile(name, []byte(content), 0o644); err != nil {
+	if err := plan.root.WriteFile(plan.name, []byte(content), 0o644); err != nil {
 		return false, false, err
 	}
 
-	if exists {
+	if plan.exists {
 		return false, true, nil
 	}
 	return true, false, nil
 }
 
-func linkAgentFiles(rootDir string, relRef string) ([]string, error) {
+// agentFileUpdate is one planned agent-file rewrite.
+type agentFileUpdate struct {
+	name    string
+	content string
+}
+
+// agentLinkPlan holds every agent-file update computed during planning.
+type agentLinkPlan struct {
+	root    rootfs.Root
+	rootDir string
+	updates []agentFileUpdate
+}
+
+// planAgentFileLinks computes every agent-file update up front, so a symlinked
+// or unreadable agent file is rejected before anything is written.
+func planAgentFileLinks(rootDir string, relRef string) (agentLinkPlan, error) {
 	root, err := rootfs.New(rootDir)
 	if err != nil {
-		return nil, err
+		return agentLinkPlan{}, err
 	}
-
-	linked := []string{}
+	plan := agentLinkPlan{root: root, rootDir: rootDir}
 
 	agentsName := "AGENTS.md"
 	if !entryExists(filepath.Join(rootDir, agentsName)) {
 		agentsName = "Agents.md"
 	}
-	agentsUpdated, err := updateAgentsLink(root, agentsName, relRef)
+	agentsContent, agentsChanged, err := planAgentsLink(root, agentsName, relRef)
 	if err != nil {
-		return nil, err
+		return agentLinkPlan{}, err
 	}
-	if agentsUpdated {
-		linked = append(linked, filepath.Join(rootDir, agentsName))
+	if agentsChanged {
+		plan.updates = append(plan.updates, agentFileUpdate{name: agentsName, content: agentsContent})
 	}
 
 	claudeName := "CLAUDE.md"
-	claudeUpdated, err := updateClaudeLink(root, claudeName, relRef)
+	claudeContent, claudeChanged, err := planClaudeLink(root, claudeName, relRef)
 	if err != nil {
-		return nil, err
+		return agentLinkPlan{}, err
 	}
-	if claudeUpdated {
-		linked = append(linked, filepath.Join(rootDir, claudeName))
+	if claudeChanged {
+		plan.updates = append(plan.updates, agentFileUpdate{name: claudeName, content: claudeContent})
 	}
 
+	return plan, nil
+}
+
+func applyAgentFileLinks(plan agentLinkPlan) ([]string, error) {
+	linked := []string{}
+	for _, update := range plan.updates {
+		if err := plan.root.WriteFile(update.name, []byte(update.content), 0o644); err != nil {
+			return nil, err
+		}
+		linked = append(linked, filepath.Join(plan.rootDir, update.name))
+	}
 	return linked, nil
 }
 
@@ -297,13 +353,14 @@ func entryExists(path string) bool {
 	return false
 }
 
-func updateAgentsLink(root rootfs.Root, name string, relRef string) (bool, error) {
+// planAgentsLink computes the updated AGENTS.md content without writing it.
+func planAgentsLink(root rootfs.Root, name string, relRef string) (string, bool, error) {
 	data, found, err := root.ReadFileOptional(name)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	if !found {
-		return false, nil
+		return "", false, nil
 	}
 
 	desiredLine := fmt.Sprintf("See `%s` for the command catalog and workflows.", relRef)
@@ -329,23 +386,23 @@ func updateAgentsLink(root rootfs.Root, name string, relRef string) (bool, error
 	}
 	if foundReference {
 		if !changed {
-			return false, nil
+			return "", false, nil
 		}
-		return writeIfChanged(root, name, strings.Join(lines, "\n"))
+		return plannedContent(string(data), strings.Join(lines, "\n"))
 	}
 
 	section := fmt.Sprintf("## asc cli reference\n\n%s", desiredLine)
-	updated := appendSection(string(data), section)
-	return writeIfChanged(root, name, updated)
+	return plannedContent(string(data), appendSection(string(data), section))
 }
 
-func updateClaudeLink(root rootfs.Root, name string, relRef string) (bool, error) {
+// planClaudeLink computes the updated CLAUDE.md content without writing it.
+func planClaudeLink(root rootfs.Root, name string, relRef string) (string, bool, error) {
 	data, found, err := root.ReadFileOptional(name)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	if !found {
-		return false, nil
+		return "", false, nil
 	}
 
 	desiredLine := "@" + relRef
@@ -372,9 +429,9 @@ func updateClaudeLink(root rootfs.Root, name string, relRef string) (bool, error
 	}
 	if foundReference {
 		if !changed {
-			return false, nil
+			return "", false, nil
 		}
-		return writeIfChanged(root, name, strings.Join(updatedLines, "\n"))
+		return plannedContent(string(data), strings.Join(updatedLines, "\n"))
 	}
 
 	updated := strings.TrimRight(string(data), "\n")
@@ -383,7 +440,7 @@ func updateClaudeLink(root rootfs.Root, name string, relRef string) (bool, error
 	}
 	updated += desiredLine + "\n"
 
-	return writeIfChanged(root, name, updated)
+	return plannedContent(string(data), updated)
 }
 
 func isAgentsReferenceLine(line string) bool {
@@ -407,16 +464,11 @@ func appendSection(content, section string) string {
 	return trimmed + "\n\n" + section + "\n"
 }
 
-func writeIfChanged(root rootfs.Root, name string, content string) (bool, error) {
-	existing, err := root.ReadFile(name)
-	if err != nil {
-		return false, err
+// plannedContent reports updated as a pending write when it differs from the
+// existing content.
+func plannedContent(existing, updated string) (string, bool, error) {
+	if existing == updated {
+		return "", false, nil
 	}
-	if string(existing) == content {
-		return false, nil
-	}
-	if err := root.WriteFile(name, []byte(content), 0o644); err != nil {
-		return false, err
-	}
-	return true, nil
+	return updated, true, nil
 }

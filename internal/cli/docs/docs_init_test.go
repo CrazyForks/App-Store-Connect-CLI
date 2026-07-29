@@ -67,7 +67,7 @@ func TestInitReference_ReturnsTypedErrorWhenASCExists(t *testing.T) {
 	}
 }
 
-func TestUpdateAgentsLink_RewritesLegacyReference(t *testing.T) {
+func TestPlanAgentsLink_RewritesLegacyReference(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "AGENTS.md")
 	legacy := "# AGENTS\n\n## ASC CLI Reference\n\nSee `ASC.md` for the command catalog and workflows.\n"
@@ -79,28 +79,31 @@ func TestUpdateAgentsLink_RewritesLegacyReference(t *testing.T) {
 		t.Fatalf("rootfs.New error: %v", err)
 	}
 
-	updated, err := updateAgentsLink(root, "AGENTS.md", "subdir/ASC.md")
+	content, changed, err := planAgentsLink(root, "AGENTS.md", "subdir/ASC.md")
 	if err != nil {
-		t.Fatalf("updateAgentsLink error: %v", err)
+		t.Fatalf("planAgentsLink error: %v", err)
 	}
-	if !updated {
-		t.Fatal("expected updateAgentsLink to update legacy reference")
+	if !changed {
+		t.Fatal("expected planAgentsLink to update legacy reference")
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read AGENTS.md: %v", err)
-	}
-	content := string(data)
 	if !strings.Contains(content, "See `subdir/ASC.md` for the command catalog and workflows.") {
 		t.Fatalf("expected rewritten reference, got %q", content)
 	}
 	if strings.Contains(content, "See `ASC.md` for the command catalog and workflows.") {
 		t.Fatalf("expected legacy reference removed, got %q", content)
 	}
+
+	// Planning must not touch the file; only the apply step writes.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if string(data) != legacy {
+		t.Fatalf("AGENTS.md content = %q, want untouched during planning", string(data))
+	}
 }
 
-func TestUpdateClaudeLink_RewritesLegacyReference(t *testing.T) {
+func TestPlanClaudeLink_RewritesLegacyReference(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "CLAUDE.md")
 	legacy := "@Agents.md\n@ASC.md\n"
@@ -112,24 +115,27 @@ func TestUpdateClaudeLink_RewritesLegacyReference(t *testing.T) {
 		t.Fatalf("rootfs.New error: %v", err)
 	}
 
-	updated, err := updateClaudeLink(root, "CLAUDE.md", "subdir/ASC.md")
+	content, changed, err := planClaudeLink(root, "CLAUDE.md", "subdir/ASC.md")
 	if err != nil {
-		t.Fatalf("updateClaudeLink error: %v", err)
+		t.Fatalf("planClaudeLink error: %v", err)
 	}
-	if !updated {
-		t.Fatal("expected updateClaudeLink to update legacy reference")
+	if !changed {
+		t.Fatal("expected planClaudeLink to update legacy reference")
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read CLAUDE.md: %v", err)
-	}
-	content := string(data)
 	if !strings.Contains(content, "@subdir/ASC.md") {
 		t.Fatalf("expected rewritten directive, got %q", content)
 	}
 	if strings.Contains(content, "@ASC.md") {
 		t.Fatalf("expected legacy directive removed, got %q", content)
+	}
+
+	// Planning must not touch the file; only the apply step writes.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	if string(data) != legacy {
+		t.Fatalf("CLAUDE.md content = %q, want untouched during planning", string(data))
 	}
 }
 

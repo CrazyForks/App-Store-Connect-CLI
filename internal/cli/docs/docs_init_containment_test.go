@@ -91,6 +91,62 @@ func TestInitReference_RefusesLowercaseSymlinkedAgentsFile(t *testing.T) {
 	}
 }
 
+func TestInitReference_WritesNothingWhenAgentsFileIsSymlinked(t *testing.T) {
+	repo := newDocsContainmentRepo(t)
+	sentinelPath := filepath.Join(t.TempDir(), "sentinel.md")
+	writeDocsContainmentFile(t, sentinelPath, "# Sentinel\n")
+	writeDocsContainmentFile(t, filepath.Join(repo, "CLAUDE.md"), "# Claude\n")
+
+	if err := os.Symlink(sentinelPath, filepath.Join(repo, "AGENTS.md")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	_, err := InitReference(InitOptions{Path: repo, Force: true, Link: true})
+	if err == nil {
+		t.Fatal("InitReference() error = nil, want symlink rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("InitReference() error = %v, want symlink rejection", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(repo, ascReferenceFile)); !os.IsNotExist(statErr) {
+		t.Fatalf("Lstat(ASC.md) error = %v, want IsNotExist: a failed init must not leave ASC.md behind", statErr)
+	}
+	if got := readDocsContainmentFile(t, filepath.Join(repo, "CLAUDE.md")); got != "# Claude\n" {
+		t.Fatalf("CLAUDE.md content = %q, want unchanged", got)
+	}
+	if got := readDocsContainmentFile(t, sentinelPath); got != "# Sentinel\n" {
+		t.Fatalf("sentinel content = %q, want unchanged", got)
+	}
+}
+
+func TestInitReference_WritesNothingWhenClaudeFileIsSymlinked(t *testing.T) {
+	repo := newDocsContainmentRepo(t)
+	sentinelPath := filepath.Join(t.TempDir(), "sentinel.md")
+	writeDocsContainmentFile(t, sentinelPath, "# Sentinel\n")
+	writeDocsContainmentFile(t, filepath.Join(repo, "AGENTS.md"), "# Agents\n")
+
+	if err := os.Symlink(sentinelPath, filepath.Join(repo, "CLAUDE.md")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	_, err := InitReference(InitOptions{Path: repo, Force: true, Link: true})
+	if err == nil {
+		t.Fatal("InitReference() error = nil, want symlink rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("InitReference() error = %v, want symlink rejection", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(repo, ascReferenceFile)); !os.IsNotExist(statErr) {
+		t.Fatalf("Lstat(ASC.md) error = %v, want IsNotExist: a failed init must not leave ASC.md behind", statErr)
+	}
+	if got := readDocsContainmentFile(t, filepath.Join(repo, "AGENTS.md")); got != "# Agents\n" {
+		t.Fatalf("AGENTS.md content = %q, want unchanged", got)
+	}
+	if got := readDocsContainmentFile(t, sentinelPath); got != "# Sentinel\n" {
+		t.Fatalf("sentinel content = %q, want unchanged", got)
+	}
+}
+
 func TestInitReference_WritesOrdinaryRepositoryFiles(t *testing.T) {
 	repo := newDocsContainmentRepo(t)
 	writeDocsContainmentFile(t, filepath.Join(repo, "AGENTS.md"), "# Agents\n")
