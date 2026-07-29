@@ -473,8 +473,12 @@ func buildLocalizationDiffRows(plan localizationDiffPlan) [][]string {
 	return rows
 }
 
+// sanitizeDiffCell prepares a localization value for human table or Markdown
+// output. Newlines become a visible escape, terminal control and bidi sequences
+// are removed before truncation so a clipped cell cannot leave a partial escape
+// behind, and long values are shortened on a rune boundary.
 func sanitizeDiffCell(value string) string {
-	normalized := strings.ReplaceAll(value, "\n", "\\n")
+	normalized := asc.SanitizeTerminalText(strings.ReplaceAll(value, "\n", "\\n"))
 	const maxLen = 80
 	const suffix = "..."
 	runes := []rune(normalized)

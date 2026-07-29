@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
@@ -77,6 +78,9 @@ func BetaTestersExportCommand() *ffcli.Command {
 CSV format:
   email,first_name,last_name,groups
   - groups are semicolon-delimited when present (for fastlane compatibility)
+  - a cell whose first character would start a spreadsheet formula (=, +, -, @)
+    is prefixed with a single quote so spreadsheet software treats it as text;
+    "beta-testers import" removes that prefix again
 
 Examples:
   asc testflight beta-testers export --app "APP_ID" --output "./testflight-testers.csv"
@@ -277,6 +281,8 @@ CSV formats accepted:
 
 Groups are semicolon-delimited in canonical import/export files.
 For compatibility, comma-delimited groups are also accepted when no semicolon is present.
+A leading single quote before =, +, -, or @ is removed, reversing the formula
+neutralization that "beta-testers export" applies.
 
 Examples:
   asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv" --dry-run
@@ -928,7 +934,7 @@ func parseHeaderMappedBetaTesterCSVRow(record []string, headerIdx map[string]int
 		if !ok || i < 0 || i >= len(record) {
 			return ""
 		}
-		return strings.TrimSpace(record[i])
+		return strings.TrimSpace(denormalizeSpreadsheetFormula(record[i]))
 	}
 	groups := make([]string, 0)
 	if idx, ok := headerIdx["groups"]; ok && idx >= 0 && idx < len(record) {
@@ -947,9 +953,9 @@ func parseLegacyBetaTesterCSVRow(record []string) (betaTestersCSVRow, error) {
 		return betaTestersCSVRow{}, shared.UsageError("legacy CSV rows must have 3 or 4 columns: first_name,last_name,email[,groups]")
 	}
 	row := betaTestersCSVRow{
-		firstName: strings.TrimSpace(record[0]),
-		lastName:  strings.TrimSpace(record[1]),
-		email:     strings.TrimSpace(record[2]),
+		firstName: strings.TrimSpace(denormalizeSpreadsheetFormula(record[0])),
+		lastName:  strings.TrimSpace(denormalizeSpreadsheetFormula(record[1])),
+		email:     strings.TrimSpace(denormalizeSpreadsheetFormula(record[2])),
 	}
 	if len(record) >= 4 {
 		row.groups = splitBetaTesterCSVGroups(record[3])
@@ -958,7 +964,7 @@ func parseLegacyBetaTesterCSVRow(record []string) (betaTestersCSVRow, error) {
 }
 
 func splitBetaTesterCSVGroups(value string) []string {
-	trimmed := strings.TrimSpace(value)
+	trimmed := strings.TrimSpace(denormalizeSpreadsheetFormula(value))
 	if trimmed == "" {
 		return nil
 	}
@@ -989,6 +995,59 @@ func isValidTesterEmail(value string) bool {
 		return false
 	}
 	return strings.EqualFold(addr.Address, trimmed)
+}
+
+// spreadsheetFormulaMarkers are the characters that Excel, LibreOffice Calc, and
+// Google Sheets treat as the start of a formula when they open a CSV file.
+const spreadsheetFormulaMarkers = "=+-@"
+
+// spreadsheetTextPrefix neutralizes a formula-leading cell. Spreadsheet software
+// reads a leading apostrophe as "the rest of this cell is text" and does not
+// display it; `asc testflight beta-testers import` strips it again, so exported
+// files still round-trip.
+const spreadsheetTextPrefix = "'"
+
+func neutralizeSpreadsheetFormulaRow(row []string) []string {
+	safe := make([]string, len(row))
+	for i, cell := range row {
+		safe[i] = neutralizeSpreadsheetFormula(cell)
+	}
+	return safe
+}
+
+// neutralizeSpreadsheetFormula prefixes externally derived cells whose first
+// effective character would start a spreadsheet formula. Leading whitespace and
+// control characters are skipped when looking for that character, because
+// spreadsheet software ignores them too. Safe cells are returned unchanged.
+func neutralizeSpreadsheetFormula(value string) string {
+	if !isSpreadsheetFormulaCell(value) {
+		return value
+	}
+	return spreadsheetTextPrefix + value
+}
+
+// denormalizeSpreadsheetFormula reverses neutralizeSpreadsheetFormula so an
+// exported file can be imported again without the neutralization prefix leaking
+// into tester or group values.
+func denormalizeSpreadsheetFormula(value string) string {
+	if !strings.HasPrefix(value, spreadsheetTextPrefix) {
+		return value
+	}
+	rest := strings.TrimPrefix(value, spreadsheetTextPrefix)
+	if !isSpreadsheetFormulaCell(rest) {
+		return value
+	}
+	return rest
+}
+
+func isSpreadsheetFormulaCell(value string) bool {
+	for _, r := range value {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			continue
+		}
+		return strings.ContainsRune(spreadsheetFormulaMarkers, r)
+	}
+	return false
 }
 
 func writeCSVFileAtomicNoSymlink(outputPath string, header []string, rows [][]string) error {
@@ -1036,7 +1095,7 @@ func writeCSVFileAtomicNoSymlink(outputPath string, header []string, rows [][]st
 		return err
 	}
 	for _, row := range rows {
-		if err := w.Write(row); err != nil {
+		if err := w.Write(neutralizeSpreadsheetFormulaRow(row)); err != nil {
 			return err
 		}
 	}

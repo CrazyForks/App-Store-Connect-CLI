@@ -1,0 +1,119 @@
+package testflight
+
+import (
+	"encoding/csv"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestNeutralizeSpreadsheetFormulaCoversEveryMarkerAndLeadingVariant(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "equals", input: `=1+1`, want: `'=1+1`},
+		{name: "plus", input: `+1`, want: `'+1`},
+		{name: "minus", input: `-1+1`, want: `'-1+1`},
+		{name: "at", input: `@SUM(A1)`, want: `'@SUM(A1)`},
+		{name: "dde", input: `=cmd|' /C calc'!A0`, want: `'=cmd|' /C calc'!A0`},
+		{name: "leading space", input: ` =1+1`, want: `' =1+1`},
+		{name: "leading tab", input: "\t=1+1", want: "'\t=1+1"},
+		{name: "leading carriage return", input: "\r=1+1", want: "'\r=1+1"},
+		{name: "leading newline", input: "\n@SUM(A1)", want: "'\n@SUM(A1)"},
+		{name: "leading non-breaking space", input: "\u00a0-1", want: "'\u00a0-1"},
+		{name: "leading control character", input: "\x01+1", want: "'\x01+1"},
+		{name: "empty", input: ``, want: ``},
+		{name: "whitespace only", input: `  `, want: `  `},
+		{name: "plain email", input: `tester@example.com`, want: `tester@example.com`},
+		{name: "plain name", input: `Ada Lovelace`, want: `Ada Lovelace`},
+		{name: "group list", input: `Beta;Internal`, want: `Beta;Internal`},
+		{name: "internal marker", input: `Team=Beta`, want: `Team=Beta`},
+		{name: "already neutralized", input: `'=1+1`, want: `'=1+1`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := neutralizeSpreadsheetFormula(tc.input); got != tc.want {
+				t.Fatalf("neutralizeSpreadsheetFormula(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWriteCSVFileNeutralizesFormulaLeadingCells(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "testers.csv")
+	header := []string{"email", "first_name", "last_name", "groups"}
+	rows := [][]string{
+		{"tester@example.com", "Ada", "Lovelace", "Beta;Internal"},
+		{"-tester@example.com", "=1+1", " @SUM(A1)", "+Internal;-Beta"},
+		{"formula@example.com", "\t-2+3", "Byron", `=cmd|' /C calc'!A0`},
+	}
+
+	if err := writeCSVFileAtomicNoSymlink(outputPath, header, rows); err != nil {
+		t.Fatalf("writeCSVFileAtomicNoSymlink() error: %v", err)
+	}
+
+	file, err := os.Open(outputPath)
+	if err != nil {
+		t.Fatalf("open csv: %v", err)
+	}
+	defer file.Close()
+
+	records, err := csv.NewReader(file).ReadAll()
+	if err != nil {
+		t.Fatalf("parse csv: %v", err)
+	}
+	if len(records) != len(rows)+1 {
+		t.Fatalf("expected %d records, got %d", len(rows)+1, len(records))
+	}
+
+	if strings.Join(records[0], ",") != strings.Join(header, ",") {
+		t.Fatalf("header = %q, want %q", records[0], header)
+	}
+	if strings.Join(records[1], ",") != strings.Join(rows[0], ",") {
+		t.Fatalf("safe row = %q, want it unchanged %q", records[1], rows[0])
+	}
+
+	for _, record := range records[1:] {
+		for _, cell := range record {
+			if isSpreadsheetFormulaCell(cell) {
+				t.Fatalf("cell %q would be interpreted as a spreadsheet formula", cell)
+			}
+		}
+	}
+
+	want := []string{"'-tester@example.com", "'=1+1", "' @SUM(A1)", "'+Internal;-Beta"}
+	if strings.Join(records[2], ",") != strings.Join(want, ",") {
+		t.Fatalf("neutralized row = %q, want %q", records[2], want)
+	}
+}
+
+func TestBetaTesterCSVRoundTripsNeutralizedCells(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "testers.csv")
+	header := []string{"email", "first_name", "last_name", "groups"}
+	rows := [][]string{
+		{"-tester@example.com", "Ada", "Lovelace", "+Internal;-Beta"},
+	}
+
+	if err := writeCSVFileAtomicNoSymlink(outputPath, header, rows); err != nil {
+		t.Fatalf("writeCSVFileAtomicNoSymlink() error: %v", err)
+	}
+
+	parsed, err := readBetaTestersCSV(outputPath)
+	if err != nil {
+		t.Fatalf("readBetaTestersCSV() error: %v", err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(parsed))
+	}
+	if parsed[0].email != "-tester@example.com" {
+		t.Fatalf("email = %q, want the original %q", parsed[0].email, "-tester@example.com")
+	}
+	wantGroups := []string{"+Internal", "-Beta"}
+	if strings.Join(parsed[0].groups, ";") != strings.Join(wantGroups, ";") {
+		t.Fatalf("groups = %q, want %q", parsed[0].groups, wantGroups)
+	}
+}

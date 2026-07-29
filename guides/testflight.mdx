@@ -97,6 +97,10 @@ TestFlight allows you to distribute pre-release builds to internal and external 
       --output "./testers.csv"
     ```
 
+    <Note>
+      Export prefixes a cell with a single quote when its first character would start a spreadsheet formula (`=`, `+`, `-`, `@`), so opening the file in Excel, Numbers, or Google Sheets cannot execute tester or group values. `asc testflight testers import` removes that prefix again.
+    </Note>
+
     Import testers from CSV (with dry-run first):
 
     ```bash  theme={null}

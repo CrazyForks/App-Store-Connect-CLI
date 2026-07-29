@@ -6,8 +6,8 @@ func customerReviewResponseRows(resp *CustomerReviewResponseResponse) ([]string,
 	headers := []string{"ID", "State", "Last Modified", "Response Body"}
 	rows := [][]string{{
 		resp.Data.ID,
-		sanitizeTerminal(resp.Data.Attributes.State),
-		sanitizeTerminal(resp.Data.Attributes.LastModified),
+		SanitizeTerminalText(resp.Data.Attributes.State),
+		SanitizeTerminalText(resp.Data.Attributes.LastModified),
 		compactWhitespace(resp.Data.Attributes.ResponseBody),
 	}}
 	return headers, rows
