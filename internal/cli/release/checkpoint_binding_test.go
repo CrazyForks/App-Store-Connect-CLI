@@ -183,7 +183,7 @@ func TestVerifyResumedCheckpointBindingDropsSubmissionNotBoundToVersion(t *testi
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_OTHER":
-			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"SUBMISSION_OTHER","attributes":{"state":"SUBMITTED","platform":"IOS"},"relationships":{"appStoreVersionForReview":{"data":{"type":"appStoreVersions","id":"VERSION_OTHER"}}}}}`)
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"SUBMISSION_OTHER","attributes":{"state":"WAITING_FOR_REVIEW","platform":"IOS"},"relationships":{"appStoreVersionForReview":{"data":{"type":"appStoreVersions","id":"VERSION_OTHER"}}}}}`)
 		default:
 			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
 		}
@@ -209,6 +209,53 @@ func TestVerifyResumedCheckpointBindingDropsSubmissionNotBoundToVersion(t *testi
 	}
 }
 
+// TestVerifyResumedCheckpointBindingDropsUnsubmittedDraftSubmission proves
+// that a completed submit_review flag is discarded when the referenced
+// submission is still a READY_FOR_REVIEW draft: it is bound to the selected
+// version, but its state contradicts the claim that submission occurred.
+func TestVerifyResumedCheckpointBindingDropsUnsubmittedDraftSubmission(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"SUBMISSION_123","attributes":{"state":"READY_FOR_REVIEW","platform":"IOS"},"relationships":{"appStoreVersionForReview":{"data":{"type":"appStoreVersions","id":"VERSION_123"}}}}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID:    "VERSION_123",
+		SubmissionID: "SUBMISSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion: true,
+			stepAttachBuild:   true,
+			stepSubmitReview:  true,
+		},
+	}
+	var messages []string
+	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, func(message string) {
+		messages = append(messages, message)
+	}); err != nil {
+		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
+	}
+	if checkpoint.Completed[stepSubmitReview] {
+		t.Fatal("expected draft submit_review completion to be discarded")
+	}
+	if checkpoint.SubmissionID != "" {
+		t.Fatalf("expected draft submission ID to be cleared, got %q", checkpoint.SubmissionID)
+	}
+	if !checkpoint.Completed[stepAttachBuild] {
+		t.Fatal("expected proven attach_build completion to survive")
+	}
+	if len(messages) == 0 || !strings.Contains(strings.Join(messages, "\n"), "READY_FOR_REVIEW") {
+		t.Fatalf("expected a diagnostic naming the contradicting state, got %v", messages)
+	}
+}
+
 func TestVerifyResumedCheckpointBindingKeepsProvenCheckpoint(t *testing.T) {
 	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
 		switch {
@@ -217,7 +264,7 @@ func TestVerifyResumedCheckpointBindingKeepsProvenCheckpoint(t *testing.T) {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123":
-			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"SUBMISSION_123","attributes":{"state":"SUBMITTED","platform":"IOS"},"relationships":{"appStoreVersionForReview":{"data":{"type":"appStoreVersions","id":"VERSION_123"}}}}}`)
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"SUBMISSION_123","attributes":{"state":"WAITING_FOR_REVIEW","platform":"IOS"},"relationships":{"appStoreVersionForReview":{"data":{"type":"appStoreVersions","id":"VERSION_123"}}}}}`)
 		default:
 			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
 		}

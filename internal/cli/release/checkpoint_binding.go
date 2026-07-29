@@ -83,7 +83,7 @@ func verifyResumedCheckpointBinding(
 
 	if checkpoint.Completed[stepSubmitReview] {
 		submissionID := strings.TrimSpace(checkpoint.SubmissionID)
-		boundVersionID, submissionErr := reviewSubmissionVersionID(ctx, client, submissionID)
+		boundVersionID, submissionState, submissionErr := reviewSubmissionBinding(ctx, client, submissionID)
 		switch {
 		case submissionID == "":
 			delete(checkpoint.Completed, stepSubmitReview)
@@ -101,6 +101,15 @@ func verifyResumedCheckpointBinding(
 				submissionID,
 				boundVersionID,
 				versionID,
+			)
+		case !reviewSubmissionStateProvesSubmission(submissionState):
+			delete(checkpoint.Completed, stepSubmitReview)
+			checkpoint.SubmissionID = ""
+			emitMessage(
+				"Rechecking %s: review submission %s is in state %q, which does not prove it was submitted.",
+				stepSubmitReview,
+				submissionID,
+				string(submissionState),
 			)
 		}
 	}
@@ -130,16 +139,37 @@ func attachedAppStoreVersionBuildID(ctx context.Context, client *asc.Client, ver
 	return strings.TrimSpace(resp.Data.ID), nil
 }
 
-func reviewSubmissionVersionID(ctx context.Context, client *asc.Client, submissionID string) (string, error) {
+func reviewSubmissionBinding(ctx context.Context, client *asc.Client, submissionID string) (string, asc.ReviewSubmissionState, error) {
 	if strings.TrimSpace(submissionID) == "" {
-		return "", nil
+		return "", "", nil
 	}
 	resp, err := client.GetReviewSubmission(ctx, submissionID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	if resp == nil || resp.Data.Relationships == nil || resp.Data.Relationships.AppStoreVersionForReview == nil {
-		return "", nil
+	if resp == nil {
+		return "", "", nil
 	}
-	return strings.TrimSpace(resp.Data.Relationships.AppStoreVersionForReview.Data.ID), nil
+	state := resp.Data.Attributes.SubmissionState
+	if resp.Data.Relationships == nil || resp.Data.Relationships.AppStoreVersionForReview == nil {
+		return "", state, nil
+	}
+	return strings.TrimSpace(resp.Data.Relationships.AppStoreVersionForReview.Data.ID), state, nil
+}
+
+// reviewSubmissionStateProvesSubmission reports whether a fetched submission
+// state proves the submission was actually sent to App Review. A draft
+// (READY_FOR_REVIEW) or a withdrawal (CANCELING) contradicts a completed
+// submit_review step, so the step must run again.
+func reviewSubmissionStateProvesSubmission(state asc.ReviewSubmissionState) bool {
+	switch state {
+	case asc.ReviewSubmissionStateWaitingForReview,
+		asc.ReviewSubmissionStateInReview,
+		asc.ReviewSubmissionStateUnresolvedIssues,
+		asc.ReviewSubmissionStateCompleting,
+		asc.ReviewSubmissionStateComplete:
+		return true
+	default:
+		return false
+	}
 }
