@@ -98,6 +98,78 @@ func TestFileDrivenMutationsRequireConfirm(t *testing.T) {
 	}
 }
 
+// TestFileDrivenMutationsGateBeforeReadingInput proves the apply decision is
+// uniform across all four commands: it is evaluated before the input file is
+// opened, so even a missing input file reports the absent --confirm first and
+// no request leaves the process.
+func TestFileDrivenMutationsGateBeforeReadingInput(t *testing.T) {
+	missingInput := filepath.Join(t.TempDir(), "does-not-exist.csv")
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "subscription prices import",
+			args: []string{"subscriptions", "pricing", "prices", "import", "--subscription-id", "6000000001", "--input", missingInput},
+		},
+		{
+			name: "introductory offers import",
+			args: []string{
+				"subscriptions", "offers", "introductory", "import",
+				"--subscription-id", "6000000001",
+				"--input", missingInput,
+				"--offer-duration", "ONE_WEEK",
+				"--offer-mode", "FREE_TRIAL",
+				"--number-of-periods", "1",
+			},
+		},
+		{
+			name: "testflight testers import",
+			args: []string{"testflight", "testers", "import", "--app", "123456789", "--input", missingInput},
+		},
+		{
+			name: "reviews respond-batch",
+			args: []string{"reviews", "respond-batch", "--app", "123456789", "--file", missingInput},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setupAuth(t)
+
+			originalTransport := http.DefaultTransport
+			t.Cleanup(func() {
+				http.DefaultTransport = originalTransport
+			})
+			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				t.Fatalf("unexpected HTTP request before the apply decision: %s %s", req.Method, req.URL.String())
+				return nil, nil
+			})
+
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected usage error, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, batchImportConfirmError) {
+				t.Fatalf("expected %q on stderr, got %q", batchImportConfirmError, stderr)
+			}
+		})
+	}
+}
+
 // TestFileDrivenMutationsAcceptDryRunWithConfirm keeps the shared convention:
 // --dry-run wins over --confirm so contradictory input never mutates.
 func TestFileDrivenMutationsAcceptDryRunWithConfirm(t *testing.T) {

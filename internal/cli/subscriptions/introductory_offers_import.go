@@ -114,6 +114,9 @@ Examples:
 				}
 				normalizedEndDate = date
 			}
+			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
+				return err
+			}
 			rows, err := readSubscriptionIntroductoryOffersImportCSV(*inputPath)
 			if err != nil {
 				return fmt.Errorf("subscriptions introductory-offers import: %w", err)
@@ -135,10 +138,6 @@ Examples:
 				DryRun:          *dryRun,
 				ContinueOnError: *continueOnError,
 				Total:           len(resolvedRows),
-			}
-
-			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
-				return err
 			}
 
 			if *dryRun {

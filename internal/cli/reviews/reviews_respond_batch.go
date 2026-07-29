@@ -120,13 +120,13 @@ Examples:
 				return shared.UsageError(err.Error())
 			}
 
+			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
+				return err
+			}
+
 			targets, err := loadReviewBatchTargets(*filePath)
 			if err != nil {
 				return shared.UsageError(err.Error())
-			}
-
-			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
-				return err
 			}
 
 			client, err := shared.GetASCClient()
