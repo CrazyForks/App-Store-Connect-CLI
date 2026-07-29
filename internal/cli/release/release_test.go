@@ -603,6 +603,8 @@ func TestExecuteRun_EmitsSubmitProgressMessagesToStderr(t *testing.T) {
 			return releaseJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/reviewSubmissions":
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"reviewSubmissions","id":"STALE_123","attributes":{"state":"READY_FOR_REVIEW","platform":"IOS"}}]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/STALE_123/items":
+			return releaseJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
 		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/STALE_123":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"STALE_123","attributes":{"state":"CANCELED","platform":"IOS"}}}`)
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/reviewSubmissions":

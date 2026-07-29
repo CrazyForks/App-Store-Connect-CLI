@@ -137,6 +137,7 @@ func prepareReviewSubmissionForCreate(
 	}
 	normalizedPlatform := strings.ToUpper(strings.TrimSpace(platform))
 	targetVersionID := strings.TrimSpace(versionID)
+	inspector := newReviewSubmissionInspector(client, targetVersionID)
 
 	for i := range submissions {
 		sub := submissions[i]
@@ -147,7 +148,7 @@ func prepareReviewSubmissionForCreate(
 			continue
 		}
 		if currentVersionID := reviewSubmissionAppStoreVersionID(&sub); targetVersionID != "" && currentVersionID == targetVersionID {
-			reusable, hasVersion, reuseErr := reviewSubmissionCanBeReusedForCreate(ctx, client, &sub, targetVersionID)
+			reusable, hasVersion, reuseErr := inspector.canReuse(ctx, &sub)
 			if reuseErr != nil {
 				emitMessage("Warning: failed to inspect review submission %s before reuse: %v", sub.ID, reuseErr)
 				continue
@@ -171,9 +172,29 @@ func prepareReviewSubmissionForCreate(
 			continue
 		}
 
+		cancellable, blockedReason, inspectErr := inspector.canCancel(ctx, &sub)
+		if inspectErr != nil {
+			emitMessage(
+				"Skipped stale review submission %s: could not confirm which versions it holds (%v). Cancel it explicitly with `asc submit cancel --id %s --confirm` if you intend to replace it.",
+				sub.ID,
+				inspectErr,
+				sub.ID,
+			)
+			continue
+		}
+		if !cancellable {
+			emitMessage(
+				"Skipped stale review submission %s: %s. Cancel it explicitly with `asc submit cancel --id %s --confirm` if you intend to replace it.",
+				sub.ID,
+				blockedReason,
+				sub.ID,
+			)
+			continue
+		}
+
 		if _, cancelErr := client.CancelReviewSubmission(ctx, sub.ID); cancelErr != nil {
 			if isExpectedNonCancellableReviewSubmissionError(cancelErr) {
-				reuseSubmission, reuseHasVersion, reuseErr := reusableReviewSubmissionForCreate(ctx, client, &sub, targetVersionID)
+				reuseSubmission, reuseHasVersion, reuseErr := inspector.reusableAfterCancelConflict(ctx, &sub)
 				if reuseErr == nil && reuseSubmission != "" {
 					if reuseHasVersion {
 						emitMessage("Reusing existing review submission %s because the target version is already attached and App Store Connect would not cancel it.", reuseSubmission)
@@ -219,12 +240,36 @@ type reviewSubmissionItemSummary struct {
 	hasOtherItems    bool
 }
 
-func reviewSubmissionCanBeReusedForCreate(
-	ctx context.Context,
-	client *asc.Client,
-	submission *asc.ReviewSubmissionResource,
-	targetVersionID string,
-) (reusable bool, hasVersion bool, err error) {
+// reviewSubmissionInspector answers reuse and cancellation questions about the
+// app's ready-for-review submissions. Item membership does not change while
+// preparation runs, so each submission is inspected at most once per pass.
+type reviewSubmissionInspector struct {
+	client          *asc.Client
+	targetVersionID string
+	summaries       map[string]reviewSubmissionItemSummary
+}
+
+func newReviewSubmissionInspector(client *asc.Client, targetVersionID string) *reviewSubmissionInspector {
+	return &reviewSubmissionInspector{
+		client:          client,
+		targetVersionID: strings.TrimSpace(targetVersionID),
+		summaries:       make(map[string]reviewSubmissionItemSummary),
+	}
+}
+
+func (i *reviewSubmissionInspector) summarize(ctx context.Context, submissionID string) (reviewSubmissionItemSummary, error) {
+	if cached, ok := i.summaries[submissionID]; ok {
+		return cached, nil
+	}
+	summary, err := summarizeReviewSubmissionItems(ctx, i.client, submissionID, i.targetVersionID)
+	if err != nil {
+		return reviewSubmissionItemSummary{}, err
+	}
+	i.summaries[submissionID] = summary
+	return summary, nil
+}
+
+func (i *reviewSubmissionInspector) canReuse(ctx context.Context, submission *asc.ReviewSubmissionResource) (reusable bool, hasVersion bool, err error) {
 	if submission == nil {
 		return false, false, nil
 	}
@@ -234,7 +279,7 @@ func reviewSubmissionCanBeReusedForCreate(
 		return false, false, nil
 	}
 
-	itemSummary, err := summarizeReviewSubmissionItems(ctx, client, submissionID, targetVersionID)
+	itemSummary, err := i.summarize(ctx, submissionID)
 	if err != nil {
 		return false, false, err
 	}
@@ -248,12 +293,37 @@ func reviewSubmissionCanBeReusedForCreate(
 	return true, false, nil
 }
 
-func reusableReviewSubmissionForCreate(
-	ctx context.Context,
-	client *asc.Client,
-	submission *asc.ReviewSubmissionResource,
-	targetVersionID string,
-) (submissionID string, hasVersion bool, err error) {
+// canCancel reports whether a stale submission is proven empty or proven to
+// hold the selected version. Anything else may carry review work the operator
+// did not select, so preparation must leave it alone and say so; the returned
+// reason explains what blocked the implicit cancellation.
+func (i *reviewSubmissionInspector) canCancel(ctx context.Context, submission *asc.ReviewSubmissionResource) (bool, string, error) {
+	if submission == nil {
+		return false, "the submission could not be identified", nil
+	}
+
+	submissionID := strings.TrimSpace(submission.ID)
+	if submissionID == "" {
+		return false, "the submission could not be identified", nil
+	}
+
+	itemSummary, err := i.summarize(ctx, submissionID)
+	if err != nil {
+		return false, "", err
+	}
+	if itemSummary.hasTargetVersion {
+		return true, "", nil
+	}
+	if itemSummary.hasItems {
+		return false, "it holds review items that are not the selected version", nil
+	}
+	if versionForReview := reviewSubmissionAppStoreVersionID(submission); versionForReview != "" && versionForReview != i.targetVersionID {
+		return false, fmt.Sprintf("it is bound to version %s", versionForReview), nil
+	}
+	return true, "", nil
+}
+
+func (i *reviewSubmissionInspector) reusableAfterCancelConflict(ctx context.Context, submission *asc.ReviewSubmissionResource) (submissionID string, hasVersion bool, err error) {
 	if submission == nil {
 		return "", false, nil
 	}
@@ -262,7 +332,7 @@ func reusableReviewSubmissionForCreate(
 	if submissionID == "" {
 		return "", false, nil
 	}
-	refreshed, err := refreshReviewSubmission(ctx, client, submissionID)
+	refreshed, err := refreshReviewSubmission(ctx, i.client, submissionID)
 	if err != nil {
 		return "", false, err
 	}
@@ -270,7 +340,7 @@ func reusableReviewSubmissionForCreate(
 		return "", false, nil
 	}
 
-	reusable, hasVersion, err := reviewSubmissionCanBeReusedForCreate(ctx, client, refreshed, targetVersionID)
+	reusable, hasVersion, err := i.canReuse(ctx, refreshed)
 	if err != nil {
 		return "", false, err
 	}
