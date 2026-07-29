@@ -31,7 +31,9 @@ func TestNeutralizeSpreadsheetFormulaCoversEveryMarkerAndLeadingVariant(t *testi
 		{name: "plain name", input: `Ada Lovelace`, want: `Ada Lovelace`},
 		{name: "group list", input: `Beta;Internal`, want: `Beta;Internal`},
 		{name: "internal marker", input: `Team=Beta`, want: `Team=Beta`},
-		{name: "already neutralized", input: `'=1+1`, want: `'=1+1`},
+		{name: "literal apostrophe before formula is escaped", input: `'=1+1`, want: `''=1+1`},
+		{name: "double apostrophe before formula is escaped", input: `''=1+1`, want: `'''=1+1`},
+		{name: "apostrophe before plain text", input: `'quoted`, want: `'quoted`},
 	}
 
 	for _, tc := range cases {
@@ -96,6 +98,7 @@ func TestBetaTesterCSVRoundTripsNeutralizedCells(t *testing.T) {
 	header := []string{"email", "first_name", "last_name", "groups"}
 	rows := [][]string{
 		{"-tester@example.com", "Ada", "Lovelace", "+Internal;-Beta"},
+		{"quoted@example.com", "'=Ada", "''@Lovelace", "'=Internal"},
 	}
 
 	if err := writeCSVFileAtomicNoSymlink(outputPath, header, rows); err != nil {
@@ -106,8 +109,8 @@ func TestBetaTesterCSVRoundTripsNeutralizedCells(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readBetaTestersCSV() error: %v", err)
 	}
-	if len(parsed) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(parsed))
+	if len(parsed) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(parsed))
 	}
 	if parsed[0].email != "-tester@example.com" {
 		t.Fatalf("email = %q, want the original %q", parsed[0].email, "-tester@example.com")
@@ -115,5 +118,17 @@ func TestBetaTesterCSVRoundTripsNeutralizedCells(t *testing.T) {
 	wantGroups := []string{"+Internal", "-Beta"}
 	if strings.Join(parsed[0].groups, ";") != strings.Join(wantGroups, ";") {
 		t.Fatalf("groups = %q, want %q", parsed[0].groups, wantGroups)
+	}
+
+	// Values that already begin with literal apostrophes before formula
+	// characters must survive the export -> import round trip unchanged.
+	if parsed[1].firstName != "'=Ada" {
+		t.Fatalf("first name = %q, want the original %q", parsed[1].firstName, "'=Ada")
+	}
+	if parsed[1].lastName != "''@Lovelace" {
+		t.Fatalf("last name = %q, want the original %q", parsed[1].lastName, "''@Lovelace")
+	}
+	if strings.Join(parsed[1].groups, ";") != "'=Internal" {
+		t.Fatalf("groups = %q, want %q", parsed[1].groups, []string{"'=Internal"})
 	}
 }

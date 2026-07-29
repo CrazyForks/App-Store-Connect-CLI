@@ -1018,9 +1018,12 @@ func neutralizeSpreadsheetFormulaRow(row []string) []string {
 // neutralizeSpreadsheetFormula prefixes externally derived cells whose first
 // effective character would start a spreadsheet formula. Leading whitespace and
 // control characters are skipped when looking for that character, because
-// spreadsheet software ignores them too. Safe cells are returned unchanged.
+// spreadsheet software ignores them too. A cell that already begins with
+// literal apostrophes in front of a formula character gains one more, so import
+// can always remove exactly one and recover the original value. Safe cells are
+// returned unchanged.
 func neutralizeSpreadsheetFormula(value string) string {
-	if !isSpreadsheetFormulaCell(value) {
+	if !isSpreadsheetFormulaCell(strings.TrimLeft(value, spreadsheetTextPrefix)) {
 		return value
 	}
 	return spreadsheetTextPrefix + value
@@ -1028,16 +1031,16 @@ func neutralizeSpreadsheetFormula(value string) string {
 
 // denormalizeSpreadsheetFormula reverses neutralizeSpreadsheetFormula so an
 // exported file can be imported again without the neutralization prefix leaking
-// into tester or group values.
+// into tester or group values. Exactly one prefix apostrophe is removed, which
+// also restores values whose originals begin with literal apostrophes.
 func denormalizeSpreadsheetFormula(value string) string {
 	if !strings.HasPrefix(value, spreadsheetTextPrefix) {
 		return value
 	}
-	rest := strings.TrimPrefix(value, spreadsheetTextPrefix)
-	if !isSpreadsheetFormulaCell(rest) {
+	if !isSpreadsheetFormulaCell(strings.TrimLeft(value, spreadsheetTextPrefix)) {
 		return value
 	}
-	return rest
+	return strings.TrimPrefix(value, spreadsheetTextPrefix)
 }
 
 func isSpreadsheetFormulaCell(value string) bool {
