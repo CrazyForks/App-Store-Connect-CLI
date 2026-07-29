@@ -77,7 +77,8 @@ func TestSnitchPreviewRemovesTerminalControls(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 
-	_, stderr, err := runSnitchCommand(t, "1.2.3",
+	_, stderr, err := runSnitchCommand(
+		t, "9.9.9",
 		"--dry-run",
 		"--actual", "Error: failed\x1b]0;pwned\x07",
 		hostileTitle,
@@ -87,6 +88,9 @@ func TestSnitchPreviewRemovesTerminalControls(t *testing.T) {
 	}
 
 	assertNoInterpretedSequences(t, "stderr", stderr)
+	if !strings.Contains(stderr, "**asc version:** 9.9.9") {
+		t.Fatalf("stderr = %q, want the reported asc version in the preview body", stderr)
+	}
 }
 
 func TestSnitchFlushRemovesTerminalControls(t *testing.T) {
