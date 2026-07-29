@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 func TestResolveOutputPath_RejectsNonASCMarkdownFile(t *testing.T) {
@@ -66,13 +68,18 @@ func TestInitReference_ReturnsTypedErrorWhenASCExists(t *testing.T) {
 }
 
 func TestUpdateAgentsLink_RewritesLegacyReference(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "AGENTS.md")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "AGENTS.md")
 	legacy := "# AGENTS\n\n## ASC CLI Reference\n\nSee `ASC.md` for the command catalog and workflows.\n"
 	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
 		t.Fatalf("write AGENTS.md: %v", err)
 	}
+	root, err := rootfs.New(dir)
+	if err != nil {
+		t.Fatalf("rootfs.New error: %v", err)
+	}
 
-	updated, err := updateAgentsLink(path, "subdir/ASC.md")
+	updated, err := updateAgentsLink(root, "AGENTS.md", "subdir/ASC.md")
 	if err != nil {
 		t.Fatalf("updateAgentsLink error: %v", err)
 	}
@@ -94,13 +101,18 @@ func TestUpdateAgentsLink_RewritesLegacyReference(t *testing.T) {
 }
 
 func TestUpdateClaudeLink_RewritesLegacyReference(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "CLAUDE.md")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "CLAUDE.md")
 	legacy := "@Agents.md\n@ASC.md\n"
 	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
 		t.Fatalf("write CLAUDE.md: %v", err)
 	}
+	root, err := rootfs.New(dir)
+	if err != nil {
+		t.Fatalf("rootfs.New error: %v", err)
+	}
 
-	updated, err := updateClaudeLink(path, "subdir/ASC.md")
+	updated, err := updateClaudeLink(root, "CLAUDE.md", "subdir/ASC.md")
 	if err != nil {
 		t.Fatalf("updateClaudeLink error: %v", err)
 	}

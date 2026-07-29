@@ -12,6 +12,7 @@ import (
 	"github.com/peterbourgon/ff/v3/ffcli"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 const ascReferenceFile = "ASC.md"
@@ -218,8 +219,16 @@ func findRepoRoot(start string) (string, error) {
 }
 
 func writeASCReference(path string, force bool) (bool, bool, error) {
+	root, err := rootfs.New(filepath.Dir(path))
+	if err != nil {
+		return false, false, err
+	}
+	name := filepath.Base(path)
+
+	// Lstat, not Stat, so a dangling symlink still counts as an existing entry
+	// and is never followed.
 	exists := false
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Lstat(path); err == nil {
 		exists = true
 	} else if !os.IsNotExist(err) {
 		return false, false, err
@@ -229,16 +238,12 @@ func writeASCReference(path string, force bool) (bool, bool, error) {
 		return false, false, fmt.Errorf("%w: %s (use --force to overwrite)", ErrASCReferenceExists, path)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, false, err
-	}
-
 	content := ascTemplate
 	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := root.WriteFile(name, []byte(content), 0o644); err != nil {
 		return false, false, err
 	}
 
@@ -248,50 +253,57 @@ func writeASCReference(path string, force bool) (bool, bool, error) {
 	return true, false, nil
 }
 
-func linkAgentFiles(root string, relRef string) ([]string, error) {
+func linkAgentFiles(rootDir string, relRef string) ([]string, error) {
+	root, err := rootfs.New(rootDir)
+	if err != nil {
+		return nil, err
+	}
+
 	linked := []string{}
 
-	agentsPath := filepath.Join(root, "AGENTS.md")
-	if !fileExists(agentsPath) {
-		agentsPath = filepath.Join(root, "Agents.md")
+	agentsName := "AGENTS.md"
+	if !entryExists(filepath.Join(rootDir, agentsName)) {
+		agentsName = "Agents.md"
 	}
-	agentsUpdated, err := updateAgentsLink(agentsPath, relRef)
+	agentsUpdated, err := updateAgentsLink(root, agentsName, relRef)
 	if err != nil {
 		return nil, err
 	}
 	if agentsUpdated {
-		linked = append(linked, agentsPath)
+		linked = append(linked, filepath.Join(rootDir, agentsName))
 	}
 
-	claudePath := filepath.Join(root, "CLAUDE.md")
-	claudeUpdated, err := updateClaudeLink(claudePath, relRef)
+	claudeName := "CLAUDE.md"
+	claudeUpdated, err := updateClaudeLink(root, claudeName, relRef)
 	if err != nil {
 		return nil, err
 	}
 	if claudeUpdated {
-		linked = append(linked, claudePath)
+		linked = append(linked, filepath.Join(rootDir, claudeName))
 	}
 
 	return linked, nil
 }
 
-func fileExists(path string) bool {
+// entryExists reports whether path exists without following a final symlink, so
+// a symlinked agent file is still selected and then rejected by the rooted read.
+func entryExists(path string) bool {
 	if path == "" {
 		return false
 	}
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Lstat(path); err == nil {
 		return true
 	}
 	return false
 }
 
-func updateAgentsLink(path string, relRef string) (bool, error) {
-	data, err := os.ReadFile(path)
+func updateAgentsLink(root rootfs.Root, name string, relRef string) (bool, error) {
+	data, found, err := root.ReadFileOptional(name)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
 		return false, err
+	}
+	if !found {
+		return false, nil
 	}
 
 	desiredLine := fmt.Sprintf("See `%s` for the command catalog and workflows.", relRef)
@@ -319,21 +331,21 @@ func updateAgentsLink(path string, relRef string) (bool, error) {
 		if !changed {
 			return false, nil
 		}
-		return writeIfChanged(path, strings.Join(lines, "\n"))
+		return writeIfChanged(root, name, strings.Join(lines, "\n"))
 	}
 
 	section := fmt.Sprintf("## asc cli reference\n\n%s", desiredLine)
 	updated := appendSection(string(data), section)
-	return writeIfChanged(path, updated)
+	return writeIfChanged(root, name, updated)
 }
 
-func updateClaudeLink(path string, relRef string) (bool, error) {
-	data, err := os.ReadFile(path)
+func updateClaudeLink(root rootfs.Root, name string, relRef string) (bool, error) {
+	data, found, err := root.ReadFileOptional(name)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
 		return false, err
+	}
+	if !found {
+		return false, nil
 	}
 
 	desiredLine := "@" + relRef
@@ -362,7 +374,7 @@ func updateClaudeLink(path string, relRef string) (bool, error) {
 		if !changed {
 			return false, nil
 		}
-		return writeIfChanged(path, strings.Join(updatedLines, "\n"))
+		return writeIfChanged(root, name, strings.Join(updatedLines, "\n"))
 	}
 
 	updated := strings.TrimRight(string(data), "\n")
@@ -371,7 +383,7 @@ func updateClaudeLink(path string, relRef string) (bool, error) {
 	}
 	updated += desiredLine + "\n"
 
-	return writeIfChanged(path, updated)
+	return writeIfChanged(root, name, updated)
 }
 
 func isAgentsReferenceLine(line string) bool {
@@ -395,15 +407,15 @@ func appendSection(content, section string) string {
 	return trimmed + "\n\n" + section + "\n"
 }
 
-func writeIfChanged(path, content string) (bool, error) {
-	existing, err := os.ReadFile(path)
+func writeIfChanged(root rootfs.Root, name string, content string) (bool, error) {
+	existing, err := root.ReadFile(name)
 	if err != nil {
 		return false, err
 	}
 	if string(existing) == content {
 		return false, nil
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := root.WriteFile(name, []byte(content), 0o644); err != nil {
 		return false, err
 	}
 	return true, nil
