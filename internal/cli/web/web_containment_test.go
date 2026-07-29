@@ -7,6 +7,37 @@ import (
 	"testing"
 )
 
+func TestDownloadRootRefusesSymlinkedRepositoryASCDirectory(t *testing.T) {
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+
+	externalDir := t.TempDir()
+	if err := os.Symlink(externalDir, filepath.Join(workDir, ".asc")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	// The default --out location is repository-controlled, so a symlinked .asc
+	// component must be refused before any directory or file is created.
+	outDir := resolveShowOutDir("app", "submission", "")
+	root, prefix, err := newDownloadRoot(outDir)
+	if err != nil {
+		t.Fatalf("newDownloadRoot() error = %v", err)
+	}
+	if mkdirErr := root.MkdirAll(prefix, 0o755); mkdirErr == nil {
+		t.Fatal("MkdirAll() error = nil, want symlink rejection")
+	} else if !strings.Contains(mkdirErr.Error(), "symlink") {
+		t.Fatalf("MkdirAll() error = %v, want symlink rejection", mkdirErr)
+	}
+
+	entries, readErr := os.ReadDir(externalDir)
+	if readErr != nil {
+		t.Fatalf("ReadDir() error = %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("download directory escaped into the symlink target: %v", entries)
+	}
+}
+
 func TestWriteAttachmentRefusesSymlinkedDestination(t *testing.T) {
 	outDir := t.TempDir()
 	sentinelPath := filepath.Join(t.TempDir(), "sentinel.txt")
@@ -16,11 +47,11 @@ func TestWriteAttachmentRefusesSymlinkedDestination(t *testing.T) {
 		t.Fatalf("Symlink() error = %v", err)
 	}
 
-	root, err := newDownloadRoot(outDir)
+	root, prefix, err := newDownloadRoot(outDir)
 	if err != nil {
 		t.Fatalf("newDownloadRoot() error = %v", err)
 	}
-	_, err = resolveDownloadPath(root, "screenshot.png", true)
+	_, err = resolveDownloadPath(root, prefix, "screenshot.png", true)
 	if err == nil {
 		t.Fatal("resolveDownloadPath() error = nil, want symlink rejection")
 	}
@@ -41,7 +72,7 @@ func TestWriteAttachmentRefusesSymlinkedParentDirectory(t *testing.T) {
 
 	// The output directory itself is operator-selected, so a symlinked --out is
 	// still honoured; a symlinked directory *inside* it is not.
-	root, err := newDownloadRoot(outDir)
+	root, prefix, err := newDownloadRoot(outDir)
 	if err != nil {
 		t.Fatalf("newDownloadRoot() error = %v", err)
 	}
@@ -50,7 +81,7 @@ func TestWriteAttachmentRefusesSymlinkedParentDirectory(t *testing.T) {
 		t.Fatalf("Symlink() error = %v", err)
 	}
 
-	if err := writeDownloadedAttachment(root, filepath.Join("nested", "screenshot.png"), []byte("payload")); err == nil {
+	if err := writeDownloadedAttachment(root, filepath.Join(prefix, "nested", "screenshot.png"), []byte("payload")); err == nil {
 		t.Fatal("writeDownloadedAttachment() error = nil, want symlink rejection")
 	} else if !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("writeDownloadedAttachment() error = %v, want symlink rejection", err)
@@ -62,24 +93,24 @@ func TestWriteAttachmentRefusesSymlinkedParentDirectory(t *testing.T) {
 
 func TestResolveDownloadPathRejectsTraversingFileName(t *testing.T) {
 	outDir := t.TempDir()
-	root, err := newDownloadRoot(outDir)
+	root, prefix, err := newDownloadRoot(outDir)
 	if err != nil {
 		t.Fatalf("newDownloadRoot() error = %v", err)
 	}
 
-	if _, err := resolveDownloadPath(root, filepath.Join("..", "outside.txt"), true); err == nil {
+	if _, err := resolveDownloadPath(root, prefix, filepath.Join("..", "outside.txt"), true); err == nil {
 		t.Fatal("resolveDownloadPath() error = nil, want traversal rejection")
 	}
 }
 
 func TestWriteDownloadedAttachmentWritesOrdinaryFile(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "downloads")
-	root, err := newDownloadRoot(outDir)
+	root, prefix, err := newDownloadRoot(outDir)
 	if err != nil {
 		t.Fatalf("newDownloadRoot() error = %v", err)
 	}
 
-	name, err := resolveDownloadPath(root, "screenshot.png", false)
+	name, err := resolveDownloadPath(root, prefix, "screenshot.png", false)
 	if err != nil {
 		t.Fatalf("resolveDownloadPath() error = %v", err)
 	}
@@ -91,7 +122,7 @@ func TestWriteDownloadedAttachmentWritesOrdinaryFile(t *testing.T) {
 	}
 
 	// Without --overwrite a second download must get a unique neighbouring name.
-	second, err := resolveDownloadPath(root, "screenshot.png", false)
+	second, err := resolveDownloadPath(root, prefix, "screenshot.png", false)
 	if err != nil {
 		t.Fatalf("resolveDownloadPath() error = %v", err)
 	}
