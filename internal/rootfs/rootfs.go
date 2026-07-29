@@ -39,6 +39,9 @@ const (
 // Root is a trusted directory anchor for rooted filesystem operations.
 type Root struct {
 	path string
+	// internalSymlinks tolerates symlinked components below the root when they
+	// resolve back inside the root.
+	internalSymlinks bool
 }
 
 // New returns a Root anchored at path. The root itself is operator-selected and
@@ -60,6 +63,44 @@ func (r Root) Path() string {
 	return r.path
 }
 
+// AllowingInternalSymlinks returns a copy of the root that accepts a symlinked
+// directory component below the root when that component resolves back inside
+// the root, and still rejects one that escapes.
+//
+// Use it only where symlinked directories inside the root are an established,
+// supported layout. A symlinked final component is still refused.
+func (r Root) AllowingInternalSymlinks() Root {
+	r.internalSymlinks = true
+	return r
+}
+
+// containsResolvedComponent reports whether a symlinked component below the root
+// resolves back inside the root.
+func (r Root) containsResolvedComponent(path string) bool {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	root := r.path
+	if resolvedRoot, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolvedRoot
+	}
+	relative, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return false
+	}
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+// checkSymlinkComponent decides whether a symlinked component below the root is
+// acceptable for this root's policy.
+func (r Root) checkSymlinkComponent(path string) error {
+	if r.internalSymlinks && r.containsResolvedComponent(path) {
+		return nil
+	}
+	return symlinkError(path)
+}
+
 // ValidateRelative reports whether name is safe to join onto a trusted root.
 // Both Unix and Windows separator conventions are considered so a repository
 // can not smuggle a drive-relative, UNC-style, or backslash-traversing path
@@ -79,6 +120,24 @@ func ValidateRelative(name string) error {
 		if component == ".." {
 			return fmt.Errorf("%w: %q traverses above the trusted root", ErrEscapesRoot, name)
 		}
+	}
+	return nil
+}
+
+// ValidateRelativeAllowingTraversal rejects absolute, drive-relative and
+// UNC-style paths but permits ".." segments, for callers that resolve a path
+// against a base directory below the root and then confirm containment of the
+// joined result with Resolve.
+func ValidateRelativeAllowingTraversal(name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return fmt.Errorf("%w: path is empty", ErrEscapesRoot)
+	}
+	if strings.ContainsRune(trimmed, 0) {
+		return fmt.Errorf("%w: %q contains a NUL byte", ErrEscapesRoot, name)
+	}
+	if isAbsoluteLike(trimmed) {
+		return fmt.Errorf("%w: %q must be relative to the trusted root", ErrEscapesRoot, name)
 	}
 	return nil
 }
@@ -136,6 +195,17 @@ func (r Root) CheckContained(name string) error {
 		return symlinkError(resolved)
 	}
 	return nil
+}
+
+// CheckParents verifies that name stays beneath the root and that every
+// component below the root leading to it is acceptable under the root's symlink
+// policy. The final component is not inspected.
+func (r Root) CheckParents(name string) error {
+	resolved, err := r.Resolve(name)
+	if err != nil {
+		return err
+	}
+	return r.checkParentComponents(resolved)
 }
 
 // OpenFile opens an existing regular file beneath the root without following
@@ -201,7 +271,7 @@ func (r Root) MkdirAll(name string, perm os.FileMode) error {
 	current := r.path
 	for _, component := range components {
 		current = filepath.Join(current, component)
-		if err := mkdirNoFollow(current, perm); err != nil {
+		if err := r.mkdirNoFollow(current, perm); err != nil {
 			return err
 		}
 	}
@@ -424,7 +494,15 @@ func (r Root) checkParentComponents(absolute string) error {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return symlinkError(current)
+			if err := r.checkSymlinkComponent(current); err != nil {
+				return err
+			}
+			if resolved, err := os.Stat(current); err != nil {
+				return err
+			} else if !resolved.IsDir() {
+				return fmt.Errorf("%q is not a directory", current)
+			}
+			continue
 		}
 		if !info.IsDir() {
 			return fmt.Errorf("%q is not a directory", current)
@@ -433,8 +511,8 @@ func (r Root) checkParentComponents(absolute string) error {
 	return nil
 }
 
-func mkdirNoFollow(path string, perm os.FileMode) error {
-	if err := validateExistingDir(path); err == nil {
+func (r Root) mkdirNoFollow(path string, perm os.FileMode) error {
+	if err := r.validateExistingDir(path); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -442,16 +520,26 @@ func mkdirNoFollow(path string, perm os.FileMode) error {
 	if err := os.Mkdir(path, perm); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
-	return validateExistingDir(path)
+	return r.validateExistingDir(path)
 }
 
-func validateExistingDir(path string) error {
+func (r Root) validateExistingDir(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return symlinkError(path)
+		if err := r.checkSymlinkComponent(path); err != nil {
+			return err
+		}
+		resolved, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if !resolved.IsDir() {
+			return fmt.Errorf("%q is not a directory", path)
+		}
+		return nil
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%q is not a directory", path)

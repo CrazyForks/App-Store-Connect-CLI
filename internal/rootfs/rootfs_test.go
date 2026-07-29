@@ -364,6 +364,65 @@ func TestAppendFileAppendsInRoot(t *testing.T) {
 	}
 }
 
+func TestAllowingInternalSymlinksAcceptsContainedSymlinkedParent(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "SharedGenerated")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	if err := os.Symlink(realDir, filepath.Join(dir, "Generated")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	root := mustRoot(t, dir).AllowingInternalSymlinks()
+	if err := root.WriteFile(filepath.Join("Generated", "Info.plist"), []byte("payload"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if got := mustRead(t, filepath.Join(realDir, "Info.plist")); got != "payload" {
+		t.Fatalf("content = %q", got)
+	}
+}
+
+func TestAllowingInternalSymlinksRejectsEscapingSymlinkedParent(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(dir, "Generated")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	root := mustRoot(t, dir).AllowingInternalSymlinks()
+	err := root.WriteFile(filepath.Join("Generated", "Info.plist"), []byte("payload"), 0o644)
+	if !errors.Is(err, ErrSymlink) {
+		t.Fatalf("WriteFile() error = %v, want ErrSymlink", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(external, "Info.plist")); statErr == nil {
+		t.Fatal("WriteFile() escaped through a symlinked parent")
+	}
+}
+
+func TestAllowingInternalSymlinksStillRejectsFinalSymlink(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	sentinelPath := filepath.Join(t.TempDir(), "sentinel.txt")
+	mustWrite(t, sentinelPath, "original")
+	if err := os.Symlink(sentinelPath, filepath.Join(dir, "Info.plist")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	root := mustRoot(t, dir).AllowingInternalSymlinks()
+	if err := root.WriteFile("Info.plist", []byte("payload"), 0o644); !errors.Is(err, ErrSymlink) {
+		t.Fatalf("WriteFile() error = %v, want ErrSymlink", err)
+	}
+	if got := mustRead(t, sentinelPath); got != "original" {
+		t.Fatalf("sentinel content = %q, want %q", got, "original")
+	}
+}
+
 func TestCheckContainedRejectsSymlinkedParentForExternalCandidate(t *testing.T) {
 	requireSymlinks(t)
 
