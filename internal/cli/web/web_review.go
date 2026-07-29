@@ -564,6 +564,17 @@ func writeDownloadedAttachment(root rootfs.Root, name string, body []byte) error
 	return root.WriteFile(name, body, 0o600)
 }
 
+// downloadDisplayPath reports the download location the way the operator wrote
+// it: the selected (possibly relative) output directory joined with the file
+// name resolved beneath the root-relative prefix.
+func downloadDisplayPath(outDir, prefix, outputName string) string {
+	relative, err := filepath.Rel(prefix, outputName)
+	if err != nil {
+		return filepath.Join(outDir, filepath.Base(outputName))
+	}
+	return filepath.Join(outDir, relative)
+}
+
 func attachmentRefreshKey(attachment webcore.ReviewAttachment) string {
 	return strings.Join([]string{
 		strings.TrimSpace(attachment.SourceType),
@@ -708,7 +719,7 @@ func downloadAttachmentsForShow(
 			failures = append(failures, fmt.Sprintf("%s: %v", attachment.FileName, err))
 			continue
 		}
-		results = append(results, attachmentDownloadResult(attachment, filepath.Join(root.Path(), outputName), refreshed))
+		results = append(results, attachmentDownloadResult(attachment, downloadDisplayPath(outDir, prefix, outputName), refreshed))
 	}
 	return results, failures, nil
 }

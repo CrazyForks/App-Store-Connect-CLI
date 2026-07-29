@@ -194,6 +194,22 @@ func TestParsePrivacyDeclarationFileRefusesSymlinkedInput(t *testing.T) {
 	}
 }
 
+func TestDownloadDisplayPathPreservesOperatorPath(t *testing.T) {
+	// A relative default output directory keeps its relative display form.
+	relOut := filepath.Join(".asc", "web-review", "app", "sub")
+	got := downloadDisplayPath(relOut, relOut, filepath.Join(relOut, "shot.png"))
+	if want := filepath.Join(relOut, "shot.png"); got != want {
+		t.Fatalf("downloadDisplayPath() = %q, want %q", got, want)
+	}
+
+	// An operator-selected external directory keeps its absolute display form.
+	absOut := filepath.Join(string(filepath.Separator), "tmp", "downloads")
+	got = downloadDisplayPath(absOut, ".", "shot-1.png")
+	if want := filepath.Join(absOut, "shot-1.png"); got != want {
+		t.Fatalf("downloadDisplayPath() = %q, want %q", got, want)
+	}
+}
+
 func writeWebContainmentFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
