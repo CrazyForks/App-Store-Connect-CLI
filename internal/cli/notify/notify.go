@@ -19,6 +19,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/urlsanitize"
 )
 
 const (
@@ -180,14 +181,14 @@ Examples:
 
 			req, err := http.NewRequestWithContext(requestCtx, "POST", webhookURL, bytes.NewReader(body))
 			if err != nil {
-				return fmt.Errorf("notify slack: failed to create request: %w", err)
+				return fmt.Errorf("notify slack: failed to create request: %w", newSanitizedWebhookError("request creation", webhookURL, err))
 			}
 			req.Header.Set("Content-Type", "application/json")
 
 			client := slackHTTPClient()
 			resp, err := client.Do(req)
 			if err != nil {
-				return fmt.Errorf("notify slack: failed to send: %w", err)
+				return fmt.Errorf("notify slack: failed to send: %w", newSanitizedWebhookError("webhook POST", webhookURL, err))
 			}
 			defer resp.Body.Close()
 
@@ -208,6 +209,14 @@ Examples:
 			return nil
 		},
 	}
+}
+
+// newSanitizedWebhookError keeps the failing host and failure class while
+// dropping the webhook path, which is the incoming-webhook secret itself.
+// net/http renders the full request URL in its own error text, so the cause is
+// wrapped for inspection instead of being interpolated into the message.
+func newSanitizedWebhookError(operation, webhookURL string, err error) error {
+	return urlsanitize.NewTransportError(operation, urlsanitize.RedactURLHostForError(webhookURL), err)
 }
 
 func resolveWebhook(flagValue string) string {
