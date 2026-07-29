@@ -20,6 +20,7 @@ import (
 	"github.com/99designs/keyring"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/config"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 // ErrKeychainAccessDenied is returned when a keychain backend is available but
@@ -535,20 +536,31 @@ func migrationPrivateKeyPath(cred Credential, privateKeyDir string, configName s
 		return "", false, fmt.Errorf("profile %q keychain private key PEM is invalid: %w", cred.Name, err)
 	}
 
-	exportPath := filepath.Join(privateKeyDir, migrationPrivateKeyFilename(configName, cred.KeyID))
-	if err := writePrivateKeyPEMFile(exportPath, privateKeyPEM); err != nil {
+	fileName := migrationPrivateKeyFilename(configName, cred.KeyID)
+	if err := writePrivateKeyPEMFile(privateKeyDir, fileName, privateKeyPEM); err != nil {
 		return "", false, fmt.Errorf("profile %q failed to export private key: %w", cred.Name, err)
 	}
-	return exportPath, true, nil
+	return filepath.Join(privateKeyDir, fileName), true, nil
 }
 
 func migrationPrivateKeyFilename(name, keyID string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "default"
+	safe := sanitizePrivateKeyFilenamePart(name)
+	if safeKeyID := sanitizePrivateKeyFilenamePart(strings.TrimSpace(keyID)); strings.TrimSpace(keyID) != "" {
+		return "AuthKey_" + safe + "_" + safeKeyID + ".p8"
+	}
+	return "AuthKey_" + safe + ".p8"
+}
+
+// sanitizePrivateKeyFilenamePart reduces an untrusted profile name or key ID to
+// a single safe filename component so it cannot carry path separators or
+// traversal segments into the key output directory.
+func sanitizePrivateKeyFilenamePart(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
 	}
 	var b strings.Builder
-	for _, r := range name {
+	for _, r := range value {
 		switch {
 		case r >= 'a' && r <= 'z':
 			b.WriteRune(r)
@@ -563,54 +575,52 @@ func migrationPrivateKeyFilename(name, keyID string) string {
 		}
 	}
 	safe := strings.Trim(b.String(), "._-")
-	if safe == "" {
-		safe = "default"
+	if safe == "" || safe == ".." {
+		return "default"
 	}
-	keyID = strings.TrimSpace(keyID)
-	if keyID != "" {
-		return "AuthKey_" + safe + "_" + keyID + ".p8"
-	}
-	return "AuthKey_" + safe + ".p8"
+	return safe
 }
 
-func writePrivateKeyPEMFile(path, privateKeyPEM string) error {
-	if strings.TrimSpace(path) == "" {
+// writePrivateKeyPEMFile exports private key material to name beneath keyDir.
+// keyDir is the operator-selected key output root; name must stay beneath it and
+// must not resolve through a symlink.
+func writePrivateKeyPEMFile(keyDir, name, privateKeyPEM string) error {
+	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("empty private key path")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	root, err := rootfs.New(keyDir)
+	if err != nil {
 		return err
 	}
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing to overwrite symlink: %s", path)
-		}
-		existing, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
+	resolved, err := root.Resolve(name)
+	if err != nil {
+		return err
+	}
+	if err := root.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+		return err
+	}
+
+	existing, found, err := root.ReadFileOptional(name)
+	if err != nil {
+		return err
+	}
+	if found {
 		if strings.TrimSpace(string(existing)) != strings.TrimSpace(privateKeyPEM) {
-			return fmt.Errorf("refusing to overwrite existing private key file: %s", path)
+			return fmt.Errorf("refusing to overwrite existing private key file: %s", resolved)
+		}
+		info, err := os.Lstat(resolved)
+		if err != nil {
+			return err
 		}
 		if filePermissionsTooPermissive(info.Mode()) {
-			if err := os.Chmod(path, 0o600); err != nil {
+			if err := os.Chmod(resolved, 0o600); err != nil {
 				return err
 			}
 		}
 		return nil
-	} else if !os.IsNotExist(err) {
-		return err
 	}
 
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	_, writeErr := file.WriteString(privateKeyPEM)
-	closeErr := file.Close()
-	if writeErr != nil {
-		return writeErr
-	}
-	return closeErr
+	return root.CreateNewFile(name, []byte(privateKeyPEM), 0o600)
 }
 
 func upsertConfigCredential(cfg *config.Config, cred config.Credential) {
