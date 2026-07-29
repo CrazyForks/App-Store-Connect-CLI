@@ -218,6 +218,34 @@ func TestSkillsCheckEnvironmentForwardsProxyConfigurationWithoutCredentials(t *t
 	assertNoCredentialSentinels(t, "proxy-aware filter", filtered)
 }
 
+func TestSkillsCheckEnvironmentStripsProxyQueryAndFragmentCredentials(t *testing.T) {
+	const proxyTokenSentinel = "asc-red-sentinel-proxy-token-9b21e4"
+	base := []string{
+		// No userinfo, but the query and fragment can still carry secrets.
+		"HTTP_PROXY=https://proxy.corp.example:3128/?token=" + proxyTokenSentinel,
+		"HTTPS_PROXY=https://proxy.corp.example:3128#" + proxyTokenSentinel,
+		// The schemeless host:port form is common and has no place to hide a
+		// structured credential.
+		"http_proxy=proxy.corp.example:3128",
+	}
+
+	filtered := filterSkillsCheckEnvironment(base, "darwin")
+
+	values := envMap(filtered)
+	if values["HTTP_PROXY"] != "https://proxy.corp.example:3128" {
+		t.Fatalf("HTTP_PROXY = %q, want scheme and host only", values["HTTP_PROXY"])
+	}
+	if values["HTTPS_PROXY"] != "https://proxy.corp.example:3128" {
+		t.Fatalf("HTTPS_PROXY = %q, want scheme and host only", values["HTTPS_PROXY"])
+	}
+	if values["http_proxy"] != "proxy.corp.example:3128" {
+		t.Fatalf("http_proxy = %q, want the schemeless host:port forwarded verbatim", values["http_proxy"])
+	}
+	if strings.Contains(strings.Join(filtered, "\n"), proxyTokenSentinel) {
+		t.Fatalf("proxy credential crossed the helper boundary: %v", filtered)
+	}
+}
+
 func TestSkillsCheckEnvironmentDropsProxyValuesItCannotSanitize(t *testing.T) {
 	const proxyPasswordSentinel = "asc-red-sentinel-proxy-pw-5d11c9"
 	base := []string{

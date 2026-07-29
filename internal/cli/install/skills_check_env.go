@@ -36,14 +36,15 @@ var skillsCheckUnixEnvAllowlist = []string{
 
 // Proxy configuration is connectivity, not identity: the update check is a
 // network operation, so without these variables it silently fails behind a
-// corporate proxy. Proxy URLs may embed credentials in their userinfo, and a
-// credential must not cross the helper boundary, so HTTP_PROXY and HTTPS_PROXY
-// are forwarded with their userinfo stripped; a value that cannot be provably
-// sanitized is dropped. Authenticated proxies therefore still fail closed —
-// the check degrades to its cached result rather than forwarding a secret.
-// NO_PROXY is a host list with no credential form and is forwarded verbatim.
-// Names are matched case-insensitively on every platform because both the
-// upper- and lowercase spellings are conventional.
+// corporate proxy. Proxy URLs may embed credentials in their userinfo, query,
+// or fragment, and a credential must not cross the helper boundary, so
+// HTTP_PROXY and HTTPS_PROXY are reduced to scheme, host, and port before
+// forwarding; a value that cannot be provably sanitized is dropped.
+// Authenticated proxies therefore still fail closed — the check degrades to
+// its cached result rather than forwarding a secret. NO_PROXY is a host list
+// with no credential form and is forwarded verbatim. Names are matched
+// case-insensitively on every platform because both the upper- and lowercase
+// spellings are conventional.
 var skillsCheckProxyEnvAllowlist = []string{
 	"HTTP_PROXY",
 	"HTTPS_PROXY",
@@ -151,28 +152,28 @@ func skillsCheckProxyEnvName(key string) (string, bool) {
 }
 
 // sanitizeSkillsCheckProxyValue returns the proxy value safe to forward. A
-// proxy URL keeps its scheme, host, and port; userinfo, query, and fragment are
-// stripped because they can carry credentials. A value containing "@" that
-// cannot be parsed into a URL with explicit userinfo is dropped entirely: the
-// credential position cannot be proven, so the value is not forwarded.
+// hierarchical proxy URL is reduced to its scheme, host, and port: userinfo,
+// path, query, and fragment can all carry credentials. The common schemeless
+// host:port form is forwarded verbatim only when it contains none of "@", "?",
+// or "#", because without those separators the value has no structured place
+// for a credential. Anything else is dropped entirely: a credential position
+// that cannot be proven safe is not forwarded.
 func sanitizeSkillsCheckProxyValue(canonicalName, value string) (string, bool) {
 	if canonicalName == "NO_PROXY" {
 		return value, true
 	}
 	trimmed := strings.TrimSpace(value)
-	if trimmed == "" || !strings.Contains(trimmed, "@") {
+	if trimmed == "" {
 		return value, true
 	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil || parsed.User == nil || parsed.Host == "" {
-		return "", false
+	if parsed, err := url.Parse(trimmed); err == nil && parsed.Host != "" && parsed.Opaque == "" {
+		safe := url.URL{Scheme: parsed.Scheme, Host: parsed.Host}
+		return safe.String(), true
 	}
-	parsed.User = nil
-	parsed.RawQuery = ""
-	parsed.ForceQuery = false
-	parsed.Fragment = ""
-	parsed.RawFragment = ""
-	return parsed.String(), true
+	if !strings.ContainsAny(trimmed, "@?#") {
+		return value, true
+	}
+	return "", false
 }
 
 func skillsCheckEnvAllowlistFor(goos string) map[string]struct{} {
