@@ -212,6 +212,15 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
+			templateValue := strings.TrimSpace(*templateID)
+			templateProvided := false
+			fs.Visit(func(f *flag.Flag) {
+				templateProvided = templateProvided || f.Name == "template-id"
+			})
+			if templateProvided && templateValue == "" {
+				return fmt.Errorf("app-clips default-experiences create: --template-id must not be empty")
+			}
+
 			var attrs *asc.AppClipDefaultExperienceCreateAttributes
 			if strings.TrimSpace(*action) != "" {
 				actionValue, err := normalizeAppClipAction(*action)
@@ -231,7 +240,7 @@ Examples:
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
-			resp, err := client.CreateAppClipDefaultExperience(requestCtx, appClipValue, attrs, *releaseVersionID, *templateID)
+			resp, err := client.CreateAppClipDefaultExperience(requestCtx, appClipValue, attrs, *releaseVersionID, templateValue)
 			if err != nil {
 				return fmt.Errorf("app-clips default-experiences create: failed to create: %w", err)
 			}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
@@ -136,5 +137,46 @@ func TestAppClipsDefaultExperiencesCreateOmitsTemplateWhenNotSet(t *testing.T) {
 
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+}
+
+func TestAppClipsDefaultExperiencesCreateRejectsEmptyTemplateWhenSet(t *testing.T) {
+	for _, templateID := range []string{"", "   "} {
+		t.Run("value="+templateID, func(t *testing.T) {
+			requestCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requestCount++
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				_, _ = w.Write([]byte(`{"data":{"type":"appClipDefaultExperiences","id":"exp-new"},"links":{}}`))
+			}))
+			defer server.Close()
+
+			newDefaultExperiencesCreateClient(t, server)
+
+			root := RootCommand("1.2.3")
+			var runErr error
+			captureOutput(t, func() {
+				if err := root.Parse([]string{
+					"app-clips", "default-experiences", "create",
+					"--app-clip-id", "clip-1",
+					"--release-version-id", "version-1",
+					"--template-id", templateID,
+				}); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				runErr = root.Run(context.Background())
+			})
+
+			if runErr == nil {
+				t.Fatal("expected error for explicitly empty --template-id")
+			}
+			if !strings.Contains(runErr.Error(), "--template-id must not be empty") {
+				t.Fatalf("expected empty template error, got %v", runErr)
+			}
+			if requestCount != 0 {
+				t.Fatalf("expected no request, got %d", requestCount)
+			}
+		})
 	}
 }
