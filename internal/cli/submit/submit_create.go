@@ -312,6 +312,9 @@ func (i *reviewSubmissionInspector) canCancel(ctx context.Context, submission *a
 		return false, "", err
 	}
 	if itemSummary.hasTargetVersion {
+		if itemSummary.hasOtherItems {
+			return false, "it holds the selected version alongside other review items", nil
+		}
 		return true, "", nil
 	}
 	if itemSummary.hasItems {

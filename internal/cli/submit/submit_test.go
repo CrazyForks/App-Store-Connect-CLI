@@ -2493,7 +2493,11 @@ func TestPrepareReviewSubmissionForCreateDoesNotReuseSubmissionThatBecameCanceli
 	}
 }
 
-func TestPrepareReviewSubmissionForCreateCancelsMixedTargetVersionSubmission(t *testing.T) {
+// TestPrepareReviewSubmissionForCreateSkipsMixedTargetVersionSubmission proves
+// that a submission holding the selected version alongside other review items
+// (another version, an in-app purchase, an app event) is neither reused nor
+// implicitly withdrawn: cancelling it would drop the unrelated review work.
+func TestPrepareReviewSubmissionForCreateSkipsMixedTargetVersionSubmission(t *testing.T) {
 	requests := make([]string, 0, 4)
 	client := newSubmitTestClient(t, submitRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requests = append(requests, req.Method+" "+req.URL.RequestURI())
@@ -2536,8 +2540,6 @@ func TestPrepareReviewSubmissionForCreateCancelsMixedTargetVersionSubmission(t *
 					}
 				]
 			}`)
-		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/mixed-submission":
-			return submitJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"mixed-submission"}}`)
 		default:
 			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.RequestURI())
 		}
@@ -2551,15 +2553,14 @@ func TestPrepareReviewSubmissionForCreateCancelsMixedTargetVersionSubmission(t *
 		if got.reuseSubmissionHasVersion {
 			t.Fatalf("expected mixed-item submission not to be marked as reusable target version, got %#v", got)
 		}
-		if _, ok := got.canceledSubmissionIDs["mixed-submission"]; !ok {
-			t.Fatalf("expected mixed-item submission to be canceled, got %#v", got.canceledSubmissionIDs)
+		if got.canceledSubmissionIDs != nil {
+			t.Fatalf("expected no canceled submissions, got %#v", got.canceledSubmissionIDs)
 		}
 	})
 
 	wantRequests := []string{
 		"GET /v1/apps/app-1/reviewSubmissions?filter%5Bplatform%5D=IOS&filter%5Bstate%5D=READY_FOR_REVIEW&include=appStoreVersionForReview&limit=200",
 		"GET /v1/reviewSubmissions/mixed-submission/items?limit=200",
-		"PATCH /v1/reviewSubmissions/mixed-submission",
 	}
 	if !reflect.DeepEqual(requests, wantRequests) {
 		t.Fatalf("unexpected requests: got %v want %v", requests, wantRequests)
@@ -2567,8 +2568,11 @@ func TestPrepareReviewSubmissionForCreateCancelsMixedTargetVersionSubmission(t *
 	if strings.Contains(stderr, "Reusing existing review submission mixed-submission") {
 		t.Fatalf("did not expect reuse message, got %q", stderr)
 	}
-	if !strings.Contains(stderr, "Canceled stale review submission mixed-submission") {
-		t.Fatalf("expected stale submission cancellation message, got %q", stderr)
+	if !strings.Contains(stderr, "Skipped stale review submission mixed-submission") {
+		t.Fatalf("expected skip diagnostic naming the submission, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "asc submit cancel") {
+		t.Fatalf("expected skip diagnostic to point at explicit cancellation, got %q", stderr)
 	}
 }
 
