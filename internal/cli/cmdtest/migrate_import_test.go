@@ -281,6 +281,8 @@ func TestMigrateImportUploadsAndSkipsExistingScreenshots(t *testing.T) {
 		}
 
 		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
+			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
 		case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/v1/appStoreVersions/") && strings.HasSuffix(req.URL.Path, "/appStoreVersionLocalizations"):
 			body := `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US"}}]}`
 			return migrateJSONResponse(http.StatusOK, body), nil
@@ -397,6 +399,8 @@ func TestMigrateImportWarnsForMetadataCreates(t *testing.T) {
 	createCount := 0
 	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
+			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
 			return migrateJSONResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/appStoreVersionLocalizations":
@@ -473,6 +477,8 @@ func TestMigrateImportDoesNotWarnForScreenshotBootstrapCreates(t *testing.T) {
 		}
 
 		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
+			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
 			return migrateJSONResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/appStoreVersionLocalizations":

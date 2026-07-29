@@ -237,6 +237,10 @@ Examples:
 				defer cancel()
 			}
 
+			if err := verifyExplicitVersionOwnership(requestCtx, client, *versionID, resolvedAppID, resolvedVersionID); err != nil {
+				return fmt.Errorf("migrate import: %w", err)
+			}
+
 			localeToID := make(map[string]string)
 			if len(localizations) > 0 || len(screenshotPlan) > 0 {
 				existingLocs, err := client.GetAppStoreVersionLocalizations(requestCtx, strings.TrimSpace(resolvedVersionID), asc.WithAppStoreVersionLocalizationsLimit(200))
