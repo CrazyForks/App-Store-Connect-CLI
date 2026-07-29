@@ -61,6 +61,25 @@ func TestRedactHelpersFallBackToPlaceholder(t *testing.T) {
 	}
 }
 
+func TestRedactHelpersRejectOpaqueURLs(t *testing.T) {
+	// url.Parse keeps everything after the scheme in Opaque when the URL has
+	// no authority, and URL.String renders Opaque verbatim, so an opaque
+	// payload must never reach the sanitized message.
+	tests := []string{
+		"https:" + pathSentinel,
+		"mailto:" + userinfoSentinel + "@example.com",
+	}
+
+	for _, raw := range tests {
+		if got := RedactURLForError(raw); got != RedactedPlaceholder {
+			t.Fatalf("RedactURLForError(%q) = %q, want %q", raw, got, RedactedPlaceholder)
+		}
+		if got := RedactURLHostForError(raw); got != RedactedPlaceholder {
+			t.Fatalf("RedactURLHostForError(%q) = %q, want %q", raw, got, RedactedPlaceholder)
+		}
+	}
+}
+
 func TestRedactURLHostForErrorRejectsHostlessURLs(t *testing.T) {
 	if got := RedactURLHostForError("/services/T00000000/" + pathSentinel); got != RedactedPlaceholder {
 		t.Fatalf("RedactURLHostForError() = %q, want %q", got, RedactedPlaceholder)

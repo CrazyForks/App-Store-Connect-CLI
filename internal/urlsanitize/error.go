@@ -47,6 +47,12 @@ func parseForError(rawURL string) (*url.URL, bool) {
 	if err != nil {
 		return nil, false
 	}
+	if parsed.Opaque != "" {
+		// A URL without an authority keeps everything after the scheme in
+		// Opaque, which URL.String renders verbatim; nothing in it can be
+		// proven safe.
+		return nil, false
+	}
 	parsed.User = nil
 	parsed.RawQuery = ""
 	parsed.ForceQuery = false
