@@ -198,7 +198,7 @@ Examples:
 				if readErr != nil {
 					return fmt.Errorf("notify slack: failed to read response: %w", readErr)
 				}
-				message := strings.TrimSpace(string(respBody))
+				message := redactWebhookSecretFromText(strings.TrimSpace(string(respBody)), webhookURL)
 				if message == "" {
 					return fmt.Errorf("notify slack: unexpected response %d", resp.StatusCode)
 				}
@@ -209,6 +209,40 @@ Examples:
 			return nil
 		},
 	}
+}
+
+// redactWebhookSecretFromText removes the webhook secret from response text
+// before it becomes part of an error message. Some servers and intercepting
+// proxies echo the requested URL or path in their error body, and for a Slack
+// incoming webhook the path is the secret. The full URL, the path, and each
+// path segment long enough to be an identifier are replaced; the rest of the
+// body keeps its diagnostic value.
+func redactWebhookSecretFromText(text, webhookURL string) string {
+	trimmed := strings.TrimSpace(webhookURL)
+	if text == "" || trimmed == "" {
+		return text
+	}
+	sanitized := strings.ReplaceAll(text, trimmed, urlsanitize.RedactedPlaceholder)
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return sanitized
+	}
+	secrets := make([]string, 0, 8)
+	if escaped := parsed.EscapedPath(); len(escaped) > 1 {
+		secrets = append(secrets, escaped)
+	}
+	if len(parsed.Path) > 1 {
+		secrets = append(secrets, parsed.Path)
+	}
+	for _, segment := range strings.Split(strings.Trim(parsed.Path, "/"), "/") {
+		if len(segment) >= 4 && segment != "services" {
+			secrets = append(secrets, segment)
+		}
+	}
+	for _, secret := range secrets {
+		sanitized = strings.ReplaceAll(sanitized, secret, urlsanitize.RedactedPlaceholder)
+	}
+	return sanitized
 }
 
 // newSanitizedWebhookError keeps the failing host and failure class while
