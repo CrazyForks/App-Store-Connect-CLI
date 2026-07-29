@@ -231,11 +231,14 @@ func findRepoRoot(start string) (string, error) {
 	}
 }
 
+const defaultDocsFileMode os.FileMode = 0o644
+
 // ascReferencePlan is a fully validated, not-yet-applied ASC.md write.
 type ascReferencePlan struct {
 	root   rootfs.Root
 	name   string
 	exists bool
+	perm   os.FileMode
 }
 
 // planASCReference validates the ASC.md destination without writing anything.
@@ -249,8 +252,13 @@ func planASCReference(path string, force bool) (ascReferencePlan, error) {
 	// Lstat, not Stat, so a dangling symlink still counts as an existing entry
 	// and is never followed.
 	exists := false
-	if _, err := os.Lstat(path); err == nil {
+	perm := defaultDocsFileMode
+	if info, err := os.Lstat(path); err == nil {
 		exists = true
+		if info.Mode().IsRegular() {
+			// Preserve the operator's chosen mode when replacing the file.
+			perm = info.Mode().Perm()
+		}
 	} else if !os.IsNotExist(err) {
 		return ascReferencePlan{}, err
 	}
@@ -265,7 +273,7 @@ func planASCReference(path string, force bool) (ascReferencePlan, error) {
 		return ascReferencePlan{}, err
 	}
 
-	return ascReferencePlan{root: root, name: name, exists: exists}, nil
+	return ascReferencePlan{root: root, name: name, exists: exists, perm: perm}, nil
 }
 
 func writeASCReference(plan ascReferencePlan) (bool, bool, error) {
@@ -274,7 +282,7 @@ func writeASCReference(plan ascReferencePlan) (bool, bool, error) {
 		content += "\n"
 	}
 
-	if err := plan.root.WriteFile(plan.name, []byte(content), 0o644); err != nil {
+	if err := plan.root.WriteFile(plan.name, []byte(content), plan.perm); err != nil {
 		return false, false, err
 	}
 
@@ -288,6 +296,7 @@ func writeASCReference(plan ascReferencePlan) (bool, bool, error) {
 type agentFileUpdate struct {
 	name    string
 	content string
+	perm    os.FileMode
 }
 
 // agentLinkPlan holds every agent-file update computed during planning.
@@ -315,7 +324,11 @@ func planAgentFileLinks(rootDir string, relRef string) (agentLinkPlan, error) {
 		return agentLinkPlan{}, err
 	}
 	if agentsChanged {
-		plan.updates = append(plan.updates, agentFileUpdate{name: agentsName, content: agentsContent})
+		update, err := plannedAgentFileUpdate(rootDir, agentsName, agentsContent)
+		if err != nil {
+			return agentLinkPlan{}, err
+		}
+		plan.updates = append(plan.updates, update)
 	}
 
 	claudeName := "CLAUDE.md"
@@ -324,16 +337,37 @@ func planAgentFileLinks(rootDir string, relRef string) (agentLinkPlan, error) {
 		return agentLinkPlan{}, err
 	}
 	if claudeChanged {
-		plan.updates = append(plan.updates, agentFileUpdate{name: claudeName, content: claudeContent})
+		update, err := plannedAgentFileUpdate(rootDir, claudeName, claudeContent)
+		if err != nil {
+			return agentLinkPlan{}, err
+		}
+		plan.updates = append(plan.updates, update)
 	}
 
 	return plan, nil
 }
 
+// plannedAgentFileUpdate records the rewrite along with the file's current
+// mode, so applying the plan preserves the operator's chosen permissions. The
+// rooted read that produced content already rejected symlinked entries.
+func plannedAgentFileUpdate(rootDir, name, content string) (agentFileUpdate, error) {
+	update := agentFileUpdate{name: name, content: content, perm: defaultDocsFileMode}
+	info, err := os.Lstat(filepath.Join(rootDir, name))
+	switch {
+	case err == nil:
+		if info.Mode().IsRegular() {
+			update.perm = info.Mode().Perm()
+		}
+	case !os.IsNotExist(err):
+		return agentFileUpdate{}, err
+	}
+	return update, nil
+}
+
 func applyAgentFileLinks(plan agentLinkPlan) ([]string, error) {
 	linked := []string{}
 	for _, update := range plan.updates {
-		if err := plan.root.WriteFile(update.name, []byte(update.content), 0o644); err != nil {
+		if err := plan.root.WriteFile(update.name, []byte(update.content), update.perm); err != nil {
 			return nil, err
 		}
 		linked = append(linked, filepath.Join(plan.rootDir, update.name))

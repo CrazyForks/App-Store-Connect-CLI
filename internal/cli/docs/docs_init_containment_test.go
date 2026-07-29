@@ -3,6 +3,7 @@ package docs
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -179,6 +180,42 @@ func TestInitReference_WritesOrdinaryRepositoryFiles(t *testing.T) {
 	}
 	if !rerun.Overwritten {
 		t.Fatalf("InitReference() rerun result = %#v, want overwritten", rerun)
+	}
+}
+
+func TestInitReference_PreservesExistingFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not reported faithfully on Windows")
+	}
+	repo := newDocsContainmentRepo(t)
+	agentsPath := filepath.Join(repo, "AGENTS.md")
+	writeDocsContainmentFile(t, agentsPath, "# Agents\n")
+	if err := os.Chmod(agentsPath, 0o600); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	ascPath := filepath.Join(repo, ascReferenceFile)
+	writeDocsContainmentFile(t, ascPath, "# Existing\n")
+	if err := os.Chmod(ascPath, 0o600); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+
+	if _, err := InitReference(InitOptions{Path: repo, Force: true, Link: true}); err != nil {
+		t.Fatalf("InitReference() error = %v", err)
+	}
+
+	agentsInfo, err := os.Lstat(agentsPath)
+	if err != nil {
+		t.Fatalf("Lstat(AGENTS.md) error = %v", err)
+	}
+	if agentsInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("AGENTS.md mode = %v, want preserved 0600", agentsInfo.Mode().Perm())
+	}
+	ascInfo, err := os.Lstat(ascPath)
+	if err != nil {
+		t.Fatalf("Lstat(ASC.md) error = %v", err)
+	}
+	if ascInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("ASC.md mode = %v, want preserved 0600", ascInfo.Mode().Perm())
 	}
 }
 
