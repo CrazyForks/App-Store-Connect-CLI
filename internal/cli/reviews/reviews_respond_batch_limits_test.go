@@ -180,6 +180,57 @@ func TestLoadReviewBatchTargetsRejectsOneReviewIDOverLimit(t *testing.T) {
 	}
 }
 
+// reviewBatchFileWithEmptyIDs returns a document whose token count is exactly
+// idCount + 12: one reply object with one response and idCount empty review
+// ids. Empty ids are the cheapest way to pack tokens into a small file.
+func reviewBatchFileWithEmptyIDs(t *testing.T, idCount int) string {
+	t.Helper()
+
+	var builder strings.Builder
+	builder.WriteString(`{"replies":[{"response":"x","reviewIds":[`)
+	for i := range idCount {
+		if i > 0 {
+			builder.WriteByte(',')
+		}
+		builder.WriteString(`""`)
+	}
+	builder.WriteString(`]}]}`)
+	return writeReviewBatchTestFile(t, []byte(builder.String()))
+}
+
+// TestLoadReviewBatchTargetsRejectsTokenFloodBeforeMaterializing pins the
+// anti-flood guard: a file that stays under the byte ceiling but packs more
+// JSON tokens than any permitted batch can produce must fail on the token
+// budget — before the document is materialized — not on the later target
+// count.
+func TestLoadReviewBatchTargetsRejectsTokenFloodBeforeMaterializing(t *testing.T) {
+	path := reviewBatchFileWithEmptyIDs(t, reviewBatchMaxFileTokens-12+1)
+
+	_, err := loadReviewBatchTargets(path)
+	if err == nil {
+		t.Fatal("expected token flood rejection, got nil")
+	}
+	want := fmt.Sprintf("--file must not contain more than %d JSON tokens", reviewBatchMaxFileTokens)
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected %q, got %v", want, err)
+	}
+}
+
+// TestLoadReviewBatchTargetsTokenBudgetAdmitsFileAtTokenLimit proves the
+// budget boundary: a document holding exactly the permitted number of tokens
+// passes the pre-pass and fails only on the later, materialized checks.
+func TestLoadReviewBatchTargetsTokenBudgetAdmitsFileAtTokenLimit(t *testing.T) {
+	path := reviewBatchFileWithEmptyIDs(t, reviewBatchMaxFileTokens-12)
+
+	_, err := loadReviewBatchTargets(path)
+	if err == nil {
+		t.Fatal("expected empty review ids to be rejected, got nil")
+	}
+	if strings.Contains(err.Error(), "JSON tokens") {
+		t.Fatalf("file at the token limit must pass the token budget, got %v", err)
+	}
+}
+
 // TestReviewsRespondBatchLongHelpDocumentsEnforcedLimits pins the published
 // contract: the long help must state the same ceilings the command enforces,
 // so the documented and enforced limits cannot drift apart.

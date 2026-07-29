@@ -59,6 +59,17 @@ const reviewBatchMaxResponseBytes = 24 << 10
 // override flag: raising the ceiling is the same as removing it.
 const reviewBatchMaxFileBytes = 64 << 20
 
+// reviewBatchMaxFileTokens bounds how many JSON tokens --file may contain.
+//
+// The byte and target ceilings alone still let a small file decode into
+// millions of tiny values: tens of MiB of empty review ids materialize
+// hundreds of megabytes of string headers before the target-count check can
+// run. A maximal legitimate batch — reviewBatchMaxTargets replies, each with
+// one response and one review id — is about four thousand tokens, so 16,384
+// leaves fourfold headroom while stopping a flood of tiny elements before the
+// document is materialized.
+const reviewBatchMaxFileTokens = 16 << 10
+
 type reviewBatchInput struct {
 	Replies []reviewBatchReplyInput `json:"replies"`
 }
@@ -204,6 +215,9 @@ func loadReviewBatchTargets(path string) ([]reviewBatchTarget, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("--file must not be empty")
 	}
+	if err := checkReviewBatchTokenBudget(data); err != nil {
+		return nil, err
+	}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -256,6 +270,28 @@ func loadReviewBatchTargets(path string) ([]reviewBatchTarget, error) {
 	}
 
 	return targets, nil
+}
+
+// checkReviewBatchTokenBudget streams the raw document once, without
+// materializing it, and fails as soon as it yields more JSON tokens than any
+// permitted batch can produce. This stops a file that stays under the byte
+// ceiling but packs millions of tiny elements from being decoded whole before
+// the target-count check can reject it.
+func checkReviewBatchTokenBudget(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	tokens := 0
+	for {
+		if _, err := decoder.Token(); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("failed to parse --file: %w", err)
+		}
+		tokens++
+		if tokens > reviewBatchMaxFileTokens {
+			return fmt.Errorf("--file must not contain more than %d JSON tokens", reviewBatchMaxFileTokens)
+		}
+	}
 }
 
 // readReviewBatchFile expands at most reviewBatchMaxFileBytes so an oversized
