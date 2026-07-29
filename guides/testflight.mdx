@@ -105,11 +105,14 @@ TestFlight allows you to distribute pre-release builds to internal and external 
       --input "./testers.csv" \
       --dry-run
 
-    # After verifying, run without dry-run
+    # After verifying, apply the plan
     asc testflight testers import \
       --app "YOUR_APP_ID" \
-      --input "./testers.csv"
+      --input "./testers.csv" \
+      --confirm
     ```
+
+    `--confirm` is required unless `--dry-run` is set.
   </Step>
 
   <Step title="List and filter testers">

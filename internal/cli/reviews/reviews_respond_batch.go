@@ -73,6 +73,7 @@ func ReviewsRespondBatchCommand() *ffcli.Command {
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
 	filePath := fs.String("file", "", "Path to grouped JSON replies file (required)")
 	dryRun := fs.Bool("dry-run", false, "Preview responses without creating them")
+	confirm := fs.Bool("confirm", false, "Confirm publishing the responses (required unless --dry-run)")
 	skipExisting := fs.Bool("skip-existing", false, "Skip reviews that already have a published response")
 	responseState := fs.String("response-state", reviewResponseStateAny, "Filter by response state: any, unresponded/unreplied, responded/replied")
 	output := shared.BindOutputFlags(fs)
@@ -100,8 +101,9 @@ Example input:
 
 Examples:
   asc reviews respond-batch --app "123456789" --file replies.json --dry-run
-  asc reviews respond-batch --app "123456789" --file replies.json --skip-existing --output json
-  asc reviews respond-batch --app "123456789" --file replies.json --response-state unresponded`,
+  asc reviews respond-batch --app "123456789" --file replies.json --confirm
+  asc reviews respond-batch --app "123456789" --file replies.json --skip-existing --output json --confirm
+  asc reviews respond-batch --app "123456789" --file replies.json --response-state unresponded --confirm`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -121,6 +123,10 @@ Examples:
 			targets, err := loadReviewBatchTargets(*filePath)
 			if err != nil {
 				return shared.UsageError(err.Error())
+			}
+
+			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
+				return err
 			}
 
 			client, err := shared.GetASCClient()

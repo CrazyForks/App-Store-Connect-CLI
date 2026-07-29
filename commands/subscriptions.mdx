@@ -611,10 +611,20 @@ The CLI automatically detects which method to use.
 Import prices for multiple territories from a CSV file.
 
 ```bash  theme={null}
+# Preview the plan first
 asc subscriptions pricing prices import \
   --subscription-id "SUB_ID" \
-  --input "./prices.csv"
+  --input "./prices.csv" \
+  --dry-run
+
+# Apply it
+asc subscriptions pricing prices import \
+  --subscription-id "SUB_ID" \
+  --input "./prices.csv" \
+  --confirm
 ```
+
+`--confirm` is required unless `--dry-run` is set. When both are set, `--dry-run` wins and nothing is created.
 
 **CSV Format:**
 
@@ -906,13 +916,14 @@ asc subscriptions offers introductory create \
   --offer-mode FREE_TRIAL \
   --number-of-periods 1
 
-# Import introductory offers from CSV
+# Import introductory offers from CSV (--confirm is required unless --dry-run is set)
 asc subscriptions offers introductory import \
   --subscription-id "SUB_ID" \
   --input "./offers.csv" \
   --offer-duration ONE_WEEK \
   --offer-mode FREE_TRIAL \
-  --number-of-periods 1
+  --number-of-periods 1 \
+  --confirm
 
 # Update offer
 asc subscriptions offers introductory update \
