@@ -103,14 +103,14 @@ func ReviewsRespondBatchCommand() *ffcli.Command {
 		Name:       "respond-batch",
 		ShortUsage: "asc reviews respond-batch [flags]",
 		ShortHelp:  "Create responses for multiple customer reviews. Experimental.",
-		LongHelp: `Create responses for multiple customer reviews from a grouped JSON file.
+		LongHelp: fmt.Sprintf(`Create responses for multiple customer reviews from a grouped JSON file.
 
 This command is experimental.
 
 The input file must contain a top-level replies array. Each reply has one
 response body and one or more reviewIds.
 
-A single run accepts at most 4194304 bytes of input and 500 review ids across
+A single run accepts at most %d bytes of input and %d review ids across
 all replies. Split larger campaigns into several files.
 
 Example input:
@@ -127,6 +127,7 @@ Examples:
   asc reviews respond-batch --app "123456789" --file replies.json --dry-run
   asc reviews respond-batch --app "123456789" --file replies.json --skip-existing --output json
   asc reviews respond-batch --app "123456789" --file replies.json --response-state unresponded`,
+			reviewBatchMaxFileBytes, reviewBatchMaxTargets),
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
