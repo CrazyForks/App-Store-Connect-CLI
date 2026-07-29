@@ -170,6 +170,52 @@ func TestFileDrivenMutationsGateBeforeReadingInput(t *testing.T) {
 	}
 }
 
+// TestFileDrivenMutationsValidateFlagsBeforeConfirmGate keeps flag-value
+// validation ahead of the apply decision: a bad flag value reports its
+// specific error even when --confirm is absent, and no request is issued.
+func TestFileDrivenMutationsValidateFlagsBeforeConfirmGate(t *testing.T) {
+	setupAuth(t)
+
+	pricesCSV := writeBatchImportFile(t, "prices.csv", "territory,price\nUSA,0.99\n")
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("unexpected HTTP request during flag validation: %s %s", req.Method, req.URL.String())
+		return nil, nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "pricing", "prices", "import",
+			"--subscription-id", "6000000001",
+			"--input", pricesCSV,
+			"--start-date", "not-a-date",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		err := root.Run(context.Background())
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected usage error, got %v", err)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "--start-date") {
+		t.Fatalf("expected the start-date error, got %q", stderr)
+	}
+	if strings.Contains(stderr, batchImportConfirmError) {
+		t.Fatalf("expected the specific flag error before the confirm gate, got %q", stderr)
+	}
+}
+
 // TestFileDrivenMutationsAcceptDryRunWithConfirm keeps the shared convention:
 // --dry-run wins over --confirm so contradictory input never mutates.
 func TestFileDrivenMutationsAcceptDryRunWithConfirm(t *testing.T) {

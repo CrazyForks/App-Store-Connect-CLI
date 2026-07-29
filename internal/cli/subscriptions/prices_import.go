@@ -180,10 +180,6 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
-			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
-				return err
-			}
-
 			defaultStartDate := ""
 			if strings.TrimSpace(*startDate) != "" {
 				normalized, err := shared.NormalizeDate(*startDate, "--start-date")
@@ -191,6 +187,10 @@ Examples:
 					return shared.UsageError(err.Error())
 				}
 				defaultStartDate = normalized
+			}
+
+			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
+				return err
 			}
 
 			rows, err := readSubscriptionPricesImportCSV(inputValue)
