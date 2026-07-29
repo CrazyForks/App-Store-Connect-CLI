@@ -30,12 +30,9 @@ func RedactURLHostForError(rawURL string) string {
 	if !ok {
 		return RedactedPlaceholder
 	}
+	// parseForError guarantees a hierarchical URL with a host.
 	parsed.Path = ""
 	parsed.RawPath = ""
-	parsed.Opaque = ""
-	if parsed.Host == "" {
-		return RedactedPlaceholder
-	}
 	return parsed.String()
 }
 
@@ -47,10 +44,11 @@ func parseForError(rawURL string) (*url.URL, bool) {
 	if err != nil {
 		return nil, false
 	}
-	if parsed.Opaque != "" {
+	if parsed.Opaque != "" || parsed.Host == "" {
 		// A URL without an authority keeps everything after the scheme in
-		// Opaque, which URL.String renders verbatim; nothing in it can be
-		// proven safe.
+		// Opaque, which URL.String renders verbatim, and a hostless URL is
+		// not the absolute request URL these boundaries expect; nothing in
+		// either can be proven safe.
 		return nil, false
 	}
 	parsed.User = nil

@@ -80,7 +80,12 @@ func TestRedactHelpersRejectOpaqueURLs(t *testing.T) {
 	}
 }
 
-func TestRedactURLHostForErrorRejectsHostlessURLs(t *testing.T) {
+func TestRedactHelpersRejectHostlessURLs(t *testing.T) {
+	// The boundaries only ever see absolute request URLs; anything without a
+	// host is malformed and nothing in it can be trusted, including the path.
+	if got := RedactURLForError("/services/T00000000/" + pathSentinel); got != RedactedPlaceholder {
+		t.Fatalf("RedactURLForError() = %q, want %q", got, RedactedPlaceholder)
+	}
 	if got := RedactURLHostForError("/services/T00000000/" + pathSentinel); got != RedactedPlaceholder {
 		t.Fatalf("RedactURLHostForError() = %q, want %q", got, RedactedPlaceholder)
 	}
