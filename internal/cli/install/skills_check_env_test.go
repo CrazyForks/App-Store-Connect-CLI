@@ -250,6 +250,31 @@ func TestSkillsCheckEnvironmentForwardsProxyConfigurationOnWindows(t *testing.T)
 	}
 }
 
+func TestSkillsCheckEnvironmentForwardsNpmCacheLocation(t *testing.T) {
+	base := []string{
+		"npm_config_cache=/custom/npm-cache",
+		"NPM_CONFIG_CACHE=/custom/npm-cache-upper",
+		// A registry URL can embed an access token, so it must not ride along
+		// with the cache location.
+		"npm_config_registry=https://" + skillsCheckCredentialSentinels["NPM_TOKEN"] + "@registry.corp.example",
+		"npm_config__authToken=" + skillsCheckCredentialSentinels["NPM_TOKEN"],
+	}
+
+	filtered := filterSkillsCheckEnvironment(base, "darwin")
+
+	values := envMap(filtered)
+	if values["npm_config_cache"] != "/custom/npm-cache" {
+		t.Fatalf("npm_config_cache = %q, want the relocated cache forwarded for the offline npx fallback", values["npm_config_cache"])
+	}
+	if values["NPM_CONFIG_CACHE"] != "/custom/npm-cache-upper" {
+		t.Fatalf("NPM_CONFIG_CACHE = %q, want npm's case-insensitive spelling forwarded too", values["NPM_CONFIG_CACHE"])
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("only the cache location may be forwarded, got: %v", filtered)
+	}
+	assertNoCredentialSentinels(t, "npm cache filter", filtered)
+}
+
 func TestSkillsCheckWorkerEnvironmentForwardsProxyConfiguration(t *testing.T) {
 	const proxyPasswordSentinel = "asc-red-sentinel-proxy-pw-5d11c9"
 	t.Setenv("HTTP_PROXY", "http://scanner:"+proxyPasswordSentinel+"@proxy.corp.example:3128")

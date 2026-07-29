@@ -50,6 +50,15 @@ var skillsCheckProxyEnvAllowlist = []string{
 	"NO_PROXY",
 }
 
+// npm interprets npm_config_* environment configuration case-insensitively,
+// and the offline `npx` fallback needs the relocated cache to find the skills
+// package. Only the cache location is forwarded: it is a path, not a
+// credential, while other npm settings (registry URLs, auth tokens) can carry
+// secrets and stay excluded.
+var skillsCheckCaseInsensitiveEnvAllowlist = []string{
+	"NPM_CONFIG_CACHE",
+}
+
 // Windows names are stored uppercase because Windows environment variable names
 // are case-insensitive.
 var skillsCheckWindowsEnvAllowlist = []string{
@@ -105,11 +114,28 @@ func filterSkillsCheckEnvironment(base []string, goos string) []string {
 			}
 			continue
 		}
+		if skillsCheckEnvNameAllowedCaseInsensitively(key) {
+			filtered = append(filtered, entry)
+			continue
+		}
 		if _, ok := allowed[normalizeSkillsCheckEnvKey(key, goos)]; ok {
 			filtered = append(filtered, entry)
 		}
 	}
 	return filtered
+}
+
+// skillsCheckEnvNameAllowedCaseInsensitively reports whether key is a
+// credential-free setting whose consumer matches names case-insensitively on
+// every platform.
+func skillsCheckEnvNameAllowedCaseInsensitively(key string) bool {
+	upper := strings.ToUpper(key)
+	for _, name := range skillsCheckCaseInsensitiveEnvAllowlist {
+		if upper == name {
+			return true
+		}
+	}
+	return false
 }
 
 // skillsCheckProxyEnvName reports whether key names proxy configuration and
