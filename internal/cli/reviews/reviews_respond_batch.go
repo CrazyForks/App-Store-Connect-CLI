@@ -23,6 +23,28 @@ const (
 	reviewBatchStatusSkipped = "skipped"
 )
 
+// reviewBatchMaxTargets bounds how many resolved review ids a single
+// respond-batch invocation may act on.
+//
+// Every resolved target costs one authenticated response mutation plus its
+// share of the paginated review lookup, and the whole run shares one request
+// timeout. 500 covers realistic bulk replies — an app's unresponded backlog
+// after a release, or a curated set of reviews exported from `asc reviews
+// list` — while keeping the worst-case fan-out from a checked-in batch file
+// bounded and reviewable. Larger campaigns split cleanly into several files.
+const reviewBatchMaxTargets = 500
+
+// reviewBatchMaxFileBytes bounds how much of --file is expanded into memory
+// before it is parsed.
+//
+// App Store Connect caps a review response body at 5,970 characters, so even a
+// pathological-but-legitimate file that pairs a distinct maximum-length
+// response with each of the reviewBatchMaxTargets permitted review ids stays
+// near 3 MB. 4 MiB keeps that shape accepted and rejects anything that is no
+// longer a usable review batch. Neither limit has an override flag: raising the
+// ceiling is the same as removing it.
+const reviewBatchMaxFileBytes = 4 << 20
+
 type reviewBatchInput struct {
 	Replies []reviewBatchReplyInput `json:"replies"`
 }
@@ -87,6 +109,9 @@ This command is experimental.
 
 The input file must contain a top-level replies array. Each reply has one
 response body and one or more reviewIds.
+
+A single run accepts at most 4194304 bytes of input and 500 review ids across
+all replies. Split larger campaigns into several files.
 
 Example input:
   {
@@ -156,9 +181,9 @@ Examples:
 }
 
 func loadReviewBatchTargets(path string) ([]reviewBatchTarget, error) {
-	data, err := os.ReadFile(strings.TrimSpace(path))
+	data, err := readReviewBatchFile(strings.TrimSpace(path))
 	if err != nil {
-		return nil, fmt.Errorf("failed to read --file: %w", err)
+		return nil, err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("--file must not be empty")
@@ -200,6 +225,9 @@ func loadReviewBatchTargets(path string) ([]reviewBatchTarget, error) {
 			if _, ok := seen[trimmedReviewID]; ok {
 				return nil, fmt.Errorf("duplicate review id %q", trimmedReviewID)
 			}
+			if len(targets) >= reviewBatchMaxTargets {
+				return nil, fmt.Errorf("--file must not contain more than %d review ids", reviewBatchMaxTargets)
+			}
 			seen[trimmedReviewID] = struct{}{}
 			targets = append(targets, reviewBatchTarget{
 				ReviewID: trimmedReviewID,
@@ -209,6 +237,26 @@ func loadReviewBatchTargets(path string) ([]reviewBatchTarget, error) {
 	}
 
 	return targets, nil
+}
+
+// readReviewBatchFile expands at most reviewBatchMaxFileBytes so an oversized
+// batch file is rejected before it is parsed, before an App Store Connect
+// client exists, and before any request is issued.
+func readReviewBatchFile(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read --file: %w", err)
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, reviewBatchMaxFileBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read --file: %w", err)
+	}
+	if len(data) > reviewBatchMaxFileBytes {
+		return nil, fmt.Errorf("--file must not exceed %d bytes", reviewBatchMaxFileBytes)
+	}
+	return data, nil
 }
 
 func executeReviewsRespondBatch(ctx context.Context, client *asc.Client, appID string, targets []reviewBatchTarget, dryRun bool, skipExisting bool, responseState string) (reviewBatchResult, error) {
