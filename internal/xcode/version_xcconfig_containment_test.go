@@ -125,6 +125,44 @@ func TestSetVersionAllowsExternalXCConfigWhenAuthorized(t *testing.T) {
 	}
 }
 
+func TestSetVersionReportsSymlinkedXCConfigAsSymlinkRejection(t *testing.T) {
+	projectPath := writeStructuredVersionProject(t, true)
+	projectRoot := filepath.Dir(projectPath)
+	sharedPath := filepath.Join(projectRoot, "Configs", "Shared.xcconfig")
+
+	externalDir := t.TempDir()
+	externalPath := filepath.Join(externalDir, "Shared.xcconfig")
+	data := mustReadVersionTestFile(t, sharedPath)
+	if err := os.WriteFile(externalPath, []byte(data), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Remove(sharedPath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	if err := os.Symlink(externalPath, sharedPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	before := mustReadVersionTestFile(t, externalPath)
+
+	_, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir:  projectPath,
+		Version:     "2.0.0",
+		BuildNumber: "99",
+	})
+	if err == nil {
+		t.Fatal("SetVersion() error = nil, want symlinked xcconfig rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("SetVersion() error = %v, want symlink rejection", err)
+	}
+	if strings.Contains(err.Error(), "outside project directory") {
+		t.Fatalf("SetVersion() error = %v, want the symlink-specific message, not the containment one", err)
+	}
+	if after := mustReadVersionTestFile(t, externalPath); after != before {
+		t.Fatal("symlink target was rewritten despite the rejection")
+	}
+}
+
 func TestSetVersionStillEditsXCConfigInsideProjectRoot(t *testing.T) {
 	projectPath := writeStructuredVersionProject(t, true)
 	sharedPath := filepath.Join(filepath.Dir(projectPath), "Configs", "Shared.xcconfig")
