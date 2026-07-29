@@ -3,7 +3,6 @@ package shared
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"howett.net/plist"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/infoplist"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/infoplist/infoplisttest"
 )
 
 func TestExtractBundleInfoFromIPA(t *testing.T) {
@@ -156,7 +156,7 @@ func TestExtractBundleInfoFromIPA_RejectsUnderstatedInfoPlistSize(t *testing.T) 
 	ipaPath := writeTestIPA(t, map[string][]byte{
 		"Payload/Demo.app/Info.plist": bytes.Repeat([]byte("A"), infoplist.MaxBytes*2),
 	})
-	forgeZipDeclaredUncompressedSize(t, ipaPath, 1024)
+	infoplisttest.ForgeZipDeclaredUncompressedSize(t, ipaPath, 1024)
 
 	if _, err := ExtractBundleInfoFromIPA(ipaPath); err == nil {
 		t.Fatal("expected rejection for forged ZIP size metadata, got nil")
@@ -300,30 +300,6 @@ func buildInfoPlistOfSize(t *testing.T, totalSize int) []byte {
 	}
 	t.Fatalf("failed to build an Info.plist of exactly %d bytes", totalSize)
 	return nil
-}
-
-// forgeZipDeclaredUncompressedSize rewrites the uncompressed-size field of the
-// single central-directory record so the archive understates how much data the
-// member expands to.
-func forgeZipDeclaredUncompressedSize(t *testing.T, ipaPath string, declaredSize uint32) {
-	t.Helper()
-
-	data, err := os.ReadFile(ipaPath)
-	if err != nil {
-		t.Fatalf("read IPA: %v", err)
-	}
-	const centralDirectorySignature = "PK\x01\x02"
-	index := bytes.Index(data, []byte(centralDirectorySignature))
-	if index < 0 {
-		t.Fatal("central directory header not found")
-	}
-	if bytes.Contains(data[index+len(centralDirectorySignature):], []byte(centralDirectorySignature)) {
-		t.Fatal("expected exactly one central directory header")
-	}
-	binary.LittleEndian.PutUint32(data[index+24:index+28], declaredSize)
-	if err := os.WriteFile(ipaPath, data, 0o600); err != nil {
-		t.Fatalf("write IPA: %v", err)
-	}
 }
 
 func buildInfoPlistWithValues(t *testing.T, versionValue any, buildValue any, format int) []byte {
