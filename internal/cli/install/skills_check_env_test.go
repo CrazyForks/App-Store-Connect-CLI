@@ -278,6 +278,33 @@ func TestSkillsCheckEnvironmentForwardsProxyConfigurationOnWindows(t *testing.T)
 	}
 }
 
+func TestSkillsCheckEnvironmentForwardsCATrustPaths(t *testing.T) {
+	base := []string{
+		"SSL_CERT_FILE=/etc/corp/ca-bundle.pem",
+		"SSL_CERT_DIR=/etc/corp/certs",
+		"NODE_EXTRA_CA_CERTS=/etc/corp/extra-ca.pem",
+		// NODE_OPTIONS can inject arbitrary code into the helper and must not
+		// ride along with the trust-store paths.
+		"NODE_OPTIONS=--require=/tmp/evil.js",
+	}
+
+	filtered := filterSkillsCheckEnvironment(base, "darwin")
+
+	values := envMap(filtered)
+	if values["SSL_CERT_FILE"] != "/etc/corp/ca-bundle.pem" {
+		t.Fatalf("SSL_CERT_FILE = %q, want the trust-store path forwarded", values["SSL_CERT_FILE"])
+	}
+	if values["SSL_CERT_DIR"] != "/etc/corp/certs" {
+		t.Fatalf("SSL_CERT_DIR = %q, want the trust-store path forwarded", values["SSL_CERT_DIR"])
+	}
+	if values["NODE_EXTRA_CA_CERTS"] != "/etc/corp/extra-ca.pem" {
+		t.Fatalf("NODE_EXTRA_CA_CERTS = %q, want the trust-store path forwarded", values["NODE_EXTRA_CA_CERTS"])
+	}
+	if _, ok := values["NODE_OPTIONS"]; ok {
+		t.Fatalf("NODE_OPTIONS must stay outside the allowlist: %v", filtered)
+	}
+}
+
 func TestSkillsCheckEnvironmentForwardsNpmCacheLocation(t *testing.T) {
 	base := []string{
 		"npm_config_cache=/custom/npm-cache",

@@ -18,7 +18,14 @@ var skillsCheckSharedEnvAllowlist = []string{
 	"LANG",
 	"LC_ALL",
 	"LC_CTYPE",
+	// CA trust-store paths are connectivity configuration: behind a corporate
+	// TLS proxy the helpers cannot establish TLS without them. They point at
+	// public trust anchors and carry no credential. NODE_OPTIONS stays
+	// excluded because it can inject arbitrary code into the helper.
+	"NODE_EXTRA_CA_CERTS",
 	"PATH",
+	"SSL_CERT_DIR",
+	"SSL_CERT_FILE",
 	"TEMP",
 	"TMP",
 	"TMPDIR",
