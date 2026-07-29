@@ -8,14 +8,16 @@ import (
 
 const reviewRedactionSentinel = "asc-red-sentinel-asc-demo-pw-2ad57e"
 
-func TestRedactSecretPreservesEmptyValues(t *testing.T) {
+func TestRedactSecretPreservesOnlyTheEmptyValue(t *testing.T) {
 	tests := []struct {
 		name  string
 		value string
 		want  string
 	}{
 		{name: "empty stays empty", value: "", want: ""},
-		{name: "whitespace stays whitespace", value: "   ", want: "   "},
+		// The API permits an unconstrained string, so a whitespace-only
+		// password is still a credential and must not pass through verbatim.
+		{name: "whitespace-only is still a secret", value: "   ", want: RedactedValuePlaceholder},
 		{name: "secret becomes placeholder", value: reviewRedactionSentinel, want: RedactedValuePlaceholder},
 	}
 

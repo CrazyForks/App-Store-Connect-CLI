@@ -1,16 +1,16 @@
 package asc
 
-import "strings"
-
 // RedactedValuePlaceholder marks a secret that was withheld from output. It is
 // deliberately not a valid App Store Connect value so a redacted payload can
 // never be mistaken for a usable credential.
 const RedactedValuePlaceholder = "(redacted)"
 
-// RedactSecret returns the placeholder for any non-empty secret and leaves
-// empty values untouched so absent fields stay absent in rendered output.
+// RedactSecret returns the placeholder for any non-empty secret and leaves the
+// empty value untouched so absent fields stay absent in rendered output. The
+// API permits an unconstrained string, so even a whitespace-only value is
+// treated as a credential.
 func RedactSecret(value string) string {
-	if strings.TrimSpace(value) == "" {
+	if value == "" {
 		return value
 	}
 	return RedactedValuePlaceholder
