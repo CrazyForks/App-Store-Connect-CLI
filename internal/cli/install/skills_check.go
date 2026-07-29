@@ -587,7 +587,7 @@ func defaultRunSkillsCheckCommand(ctx context.Context) (string, error) {
 		return runSkillsCheckProcess(ctx, skillsPath, []string{"check"}, nil)
 	}
 
-	npxPath, err := lookupNpx("npx")
+	npxPath, err := lookupExecutable("npx")
 	if err != nil {
 		return "", errSkillsCheckUnavailable
 	}
@@ -595,7 +595,7 @@ func defaultRunSkillsCheckCommand(ctx context.Context) (string, error) {
 	output, runErr := runSkillsCheckProcess(
 		ctx,
 		npxPath,
-		[]string{"--offline", "--yes", "skills", "check"},
+		[]string{"--offline", "--yes", skillsInstallerPackage, "check"},
 		append(os.Environ(), "npm_config_offline=true"),
 	)
 	if runErr != nil && isUnavailableSkillsCheckOutput(output) {
