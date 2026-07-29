@@ -9,6 +9,10 @@
 // refuses to follow symlinks for any component below the root. Writes stage
 // through unpredictable, exclusive, no-follow temporary files so a
 // pre-created symlink cannot redirect them.
+//
+// Roots created with AllowingInternalSymlinks relax only the parent-component
+// rule, accepting a symlinked directory whose target stays inside the root; a
+// symlinked final component is always refused.
 package rootfs
 
 import (

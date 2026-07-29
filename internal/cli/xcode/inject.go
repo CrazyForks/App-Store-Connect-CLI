@@ -623,19 +623,15 @@ func resolveXcodeInjectPath(root rootfs.Root, baseDir string, path string) (stri
 		return "", newXcodeInjectUsageError("path is required")
 	}
 	if err := rootfs.ValidateRelativeAllowingTraversal(trimmed); err != nil {
-		return "", newXcodeInjectUsageError(
-			"%v; manifest paths must be relative to the manifest directory and stay inside %q",
+		return "", fmt.Errorf(
+			"%w; manifest paths must be relative to the manifest directory and stay inside %s",
 			err,
 			root.Path(),
 		)
 	}
 	resolved, err := root.Resolve(filepath.Clean(filepath.Join(baseDir, trimmed)))
 	if err != nil {
-		return "", newXcodeInjectUsageError(
-			"%v; manifest paths must stay inside %q",
-			err,
-			root.Path(),
-		)
+		return "", fmt.Errorf("%w; manifest paths must stay inside %s", err, root.Path())
 	}
 	return resolved, nil
 }
