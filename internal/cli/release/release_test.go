@@ -160,7 +160,19 @@ func TestExecuteRun_ResumesCompletedCheckpoint(t *testing.T) {
 		readinessReportBuilder = origReadinessBuilder
 	})
 
-	releaseClientFactory = func() (*asc.Client, error) { return nil, nil }
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"SUBMISSION_123","attributes":{"state":"WAITING_FOR_REVIEW","platform":"IOS"},"relationships":{"appStoreVersionForReview":{"data":{"type":"appStoreVersions","id":"VERSION_123"}}}}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+	releaseClientFactory = func() (*asc.Client, error) { return client, nil }
 	metadataPushExecutor = func(context.Context, metadata.PushExecutionOptions) (metadata.PushPlanResult, error) {
 		t.Fatal("metadata executor should not be called for completed checkpoint")
 		return metadata.PushPlanResult{}, nil
@@ -603,6 +615,8 @@ func TestExecuteRun_EmitsSubmitProgressMessagesToStderr(t *testing.T) {
 			return releaseJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/reviewSubmissions":
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"reviewSubmissions","id":"STALE_123","attributes":{"state":"READY_FOR_REVIEW","platform":"IOS"}}]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/STALE_123/items":
+			return releaseJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
 		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/STALE_123":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"STALE_123","attributes":{"state":"CANCELED","platform":"IOS"}}}`)
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/reviewSubmissions":

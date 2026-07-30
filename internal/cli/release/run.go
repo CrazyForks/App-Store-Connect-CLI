@@ -195,6 +195,35 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 	requestCtx, cancel := shared.ContextWithTimeoutDuration(ctx, opts.Timeout)
 	defer cancel()
 
+	if result.Resumed || strings.TrimSpace(checkpoint.VersionID) != "" {
+		completedBeforeVerification := len(checkpoint.Completed)
+		submissionBeforeVerification := strings.TrimSpace(checkpoint.SubmissionID)
+		if err := verifyResumedCheckpointBinding(requestCtx, client, opts, &checkpoint, nil); err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+			result.VersionID = ""
+			result.SubmissionID = ""
+			return result, err
+		}
+		// Verification only ever discards completions. Persist those discards
+		// before the pipeline mutates anything: otherwise a later checkpoint
+		// write that fails leaves the stale flags on disk, and the next resume
+		// finds the mutation already applied and skips the steps the discard
+		// was meant to force.
+		discarded := len(checkpoint.Completed) != completedBeforeVerification ||
+			strings.TrimSpace(checkpoint.SubmissionID) != submissionBeforeVerification
+		if !opts.DryRun && discarded {
+			if saveErr := saveCheckpoint(opts.CheckpointFile, checkpoint); saveErr != nil {
+				result.Status = "error"
+				result.Error = saveErr.Error()
+				return result, saveErr
+			}
+		}
+		result.Resumed = len(checkpoint.Completed) > 0
+		result.VersionID = strings.TrimSpace(checkpoint.VersionID)
+		result.SubmissionID = strings.TrimSpace(checkpoint.SubmissionID)
+	}
+
 	versionID := strings.TrimSpace(checkpoint.VersionID)
 	submissionID := strings.TrimSpace(checkpoint.SubmissionID)
 	versionPlannedCreate := false

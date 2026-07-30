@@ -198,7 +198,7 @@ func TestReviewsRespondBatchCreatesGroupedReplies(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--output", "json"}); err != nil {
+		if err := root.Parse([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--output", "json", "--confirm"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -320,7 +320,7 @@ func TestReviewsRespondBatchSkipExisting(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--skip-existing", "--output", "json"}); err != nil {
+		if err := root.Parse([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--skip-existing", "--output", "json", "--confirm"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -370,7 +370,7 @@ func TestReviewsRespondBatchResponseStateUnrespondedSkipsRespondedReviews(t *tes
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--response-state", "unresponded", "--output", "json"}); err != nil {
+		if err := root.Parse([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--response-state", "unresponded", "--output", "json", "--confirm"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -405,7 +405,7 @@ func TestReviewsRespondBatchRejectsOversizedFileWithoutRequests(t *testing.T) {
 	inputPath := writeReviewBatchFile(t, reviewBatchJSONOfSize(t, reviewBatchFileByteLimit+1))
 
 	stdout, stderr := captureOutput(t, func() {
-		code := cmd.Run([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath}, "1.2.3")
+		code := cmd.Run([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--confirm"}, "1.2.3")
 		if code != cmd.ExitUsage {
 			t.Fatalf("expected exit code %d, got %d", cmd.ExitUsage, code)
 		}
@@ -536,31 +536,31 @@ func TestReviewsRespondBatchValidationErrors(t *testing.T) {
 		},
 		{
 			name:    "bad json",
-			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE"},
+			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE", "--confirm"},
 			body:    `{"replies":[`,
 			wantErr: "failed to parse",
 		},
 		{
 			name:    "trailing json",
-			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE"},
+			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE", "--confirm"},
 			body:    `{"replies":[{"response":"Thanks","reviewIds":["review-1"]}]} {"extra":true}`,
 			wantErr: "multiple JSON values are not allowed",
 		},
 		{
 			name:    "duplicate review id",
-			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE"},
+			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE", "--confirm"},
 			body:    `{"replies":[{"response":"Thanks","reviewIds":["review-1","review-1"]}]}`,
 			wantErr: "duplicate review id",
 		},
 		{
 			name:    "empty response",
-			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE"},
+			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE", "--confirm"},
 			body:    `{"replies":[{"response":" ","reviewIds":["review-1"]}]}`,
 			wantErr: "response is required",
 		},
 		{
 			name:    "empty review id",
-			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE"},
+			args:    []string{"reviews", "respond-batch", "--app", "app-1", "--file", "FILE", "--confirm"},
 			body:    `{"replies":[{"response":"Thanks","reviewIds":[" "]}]}`,
 			wantErr: "reviewIds[0] is required",
 		},
@@ -756,7 +756,7 @@ func TestRunReviewsRespondBatchPartialFailureReturnsExitError(t *testing.T) {
 	}))
 
 	stdout, stderr := captureOutput(t, func() {
-		code := cmd.Run([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--output", "json"}, "1.2.3")
+		code := cmd.Run([]string{"reviews", "respond-batch", "--app", "app-1", "--file", inputPath, "--output", "json", "--confirm"}, "1.2.3")
 		if code != cmd.ExitError {
 			t.Fatalf("expected exit code %d, got %d", cmd.ExitError, code)
 		}

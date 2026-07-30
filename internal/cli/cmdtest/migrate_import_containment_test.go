@@ -52,6 +52,7 @@ func TestMigrateImportRejectsSymlinkedMetadataBeforeAnyRequest(t *testing.T) {
 			"--app", "APP_ID",
 			"--version-id", "VERSION_ID",
 			"--fastlane-dir", fastlaneDir,
+			"--confirm",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}

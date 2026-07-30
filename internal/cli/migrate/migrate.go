@@ -30,7 +30,7 @@ func MigrateCommand() *ffcli.Command {
 This enables transitioning from fastlane's deliver tool to asc.
 
 Examples:
-  asc migrate import --app "APP_ID" --version "VERSION_ID" --fastlane-dir ./fastlane
+  asc migrate import --app "APP_ID" --version "VERSION_ID" --fastlane-dir ./fastlane --confirm
   asc migrate export --app "APP_ID" --version "VERSION_ID" --output-dir ./fastlane
   asc migrate metadata pull --app "APP_ID" --version "1.2.3" --dir "./metadata"`,
 		FlagSet:   fs,
@@ -55,6 +55,7 @@ func MigrateImportCommand() *ffcli.Command {
 	versionID := fs.String("version-id", "", "App Store version ID (required unless Deliverfile app_version + platform)")
 	fastlaneDir := fs.String("fastlane-dir", "", "Path to fastlane directory (optional)")
 	dryRun := fs.Bool("dry-run", false, "Preview changes without uploading")
+	confirm := fs.Bool("confirm", false, "Confirm uploading the imported metadata and screenshots (required unless --dry-run)")
 	skipScreenshots := fs.Bool("skip-screenshots", false, "Skip screenshot discovery and upload")
 	includeSensitive := shared.BindIncludeSensitiveFlag(fs)
 	output := shared.BindOutputFlags(fs)
@@ -95,12 +96,20 @@ or conventional metadata/ and screenshots/ directories:
   │   │   └── ...
 
 Examples:
-  asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane
+  asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --confirm
   asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --dry-run
-  asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --skip-screenshots`,
+  asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --skip-screenshots --confirm`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			// A fastlane directory turns into localization updates, review
+			// information changes, and screenshot uploads, so the same apply
+			// decision the other file-driven importers require is enforced
+			// here before the directory is even read.
+			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
+				return err
+			}
+
 			workDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("migrate import: %w", err)
@@ -244,6 +253,10 @@ Examples:
 			if requestCtx == nil {
 				requestCtx, cancel = shared.ContextWithTimeout(ctx)
 				defer cancel()
+			}
+
+			if err := verifyExplicitVersionOwnership(requestCtx, client, *versionID, resolvedAppID, resolvedVersionID); err != nil {
+				return fmt.Errorf("migrate import: %w", err)
 			}
 
 			localeToID := make(map[string]string)

@@ -60,6 +60,23 @@ func resolveVersionID(ctx context.Context, client *asc.Client, versionFlag strin
 	return shared.ResolveAppStoreVersionID(ctx, client, appID, config.AppVersion, normalizedPlatform)
 }
 
+// verifyExplicitVersionOwnership proves that an operator-supplied --version-id
+// belongs to the selected app before any version is mutated. Deliverfile
+// resolution already scopes its lookup to the app, so only the explicit flag
+// needs the extra round trip.
+func verifyExplicitVersionOwnership(ctx context.Context, client *asc.Client, versionFlag, appID, versionID string) error {
+	if strings.TrimSpace(versionFlag) == "" {
+		return nil
+	}
+	if client == nil {
+		return fmt.Errorf("--version-id requires API access to verify that it belongs to app %s", appID)
+	}
+	if _, err := shared.ResolveOwnedAppStoreVersionByID(ctx, client, appID, versionID, ""); err != nil {
+		return err
+	}
+	return nil
+}
+
 func normalizeDeliverfilePlatform(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "ios":

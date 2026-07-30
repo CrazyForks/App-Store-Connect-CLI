@@ -98,6 +98,10 @@ func GenerateJWT(keyID, issuerID string, privateKey *ecdsa.PrivateKey) (string, 
 // do performs an HTTP request and returns the response.
 // GET/HEAD requests use retry logic for transient failures by default.
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader) ([]byte, error) {
+	if err := validateMutatingRequestTarget(method, path); err != nil {
+		return nil, err
+	}
+
 	var bodyBytes []byte
 	if body != nil {
 		var err error

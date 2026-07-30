@@ -259,6 +259,7 @@ func BetaTestersImportCommand() *ffcli.Command {
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
 	inputPath := fs.String("input", "", "Input CSV file path (required)")
 	dryRun := fs.Bool("dry-run", false, "Validate and print plan without mutating network state")
+	confirm := fs.Bool("confirm", false, "Confirm creating and updating beta testers (required unless --dry-run)")
 	invite := fs.Bool("invite", false, "Invite newly created testers (default false)")
 	group := fs.String("group", "", "Beta group name or ID to apply to all rows (optional)")
 	skipExisting := fs.Bool("skip-existing", false, "If tester already exists, do not modify group membership")
@@ -286,9 +287,9 @@ neutralization that "beta-testers export" applies.
 
 Examples:
   asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv" --dry-run
-  asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv"
-  asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv" --invite
-  asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv" --group "Beta"`,
+  asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv" --confirm
+  asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv" --invite --confirm
+  asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv" --group "Beta" --confirm`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -302,6 +303,10 @@ Examples:
 			if inputValue == "" {
 				fmt.Fprintf(os.Stderr, "Error: --input is required\n\n")
 				return shared.MissingRequiredUsageError()
+			}
+
+			if err := shared.RequireConfirmUnlessDryRun(*dryRun, *confirm); err != nil {
+				return err
 			}
 
 			client, err := shared.GetASCClient()
