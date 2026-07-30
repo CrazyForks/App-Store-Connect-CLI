@@ -269,6 +269,12 @@ func (i *reviewSubmissionInspector) summarize(ctx context.Context, submissionID 
 	return summary, nil
 }
 
+// forget drops the cached item summary for a submission whose membership may
+// have changed since it was read, forcing the next inspection to re-fetch.
+func (i *reviewSubmissionInspector) forget(submissionID string) {
+	delete(i.summaries, strings.TrimSpace(submissionID))
+}
+
 func (i *reviewSubmissionInspector) canReuse(ctx context.Context, submission *asc.ReviewSubmissionResource) (reusable bool, hasVersion bool, err error) {
 	if submission == nil {
 		return false, false, nil
@@ -339,6 +345,10 @@ func (i *reviewSubmissionInspector) reusableAfterCancelConflict(ctx context.Cont
 	if err != nil {
 		return "", false, err
 	}
+
+	// The cancel conflict proves the submission changed after the initial
+	// inspection, so the cached item summary can no longer decide reuse.
+	i.forget(submissionID)
 	if refreshed == nil || refreshed.Attributes.SubmissionState != asc.ReviewSubmissionStateReadyForReview {
 		return "", false, nil
 	}

@@ -2714,6 +2714,7 @@ func TestPrepareReviewSubmissionForCreatePreservesCanceledIDsWhenReusingAfterCon
 		"GET /v1/reviewSubmissions/reusable-empty-sub/items?limit=200",
 		"PATCH /v1/reviewSubmissions/reusable-empty-sub",
 		"GET /v1/reviewSubmissions/reusable-empty-sub",
+		"GET /v1/reviewSubmissions/reusable-empty-sub/items?limit=200",
 	}
 	if !reflect.DeepEqual(requests, wantRequests) {
 		t.Fatalf("unexpected requests: got %v want %v", requests, wantRequests)
