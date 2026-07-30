@@ -64,6 +64,16 @@ func TestSanitizeTerminalTextRemovesInterpretedSequences(t *testing.T) {
 			want:  "row onerow tworow three",
 		},
 		{
+			name:  "raw single-byte c1 controls in invalid utf-8",
+			input: "state\x9b2K\x9d0;pwned",
+			want:  "state2K0;pwned",
+		},
+		{
+			name:  "invalid utf-8 continuation byte",
+			input: "name\xc2suffix",
+			want:  "namesuffix",
+		},
+		{
 			name:  "newline and tab",
 			input: "line one\nline\ttwo",
 			want:  "line onelinetwo",
@@ -89,7 +99,7 @@ func TestSanitizeTerminalTextRemovesInterpretedSequences(t *testing.T) {
 }
 
 func TestHasInterpretedTerminalSequenceDetectsControls(t *testing.T) {
-	unsafe := []string{"\x1b[0m", "\u009b0m", "\u202e", "\u2069", "\u061c", "\u2028", "\u2029", "\x7f", "\r", "\n"}
+	unsafe := []string{"\x1b[0m", "\u009b0m", "\u202e", "\u2069", "\u061c", "\u2028", "\u2029", "\x7f", "\r", "\n", "\x9b", "\x9d"}
 	for _, value := range unsafe {
 		if !HasInterpretedTerminalSequence(value) {
 			t.Fatalf("HasInterpretedTerminalSequence(%q) = false, want true", value)

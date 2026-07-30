@@ -1,6 +1,9 @@
 package asc
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // SanitizeTerminalText removes characters that a terminal, pager, or CI log
 // viewer interprets instead of displaying. Structured output (JSON) keeps the
@@ -20,6 +23,10 @@ import "strings"
 //
 // Line breaks and tabs are removed rather than preserved so a single value
 // cannot forge extra rows or columns in table, Markdown, or log output.
+//
+// Invalid UTF-8 bytes are removed as well: a raw 0x9B or 0x9D byte is the
+// single-byte CSI or OSC form on terminals that accept 8-bit C1 controls, and
+// ranging over the string would otherwise decode it to U+FFFD and keep it.
 func SanitizeTerminalText(input string) string {
 	if input == "" || !HasInterpretedTerminalSequence(input) {
 		return input
@@ -27,11 +34,14 @@ func SanitizeTerminalText(input string) string {
 
 	var b strings.Builder
 	b.Grow(len(input))
-	for _, r := range input {
-		if isInterpretedTerminalRune(r) {
+	for i := 0; i < len(input); {
+		r, size := utf8.DecodeRuneInString(input[i:])
+		if (r == utf8.RuneError && size == 1) || isInterpretedTerminalRune(r) {
+			i += size
 			continue
 		}
-		b.WriteRune(r)
+		b.WriteString(input[i : i+size])
+		i += size
 	}
 	return b.String()
 }
@@ -39,10 +49,12 @@ func SanitizeTerminalText(input string) string {
 // HasInterpretedTerminalSequence reports whether input contains any character
 // that SanitizeTerminalText removes.
 func HasInterpretedTerminalSequence(input string) bool {
-	for _, r := range input {
-		if isInterpretedTerminalRune(r) {
+	for i := 0; i < len(input); {
+		r, size := utf8.DecodeRuneInString(input[i:])
+		if (r == utf8.RuneError && size == 1) || isInterpretedTerminalRune(r) {
 			return true
 		}
+		i += size
 	}
 	return false
 }
