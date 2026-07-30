@@ -92,39 +92,54 @@ func verifyResumedCheckpointBinding(
 
 	if checkpoint.Completed[stepSubmitReview] {
 		submissionID := strings.TrimSpace(checkpoint.SubmissionID)
-		boundVersionID, submissionState, submissionErr := reviewSubmissionBinding(ctx, client, submissionID)
-		switch {
-		case submissionID == "":
+		if submissionID == "" {
 			delete(checkpoint.Completed, stepSubmitReview)
 			emitMessage("Rechecking %s: the checkpoint reports a submission without recording its ID.", stepSubmitReview)
-		case submissionErr != nil && asc.IsNotFound(submissionErr):
-			delete(checkpoint.Completed, stepSubmitReview)
-			checkpoint.SubmissionID = ""
-			emitMessage("Rechecking %s: review submission %s no longer exists.", stepSubmitReview, submissionID)
-		case submissionErr != nil:
-			// An indeterminate read must not discard the completion:
-			// re-running submit_review is not idempotent and could create a
-			// second submission. Preserve the checkpoint and stop.
-			return fmt.Errorf("checkpoint completed step %q could not be verified for submission %s: %w", stepSubmitReview, submissionID, submissionErr)
-		case boundVersionID != versionID:
-			delete(checkpoint.Completed, stepSubmitReview)
-			checkpoint.SubmissionID = ""
-			emitMessage(
-				"Rechecking %s: review submission %s is bound to version %q, not %q.",
-				stepSubmitReview,
-				submissionID,
-				boundVersionID,
-				versionID,
-			)
-		case !reviewSubmissionStateProvesSubmission(submissionState):
-			delete(checkpoint.Completed, stepSubmitReview)
-			checkpoint.SubmissionID = ""
-			emitMessage(
-				"Rechecking %s: review submission %s is in state %q, which does not prove it was submitted.",
-				stepSubmitReview,
-				submissionID,
-				string(submissionState),
-			)
+		} else {
+			bound, submissionState, submissionErr := reviewSubmissionBoundToVersion(ctx, client, submissionID, versionID)
+			switch {
+			case submissionErr != nil && asc.IsNotFound(submissionErr):
+				// The recorded ID may come from the legacy
+				// appStoreVersionSubmissions flow, which the modern endpoint
+				// reports as missing. Verify it against the legacy per-version
+				// relationship before treating the completion as disproven.
+				legacyProven, legacyErr := legacySubmissionMatches(ctx, client, versionID, submissionID)
+				switch {
+				case legacyErr != nil && asc.IsNotFound(legacyErr):
+					delete(checkpoint.Completed, stepSubmitReview)
+					checkpoint.SubmissionID = ""
+					emitMessage("Rechecking %s: review submission %s no longer exists.", stepSubmitReview, submissionID)
+				case legacyErr != nil:
+					return fmt.Errorf("checkpoint completed step %q could not be verified for submission %s: %w", stepSubmitReview, submissionID, legacyErr)
+				case !legacyProven:
+					delete(checkpoint.Completed, stepSubmitReview)
+					checkpoint.SubmissionID = ""
+					emitMessage("Rechecking %s: review submission %s no longer exists.", stepSubmitReview, submissionID)
+				}
+			case submissionErr != nil:
+				// An indeterminate read must not discard the completion:
+				// re-running submit_review is not idempotent and could create
+				// a second submission. Preserve the checkpoint and stop.
+				return fmt.Errorf("checkpoint completed step %q could not be verified for submission %s: %w", stepSubmitReview, submissionID, submissionErr)
+			case !bound:
+				delete(checkpoint.Completed, stepSubmitReview)
+				checkpoint.SubmissionID = ""
+				emitMessage(
+					"Rechecking %s: review submission %s is not bound to version %q.",
+					stepSubmitReview,
+					submissionID,
+					versionID,
+				)
+			case !reviewSubmissionStateProvesSubmission(submissionState):
+				delete(checkpoint.Completed, stepSubmitReview)
+				checkpoint.SubmissionID = ""
+				emitMessage(
+					"Rechecking %s: review submission %s is in state %q, which does not prove it was submitted.",
+					stepSubmitReview,
+					submissionID,
+					string(submissionState),
+				)
+			}
 		}
 	}
 
@@ -153,38 +168,36 @@ func attachedAppStoreVersionBuildID(ctx context.Context, client *asc.Client, ver
 	return strings.TrimSpace(resp.Data.ID), nil
 }
 
-func reviewSubmissionBinding(ctx context.Context, client *asc.Client, submissionID string) (string, asc.ReviewSubmissionState, error) {
-	if strings.TrimSpace(submissionID) == "" {
-		return "", "", nil
-	}
+// reviewSubmissionBoundToVersion reports whether the submission is bound to
+// the given version, using the appStoreVersionForReview linkage when present
+// and scanning every item page for the version when the linkage is absent (a
+// plain GET may omit it).
+func reviewSubmissionBoundToVersion(ctx context.Context, client *asc.Client, submissionID, versionID string) (bool, asc.ReviewSubmissionState, error) {
 	resp, err := client.GetReviewSubmission(ctx, submissionID)
 	if err != nil {
-		return "", "", err
+		return false, "", err
 	}
 	if resp == nil {
-		return "", "", nil
+		return false, "", nil
 	}
 	state := resp.Data.Attributes.SubmissionState
 	if resp.Data.Relationships != nil && resp.Data.Relationships.AppStoreVersionForReview != nil {
-		if versionID := strings.TrimSpace(resp.Data.Relationships.AppStoreVersionForReview.Data.ID); versionID != "" {
-			return versionID, state, nil
+		if linked := strings.TrimSpace(resp.Data.Relationships.AppStoreVersionForReview.Data.ID); linked != "" {
+			return linked == versionID, state, nil
 		}
 	}
 
-	// A plain GET may omit the appStoreVersionForReview linkage, so re-derive
-	// the bound version from the submission's items before treating the
-	// binding as unproven.
-	versionID, err := reviewSubmissionVersionIDFromItems(ctx, client, submissionID)
+	included, err := reviewSubmissionItemsIncludeVersion(ctx, client, submissionID, versionID)
 	if err != nil {
-		return "", state, err
+		return false, state, err
 	}
-	return versionID, state, nil
+	return included, state, nil
 }
 
-func reviewSubmissionVersionIDFromItems(ctx context.Context, client *asc.Client, submissionID string) (string, error) {
+func reviewSubmissionItemsIncludeVersion(ctx context.Context, client *asc.Client, submissionID, versionID string) (bool, error) {
 	resp, err := client.GetReviewSubmissionItems(ctx, submissionID, asc.WithReviewSubmissionItemsLimit(200))
 	if err != nil {
-		return "", err
+		return false, err
 	}
 
 	for {
@@ -192,19 +205,32 @@ func reviewSubmissionVersionIDFromItems(ctx context.Context, client *asc.Client,
 			if item.Relationships == nil || item.Relationships.AppStoreVersion == nil {
 				continue
 			}
-			if versionID := strings.TrimSpace(item.Relationships.AppStoreVersion.Data.ID); versionID != "" {
-				return versionID, nil
+			if strings.TrimSpace(item.Relationships.AppStoreVersion.Data.ID) == versionID {
+				return true, nil
 			}
 		}
 		nextURL := strings.TrimSpace(resp.Links.Next)
 		if nextURL == "" {
-			return "", nil
+			return false, nil
 		}
 		resp, err = client.GetReviewSubmissionItems(ctx, submissionID, asc.WithReviewSubmissionItemsNextURL(nextURL))
 		if err != nil {
-			return "", err
+			return false, err
 		}
 	}
+}
+
+// legacySubmissionMatches reports whether the version's legacy
+// appStoreVersionSubmission exists and carries the recorded submission ID.
+func legacySubmissionMatches(ctx context.Context, client *asc.Client, versionID, submissionID string) (bool, error) {
+	resp, err := client.GetAppStoreVersionSubmissionForVersion(ctx, versionID)
+	if err != nil {
+		return false, err
+	}
+	if resp == nil {
+		return false, nil
+	}
+	return strings.TrimSpace(resp.Data.ID) == submissionID, nil
 }
 
 // reviewSubmissionStateProvesSubmission reports whether a fetched submission

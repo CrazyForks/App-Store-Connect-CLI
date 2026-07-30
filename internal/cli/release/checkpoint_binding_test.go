@@ -293,6 +293,83 @@ func TestVerifyResumedCheckpointBindingResolvesSubmissionVersionFromItems(t *tes
 	}
 }
 
+// TestVerifyResumedCheckpointBindingScansAllItemsForResumedVersion proves the
+// item fallback searches for the checkpoint's version instead of trusting the
+// first item that carries any version: a submission holding another item ahead
+// of the resumed version must still count as bound.
+func TestVerifyResumedCheckpointBindingScansAllItemsForResumedVersion(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"SUBMISSION_123","attributes":{"state":"WAITING_FOR_REVIEW","platform":"IOS"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123/items":
+			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"reviewSubmissionItems","id":"ITEM_OTHER","relationships":{"appStoreVersion":{"data":{"type":"appStoreVersions","id":"VERSION_OTHER"}}}},{"type":"reviewSubmissionItems","id":"ITEM_TARGET","relationships":{"appStoreVersion":{"data":{"type":"appStoreVersions","id":"VERSION_123"}}}}],"links":{}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID:    "VERSION_123",
+		SubmissionID: "SUBMISSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion: true,
+			stepAttachBuild:   true,
+			stepSubmitReview:  true,
+		},
+	}
+	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, nil); err != nil {
+		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
+	}
+	if !checkpoint.Completed[stepSubmitReview] {
+		t.Fatal("expected submit_review completion to survive when a later item holds the resumed version")
+	}
+}
+
+// TestVerifyResumedCheckpointBindingKeepsLegacySubmissionCheckpoint proves a
+// checkpoint recorded from the legacy appStoreVersionSubmissions flow is
+// verified through the legacy per-version endpoint instead of being discarded
+// on the modern endpoint's 404 every resume.
+func TestVerifyResumedCheckpointBindingKeepsLegacySubmissionCheckpoint(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/LEGACY_SUB_123":
+			return releaseJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/appStoreVersionSubmission":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionSubmissions","id":"LEGACY_SUB_123"}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID:    "VERSION_123",
+		SubmissionID: "LEGACY_SUB_123",
+		Completed: map[string]bool{
+			stepEnsureVersion: true,
+			stepAttachBuild:   true,
+			stepSubmitReview:  true,
+		},
+	}
+	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, nil); err != nil {
+		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
+	}
+	if !checkpoint.Completed[stepSubmitReview] {
+		t.Fatal("expected legacy submission checkpoint to survive verification via the legacy endpoint")
+	}
+	if checkpoint.SubmissionID != "LEGACY_SUB_123" {
+		t.Fatalf("expected legacy submission ID to survive, got %q", checkpoint.SubmissionID)
+	}
+}
+
 // TestVerifyResumedCheckpointBindingAbortsOnIndeterminateSubmissionRead proves
 // that a transient submission read failure aborts the resume instead of
 // discarding the completion: re-running submit_review is not idempotent and
@@ -346,6 +423,8 @@ func TestVerifyResumedCheckpointBindingDropsSubmissionThatNoLongerExists(t *test
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123":
+			return releaseJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/appStoreVersionSubmission":
 			return releaseJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
 		default:
 			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
