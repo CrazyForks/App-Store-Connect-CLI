@@ -311,38 +311,58 @@ func TestInstallSkillsStopsWhenPinnedCommitCannotBeFetched(t *testing.T) {
 }
 
 // TestInstallSkillsRejectsInstallerDirectoryInsideNodeProject guards the
-// isolated npx directory against TMPDIR pointing into a Node.js project: npm
-// walks up from the working directory, so an ancestor node_modules could still
-// shadow the pinned registry package with a local skills dependency.
+// isolated npx directory against TMPDIR pointing into an npm project: npm walks
+// up from the working directory, so an ancestor node_modules could shadow the
+// pinned registry package with a local skills dependency, and an ancestor
+// package.json or .npmrc could redirect the install to a project-controlled
+// registry.
 func TestInstallSkillsRejectsInstallerDirectoryInsideNodeProject(t *testing.T) {
-	project := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(project, "node_modules"), 0o755); err != nil {
-		t.Fatalf("create node_modules fixture: %v", err)
+	markers := []struct {
+		name string
+		dir  bool
+	}{
+		{name: "node_modules", dir: true},
+		{name: "package.json", dir: false},
+		{name: ".npmrc", dir: false},
 	}
-	tmpInsideProject := filepath.Join(project, "tmp")
-	if err := os.MkdirAll(tmpInsideProject, 0o755); err != nil {
-		t.Fatalf("create nested tmp dir: %v", err)
-	}
-	t.Setenv("TMPDIR", tmpInsideProject)
 
-	stubLookups(t, map[string]string{"npx": "/bin/npx", "git": "/bin/git"})
-	recorded := recordCommands(t)
+	for _, marker := range markers {
+		t.Run(marker.name, func(t *testing.T) {
+			project := t.TempDir()
+			markerPath := filepath.Join(project, marker.name)
+			if marker.dir {
+				if err := os.MkdirAll(markerPath, 0o755); err != nil {
+					t.Fatalf("create %s fixture: %v", marker.name, err)
+				}
+			} else if err := os.WriteFile(markerPath, []byte("{}"), 0o644); err != nil {
+				t.Fatalf("create %s fixture: %v", marker.name, err)
+			}
+			tmpInsideProject := filepath.Join(project, "tmp")
+			if err := os.MkdirAll(tmpInsideProject, 0o755); err != nil {
+				t.Fatalf("create nested tmp dir: %v", err)
+			}
+			t.Setenv("TMPDIR", tmpInsideProject)
 
-	cmd := InstallSkillsCommand()
-	if err := cmd.Parse([]string{}); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	err := cmd.Run(context.Background())
-	if err == nil {
-		t.Fatal("expected an error when TMPDIR sits inside a Node.js project")
-	}
-	if !strings.Contains(err.Error(), "node_modules") {
-		t.Fatalf("expected the error to explain the node_modules conflict, got %q", err.Error())
-	}
-	for _, call := range *recorded {
-		if call.name == "/bin/npx" {
-			t.Fatalf("installer ran despite the unsafe working directory: %#v", call)
-		}
+			stubLookups(t, map[string]string{"npx": "/bin/npx", "git": "/bin/git"})
+			recorded := recordCommands(t)
+
+			cmd := InstallSkillsCommand()
+			if err := cmd.Parse([]string{}); err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+			err := cmd.Run(context.Background())
+			if err == nil {
+				t.Fatal("expected an error when TMPDIR sits inside an npm project")
+			}
+			if !strings.Contains(err.Error(), marker.name) {
+				t.Fatalf("expected the error to name the %s marker, got %q", marker.name, err.Error())
+			}
+			for _, call := range *recorded {
+				if call.name == "/bin/npx" {
+					t.Fatalf("installer ran despite the unsafe working directory: %#v", call)
+				}
+			}
+		})
 	}
 }
 

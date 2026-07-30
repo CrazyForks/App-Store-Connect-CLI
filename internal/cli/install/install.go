@@ -112,33 +112,43 @@ func installSkills(ctx context.Context) error {
 	return runCommandInDir(ctx, runDir, npxPath, "--yes", skillsInstallerPackage, "add", sourceDir, "--global", "--agent", "codex", "--yes")
 }
 
+// npmProjectMarkers are the entries that make npm treat a directory as a
+// project root: node_modules can satisfy a package specifier with a local
+// dependency, and package.json or .npmrc supply project configuration such as
+// a replacement registry.
+var npmProjectMarkers = []string{"node_modules", "package.json", ".npmrc"}
+
 // isolatedInstallerDir creates the working directory for the pinned installer
-// and verifies that no ancestor carries a node_modules directory. npm resolves
-// package specifiers against local dependencies found by walking up from the
-// working directory, so TMPDIR pointing inside a Node.js project would let a
-// repository-controlled skills package shadow the pinned registry package.
+// and verifies that no ancestor carries an npm project marker. npm resolves
+// package specifiers against local dependencies and reads project
+// configuration by walking up from the working directory, so TMPDIR pointing
+// inside an npm project would let repository-controlled files shadow or
+// redirect the pinned registry package.
 func isolatedInstallerDir() (string, error) {
 	runDir, err := os.MkdirTemp("", "asc-skills-npx-")
 	if err != nil {
 		return "", fmt.Errorf("failed to create an isolated working directory for the installer: %w", err)
 	}
-	if ancestor := nearestNodeModulesAncestor(runDir); ancestor != "" {
+	if ancestor, marker := nearestNpmProjectAncestor(runDir); ancestor != "" {
 		_ = os.RemoveAll(runDir)
-		return "", fmt.Errorf("temporary directory %s sits inside a Node.js project (%s contains node_modules), which could shadow the pinned installer; point TMPDIR outside any Node.js project and retry", runDir, ancestor)
+		return "", fmt.Errorf("temporary directory %s sits inside an npm project (%s contains %s), which could shadow or redirect the pinned installer; point TMPDIR outside any npm project and retry", runDir, ancestor, marker)
 	}
 	return runDir, nil
 }
 
-// nearestNodeModulesAncestor returns the closest directory at or above dir that
-// contains a node_modules entry, or an empty string when there is none.
-func nearestNodeModulesAncestor(dir string) string {
+// nearestNpmProjectAncestor returns the closest directory at or above dir that
+// contains an npm project marker together with the marker it found, or empty
+// strings when there is none.
+func nearestNpmProjectAncestor(dir string) (string, string) {
 	for current := dir; ; {
-		if _, err := os.Stat(filepath.Join(current, "node_modules")); err == nil {
-			return current
+		for _, marker := range npmProjectMarkers {
+			if _, err := os.Stat(filepath.Join(current, marker)); err == nil {
+				return current, marker
+			}
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
-			return ""
+			return "", ""
 		}
 		current = parent
 	}
