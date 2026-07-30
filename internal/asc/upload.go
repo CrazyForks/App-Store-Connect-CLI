@@ -10,11 +10,12 @@ import (
 	"hash"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/urlsanitize"
 )
 
 const (
@@ -42,19 +43,6 @@ type UploadOption func(*UploadOptions)
 type uploadTask struct {
 	index int
 	op    UploadOperation
-}
-
-type sanitizedUploadError struct {
-	message string
-	err     error
-}
-
-func (e *sanitizedUploadError) Error() string {
-	return e.message
-}
-
-func (e *sanitizedUploadError) Unwrap() error {
-	return e.err
 }
 
 // WithUploadConcurrency sets the number of concurrent upload workers.
@@ -287,21 +275,11 @@ func executeUploadOperation(ctx context.Context, file *os.File, task uploadTask,
 	return nil
 }
 
+// newSanitizedUploadError is the single upload-error boundary: presigned upload
+// URLs carry their capability in userinfo, query, and fragment, and net/http
+// renders the whole URL in its own error text.
 func newSanitizedUploadError(operation, rawURL string, err error) error {
-	safeURL := sanitizeURLForLog(rawURL)
-	parsedURL, parseErr := url.Parse(safeURL)
-	if parseErr != nil {
-		safeURL = "[REDACTED]"
-	} else {
-		parsedURL.RawQuery = ""
-		parsedURL.ForceQuery = false
-		parsedURL.Fragment = ""
-		safeURL = parsedURL.String()
-	}
-	return &sanitizedUploadError{
-		message: fmt.Sprintf("%s failed for %s", operation, safeURL),
-		err:     err,
-	}
+	return urlsanitize.NewTransportError(operation, urlsanitize.RedactURLForError(rawURL), err)
 }
 
 // VerifySourceFileChecksums computes and compares checksums provided by the API.
