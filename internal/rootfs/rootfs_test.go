@@ -353,6 +353,19 @@ func TestWriteFilePreservingModeKeepsExistingModeAndDefaultsForNew(t *testing.T)
 	}
 }
 
+func TestWriteFilePreservingModeCreatesMissingIntermediateDirectories(t *testing.T) {
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	name := filepath.Join("nested", "deep", "fresh.txt")
+
+	if err := root.WriteFilePreservingMode(name, []byte("data"), 0o640); err != nil {
+		t.Fatalf("WriteFilePreservingMode() error = %v", err)
+	}
+	if got := mustRead(t, filepath.Join(dir, name)); got != "data" {
+		t.Fatalf("content = %q, want %q", got, "data")
+	}
+}
+
 func TestCreateNewFileRefusesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "AuthKey.p8"), "existing")

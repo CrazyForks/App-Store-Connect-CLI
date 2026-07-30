@@ -372,11 +372,8 @@ func (r Root) WriteFrom(name string, reader io.Reader, perm os.FileMode) (int64,
 // to perm for a new file. Use it where the pre-rooted in-place write preserved
 // an operator's chosen mode across rewrites.
 func (r Root) WriteFilePreservingMode(name string, data []byte, perm os.FileMode) error {
-	resolved, err := r.Resolve(name)
+	resolved, err := r.prepareWrite(name)
 	if err != nil {
-		return err
-	}
-	if err := r.ensureRootDir(0o755); err != nil {
 		return err
 	}
 	parent, base, err := r.openParentRooted(resolved)
