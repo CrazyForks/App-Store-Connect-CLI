@@ -47,6 +47,16 @@ func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedI
 	var skipped []SkippedItem
 
 	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			// A symlinked locale directory would read screenshots from outside
+			// the screenshots root, so report it instead of silently ignoring
+			// it, matching the metadata scan.
+			skipped = append(skipped, SkippedItem{
+				Path:   filepath.Join(screenshotsDir, entry.Name()),
+				Reason: fmt.Sprintf("skipped symlinked screenshots entry %q", entry.Name()),
+			})
+			continue
+		}
 		if !entry.IsDir() {
 			continue
 		}

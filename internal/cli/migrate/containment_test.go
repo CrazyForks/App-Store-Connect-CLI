@@ -386,6 +386,35 @@ func TestResolveImportInputsRefusesSymlinkedExternalFastlaneMetadataChild(t *tes
 	}
 }
 
+func TestDiscoverScreenshotPlanSkipsAndReportsSymlinkedLocaleDirectory(t *testing.T) {
+	screenshotsDir := t.TempDir()
+	external := t.TempDir()
+	// If a symlinked locale directory were followed, this file would surface as
+	// an invalid-screenshot error; the entry must instead be skipped and
+	// reported, matching the metadata scan.
+	writeMigrateContainmentFile(t, filepath.Join(external, "external.png"), "not a real png")
+	if err := os.Symlink(external, filepath.Join(screenshotsDir, "en-US")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	plans, skipped, err := discoverScreenshotPlan(screenshotsDir)
+	if err != nil {
+		t.Fatalf("discoverScreenshotPlan() error = %v, want symlinked locale skipped", err)
+	}
+	if len(plans) != 0 {
+		t.Fatalf("plans = %#v, want none from a symlinked locale", plans)
+	}
+	found := false
+	for _, item := range skipped {
+		if strings.Contains(item.Reason, "symlink") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("skipped = %#v, want a reported symlinked screenshots entry", skipped)
+	}
+}
+
 func writeMigrateContainmentFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
