@@ -16,6 +16,8 @@ import (
 	"unicode"
 
 	"howett.net/plist"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/infoplist"
 )
 
 var (
@@ -1299,13 +1301,17 @@ func isTopLevelAppInfoPlist(name string) bool {
 }
 
 func readBundleInfoFromZip(file *zip.File) (bundleInfo, error) {
+	if err := infoplist.CheckDeclaredSize(file.UncompressedSize64); err != nil {
+		return bundleInfo{}, fmt.Errorf("read Info.plist: %w", err)
+	}
+
 	reader, err := file.Open()
 	if err != nil {
 		return bundleInfo{}, fmt.Errorf("open Info.plist: %w", err)
 	}
 	defer reader.Close()
 
-	data, err := io.ReadAll(reader)
+	data, err := infoplist.ReadBounded(reader)
 	if err != nil {
 		return bundleInfo{}, fmt.Errorf("read Info.plist: %w", err)
 	}
