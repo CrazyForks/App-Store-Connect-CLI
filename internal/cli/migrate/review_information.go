@@ -20,6 +20,31 @@ type ReviewInformation struct {
 	Notes               *string `json:"notes,omitempty"`
 }
 
+// presentableImportResult returns the result to render. Without an explicit
+// opt-in the imported demo account password is replaced so JSON, table, and
+// Markdown output cannot carry it, while the original result keeps the real
+// value for request construction and comparison.
+func presentableImportResult(result *MigrateImportResult, includeSensitive bool) *MigrateImportResult {
+	if includeSensitive || result == nil || result.ReviewInformation == nil {
+		return result
+	}
+	safe := *result
+	safe.ReviewInformation = result.ReviewInformation.redactedCopy()
+	return &safe
+}
+
+func (info *ReviewInformation) redactedCopy() *ReviewInformation {
+	if info == nil {
+		return nil
+	}
+	safe := *info
+	if info.DemoAccountPassword != nil {
+		redacted := asc.RedactSecret(*info.DemoAccountPassword)
+		safe.DemoAccountPassword = &redacted
+	}
+	return &safe
+}
+
 func readFastlaneReviewInformation(metadataDir string) (*ReviewInformation, error) {
 	reviewDir := filepath.Join(metadataDir, "review_information")
 	if exists, err := dirExists(reviewDir); err != nil {
