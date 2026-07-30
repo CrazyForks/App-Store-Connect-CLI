@@ -168,6 +168,52 @@ func TestSetVersionReportsSymlinkedXCConfigAsSymlinkRejection(t *testing.T) {
 	}
 }
 
+func TestSetVersionAdvisesOverrideForEscapingSymlinkedXCConfigParent(t *testing.T) {
+	projectPath := writeStructuredVersionProject(t, true)
+	projectRoot := filepath.Dir(projectPath)
+	configsDir := filepath.Join(projectRoot, "Configs")
+	externalDir := filepath.Join(t.TempDir(), "Configs")
+	if err := os.Rename(configsDir, externalDir); err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	if err := os.Symlink(externalDir, configsDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	_, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir:  projectPath,
+		Version:     "2.0.0",
+		BuildNumber: "99",
+	})
+	if err == nil {
+		t.Fatal("SetVersion() error = nil, want escaping symlinked parent rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("SetVersion() error = %v, want symlink rejection", err)
+	}
+	// The write path only refuses a symlinked final component, so the override
+	// flag is a supported recovery for a symlinked parent and must be offered.
+	if !strings.Contains(err.Error(), "--allow-external-xcconfig") {
+		t.Fatalf("SetVersion() error = %v, want --allow-external-xcconfig guidance", err)
+	}
+
+	result, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir:            projectPath,
+		Version:               "2.0.0",
+		BuildNumber:           "99",
+		AllowExternalXCConfig: true,
+	})
+	if err != nil {
+		t.Fatalf("SetVersion() authorized error = %v", err)
+	}
+	if len(result.ChangedFiles) == 0 {
+		t.Fatalf("SetVersion() result = %#v, want changed files", result)
+	}
+	if after := mustReadVersionTestFile(t, filepath.Join(externalDir, "Shared.xcconfig")); !strings.Contains(after, "MARKETING_VERSION = 2.0.0") {
+		t.Fatalf("xcconfig content = %q, want authorized update through the symlinked parent", after)
+	}
+}
+
 func TestSetVersionStillEditsXCConfigInsideProjectRoot(t *testing.T) {
 	projectPath := writeStructuredVersionProject(t, true)
 	sharedPath := filepath.Join(filepath.Dir(projectPath), "Configs", "Shared.xcconfig")

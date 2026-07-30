@@ -848,13 +848,24 @@ func (project *structuredVersionProject) checkXCConfigWritable(path string, allo
 	}
 	if err := root.AllowingInternalSymlinks().CheckContained(path); err != nil {
 		if errors.Is(err, rootfs.ErrSymlink) {
-			// The write path refuses symlinked xcconfig files even when
-			// --allow-external-xcconfig is set, so do not present the flag as a
-			// remedy here.
+			if info, lstatErr := os.Lstat(path); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+				// The write path refuses a symlinked final component even when
+				// --allow-external-xcconfig is set, so do not present the flag
+				// as a remedy here.
+				return fmt.Errorf(
+					"refusing to modify xcconfig %s through a symlink: %w; "+
+						"replace the symlink with a regular file",
+					path,
+					err,
+				)
+			}
+			// A symlinked parent directory that resolves outside the project is
+			// supported once the operator authorizes external rewrites.
 			return fmt.Errorf(
-				"refusing to modify xcconfig %s through a symlink: %w; "+
-					"replace the symlink with a regular file",
+				"refusing to modify xcconfig %s reached through a symlinked directory that resolves outside project directory %s: %w; "+
+					"move the file inside the project or rerun with --allow-external-xcconfig",
 				path,
+				project.rootDir,
 				err,
 			)
 		}
