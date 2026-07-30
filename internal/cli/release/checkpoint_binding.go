@@ -65,11 +65,14 @@ func verifyResumedCheckpointBinding(
 
 	if checkpoint.Completed[stepAttachBuild] {
 		attachedBuildID, buildErr := attachedAppStoreVersionBuildID(ctx, client, versionID)
+		attachDiscarded := false
 		switch {
 		case buildErr != nil:
+			attachDiscarded = true
 			delete(checkpoint.Completed, stepAttachBuild)
 			emitMessage("Rechecking %s: could not confirm the build attached to version %s (%v).", stepAttachBuild, versionID, buildErr)
 		case attachedBuildID != strings.TrimSpace(opts.BuildID):
+			attachDiscarded = true
 			delete(checkpoint.Completed, stepAttachBuild)
 			emitMessage(
 				"Rechecking %s: version %s currently has build %q attached, not %q.",
@@ -78,6 +81,12 @@ func verifyResumedCheckpointBinding(
 				attachedBuildID,
 				strings.TrimSpace(opts.BuildID),
 			)
+		}
+		// Readiness was validated against whatever build was attached at the
+		// time, so an unproven attachment invalidates that result as well.
+		if attachDiscarded && checkpoint.Completed[stepValidateReadiness] {
+			delete(checkpoint.Completed, stepValidateReadiness)
+			emitMessage("Rechecking %s: it depends on %s, which could not be confirmed.", stepValidateReadiness, stepAttachBuild)
 		}
 	}
 

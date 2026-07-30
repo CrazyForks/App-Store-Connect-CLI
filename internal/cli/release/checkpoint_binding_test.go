@@ -175,6 +175,50 @@ func TestVerifyResumedCheckpointBindingDropsUnprovenAttachBuildCompletion(t *tes
 	}
 }
 
+// TestVerifyResumedCheckpointBindingDropsReadinessWithUnprovenAttachBuild
+// proves that discarding an attach_build completion also discards a completed
+// validate_readiness: readiness was checked against whatever build was
+// attached at the time, so it must run again after the build is re-attached.
+func TestVerifyResumedCheckpointBindingDropsReadinessWithUnprovenAttachBuild(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_OTHER","attributes":{"version":"41"}}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID: "VERSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion:     true,
+			stepAttachBuild:       true,
+			stepValidateReadiness: true,
+		},
+	}
+	var messages []string
+	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, func(message string) {
+		messages = append(messages, message)
+	}); err != nil {
+		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
+	}
+	if checkpoint.Completed[stepAttachBuild] {
+		t.Fatal("expected unproven attach_build completion to be discarded")
+	}
+	if checkpoint.Completed[stepValidateReadiness] {
+		t.Fatal("expected dependent validate_readiness completion to be discarded")
+	}
+	if !checkpoint.Completed[stepEnsureVersion] {
+		t.Fatal("expected verified ensure_version completion to survive")
+	}
+	if len(messages) == 0 || !strings.Contains(strings.Join(messages, "\n"), stepValidateReadiness) {
+		t.Fatalf("expected a diagnostic naming validate_readiness, got %v", messages)
+	}
+}
+
 func TestVerifyResumedCheckpointBindingDropsSubmissionNotBoundToVersion(t *testing.T) {
 	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
 		switch {
