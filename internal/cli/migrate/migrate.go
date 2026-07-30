@@ -55,6 +55,7 @@ func MigrateImportCommand() *ffcli.Command {
 	fastlaneDir := fs.String("fastlane-dir", "", "Path to fastlane directory (optional)")
 	dryRun := fs.Bool("dry-run", false, "Preview changes without uploading")
 	skipScreenshots := fs.Bool("skip-screenshots", false, "Skip screenshot discovery and upload")
+	includeSensitive := shared.BindIncludeSensitiveFlag(fs)
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -223,7 +224,8 @@ Examples:
 			}
 
 			if *dryRun {
-				return printMigrateOutput(result, *output.Output, *output.Pretty)
+				shared.WarnIncludeSensitive(os.Stderr, *includeSensitive)
+				return printMigrateOutput(presentableImportResult(result, *includeSensitive), *output.Output, *output.Pretty)
 			}
 
 			if client == nil {
@@ -278,7 +280,8 @@ Examples:
 			result.ReviewInfoResult = reviewResult
 			result.ScreenshotResults = screenshotResults
 
-			if err := printMigrateOutput(result, *output.Output, *output.Pretty); err != nil {
+			shared.WarnIncludeSensitive(os.Stderr, *includeSensitive)
+			if err := printMigrateOutput(presentableImportResult(result, *includeSensitive), *output.Output, *output.Pretty); err != nil {
 				return err
 			}
 			return shared.PrintSubmitReadinessCreateWarnings(os.Stderr, warnings)
