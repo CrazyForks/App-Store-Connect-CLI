@@ -15,6 +15,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 	submitcli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/submit"
 	validatecli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/validate"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
@@ -705,8 +706,47 @@ func sanitizeCheckpointToken(value string) string {
 	return result
 }
 
+// checkpointRoot anchors checkpoint reads and writes to a trusted root so the
+// checkpoint file and its staging file cannot redirect through symlinks.
+//
+// Checkpoints under the working directory (including the default
+// .asc/release/checkpoints path) are anchored to the working directory so every
+// repository-controlled directory component is validated. A checkpoint the
+// operator placed outside the working directory is anchored to its own parent,
+// which keeps explicitly selected external locations working.
+func checkpointRoot(path string) (rootfs.Root, string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return rootfs.Root{}, "", fmt.Errorf("checkpoint path is empty")
+	}
+	absolute, err := filepath.Abs(trimmed)
+	if err != nil {
+		return rootfs.Root{}, "", err
+	}
+
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		if root, rootErr := rootfs.New(cwd); rootErr == nil {
+			if relative, relErr := filepath.Rel(root.Path(), absolute); relErr == nil {
+				if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+					return root, relative, nil
+				}
+			}
+		}
+	}
+
+	root, err := rootfs.New(filepath.Dir(absolute))
+	if err != nil {
+		return rootfs.Root{}, "", err
+	}
+	return root, filepath.Base(absolute), nil
+}
+
 func loadCheckpoint(path string) (*runCheckpoint, error) {
-	data, err := os.ReadFile(path)
+	root, name, err := checkpointRoot(path)
+	if err != nil {
+		return nil, fmt.Errorf("read checkpoint: %w", err)
+	}
+	data, err := root.ReadFile(name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -729,15 +769,12 @@ func saveCheckpoint(path string, checkpoint runCheckpoint) error {
 	if err != nil {
 		return fmt.Errorf("marshal checkpoint: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create checkpoint directory: %w", err)
-	}
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+	root, name, err := checkpointRoot(path)
+	if err != nil {
 		return fmt.Errorf("write checkpoint: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("persist checkpoint: %w", err)
+	if err := root.WriteFile(name, data, 0o600); err != nil {
+		return fmt.Errorf("write checkpoint: %w", err)
 	}
 	return nil
 }

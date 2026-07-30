@@ -24,6 +24,16 @@ type ScreenshotUploadResult struct {
 }
 
 func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedItem, error) {
+	// A screenshots directory inside the working directory ships with the
+	// checkout, so refuse symlinked components before traversing it; an
+	// operator-selected external directory remains its own trusted root.
+	root, prefix, err := newMigrateContentRoot(screenshotsDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkContentRootContained(root, prefix); err != nil {
+		return nil, nil, err
+	}
 	entries, err := os.ReadDir(screenshotsDir)
 	if err != nil {
 		return nil, nil, err
@@ -37,6 +47,16 @@ func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedI
 	var skipped []SkippedItem
 
 	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			// A symlinked locale directory would read screenshots from outside
+			// the screenshots root, so report it instead of silently ignoring
+			// it, matching the metadata scan.
+			skipped = append(skipped, SkippedItem{
+				Path:   filepath.Join(screenshotsDir, entry.Name()),
+				Reason: fmt.Sprintf("skipped symlinked screenshots entry %q", entry.Name()),
+			})
+			continue
+		}
 		if !entry.IsDir() {
 			continue
 		}
