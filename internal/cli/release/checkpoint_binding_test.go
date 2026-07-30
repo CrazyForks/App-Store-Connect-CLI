@@ -645,3 +645,95 @@ func TestVerifyResumedCheckpointBindingDropsReadinessWithIncompletePrerequisite(
 		t.Fatalf("expected a diagnostic naming validate_readiness and attach_build, got %v", messages)
 	}
 }
+
+// TestExecuteStage_PersistsDiscardedCompletionsBeforeMutating proves discarded
+// completions reach the checkpoint file before the pipeline mutates anything.
+// Otherwise a checkpoint write that fails after a successful re-attachment
+// leaves the stale validate_readiness flag on disk, and the next resume — where
+// the attachment now matches --build — skips readiness for the new build.
+func TestExecuteStage_PersistsDiscardedCompletionsBeforeMutating(t *testing.T) {
+	origClientFactory := releaseClientFactory
+	origMetadataExecutor := metadataPushExecutor
+	origReadinessBuilder := readinessReportBuilder
+	t.Cleanup(func() {
+		releaseClientFactory = origClientFactory
+		metadataPushExecutor = origMetadataExecutor
+		readinessReportBuilder = origReadinessBuilder
+	})
+
+	metadataPushExecutor = func(context.Context, metadata.PushExecutionOptions) (metadata.PushPlanResult, error) {
+		return metadata.PushPlanResult{}, nil
+	}
+	readinessReportBuilder = func(context.Context, validatecli.ReadinessOptions) (validation.Report, error) {
+		return validation.Report{}, nil
+	}
+
+	checkpointPath := filepath.Join(t.TempDir(), "release-checkpoint.json")
+	var checkpointAtFirstMutation *runCheckpoint
+	attached := false
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet && checkpointAtFirstMutation == nil {
+			persisted, loadErr := loadCheckpoint(checkpointPath)
+			if loadErr != nil {
+				return nil, fmt.Errorf("load checkpoint during mutation: %w", loadErr)
+			}
+			checkpointAtFirstMutation = persisted
+		}
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			if attached {
+				return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+			}
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_OTHER","attributes":{"version":"41"}}}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersions/VERSION_123/relationships/build":
+			attached = true
+			return releaseJSONResponse(http.StatusNoContent, ``)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+	releaseClientFactory = func() (*asc.Client, error) { return client, nil }
+
+	if err := saveCheckpoint(checkpointPath, runCheckpoint{
+		AppID:       "APP_123",
+		Version:     "2.4.0",
+		BuildID:     "BUILD_123",
+		MetadataDir: "./metadata/version/2.4.0",
+		Platform:    "IOS",
+		Mode:        releaseModeStage,
+		VersionID:   "VERSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion:     true,
+			stepApplyMetadata:     true,
+			stepAttachBuild:       true,
+			stepValidateReadiness: true,
+		},
+	}); err != nil {
+		t.Fatalf("save checkpoint: %v", err)
+	}
+
+	if _, err := executeStage(context.Background(), runOptions{
+		AppID:          "APP_123",
+		Version:        "2.4.0",
+		BuildID:        "BUILD_123",
+		MetadataDir:    "./metadata/version/2.4.0",
+		Platform:       "IOS",
+		Timeout:        releaseRunTimeout,
+		Confirm:        true,
+		CheckpointFile: checkpointPath,
+	}); err != nil {
+		t.Fatalf("executeStage error: %v", err)
+	}
+
+	if checkpointAtFirstMutation == nil {
+		t.Fatal("expected the pipeline to re-attach the build")
+	}
+	if checkpointAtFirstMutation.Completed[stepAttachBuild] {
+		t.Fatal("expected the discarded attach_build flag to be persisted before the re-attachment")
+	}
+	if checkpointAtFirstMutation.Completed[stepValidateReadiness] {
+		t.Fatal("expected the discarded validate_readiness flag to be persisted before the re-attachment")
+	}
+}
