@@ -7,7 +7,7 @@ Migrate metadata between fastlane's deliver tool and App Store Connect CLI.
 ## Quick Start
 
 ```bash  theme={null}
-asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane
+asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --confirm
 asc migrate export --app "APP_ID" --version-id "VERSION_ID" --output-dir ./fastlane
 asc migrate validate --fastlane-dir ./fastlane
 ```
@@ -26,9 +26,11 @@ asc migrate validate --fastlane-dir ./fastlane
 Import metadata from fastlane directory structure:
 
 ```bash  theme={null}
-asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane
 asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --dry-run
+asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --confirm
 ```
+
+`--confirm` is required unless `--dry-run` is set. When both are set, `--dry-run` wins and nothing is uploaded.
 
 **Flags:**
 
@@ -36,6 +38,7 @@ asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fas
 * `--version-id` - App Store version ID (required unless Deliverfile app\_version + platform)
 * `--fastlane-dir` - Path to fastlane directory (optional)
 * `--dry-run` - Preview changes without uploading
+* `--confirm` - Confirm uploading the imported metadata and screenshots (required unless `--dry-run`)
 * `--output` - Output format: `json`, `table`, `markdown`
 * `--pretty` - Pretty-print JSON output
 
@@ -176,7 +179,8 @@ asc migrate import \
 asc migrate import \
   --app "123456789" \
   --version-id "abc123" \
-  --fastlane-dir ./fastlane
+  --fastlane-dir ./fastlane \
+  --confirm
 ```
 
 ### Export to Fastlane
@@ -196,7 +200,7 @@ asc migrate validate --fastlane-dir ./fastlane --output table
 
 # If valid, import
 if asc migrate validate --fastlane-dir ./fastlane --output json | jq -e '.valid'; then
-  asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane
+  asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --confirm
 fi
 ```
 
@@ -230,7 +234,7 @@ asc metadata push --app "APP_ID" --version "1.2.3" --dir "./metadata" --dry-run
 
 2. Import to App Store Connect:
    ```bash  theme={null}
-   asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane
+   asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --confirm
    ```
 
 3. Pull into asc metadata format:

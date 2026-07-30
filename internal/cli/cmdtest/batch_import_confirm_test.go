@@ -60,6 +60,10 @@ func TestFileDrivenMutationsRequireConfirm(t *testing.T) {
 			name: "reviews respond-batch",
 			args: []string{"reviews", "respond-batch", "--app", "123456789", "--file", repliesJSON},
 		},
+		{
+			name: "migrate import",
+			args: []string{"migrate", "import", "--app", "123456789", "--version-id", "VERSION_1", "--fastlane-dir", t.TempDir()},
+		},
 	}
 
 	for _, test := range tests {
@@ -99,9 +103,9 @@ func TestFileDrivenMutationsRequireConfirm(t *testing.T) {
 }
 
 // TestFileDrivenMutationsGateBeforeReadingInput proves the apply decision is
-// uniform across all four commands: it is evaluated before the input file is
-// opened, so even a missing input file reports the absent --confirm first and
-// no request leaves the process.
+// uniform across every file-driven mutation command: it is evaluated before the
+// input is opened, so even a missing input path reports the absent --confirm
+// first and no request leaves the process.
 func TestFileDrivenMutationsGateBeforeReadingInput(t *testing.T) {
 	missingInput := filepath.Join(t.TempDir(), "does-not-exist.csv")
 
@@ -131,6 +135,10 @@ func TestFileDrivenMutationsGateBeforeReadingInput(t *testing.T) {
 		{
 			name: "reviews respond-batch",
 			args: []string{"reviews", "respond-batch", "--app", "123456789", "--file", missingInput},
+		},
+		{
+			name: "migrate import",
+			args: []string{"migrate", "import", "--app", "123456789", "--version-id", "VERSION_1", "--fastlane-dir", missingInput},
 		},
 	}
 

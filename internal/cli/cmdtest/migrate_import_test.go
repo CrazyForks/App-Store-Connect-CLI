@@ -343,6 +343,7 @@ func TestMigrateImportUploadsAndSkipsExistingScreenshots(t *testing.T) {
 			"--app", "APP_ID",
 			"--version-id", "VERSION_ID",
 			"--fastlane-dir", fastlaneDir,
+			"--confirm",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
@@ -420,6 +421,7 @@ func TestMigrateImportWarnsForMetadataCreates(t *testing.T) {
 			"--app", "APP_ID",
 			"--version-id", "VERSION_ID",
 			"--fastlane-dir", fastlaneDir,
+			"--confirm",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
@@ -509,6 +511,7 @@ func TestMigrateImportDoesNotWarnForScreenshotBootstrapCreates(t *testing.T) {
 			"--app", "APP_ID",
 			"--version-id", "VERSION_ID",
 			"--fastlane-dir", fastlaneDir,
+			"--confirm",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}

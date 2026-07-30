@@ -65,6 +65,7 @@ func TestMigrateImportRejectsVersionOwnedByAnotherAppBeforeMutation(t *testing.T
 			"--app", "APP_A",
 			"--version-id", "VERSION_B",
 			"--fastlane-dir", fastlaneDir,
+			"--confirm",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
@@ -125,6 +126,7 @@ func TestMigrateImportAcceptsVersionOwnedByApp(t *testing.T) {
 			"--app", "APP_A",
 			"--version-id", "VERSION_A",
 			"--fastlane-dir", fastlaneDir,
+			"--confirm",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
