@@ -787,3 +787,79 @@ func TestExecuteStage_PersistsDiscardedCompletionsBeforeMutating(t *testing.T) {
 		t.Fatal("expected the discarded validate_readiness flag to be persisted before the re-attachment")
 	}
 }
+
+// TestExecuteStageClearsAndPersistsUnprovenSubmissionID proves an unsigned
+// stage checkpoint cannot inject a submission ID into structured output. Stage
+// never submits for review, so a submission ID without a remotely verified
+// submit_review completion is not trusted state.
+func TestExecuteStageClearsAndPersistsUnprovenSubmissionID(t *testing.T) {
+	origClientFactory := releaseClientFactory
+	origMetadataExecutor := metadataPushExecutor
+	origReadinessBuilder := readinessReportBuilder
+	t.Cleanup(func() {
+		releaseClientFactory = origClientFactory
+		metadataPushExecutor = origMetadataExecutor
+		readinessReportBuilder = origReadinessBuilder
+	})
+
+	metadataPushExecutor = func(context.Context, metadata.PushExecutionOptions) (metadata.PushPlanResult, error) {
+		return metadata.PushPlanResult{}, nil
+	}
+	readinessReportBuilder = func(context.Context, validatecli.ReadinessOptions) (validation.Report, error) {
+		return validation.Report{}, nil
+	}
+
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions":
+			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"}}]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+	releaseClientFactory = func() (*asc.Client, error) { return client, nil }
+
+	checkpointPath := filepath.Join(t.TempDir(), "release-checkpoint.json")
+	if err := saveCheckpoint(checkpointPath, runCheckpoint{
+		AppID:        "APP_123",
+		Version:      "2.4.0",
+		BuildID:      "BUILD_123",
+		MetadataDir:  "./metadata/version/2.4.0",
+		Platform:     "IOS",
+		Mode:         releaseModeStage,
+		SubmissionID: "FORGED_SUBMISSION",
+		Completed:    map[string]bool{},
+	}); err != nil {
+		t.Fatalf("save checkpoint: %v", err)
+	}
+
+	result, err := executeStage(context.Background(), runOptions{
+		AppID:          "APP_123",
+		Version:        "2.4.0",
+		BuildID:        "BUILD_123",
+		MetadataDir:    "./metadata/version/2.4.0",
+		Platform:       "IOS",
+		Timeout:        releaseRunTimeout,
+		Confirm:        true,
+		CheckpointFile: checkpointPath,
+	})
+	if err != nil {
+		t.Fatalf("executeStage error: %v", err)
+	}
+	if result.SubmissionID != "" {
+		t.Fatalf("stage output trusted an unproven submission ID: %q", result.SubmissionID)
+	}
+
+	persisted, err := loadCheckpoint(checkpointPath)
+	if err != nil {
+		t.Fatalf("load persisted checkpoint: %v", err)
+	}
+	if persisted == nil {
+		t.Fatal("expected persisted checkpoint")
+	}
+	if persisted.SubmissionID != "" {
+		t.Fatalf("persisted checkpoint retained unproven submission ID: %q", persisted.SubmissionID)
+	}
+}

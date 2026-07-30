@@ -600,6 +600,13 @@ func (r Root) AppendFile(name string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("%q is not a regular file", resolved)
 	}
 	if hadExisting {
+		if multiple, err := hasMultipleHardLinks(file, openedInfo); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("inspect existing file %q: %w", resolved, err)
+		} else if multiple {
+			_ = file.Close()
+			return fmt.Errorf("refusing to append to multiply linked file %q", resolved)
+		}
 		// Security logs and similar callers use perm to tighten an existing
 		// file. New files retain the process umask from their exclusive create.
 		if err := file.Chmod(perm); err != nil {

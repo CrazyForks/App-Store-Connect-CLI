@@ -56,6 +56,36 @@ func TestInitReference_AllowsASCReferenceSymlinkToContainedRegularFile(t *testin
 	}
 }
 
+func TestInitReference_AllowsNestedASCReferenceSymlinkToRepositoryRoot(t *testing.T) {
+	repo := newDocsContainmentRepo(t)
+	docsDir := filepath.Join(repo, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docs) error = %v", err)
+	}
+	targetPath := filepath.Join(repo, ascReferenceFile)
+	writeDocsContainmentFile(t, targetPath, "# Existing\n")
+	linkPath := filepath.Join(docsDir, ascReferenceFile)
+	if err := os.Symlink(filepath.Join("..", ascReferenceFile), linkPath); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	result, err := InitReference(InitOptions{Path: linkPath, Force: true, Link: false})
+	if err != nil {
+		t.Fatalf("InitReference() error = %v", err)
+	}
+	if !result.Overwritten {
+		t.Fatalf("InitReference() result = %#v, want overwritten", result)
+	}
+	if got := readDocsContainmentFile(t, targetPath); !strings.Contains(got, "asc") {
+		t.Fatalf("contained target content = %q, want generated reference", got)
+	}
+	if info, err := os.Lstat(linkPath); err != nil {
+		t.Fatalf("Lstat(docs/ASC.md) error = %v", err)
+	} else if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("docs/ASC.md mode = %v, want symlink preserved", info.Mode())
+	}
+}
+
 func TestInitReference_RejectsASCReferenceSymlinkToRepositoryMetadata(t *testing.T) {
 	repo := newDocsContainmentRepo(t)
 	configPath := filepath.Join(repo, ".git", "config")
@@ -106,6 +136,55 @@ func TestInitReference_RefusesSymlinkedAgentsFile(t *testing.T) {
 	}
 	if got := readDocsContainmentFile(t, sentinelPath); got != "# Sentinel\n" {
 		t.Fatalf("sentinel content = %q, want unchanged", got)
+	}
+}
+
+func TestInitReference_AllowsAgentsSymlinkToContainedMarkdownFile(t *testing.T) {
+	repo := newDocsContainmentRepo(t)
+	docsDir := filepath.Join(repo, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docs) error = %v", err)
+	}
+	targetPath := filepath.Join(docsDir, "INSTRUCTIONS.md")
+	writeDocsContainmentFile(t, targetPath, "# Shared agent instructions\n")
+	agentsPath := filepath.Join(repo, "AGENTS.md")
+	if err := os.Symlink(filepath.Join("docs", "INSTRUCTIONS.md"), agentsPath); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	result, err := InitReference(InitOptions{Path: repo, Link: true})
+	if err != nil {
+		t.Fatalf("InitReference() error = %v", err)
+	}
+	if len(result.Linked) != 1 || result.Linked[0] != agentsPath {
+		t.Fatalf("InitReference() linked = %v, want AGENTS.md", result.Linked)
+	}
+	if got := readDocsContainmentFile(t, targetPath); !strings.Contains(got, "See `ASC.md`") {
+		t.Fatalf("shared agent content = %q, want ASC.md reference", got)
+	}
+	if info, err := os.Lstat(agentsPath); err != nil {
+		t.Fatalf("Lstat(AGENTS.md) error = %v", err)
+	} else if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("AGENTS.md mode = %v, want symlink preserved", info.Mode())
+	}
+}
+
+func TestInitReference_RejectsAgentsSymlinkToRepositoryMetadata(t *testing.T) {
+	repo := newDocsContainmentRepo(t)
+	targetPath := filepath.Join(repo, ".git", "INSTRUCTIONS.md")
+	writeDocsContainmentFile(t, targetPath, "# Repository metadata\n")
+	if err := os.Symlink(filepath.Join(".git", "INSTRUCTIONS.md"), filepath.Join(repo, "AGENTS.md")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	if _, err := InitReference(InitOptions{Path: repo, Link: true}); err == nil {
+		t.Fatal("InitReference() error = nil, want repository-metadata rejection")
+	}
+	if got := readDocsContainmentFile(t, targetPath); got != "# Repository metadata\n" {
+		t.Fatalf(".git/INSTRUCTIONS.md content = %q, want unchanged", got)
+	}
+	if _, err := os.Lstat(filepath.Join(repo, ascReferenceFile)); !os.IsNotExist(err) {
+		t.Fatalf("ASC.md exists after failed preflight: %v", err)
 	}
 }
 

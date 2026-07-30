@@ -169,8 +169,17 @@ func Run(args []string, versionInfo string) int {
 // `--flag=false` and `--flag false`. The standard flag package stops parsing at
 // the value after a bare bool flag, which can otherwise leave later safety
 // flags unparsed and make an explicit false behave as true.
+//
+// Commands with positional payloads retain the standard flag ambiguity for
+// compatibility: in `asc snitch --dry-run false`, for example, v3.2.0 treated
+// `--dry-run` as true and `false` as the report description. Callers of those
+// commands can use `--dry-run=false` when they intend an explicit bool value.
 func normalizeSpacedBooleanFlags(root *ffcli.Command, args []string) []string {
 	command := root
+	commandPath := make([]string, 0, 4)
+	if root != nil && root.Name != "" {
+		commandPath = append(commandPath, root.Name)
+	}
 	normalized := make([]string, 0, len(args))
 	for index := 0; index < len(args); index++ {
 		token := args[index]
@@ -181,6 +190,7 @@ func normalizeSpacedBooleanFlags(root *ffcli.Command, args []string) []string {
 		if !strings.HasPrefix(token, "-") || token == "-" {
 			if subcommand := findDirectSubcommand(command, token); subcommand != nil {
 				command = subcommand
+				commandPath = append(commandPath, subcommand.Name)
 				normalized = append(normalized, token)
 				continue
 			}
@@ -207,6 +217,10 @@ func normalizeSpacedBooleanFlags(root *ffcli.Command, args []string) []string {
 
 		boolFlag, isBool := item.Value.(interface{ IsBoolFlag() bool })
 		if isBool && boolFlag.IsBoolFlag() {
+			if commandAcceptsPositionalPayload(commandPath) {
+				normalized = append(normalized, token)
+				continue
+			}
 			if index+1 < len(args) {
 				if value, err := strconv.ParseBool(strings.TrimSpace(args[index+1])); err == nil {
 					normalized = append(normalized, token+"="+strconv.FormatBool(value))
@@ -227,6 +241,23 @@ func normalizeSpacedBooleanFlags(root *ffcli.Command, args []string) []string {
 		}
 	}
 	return normalized
+}
+
+// commandAcceptsPositionalPayload lists the commands whose positional strings
+// are part of their public contract. A positional value can legitimately be the
+// word "true" or "false", so consuming it as a spaced boolean would break the
+// standard flag behavior these commands exposed before spaced bool recovery.
+func commandAcceptsPositionalPayload(commandPath []string) bool {
+	switch strings.Join(commandPath, " ") {
+	case "asc docs show",
+		"asc schema",
+		"asc search",
+		"asc snitch",
+		"asc workflow run":
+		return true
+	default:
+		return false
+	}
 }
 
 func printParseFailure(parseErr error, parseOutput string, analysis invocationAnalysis) {

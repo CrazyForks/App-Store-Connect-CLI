@@ -95,7 +95,7 @@ func InitReference(opts InitOptions) (InitResult, error) {
 		return InitResult{}, err
 	}
 
-	ascPlan, err := planASCReference(targetPath, opts.Force)
+	ascPlan, err := planASCReference(linkRoot, targetPath, opts.Force)
 	if err != nil {
 		return InitResult{}, err
 	}
@@ -244,12 +244,15 @@ type ascReferencePlan struct {
 }
 
 // planASCReference validates the ASC.md destination without writing anything.
-func planASCReference(path string, force bool) (ascReferencePlan, error) {
-	root, err := rootfs.New(filepath.Dir(path))
+func planASCReference(rootDir, path string, force bool) (ascReferencePlan, error) {
+	root, err := rootfs.New(rootDir)
 	if err != nil {
 		return ascReferencePlan{}, err
 	}
-	name := filepath.Base(path)
+	name, err := filepath.Rel(root.Path(), path)
+	if err != nil {
+		return ascReferencePlan{}, err
+	}
 
 	// Lstat, not Stat, so a dangling symlink still counts as an existing entry.
 	// A final symlink may be followed only after proving that its physical target
@@ -443,15 +446,7 @@ func validateContainedMarkdownTarget(name string) error {
 }
 
 func validateContainedAgentTarget(name string) error {
-	if err := validateContainedMarkdownTarget(name); err != nil {
-		return err
-	}
-	switch strings.ToLower(filepath.Base(name)) {
-	case "agents.md", "claude.md":
-		return nil
-	default:
-		return fmt.Errorf("%w: agent-file link target %q is not AGENTS.md or CLAUDE.md", rootfs.ErrSymlink, name)
-	}
+	return validateContainedMarkdownTarget(name)
 }
 
 func validateInitReferencePlan(ascPlan ascReferencePlan, linkPlan agentLinkPlan) error {

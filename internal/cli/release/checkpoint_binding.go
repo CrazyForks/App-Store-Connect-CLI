@@ -38,13 +38,22 @@ func verifyResumedCheckpointBinding(
 		fmt.Fprintln(os.Stderr, message)
 	}
 
-	for name := range checkpoint.Completed {
+	for name, completed := range checkpoint.Completed {
+		if !completed {
+			delete(checkpoint.Completed, name)
+			continue
+		}
 		if name == stepSubmitReview && !opts.SubmitForReview {
 			return fmt.Errorf("checkpoint completed step %q requires resuming with --submit-for-review", name)
 		}
 		if !isReleasePipelineStep(name, opts.SubmitForReview) {
 			return fmt.Errorf("checkpoint records unknown completed step %q", name)
 		}
+	}
+
+	if !checkpoint.Completed[stepSubmitReview] && checkpoint.SubmissionID != "" {
+		checkpoint.SubmissionID = ""
+		emitMessage("Rechecking %s: a submission ID is trusted only with a completed and verified submit step.", stepSubmitReview)
 	}
 
 	versionID := strings.TrimSpace(checkpoint.VersionID)
@@ -127,6 +136,7 @@ func verifyResumedCheckpointBinding(
 		submissionID := strings.TrimSpace(checkpoint.SubmissionID)
 		if submissionID == "" {
 			delete(checkpoint.Completed, stepSubmitReview)
+			checkpoint.SubmissionID = ""
 			emitMessage("Rechecking %s: the checkpoint reports a submission without recording its ID.", stepSubmitReview)
 		} else {
 			bound, submissionState, submissionErr := reviewSubmissionBoundToVersion(ctx, client, submissionID, versionID)

@@ -195,9 +195,9 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 	requestCtx, cancel := shared.ContextWithTimeoutDuration(ctx, opts.Timeout)
 	defer cancel()
 
-	if result.Resumed || strings.TrimSpace(checkpoint.VersionID) != "" {
+	if result.Resumed || strings.TrimSpace(checkpoint.VersionID) != "" || checkpoint.SubmissionID != "" {
 		completedBeforeVerification := len(checkpoint.Completed)
-		submissionBeforeVerification := strings.TrimSpace(checkpoint.SubmissionID)
+		submissionBeforeVerification := checkpoint.SubmissionID
 		if err := verifyResumedCheckpointBinding(requestCtx, client, opts, &checkpoint, nil); err != nil {
 			result.Status = "error"
 			result.Error = err.Error()
@@ -211,7 +211,7 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 		// finds the mutation already applied and skips the steps the discard
 		// was meant to force.
 		discarded := len(checkpoint.Completed) != completedBeforeVerification ||
-			strings.TrimSpace(checkpoint.SubmissionID) != submissionBeforeVerification
+			checkpoint.SubmissionID != submissionBeforeVerification
 		if !opts.DryRun && discarded {
 			if saveErr := saveCheckpoint(opts.CheckpointFile, checkpoint); saveErr != nil {
 				result.Status = "error"

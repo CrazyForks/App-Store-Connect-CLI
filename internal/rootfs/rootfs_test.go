@@ -658,6 +658,39 @@ func TestAppendFileAppendsInRoot(t *testing.T) {
 	}
 }
 
+func TestAppendFileRefusesMultiplyLinkedFile(t *testing.T) {
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	externalPath := filepath.Join(t.TempDir(), "external.log")
+	mustWrite(t, externalPath, "external\n")
+	if err := os.Chmod(externalPath, 0o644); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	linkedPath := filepath.Join(dir, "snitch.log")
+	if err := os.Link(externalPath, linkedPath); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+
+	if err := root.AppendFile("snitch.log", []byte("entry\n"), 0o600); err == nil {
+		t.Fatal("AppendFile() error = nil, want multiply-linked file refusal")
+	}
+	if got := mustRead(t, externalPath); got != "external\n" {
+		t.Fatalf("external hard-link content = %q, want unchanged", got)
+	}
+	if got := mustRead(t, linkedPath); got != "external\n" {
+		t.Fatalf("rooted hard-link content = %q, want unchanged", got)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Lstat(externalPath)
+		if err != nil {
+			t.Fatalf("Lstat() error = %v", err)
+		}
+		if info.Mode().Perm() != 0o644 {
+			t.Fatalf("external hard-link mode = %v, want unchanged 0644", info.Mode().Perm())
+		}
+	}
+}
+
 func TestAppendFileDoesNotEscapeWhenParentIsSwappedAfterValidation(t *testing.T) {
 	requireSymlinks(t)
 

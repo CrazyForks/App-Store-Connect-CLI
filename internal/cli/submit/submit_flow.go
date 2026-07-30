@@ -254,12 +254,12 @@ func SubmitResolvedVersion(ctx context.Context, client *asc.Client, opts SubmitR
 		)
 		if err != nil {
 			if createdSubmissionID != "" {
-				cleanupEmptyReviewSubmission(submitCtx, client, createdSubmissionID, emit)
+				preserveCreatedReviewSubmission(createdSubmissionID, emit)
 			}
 			return result, fmt.Errorf("submit review: add version to submission: %w", err)
 		}
 		if createdSubmissionID != "" && submissionIDToSubmit != createdSubmissionID {
-			cleanupEmptyReviewSubmission(submitCtx, client, createdSubmissionID, emit)
+			preserveCreatedReviewSubmission(createdSubmissionID, emit)
 		}
 	}
 
