@@ -310,6 +310,42 @@ func TestInstallSkillsStopsWhenPinnedCommitCannotBeFetched(t *testing.T) {
 	}
 }
 
+// TestInstallSkillsRejectsInstallerDirectoryInsideNodeProject guards the
+// isolated npx directory against TMPDIR pointing into a Node.js project: npm
+// walks up from the working directory, so an ancestor node_modules could still
+// shadow the pinned registry package with a local skills dependency.
+func TestInstallSkillsRejectsInstallerDirectoryInsideNodeProject(t *testing.T) {
+	project := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(project, "node_modules"), 0o755); err != nil {
+		t.Fatalf("create node_modules fixture: %v", err)
+	}
+	tmpInsideProject := filepath.Join(project, "tmp")
+	if err := os.MkdirAll(tmpInsideProject, 0o755); err != nil {
+		t.Fatalf("create nested tmp dir: %v", err)
+	}
+	t.Setenv("TMPDIR", tmpInsideProject)
+
+	stubLookups(t, map[string]string{"npx": "/bin/npx", "git": "/bin/git"})
+	recorded := recordCommands(t)
+
+	cmd := InstallSkillsCommand()
+	if err := cmd.Parse([]string{}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	err := cmd.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected an error when TMPDIR sits inside a Node.js project")
+	}
+	if !strings.Contains(err.Error(), "node_modules") {
+		t.Fatalf("expected the error to explain the node_modules conflict, got %q", err.Error())
+	}
+	for _, call := range *recorded {
+		if call.name == "/bin/npx" {
+			t.Fatalf("installer ran despite the unsafe working directory: %#v", call)
+		}
+	}
+}
+
 func TestPinnedSkillsDocumentationMatchesConstants(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join("..", "..", "..", "README.md"),

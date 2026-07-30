@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
@@ -100,15 +101,47 @@ func installSkills(ctx context.Context) error {
 	// repository-controlled code instead of the reviewed registry package. The
 	// installer therefore runs in a fresh empty directory with no node_modules
 	// in reach.
-	runDir, err := os.MkdirTemp("", "asc-skills-npx-")
+	runDir, err := isolatedInstallerDir()
 	if err != nil {
-		return fmt.Errorf("failed to create an isolated working directory for the installer: %w", err)
+		return err
 	}
 	defer func() {
 		_ = os.RemoveAll(runDir)
 	}()
 
 	return runCommandInDir(ctx, runDir, npxPath, "--yes", skillsInstallerPackage, "add", sourceDir, "--global", "--agent", "codex", "--yes")
+}
+
+// isolatedInstallerDir creates the working directory for the pinned installer
+// and verifies that no ancestor carries a node_modules directory. npm resolves
+// package specifiers against local dependencies found by walking up from the
+// working directory, so TMPDIR pointing inside a Node.js project would let a
+// repository-controlled skills package shadow the pinned registry package.
+func isolatedInstallerDir() (string, error) {
+	runDir, err := os.MkdirTemp("", "asc-skills-npx-")
+	if err != nil {
+		return "", fmt.Errorf("failed to create an isolated working directory for the installer: %w", err)
+	}
+	if ancestor := nearestNodeModulesAncestor(runDir); ancestor != "" {
+		_ = os.RemoveAll(runDir)
+		return "", fmt.Errorf("temporary directory %s sits inside a Node.js project (%s contains node_modules), which could shadow the pinned installer; point TMPDIR outside any Node.js project and retry", runDir, ancestor)
+	}
+	return runDir, nil
+}
+
+// nearestNodeModulesAncestor returns the closest directory at or above dir that
+// contains a node_modules entry, or an empty string when there is none.
+func nearestNodeModulesAncestor(dir string) string {
+	for current := dir; ; {
+		if _, err := os.Stat(filepath.Join(current, "node_modules")); err == nil {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
 }
 
 // checkoutPinnedSkills fetches exactly skillsSourceCommit into sourceDir. Git
