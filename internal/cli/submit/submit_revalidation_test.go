@@ -10,6 +10,7 @@ import (
 
 func TestSubmitResolvedVersionRejectsUnverifiedConflictSubmission(t *testing.T) {
 	var submitted bool
+	var canceledCreatedSubmission bool
 	itemPage := 0
 	client := newSubmitTestClient(t, submitRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch {
@@ -54,6 +55,7 @@ func TestSubmitResolvedVersionRejectsUnverifiedConflictSubmission(t *testing.T) 
 				"links": {}
 			}`)
 		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/new-submission":
+			canceledCreatedSubmission = true
 			return submitJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"new-submission"}}`)
 		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/conflict-submission":
 			submitted = true
@@ -63,7 +65,7 @@ func TestSubmitResolvedVersionRejectsUnverifiedConflictSubmission(t *testing.T) 
 		}
 	}))
 
-	_, err := SubmitResolvedVersion(context.Background(), client, SubmitResolvedVersionOptions{
+	result, err := SubmitResolvedVersion(context.Background(), client, SubmitResolvedVersionOptions{
 		AppID:     "app-1",
 		VersionID: "version-1",
 		Platform:  "IOS",
@@ -79,6 +81,122 @@ func TestSubmitResolvedVersionRejectsUnverifiedConflictSubmission(t *testing.T) 
 	}
 	if submitted {
 		t.Fatal("must not submit a conflict-derived submission that has unrelated review items")
+	}
+	if canceledCreatedSubmission {
+		t.Fatal("must preserve the newly created submission when conflict recovery is indeterminate")
+	}
+	messages := strings.Join(result.Messages, "\n")
+	if !strings.Contains(messages, "new-submission") || !strings.Contains(messages, "Retry") || !strings.Contains(messages, "asc submit cancel") {
+		t.Fatalf("expected retry and explicit-cancel guidance for the preserved submission, got %#v", result.Messages)
+	}
+}
+
+func TestSubmitResolvedVersionPreservesCreatedSubmissionAfterAmbiguousAddFailure(t *testing.T) {
+	var canceledCreatedSubmission bool
+	client := newSubmitTestClient(t, submitRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/app-1/reviewSubmissions":
+			return submitJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/reviewSubmissions":
+			return submitJSONResponse(http.StatusCreated, `{"data":{"type":"reviewSubmissions","id":"new-submission"}}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/reviewSubmissionItems":
+			return nil, fmt.Errorf("connection closed after sending item request")
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/new-submission":
+			canceledCreatedSubmission = true
+			return submitJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"new-submission"}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.RequestURI())
+		}
+	}))
+
+	result, err := SubmitResolvedVersion(context.Background(), client, SubmitResolvedVersionOptions{
+		AppID:     "app-1",
+		VersionID: "version-1",
+		Platform:  "IOS",
+	})
+	if err == nil {
+		t.Fatal("expected ambiguous add failure")
+	}
+	if canceledCreatedSubmission {
+		t.Fatal("must not cancel a newly created submission after an ambiguous add failure")
+	}
+	messages := strings.Join(result.Messages, "\n")
+	if !strings.Contains(messages, "new-submission") || !strings.Contains(messages, "Retry") || !strings.Contains(messages, "asc submit cancel") {
+		t.Fatalf("expected retry and explicit-cancel guidance for the preserved submission, got %#v", result.Messages)
+	}
+}
+
+func TestSubmitResolvedVersionPreservesCreatedSubmissionAfterConflictRecovery(t *testing.T) {
+	var (
+		canceledCreatedSubmission bool
+		submittedRecovered        bool
+	)
+	client := newSubmitTestClient(t, submitRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/app-1/reviewSubmissions":
+			return submitJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/reviewSubmissions":
+			return submitJSONResponse(http.StatusCreated, `{"data":{"type":"reviewSubmissions","id":"new-submission"}}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/reviewSubmissionItems":
+			return submitJSONResponse(http.StatusConflict, submitAlreadyAddedConflictBody("conflict-submission"))
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/conflict-submission":
+			return submitJSONResponse(http.StatusOK, `{
+				"data": {
+					"type": "reviewSubmissions",
+					"id": "conflict-submission",
+					"attributes": {"state": "READY_FOR_REVIEW", "platform": "IOS"},
+					"relationships": {
+						"app": {"data": {"type": "apps", "id": "app-1"}}
+					}
+				}
+			}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/conflict-submission/items":
+			return submitJSONResponse(http.StatusOK, `{
+				"data": [{
+					"type": "reviewSubmissionItems",
+					"id": "target-item",
+					"relationships": {
+						"appStoreVersion": {
+							"data": {"type": "appStoreVersions", "id": "version-1"}
+						}
+					}
+				}],
+				"links": {}
+			}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/new-submission":
+			canceledCreatedSubmission = true
+			return submitJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"new-submission"}}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/conflict-submission":
+			submittedRecovered = true
+			return submitJSONResponse(http.StatusOK, `{
+				"data": {
+					"type": "reviewSubmissions",
+					"id": "conflict-submission",
+					"attributes": {"state": "WAITING_FOR_REVIEW"}
+				}
+			}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.RequestURI())
+		}
+	}))
+
+	result, err := SubmitResolvedVersion(context.Background(), client, SubmitResolvedVersionOptions{
+		AppID:     "app-1",
+		VersionID: "version-1",
+		Platform:  "IOS",
+	})
+	if err != nil {
+		t.Fatalf("SubmitResolvedVersion() error: %v", err)
+	}
+	if !submittedRecovered || result.SubmissionID != "conflict-submission" {
+		t.Fatalf("expected recovered submission to be submitted, got %#v", result)
+	}
+	if canceledCreatedSubmission {
+		t.Fatal("must preserve the newly created submission after conflict recovery")
+	}
+	messages := strings.Join(result.Messages, "\n")
+	if !strings.Contains(messages, "new-submission") || !strings.Contains(messages, "Retry") || !strings.Contains(messages, "asc submit cancel") {
+		t.Fatalf("expected retry and explicit-cancel guidance for the preserved submission, got %#v", result.Messages)
 	}
 }
 

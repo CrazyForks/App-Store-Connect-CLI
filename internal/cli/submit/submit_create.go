@@ -362,16 +362,19 @@ func reviewSubmissionIsState(ctx context.Context, client *asc.Client, submission
 	return refreshed.Attributes.SubmissionState == wantState, nil
 }
 
-func cleanupEmptyReviewSubmission(ctx context.Context, client *asc.Client, submissionID string, emit func(string)) {
-	if strings.TrimSpace(submissionID) == "" {
+func preserveCreatedReviewSubmission(submissionID string, emit func(string)) {
+	submissionID = strings.TrimSpace(submissionID)
+	if submissionID == "" {
 		return
 	}
-	if _, cancelErr := client.CancelReviewSubmission(ctx, submissionID); cancelErr != nil && !isExpectedNonCancellableReviewSubmissionError(cancelErr) {
-		message := fmt.Sprintf("Warning: failed to cancel empty submission %s: %v", submissionID, cancelErr)
-		if emit != nil {
-			emit(message)
-		} else {
-			fmt.Fprintln(os.Stderr, message)
-		}
+	message := fmt.Sprintf(
+		"Preserved newly created review submission %s instead of canceling it automatically because it may now contain review items. Retry the command if this run reports an error; it will reuse the draft when safe. To cancel it intentionally, run `asc submit cancel --id %s --confirm`.",
+		submissionID,
+		submissionID,
+	)
+	if emit != nil {
+		emit(message)
+	} else {
+		fmt.Fprintln(os.Stderr, message)
 	}
 }

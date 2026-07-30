@@ -212,7 +212,9 @@ Examples:
 				if readErr != nil {
 					return fmt.Errorf("notify slack: failed to read response: %w", readErr)
 				}
-				message := redactWebhookSecretFromText(strings.TrimSpace(string(respBody)), webhookURL)
+				message := asc.SanitizeTerminalText(
+					redactWebhookSecretFromText(strings.TrimSpace(string(respBody)), webhookURL),
+				)
 				if message == "" {
 					return fmt.Errorf("notify slack: unexpected response %d", resp.StatusCode)
 				}

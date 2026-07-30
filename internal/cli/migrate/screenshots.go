@@ -114,15 +114,19 @@ func discoverScreenshotPlanWithOpenFiles(screenshotsDir string, retainOpenFiles 
 			return nil, nil, err
 		}
 		skipped = append(skipped, localeSkipped...)
-		for candidateIndex, candidate := range files {
-			dimensions, err := readOpenedImageDimensions(candidate.path, candidate.file)
+		for _, candidate := range files {
+			file, err := secureopen.OpenExistingNoFollowInRoot(contentRoot, candidate.relative)
 			if err != nil {
-				closeOpenedScreenshotCandidates(files[candidateIndex:])
+				return nil, nil, fmt.Errorf("open screenshot file %q: %w", candidate.path, err)
+			}
+			dimensions, err := readOpenedImageDimensions(candidate.path, file)
+			if err != nil {
+				_ = file.Close()
 				return nil, nil, fmt.Errorf("invalid screenshot file %q: %w", candidate.path, err)
 			}
 			displayType, err := inferScreenshotDisplayTypeFromDimensions(candidate.path, dimensions.Width, dimensions.Height)
 			if err != nil {
-				closeOpenedScreenshotCandidates(files[candidateIndex:])
+				_ = file.Close()
 				return nil, nil, err
 			}
 			key := planKey{locale: locale, displayType: displayType}
@@ -131,9 +135,9 @@ func discoverScreenshotPlanWithOpenFiles(screenshotsDir string, retainOpenFiles 
 			}
 			plans[key].paths = append(plans[key].paths, candidate.path)
 			if retainOpenFiles {
-				info, err := candidate.file.Stat()
+				info, err := file.Stat()
 				if err != nil {
-					closeOpenedScreenshotCandidates(files[candidateIndex:])
+					_ = file.Close()
 					return nil, nil, err
 				}
 				plans[key].sources[candidate.path] = screenshotSource{
@@ -141,7 +145,7 @@ func discoverScreenshotPlanWithOpenFiles(screenshotsDir string, retainOpenFiles 
 					info:     info,
 				}
 			}
-			_ = candidate.file.Close()
+			_ = file.Close()
 		}
 	}
 
@@ -247,35 +251,20 @@ func closeScreenshotPlans(plans []ScreenshotPlan) {
 	}
 }
 
-type openedScreenshotCandidate struct {
+type screenshotCandidate struct {
 	path     string
 	relative string
-	file     *os.File
 }
 
-func closeOpenedScreenshotCandidates(files []openedScreenshotCandidate) {
-	for _, candidate := range files {
-		_ = candidate.file.Close()
-	}
-}
-
-func collectScreenshotFiles(rooted *os.Root, localeRelative, localeDir string) (_ []openedScreenshotCandidate, _ []SkippedItem, resultErr error) {
+func collectScreenshotFiles(rooted *os.Root, localeRelative, localeDir string) ([]screenshotCandidate, []SkippedItem, error) {
 	localeRoot, err := rooted.OpenRoot(filepath.ToSlash(localeRelative))
 	if err != nil {
 		return nil, nil, err
 	}
 	defer localeRoot.Close()
 
-	var files []openedScreenshotCandidate
+	var files []screenshotCandidate
 	var skipped []SkippedItem
-	defer func() {
-		if resultErr == nil {
-			return
-		}
-		for _, candidate := range files {
-			_ = candidate.file.Close()
-		}
-	}()
 	err = fs.WalkDir(localeRoot.FS(), ".", func(relative string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -304,14 +293,9 @@ func collectScreenshotFiles(rooted *os.Root, localeRelative, localeDir string) (
 			})
 			return nil
 		}
-		file, err := secureopen.OpenExistingNoFollowInRoot(localeRoot, relative)
-		if err != nil {
-			return fmt.Errorf("open screenshot file %q: %w", displayPath, err)
-		}
-		files = append(files, openedScreenshotCandidate{
+		files = append(files, screenshotCandidate{
 			path:     displayPath,
 			relative: filepath.ToSlash(filepath.Join(localeRelative, relative)),
-			file:     file,
 		})
 		return nil
 	})

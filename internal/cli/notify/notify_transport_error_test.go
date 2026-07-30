@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
 // The webhook path is itself the credential, so the secret sentinel lives in the
@@ -169,6 +171,55 @@ func TestNotifySlackNon2xxResponseBodyNeverExposesWebhookSecret(t *testing.T) {
 				t.Fatalf("error dropped the harmless body context %q: %q", test.keep, runErr.Error())
 			}
 		})
+	}
+}
+
+func TestNotifySlackNon2xxResponseBodyRemovesTerminalControls(t *testing.T) {
+	t.Setenv(slackWebhookEnvVar, "")
+	t.Setenv(slackWebhookAllowLocalEnv, "1")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	original := slackHTTPClient
+	t.Cleanup(func() {
+		slackHTTPClient = original
+	})
+	slackHTTPClient = func() *http.Client {
+		return &http.Client{
+			Transport: &respondingSlackTransport{
+				status: http.StatusBadGateway,
+				body:   "proxy error\x1b]8;;https://evil.invalid\x07click\x1b]8;;\x07\u202egpj.exe",
+			},
+		}
+	}
+
+	root := SlackCommand()
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"--webhook", slackWebhookWithSecret(),
+			"--message", "Build uploaded",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if runErr == nil {
+		t.Fatal("expected an unexpected-response error")
+	}
+	if asc.HasInterpretedTerminalSequence(runErr.Error()) {
+		t.Fatalf("error contains interpreted terminal sequences: %q", runErr.Error())
+	}
+	if asc.HasInterpretedTerminalSequence(stderr) {
+		t.Fatalf("stderr contains interpreted terminal sequences: %q", stderr)
+	}
+	if !strings.Contains(runErr.Error(), "unexpected response 502") {
+		t.Fatalf("error dropped the status context: %q", runErr.Error())
+	}
+	if !strings.Contains(runErr.Error(), "proxy error") {
+		t.Fatalf("error dropped harmless body context: %q", runErr.Error())
 	}
 }
 

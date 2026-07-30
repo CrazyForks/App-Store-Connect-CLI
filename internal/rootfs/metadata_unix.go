@@ -23,8 +23,11 @@ func copyReplacementMetadata(destination, source *os.File, info os.FileInfo) err
 	if err := destination.Chmod(info.Mode().Perm()); err != nil {
 		return fmt.Errorf("preserve replacement permissions: %w", err)
 	}
-	// Apply ACL-bearing extended attributes after chmod so the mode update
-	// cannot rewrite the restored ACL mask.
+	// Apply ACLs after chmod so the mode update cannot rewrite the restored ACL
+	// mask on platforms where ACLs are independent filesystem metadata.
+	if err := copyAccessControlList(destination, source); err != nil {
+		return err
+	}
 	if err := copyExtendedAttributes(destination, source); err != nil {
 		return err
 	}

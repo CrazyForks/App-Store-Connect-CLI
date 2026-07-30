@@ -119,6 +119,55 @@ func TestValidateStructureRejectsBinaryObjectAmplificationFromTrailer(t *testing
 	}
 }
 
+func TestValidateStructureRejectsBinarySharedObjectAmplification(t *testing.T) {
+	data := binaryPlistWithSharedArrayLevels(16)
+
+	err := ValidateStructure(data)
+	if err == nil {
+		t.Fatal("expected shared binary object-count amplification rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "object count") {
+		t.Fatalf("expected object-count error, got %v", err)
+	}
+}
+
+func TestValidateStructureAcceptsReasonableBinarySharedObjects(t *testing.T) {
+	data := binaryPlistWithSharedArrayLevels(10)
+
+	if err := ValidateStructure(data); err != nil {
+		t.Fatalf("ValidateStructure() rejected reasonable shared binary plist: %v", err)
+	}
+}
+
+func binaryPlistWithSharedArrayLevels(levels int) []byte {
+	data := append([]byte(nil), "bplist00"...)
+	offsets := make([]byte, 0, levels+3)
+	appendObject := func(object ...byte) {
+		offsets = append(offsets, byte(len(data)))
+		data = append(data, object...)
+	}
+
+	appendObject(0x54, 'B', 'o', 'm', 'b')
+	appendObject(0x51, 'x')
+	previous := byte(1)
+	for range levels {
+		appendObject(0xA2, previous, previous)
+		previous++
+	}
+	topObject := byte(len(offsets))
+	appendObject(0xD1, 0, previous)
+
+	offsetTable := uint64(len(data))
+	data = append(data, offsets...)
+	trailer := make([]byte, 32)
+	trailer[6] = 1
+	trailer[7] = 1
+	binary.BigEndian.PutUint64(trailer[8:16], uint64(len(offsets)))
+	binary.BigEndian.PutUint64(trailer[16:24], uint64(topObject))
+	binary.BigEndian.PutUint64(trailer[24:32], offsetTable)
+	return append(data, trailer...)
+}
+
 func nestedXMLPlist(depth int) []byte {
 	var builder strings.Builder
 	builder.WriteString(`<?xml version="1.0"?><plist>`)
