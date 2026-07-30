@@ -76,15 +76,15 @@
         asc install-skills
         ```
 
-        This runs the pinned installer `skills@1.5.20` against a reviewed skills commit and needs Node.js (`npx`) and `git`. To do the same by hand, using a fresh temporary directory and stopping on the first failed step:
+        This runs the pinned installer `skills@1.5.20` against a reviewed skills commit and needs Node.js (`npx`) and `git`. To do the same by hand, using a fresh temporary directory (which `npx` also runs from, so a local `node_modules/skills` cannot shadow the pinned installer) and stopping on the first failed step:
 
         ```bash  theme={null}
         asc_skills="$(mktemp -d)" &&
-          git init --quiet "$asc_skills" &&
-          git -C "$asc_skills" remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git &&
-          git -C "$asc_skills" fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115 &&
-          git -C "$asc_skills" checkout --detach e30039abddbe388179324d0f9cdccb66c3843115 &&
-          npx --yes skills@1.5.20 add "$asc_skills" --global --agent codex --yes &&
+          git init --quiet "$asc_skills/src" &&
+          git -C "$asc_skills/src" remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git &&
+          git -C "$asc_skills/src" fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115 &&
+          git -C "$asc_skills/src" checkout --detach e30039abddbe388179324d0f9cdccb66c3843115 &&
+          (cd "$asc_skills" && npx --yes skills@1.5.20 add "$asc_skills/src" --global --agent codex --yes) &&
           rm -rf "$asc_skills"
         ```
       </Step>
