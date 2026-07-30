@@ -12,6 +12,7 @@ import (
 	"github.com/peterbourgon/ff/v3/ffcli"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 const ascReferenceFile = "ASC.md"
@@ -85,28 +86,41 @@ Examples:
 }
 
 // InitReference generates ASC.md in the target repo and links agent files.
+// Every validation, including the symlink containment checks on the ASC.md
+// destination and the agent files, runs before the first write, so a failed
+// init leaves the repository untouched.
 func InitReference(opts InitOptions) (InitResult, error) {
 	targetPath, linkRoot, err := resolveOutputPath(opts.Path)
 	if err != nil {
 		return InitResult{}, err
 	}
 
-	created, overwritten, err := writeASCReference(targetPath, opts.Force)
+	ascPlan, err := planASCReference(targetPath, opts.Force)
 	if err != nil {
 		return InitResult{}, err
 	}
 
-	linked := []string{}
+	linkPlan := agentLinkPlan{}
 	if opts.Link {
 		relRef, err := filepath.Rel(linkRoot, targetPath)
 		if err != nil {
 			relRef = ascReferenceFile
 		}
 		relRef = normalizeReferencePath(relRef)
-		linked, err = linkAgentFiles(linkRoot, relRef)
+		linkPlan, err = planAgentFileLinks(linkRoot, relRef)
 		if err != nil {
 			return InitResult{}, err
 		}
+	}
+
+	created, overwritten, err := writeASCReference(ascPlan)
+	if err != nil {
+		return InitResult{}, err
+	}
+
+	linked, err := applyAgentFileLinks(linkPlan)
+	if err != nil {
+		return InitResult{}, err
 	}
 
 	return InitResult{
@@ -217,81 +231,170 @@ func findRepoRoot(start string) (string, error) {
 	}
 }
 
-func writeASCReference(path string, force bool) (bool, bool, error) {
+const defaultDocsFileMode os.FileMode = 0o644
+
+// ascReferencePlan is a fully validated, not-yet-applied ASC.md write.
+type ascReferencePlan struct {
+	root   rootfs.Root
+	name   string
+	exists bool
+	perm   os.FileMode
+}
+
+// planASCReference validates the ASC.md destination without writing anything.
+func planASCReference(path string, force bool) (ascReferencePlan, error) {
+	root, err := rootfs.New(filepath.Dir(path))
+	if err != nil {
+		return ascReferencePlan{}, err
+	}
+	name := filepath.Base(path)
+
+	// Lstat, not Stat, so a dangling symlink still counts as an existing entry
+	// and is never followed.
 	exists := false
-	if _, err := os.Stat(path); err == nil {
+	perm := defaultDocsFileMode
+	if info, err := os.Lstat(path); err == nil {
 		exists = true
+		if info.Mode().IsRegular() {
+			// Preserve the operator's chosen mode when replacing the file.
+			perm = info.Mode().Perm()
+		}
 	} else if !os.IsNotExist(err) {
-		return false, false, err
+		return ascReferencePlan{}, err
 	}
 
 	if exists && !force {
-		return false, false, fmt.Errorf("%w: %s (use --force to overwrite)", ErrASCReferenceExists, path)
+		return ascReferencePlan{}, fmt.Errorf("%w: %s (use --force to overwrite)", ErrASCReferenceExists, path)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, false, err
+	// Reject a symlinked destination while planning so the failure happens
+	// before any file is written; the rooted write re-checks at write time.
+	if err := root.CheckContained(name); err != nil {
+		return ascReferencePlan{}, err
 	}
 
+	return ascReferencePlan{root: root, name: name, exists: exists, perm: perm}, nil
+}
+
+func writeASCReference(plan ascReferencePlan) (bool, bool, error) {
 	content := ascTemplate
 	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := plan.root.WriteFile(plan.name, []byte(content), plan.perm); err != nil {
 		return false, false, err
 	}
 
-	if exists {
+	if plan.exists {
 		return false, true, nil
 	}
 	return true, false, nil
 }
 
-func linkAgentFiles(root string, relRef string) ([]string, error) {
+// agentFileUpdate is one planned agent-file rewrite.
+type agentFileUpdate struct {
+	name    string
+	content string
+	perm    os.FileMode
+}
+
+// agentLinkPlan holds every agent-file update computed during planning.
+type agentLinkPlan struct {
+	root    rootfs.Root
+	rootDir string
+	updates []agentFileUpdate
+}
+
+// planAgentFileLinks computes every agent-file update up front, so a symlinked
+// or unreadable agent file is rejected before anything is written.
+func planAgentFileLinks(rootDir string, relRef string) (agentLinkPlan, error) {
+	root, err := rootfs.New(rootDir)
+	if err != nil {
+		return agentLinkPlan{}, err
+	}
+	plan := agentLinkPlan{root: root, rootDir: rootDir}
+
+	agentsName := "AGENTS.md"
+	if !entryExists(filepath.Join(rootDir, agentsName)) {
+		agentsName = "Agents.md"
+	}
+	agentsContent, agentsChanged, err := planAgentsLink(root, agentsName, relRef)
+	if err != nil {
+		return agentLinkPlan{}, err
+	}
+	if agentsChanged {
+		update, err := plannedAgentFileUpdate(rootDir, agentsName, agentsContent)
+		if err != nil {
+			return agentLinkPlan{}, err
+		}
+		plan.updates = append(plan.updates, update)
+	}
+
+	claudeName := "CLAUDE.md"
+	claudeContent, claudeChanged, err := planClaudeLink(root, claudeName, relRef)
+	if err != nil {
+		return agentLinkPlan{}, err
+	}
+	if claudeChanged {
+		update, err := plannedAgentFileUpdate(rootDir, claudeName, claudeContent)
+		if err != nil {
+			return agentLinkPlan{}, err
+		}
+		plan.updates = append(plan.updates, update)
+	}
+
+	return plan, nil
+}
+
+// plannedAgentFileUpdate records the rewrite along with the file's current
+// mode, so applying the plan preserves the operator's chosen permissions. The
+// rooted read that produced content already rejected symlinked entries.
+func plannedAgentFileUpdate(rootDir, name, content string) (agentFileUpdate, error) {
+	update := agentFileUpdate{name: name, content: content, perm: defaultDocsFileMode}
+	info, err := os.Lstat(filepath.Join(rootDir, name))
+	switch {
+	case err == nil:
+		if info.Mode().IsRegular() {
+			update.perm = info.Mode().Perm()
+		}
+	case !os.IsNotExist(err):
+		return agentFileUpdate{}, err
+	}
+	return update, nil
+}
+
+func applyAgentFileLinks(plan agentLinkPlan) ([]string, error) {
 	linked := []string{}
-
-	agentsPath := filepath.Join(root, "AGENTS.md")
-	if !fileExists(agentsPath) {
-		agentsPath = filepath.Join(root, "Agents.md")
+	for _, update := range plan.updates {
+		if err := plan.root.WriteFile(update.name, []byte(update.content), update.perm); err != nil {
+			return nil, err
+		}
+		linked = append(linked, filepath.Join(plan.rootDir, update.name))
 	}
-	agentsUpdated, err := updateAgentsLink(agentsPath, relRef)
-	if err != nil {
-		return nil, err
-	}
-	if agentsUpdated {
-		linked = append(linked, agentsPath)
-	}
-
-	claudePath := filepath.Join(root, "CLAUDE.md")
-	claudeUpdated, err := updateClaudeLink(claudePath, relRef)
-	if err != nil {
-		return nil, err
-	}
-	if claudeUpdated {
-		linked = append(linked, claudePath)
-	}
-
 	return linked, nil
 }
 
-func fileExists(path string) bool {
+// entryExists reports whether path exists without following a final symlink, so
+// a symlinked agent file is still selected and then rejected by the rooted read.
+func entryExists(path string) bool {
 	if path == "" {
 		return false
 	}
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Lstat(path); err == nil {
 		return true
 	}
 	return false
 }
 
-func updateAgentsLink(path string, relRef string) (bool, error) {
-	data, err := os.ReadFile(path)
+// planAgentsLink computes the updated AGENTS.md content without writing it.
+func planAgentsLink(root rootfs.Root, name string, relRef string) (string, bool, error) {
+	data, found, err := root.ReadFileOptional(name)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
+		return "", false, err
+	}
+	if !found {
+		return "", false, nil
 	}
 
 	desiredLine := fmt.Sprintf("See `%s` for the command catalog and workflows.", relRef)
@@ -317,23 +420,23 @@ func updateAgentsLink(path string, relRef string) (bool, error) {
 	}
 	if foundReference {
 		if !changed {
-			return false, nil
+			return "", false, nil
 		}
-		return writeIfChanged(path, strings.Join(lines, "\n"))
+		return plannedContent(string(data), strings.Join(lines, "\n"))
 	}
 
 	section := fmt.Sprintf("## asc cli reference\n\n%s", desiredLine)
-	updated := appendSection(string(data), section)
-	return writeIfChanged(path, updated)
+	return plannedContent(string(data), appendSection(string(data), section))
 }
 
-func updateClaudeLink(path string, relRef string) (bool, error) {
-	data, err := os.ReadFile(path)
+// planClaudeLink computes the updated CLAUDE.md content without writing it.
+func planClaudeLink(root rootfs.Root, name string, relRef string) (string, bool, error) {
+	data, found, err := root.ReadFileOptional(name)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
+		return "", false, err
+	}
+	if !found {
+		return "", false, nil
 	}
 
 	desiredLine := "@" + relRef
@@ -360,9 +463,9 @@ func updateClaudeLink(path string, relRef string) (bool, error) {
 	}
 	if foundReference {
 		if !changed {
-			return false, nil
+			return "", false, nil
 		}
-		return writeIfChanged(path, strings.Join(updatedLines, "\n"))
+		return plannedContent(string(data), strings.Join(updatedLines, "\n"))
 	}
 
 	updated := strings.TrimRight(string(data), "\n")
@@ -371,7 +474,7 @@ func updateClaudeLink(path string, relRef string) (bool, error) {
 	}
 	updated += desiredLine + "\n"
 
-	return writeIfChanged(path, updated)
+	return plannedContent(string(data), updated)
 }
 
 func isAgentsReferenceLine(line string) bool {
@@ -395,16 +498,11 @@ func appendSection(content, section string) string {
 	return trimmed + "\n\n" + section + "\n"
 }
 
-func writeIfChanged(path, content string) (bool, error) {
-	existing, err := os.ReadFile(path)
-	if err != nil {
-		return false, err
+// plannedContent reports updated as a pending write when it differs from the
+// existing content.
+func plannedContent(existing, updated string) (string, bool, error) {
+	if existing == updated {
+		return "", false, nil
 	}
-	if string(existing) == content {
-		return false, nil
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return false, err
-	}
-	return true, nil
+	return updated, true, nil
 }
