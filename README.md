@@ -41,14 +41,16 @@ Install them globally so they are available across projects:
 asc install-skills
 ```
 
-`asc install-skills` runs the pinned installer `skills@1.5.20` against a reviewed skills commit, so an upstream change cannot alter what gets installed. To do the same by hand, check out that commit first and install from the local path:
+`asc install-skills` runs the pinned installer `skills@1.5.20` against a reviewed skills commit, so an upstream change cannot alter what gets installed. To do the same by hand, check out that commit into a fresh temporary directory and install from the local path (each step stops the chain on failure):
 
 ```bash
-git init asc-skills
-git -C asc-skills remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git
-git -C asc-skills fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115
-git -C asc-skills checkout --detach e30039abddbe388179324d0f9cdccb66c3843115
-npx --yes skills@1.5.20 add "$PWD/asc-skills" --global --agent codex --yes
+asc_skills="$(mktemp -d)" &&
+  git init --quiet "$asc_skills" &&
+  git -C "$asc_skills" remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git &&
+  git -C "$asc_skills" fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115 &&
+  git -C "$asc_skills" checkout --detach e30039abddbe388179324d0f9cdccb66c3843115 &&
+  npx --yes skills@1.5.20 add "$asc_skills" --global --agent codex --yes &&
+  rm -rf "$asc_skills"
 ```
 
 ## Quick Start
