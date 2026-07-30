@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
@@ -194,6 +195,7 @@ func xcodeVersionEditCommand() *ffcli.Command {
 	configuration := fs.String("configuration", "", "Xcode build configuration name to edit")
 	version := fs.String("version", "", "Marketing version (CFBundleShortVersionString)")
 	buildNumber := fs.String("build-number", "", "Build number (CFBundleVersion)")
+	allowExternalXCConfig := fs.Bool("allow-external-xcconfig", false, "[experimental] Allow rewriting xcconfig files referenced outside the project directory")
 	remote := bindXcodeRemoteBuildNumberFlags(fs)
 	output := shared.BindOutputFlags(fs)
 
@@ -201,8 +203,21 @@ func xcodeVersionEditCommand() *ffcli.Command {
 		Name:       "edit",
 		ShortUsage: "asc xcode version edit [--version VER] [--build-number NUM | --next-build-number --app APP] [--target NAME] [--configuration NAME]",
 		ShortHelp:  "Edit version and/or build number.",
-		FlagSet:    fs,
-		UsageFunc:  shared.DefaultUsageFunc,
+		LongHelp: `Edit the marketing version and/or build number in an Xcode project.
+
+Modern project and xcconfig build settings are edited structurally.
+
+By default only xcconfig files inside the project directory are rewritten.
+Pass the experimental --allow-external-xcconfig flag to authorize rewriting an
+xcconfig the project references outside that directory.
+
+Examples:
+  asc xcode version edit --version "1.3.0"
+  asc xcode version edit --build-number "42"
+  asc xcode version edit --target Widget --configuration Release --build-number "42"
+  asc xcode version edit --next-build-number --app "com.example.app"`,
+		FlagSet:   fs,
+		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
 			if len(args) > 0 {
 				return shared.UsageErrorf("unexpected argument(s): %s", strings.Join(args, " "))
@@ -221,16 +236,20 @@ func xcodeVersionEditCommand() *ffcli.Command {
 			}
 
 			projectInput := selectedProjectInput(*projectDir, *project)
+			if *allowExternalXCConfig {
+				warnExternalXCConfigAuthorized()
+			}
 			if *remote.next {
 				if err := validateXcodeRemoteBuildNumberOptions(remote.options(v)); err != nil {
 					return err
 				}
 				if err := runValidateSetVersion(localxcode.SetVersionOptions{
-					ProjectDir:    projectInput,
-					Target:        strings.TrimSpace(*target),
-					Configuration: strings.TrimSpace(*configuration),
-					Version:       v,
-					BuildNumber:   "1",
+					ProjectDir:            projectInput,
+					Target:                strings.TrimSpace(*target),
+					Configuration:         strings.TrimSpace(*configuration),
+					Version:               v,
+					BuildNumber:           "1",
+					AllowExternalXCConfig: *allowExternalXCConfig,
 				}); err != nil {
 					return fmt.Errorf("xcode version edit: validate local mutation: %w", err)
 				}
@@ -254,11 +273,12 @@ func xcodeVersionEditCommand() *ffcli.Command {
 			}
 
 			result, err := runSetVersion(ctx, localxcode.SetVersionOptions{
-				ProjectDir:    projectInput,
-				Target:        strings.TrimSpace(*target),
-				Configuration: strings.TrimSpace(*configuration),
-				Version:       v,
-				BuildNumber:   b,
+				ProjectDir:            projectInput,
+				Target:                strings.TrimSpace(*target),
+				Configuration:         strings.TrimSpace(*configuration),
+				Version:               v,
+				BuildNumber:           b,
+				AllowExternalXCConfig: *allowExternalXCConfig,
 			})
 			if err != nil {
 				return fmt.Errorf("xcode version edit: %w", err)
@@ -277,6 +297,7 @@ func xcodeVersionBumpCommand() *ffcli.Command {
 	target := fs.String("target", "", "Xcode target name to bump")
 	configuration := fs.String("configuration", "", "Xcode build configuration name to bump")
 	bumpType := fs.String("type", "", "Bump type: major, minor, patch, or build (required)")
+	allowExternalXCConfig := fs.Bool("allow-external-xcconfig", false, "[experimental] Allow rewriting xcconfig files referenced outside the project directory")
 	remote := bindXcodeRemoteBuildNumberFlags(fs)
 	output := shared.BindOutputFlags(fs)
 
@@ -297,6 +318,8 @@ Note:
   multiple sibling projects.
   --target and --configuration scope both the read and write.
   --next-build-number is accepted with --type build and uses App Store Connect.
+  Only xcconfig files inside the project directory are rewritten unless the
+  experimental --allow-external-xcconfig flag is passed.
 
 Examples:
   asc xcode version bump --type patch
@@ -323,17 +346,21 @@ Examples:
 				return shared.UsageError("remote build-number flags require --next-build-number")
 			}
 			projectInput := selectedProjectInput(*projectDir, *project)
+			if *allowExternalXCConfig {
+				warnExternalXCConfigAuthorized()
+			}
 			remoteBuildNumber := ""
 			if *remote.next {
 				if err := validateXcodeRemoteBuildNumberOptions(remote.options("")); err != nil {
 					return err
 				}
 				if err := runValidateBumpVersion(ctx, localxcode.BumpVersionOptions{
-					ProjectDir:    projectInput,
-					Target:        strings.TrimSpace(*target),
-					Configuration: strings.TrimSpace(*configuration),
-					BumpType:      localxcode.BumpBuild,
-					BuildNumber:   "1",
+					ProjectDir:            projectInput,
+					Target:                strings.TrimSpace(*target),
+					Configuration:         strings.TrimSpace(*configuration),
+					BumpType:              localxcode.BumpBuild,
+					BuildNumber:           "1",
+					AllowExternalXCConfig: *allowExternalXCConfig,
 				}); err != nil {
 					return fmt.Errorf("xcode version bump: validate local mutation: %w", err)
 				}
@@ -352,11 +379,12 @@ Examples:
 			}
 
 			result, err := runBumpVersion(ctx, localxcode.BumpVersionOptions{
-				ProjectDir:    projectInput,
-				Target:        strings.TrimSpace(*target),
-				Configuration: strings.TrimSpace(*configuration),
-				BumpType:      parsed,
-				BuildNumber:   remoteBuildNumber,
+				ProjectDir:            projectInput,
+				Target:                strings.TrimSpace(*target),
+				Configuration:         strings.TrimSpace(*configuration),
+				BumpType:              parsed,
+				BuildNumber:           remoteBuildNumber,
+				AllowExternalXCConfig: *allowExternalXCConfig,
 			})
 			if err != nil {
 				return fmt.Errorf("xcode version bump: %w", err)
@@ -365,6 +393,10 @@ Examples:
 			return shared.PrintOutput(result, *output.Output, *output.Pretty)
 		},
 	}
+}
+
+func warnExternalXCConfigAuthorized() {
+	fmt.Fprintln(os.Stderr, "Warning: --allow-external-xcconfig permits rewriting xcconfig files outside the project directory.")
 }
 
 func resolveXcodeNextBuildNumber(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {

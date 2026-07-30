@@ -21,6 +21,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 const (
@@ -547,8 +548,36 @@ func validateRequestedLabels(ctx context.Context, token string, requested []stri
 	return validated, nil
 }
 
+// localLogRoot anchors snitch log access to the working directory so the
+// repository-controlled .asc directory and log file cannot redirect the log, and
+// falls back to the log's own parent for a log the operator placed elsewhere.
+func localLogRoot(path string) (rootfs.Root, string, error) {
+	absolute, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return rootfs.Root{}, "", err
+	}
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		if root, rootErr := rootfs.New(cwd); rootErr == nil {
+			if relative, relErr := filepath.Rel(root.Path(), absolute); relErr == nil {
+				if relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+					return root, relative, nil
+				}
+			}
+		}
+	}
+	root, err := rootfs.New(filepath.Dir(absolute))
+	if err != nil {
+		return rootfs.Root{}, "", err
+	}
+	return root, filepath.Base(absolute), nil
+}
+
 func readLocalLog(path string) ([]LogEntry, error) {
-	data, err := os.ReadFile(path)
+	root, name, err := localLogRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return nil, err
 	}
@@ -740,29 +769,25 @@ func readGitHubAPIError(resp *http.Response) error {
 
 func writeLocalLog(entry LogEntry) error {
 	dir := ".asc"
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := filepath.Join(dir, "snitch.log")
+
+	root, name, err := localLogRoot(path)
+	if err != nil {
+		return fmt.Errorf("snitch: %w", err)
+	}
+	if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 		return fmt.Errorf("snitch: failed to create %s: %w", dir, err)
 	}
-
-	path := filepath.Join(dir, "snitch.log")
 
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("snitch: failed to marshal entry: %w", err)
 	}
 
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("snitch: failed to open %s: %w", path, err)
-	}
-	defer f.Close()
-
-	if err := f.Chmod(0o600); err != nil {
-		return fmt.Errorf("snitch: failed to set secure permissions on %s: %w", path, err)
-	}
-
-	if _, err := f.Write(append(data, '\n')); err != nil {
-		return fmt.Errorf("snitch: failed to write entry: %w", err)
+	// AppendFile refuses a symlinked log and only tightens permissions on the
+	// descriptor it opened, so it can never chmod an external file.
+	if err := root.AppendFile(name, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("snitch: failed to append to %s: %w", path, err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Friction logged to %s\n", path)

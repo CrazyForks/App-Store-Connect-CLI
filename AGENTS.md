@@ -64,6 +64,7 @@ User-facing commands and flags follow `experimental` -> `stable` -> `deprecated`
 - Put command implementations in `internal/cli/<domain>` and register new top-level commands in `internal/cli/registry/registry.go`.
 - Set `UsageFunc: shared.DefaultUsageFunc` on command groups and subcommands.
 - Use `shared.ContextWithTimeout` or `shared.ContextWithUploadTimeout` for outbound HTTP.
+- Read and write repository-controlled or API-supplied paths through `internal/rootfs`, anchored to the operator-selected root for that command, instead of plain `os` file operations.
 - Validate required flags before side effects and assert stderr messages in tests.
 - Use `internal/cli/cmdtest` for CLI-level coverage and `httptest` for HTTP payload coverage.
 - Remove shared wrappers or helpers made obsolete by a refactor.

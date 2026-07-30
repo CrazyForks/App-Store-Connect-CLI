@@ -15,6 +15,13 @@ func OpenNewFileNoFollow(path string, perm os.FileMode) (*os.File, error) {
 	return os.OpenFile(path, flags, perm)
 }
 
+// OpenAppendNoFollow opens a file for appending without following symlinks,
+// creating it when it does not exist.
+func OpenAppendNoFollow(path string, perm os.FileMode) (*os.File, error) {
+	flags := os.O_WRONLY | os.O_APPEND | os.O_CREATE | unix.O_NOFOLLOW
+	return os.OpenFile(path, flags, perm)
+}
+
 // OpenExistingNoFollow opens an existing file without following symlinks.
 func OpenExistingNoFollow(path string) (*os.File, error) {
 	// O_NONBLOCK prevents hanging when opening FIFOs/devices in untrusted paths.
