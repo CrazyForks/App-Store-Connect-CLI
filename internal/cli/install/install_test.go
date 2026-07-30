@@ -404,6 +404,38 @@ func TestInstallSkillsRejectsSymlinkedTempDirectoryInsideNodeProject(t *testing.
 	}
 }
 
+func TestIsolatedInstallerDirCleanupNeverFollowsSwappedTempSymlink(t *testing.T) {
+	victim := t.TempDir()
+	sentinel := filepath.Join(victim, "keep-me")
+	if err := os.WriteFile(sentinel, []byte("unrelated"), 0o600); err != nil {
+		t.Fatalf("create unrelated sentinel: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(victim, "package.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatalf("create npm project marker: %v", err)
+	}
+
+	originalEval := evalInstallerDir
+	t.Cleanup(func() { evalInstallerDir = originalEval })
+	evalInstallerDir = func(runDir string) (string, error) {
+		if err := os.RemoveAll(runDir); err != nil {
+			return "", err
+		}
+		if err := os.Symlink(victim, runDir); err != nil {
+			return "", err
+		}
+		return filepath.EvalSymlinks(runDir)
+	}
+
+	if _, err := isolatedInstallerDir(); err == nil {
+		t.Fatal("expected the swapped directory to fail npm project validation")
+	}
+	if data, err := os.ReadFile(sentinel); err != nil {
+		t.Fatalf("cleanup followed the swapped symlink and removed unrelated data: %v", err)
+	} else if string(data) != "unrelated" {
+		t.Fatalf("unrelated sentinel changed to %q", data)
+	}
+}
+
 func TestInstallSkillsAllowsUserNpmrcAboveTempDirectory(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, ".npmrc"), []byte("fund=false\n"), 0o600); err != nil {

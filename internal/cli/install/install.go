@@ -34,6 +34,7 @@ var (
 	lookupExecutable = exec.LookPath
 	runCommand       = defaultRunCommand
 	runCommandInDir  = defaultRunCommandInDir
+	evalInstallerDir = filepath.EvalSymlinks
 	errNpxNotFound   = errors.New("npx not found")
 	errGitNotFound   = errors.New("git not found")
 )
@@ -129,7 +130,7 @@ func isolatedInstallerDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create an isolated working directory for the installer: %w", err)
 	}
-	physicalRunDir, err := filepath.EvalSymlinks(runDir)
+	physicalRunDir, err := evalInstallerDir(runDir)
 	if err != nil {
 		_ = os.RemoveAll(runDir)
 		return "", fmt.Errorf("failed to resolve the isolated working directory for the installer: %w", err)
@@ -142,7 +143,10 @@ func isolatedInstallerDir() (string, error) {
 		}
 	}
 	if ancestor, marker := nearestNpmProjectAncestor(physicalRunDir, userHome); ancestor != "" {
-		_ = os.RemoveAll(physicalRunDir)
+		// Clean up only the entry MkdirTemp created. The entry could have been
+		// swapped for a symlink while it was being resolved; removing the
+		// physical target would then delete unrelated data.
+		_ = os.RemoveAll(runDir)
 		return "", fmt.Errorf("temporary directory %s sits inside an npm project (%s contains %s), which could shadow or redirect the pinned installer; point TMPDIR outside any npm project and retry", physicalRunDir, ancestor, marker)
 	}
 	return physicalRunDir, nil
