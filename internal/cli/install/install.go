@@ -129,20 +129,37 @@ func isolatedInstallerDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create an isolated working directory for the installer: %w", err)
 	}
-	if ancestor, marker := nearestNpmProjectAncestor(runDir); ancestor != "" {
+	physicalRunDir, err := filepath.EvalSymlinks(runDir)
+	if err != nil {
 		_ = os.RemoveAll(runDir)
-		return "", fmt.Errorf("temporary directory %s sits inside an npm project (%s contains %s), which could shadow or redirect the pinned installer; point TMPDIR outside any npm project and retry", runDir, ancestor, marker)
+		return "", fmt.Errorf("failed to resolve the isolated working directory for the installer: %w", err)
 	}
-	return runDir, nil
+
+	userHome := ""
+	if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		if physicalHome, resolveErr := filepath.EvalSymlinks(home); resolveErr == nil {
+			userHome = physicalHome
+		}
+	}
+	if ancestor, marker := nearestNpmProjectAncestor(physicalRunDir, userHome); ancestor != "" {
+		_ = os.RemoveAll(physicalRunDir)
+		return "", fmt.Errorf("temporary directory %s sits inside an npm project (%s contains %s), which could shadow or redirect the pinned installer; point TMPDIR outside any npm project and retry", physicalRunDir, ancestor, marker)
+	}
+	return physicalRunDir, nil
 }
 
 // nearestNpmProjectAncestor returns the closest directory at or above dir that
 // contains an npm project marker together with the marker it found, or empty
-// strings when there is none.
-func nearestNpmProjectAncestor(dir string) (string, string) {
+// strings when there is none. A .npmrc in the user's home directory is npm's
+// ordinary user configuration, not project configuration, so it does not make
+// a temporary directory below the home directory unsafe by itself.
+func nearestNpmProjectAncestor(dir string, userHome string) (string, string) {
 	for current := dir; ; {
 		for _, marker := range npmProjectMarkers {
 			if _, err := os.Stat(filepath.Join(current, marker)); err == nil {
+				if marker == ".npmrc" && sameDirectory(current, userHome) {
+					continue
+				}
 				return current, marker
 			}
 		}
@@ -152,6 +169,15 @@ func nearestNpmProjectAncestor(dir string) (string, string) {
 		}
 		current = parent
 	}
+}
+
+func sameDirectory(left string, right string) bool {
+	if left == "" || right == "" {
+		return false
+	}
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	return leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo)
 }
 
 // checkoutPinnedSkills fetches exactly skillsSourceCommit into sourceDir. Git

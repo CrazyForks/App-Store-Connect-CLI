@@ -366,6 +366,73 @@ func TestInstallSkillsRejectsInstallerDirectoryInsideNodeProject(t *testing.T) {
 	}
 }
 
+func TestInstallSkillsRejectsSymlinkedTempDirectoryInsideNodeProject(t *testing.T) {
+	project := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(project, "node_modules", "skills"), 0o755); err != nil {
+		t.Fatalf("create project node_modules fixture: %v", err)
+	}
+	tmpInsideProject := filepath.Join(project, "tmp")
+	if err := os.MkdirAll(tmpInsideProject, 0o755); err != nil {
+		t.Fatalf("create project temp directory: %v", err)
+	}
+
+	linkParent := t.TempDir()
+	symlinkedTmp := filepath.Join(linkParent, "tmp-link")
+	if err := os.Symlink(tmpInsideProject, symlinkedTmp); err != nil {
+		t.Skipf("symlink creation is not permitted on this host: %v", err)
+	}
+	t.Setenv("TMPDIR", symlinkedTmp)
+
+	stubLookups(t, map[string]string{"npx": "/bin/npx", "git": "/bin/git"})
+	recorded := recordCommands(t)
+
+	cmd := InstallSkillsCommand()
+	if err := cmd.Parse([]string{}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	err := cmd.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected an error when symlinked TMPDIR resolves inside an npm project")
+	}
+	if !strings.Contains(err.Error(), "node_modules") {
+		t.Fatalf("expected the error to name node_modules, got %q", err.Error())
+	}
+	for _, call := range *recorded {
+		if call.name == "/bin/npx" {
+			t.Fatalf("installer ran despite the physical npm project ancestor: %#v", call)
+		}
+	}
+}
+
+func TestInstallSkillsAllowsUserNpmrcAboveTempDirectory(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".npmrc"), []byte("fund=false\n"), 0o600); err != nil {
+		t.Fatalf("create user npmrc fixture: %v", err)
+	}
+	tmpBelowHome := filepath.Join(home, "tmp")
+	if err := os.MkdirAll(tmpBelowHome, 0o755); err != nil {
+		t.Fatalf("create home temp directory: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("TMPDIR", tmpBelowHome)
+
+	stubLookups(t, map[string]string{"npx": "/bin/npx", "git": "/bin/git"})
+	recorded := recordCommands(t)
+
+	cmd := InstallSkillsCommand()
+	if err := cmd.Parse([]string{}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if err := cmd.Run(context.Background()); err != nil {
+		t.Fatalf("user-level .npmrc must not reject an otherwise isolated installer: %v", err)
+	}
+
+	if len(*recorded) == 0 || (*recorded)[len(*recorded)-1].name != "/bin/npx" {
+		t.Fatalf("installer did not reach pinned npx execution: %#v", *recorded)
+	}
+}
+
 func TestPinnedSkillsDocumentationMatchesConstants(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join("..", "..", "..", "README.md"),
