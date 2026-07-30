@@ -441,11 +441,12 @@ Or on error:
 ```yaml  theme={null}
 # GitHub Actions example
 - name: Run workflow
-  run: asc workflow run beta BUILD_ID:${{ secrets.BUILD_ID }}
   env:
     ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
     ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
     ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+    BUILD_ID: ${{ secrets.BUILD_ID }}
+  run: asc workflow run beta "BUILD_ID:$BUILD_ID"
 ```
 
 <Note>

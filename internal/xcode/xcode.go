@@ -279,12 +279,11 @@ func Export(ctx context.Context, opts ExportOptions) (*ExportResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := moveExportedIPA(exportedIPAPath, opts.IPAPath, opts.Overwrite); err != nil {
-		return nil, err
-	}
-
-	info, err := readIPABundleInfo(opts.IPAPath)
+	info, err := readIPABundleInfo(exportedIPAPath)
 	if err != nil {
+		return nil, fmt.Errorf("inspect exported IPA before installation: %w", err)
+	}
+	if err := moveExportedIPA(exportedIPAPath, opts.IPAPath, opts.Overwrite); err != nil {
 		return nil, err
 	}
 
@@ -314,7 +313,11 @@ func Validate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error
 	if err := validateExistingFile(opts.IPAPath, "--ipa"); err != nil {
 		return nil, err
 	}
-	if err := runAltoolValidate(ctx, buildValidateCommand(opts, inferValidatePlatform(opts.IPAPath)), opts.LogWriter); err != nil {
+	platform, err := inferValidatePlatform(opts.IPAPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := runAltoolValidate(ctx, buildValidateCommand(opts, platform), opts.LogWriter); err != nil {
 		return nil, err
 	}
 	return &ValidateResult{
@@ -657,15 +660,15 @@ func buildExportCommand(opts ExportOptions, exportDir string) []string {
 	return args
 }
 
-func inferValidatePlatform(ipaPath string) string {
+func inferValidatePlatform(ipaPath string) (string, error) {
 	info, err := readIPABundleInfo(ipaPath)
 	if err != nil {
-		return "ios"
+		return "", fmt.Errorf("inspect IPA metadata before validation: %w", err)
 	}
 	if platform := mapAppStorePlatformToAltoolType(info.Platform); platform != "" {
-		return platform
+		return platform, nil
 	}
-	return "ios"
+	return "ios", nil
 }
 
 func buildValidateCommand(opts ValidateOptions, platform string) []string {
@@ -1197,9 +1200,7 @@ func prepareIPAPath(ipaPath string, overwrite bool) error {
 	case err == nil && !overwrite:
 		return fmt.Errorf("--ipa-path already exists: %s (use --overwrite to replace it)", ipaPath)
 	case err == nil && overwrite:
-		if removeErr := os.Remove(ipaPath); removeErr != nil {
-			return fmt.Errorf("remove existing ipa path: %w", removeErr)
-		}
+		return nil
 	case err != nil && !errors.Is(err, os.ErrNotExist):
 		return fmt.Errorf("stat ipa path: %w", err)
 	}
@@ -1237,11 +1238,16 @@ func isDirectUploadMode(exportOptionsPlistPath string) bool {
 }
 
 func moveExportedIPA(sourcePath, destinationPath string, overwrite bool) error {
-	if overwrite {
-		if err := os.Remove(destinationPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove existing ipa path: %w", err)
+	if !overwrite {
+		if _, err := os.Lstat(destinationPath); err == nil {
+			return fmt.Errorf("--ipa-path already exists: %s (use --overwrite to replace it)", destinationPath)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("lstat ipa path: %w", err)
 		}
 	}
+	// Export runs only on macOS, where rename replaces an existing regular file
+	// atomically. Do not unlink the old artifact first: if the final move fails,
+	// the caller's prior IPA remains intact.
 	if err := os.Rename(sourcePath, destinationPath); err != nil {
 		return fmt.Errorf("move exported ipa: %w", err)
 	}
@@ -1314,6 +1320,9 @@ func readBundleInfoFromZip(file *zip.File) (bundleInfo, error) {
 	data, err := infoplist.ReadBounded(reader)
 	if err != nil {
 		return bundleInfo{}, fmt.Errorf("read Info.plist: %w", err)
+	}
+	if err := infoplist.ValidateStructure(data); err != nil {
+		return bundleInfo{}, fmt.Errorf("decode Info.plist: %w", err)
 	}
 	var payload map[string]any
 	if _, err := plist.Unmarshal(data, &payload); err != nil {

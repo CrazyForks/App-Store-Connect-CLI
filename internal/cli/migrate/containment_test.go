@@ -278,6 +278,119 @@ func TestResolveImportInputsRejectsTraversingDeliverfileMetadataPath(t *testing.
 	}
 }
 
+func TestResolveImportInputsAllowsExternalDeliverfileMetadataPathWithExplicitTrust(t *testing.T) {
+	workDir := t.TempDir()
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	deliverfile := "metadata_path \"" + external + "\"\nskip_screenshots true\n"
+	writeMigrateContainmentFile(t, filepath.Join(workDir, "Deliverfile"), deliverfile)
+
+	inputs, _, err := resolveImportInputs(importInputOptions{
+		WorkDir:               workDir,
+		AllowExternalMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("resolveImportInputs() error = %v, want explicitly trusted path accepted", err)
+	}
+	expected, err := filepath.EvalSymlinks(external)
+	if err != nil {
+		t.Fatalf("EvalSymlinks() error = %v", err)
+	}
+	if inputs.MetadataDir != expected {
+		t.Fatalf("MetadataDir = %q, want %q", inputs.MetadataDir, expected)
+	}
+}
+
+func TestResolveImportInputsRequiresTrustForSymlinkedFastlaneMetadata(t *testing.T) {
+	fastlane := t.TempDir()
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(fastlane, "metadata")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	if _, _, err := resolveImportInputs(importInputOptions{
+		FastlaneDir:     fastlane,
+		SkipScreenshots: true,
+	}); err == nil {
+		t.Fatal("resolveImportInputs() error = nil, want default symlink rejection")
+	}
+
+	inputs, _, err := resolveImportInputs(importInputOptions{
+		FastlaneDir:           fastlane,
+		SkipScreenshots:       true,
+		AllowExternalMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("resolveImportInputs() error = %v, want explicitly trusted symlink accepted", err)
+	}
+	expected, err := filepath.EvalSymlinks(external)
+	if err != nil {
+		t.Fatalf("EvalSymlinks() error = %v", err)
+	}
+	if inputs.MetadataDir != expected {
+		t.Fatalf("MetadataDir = %q, want resolved trusted target %q", inputs.MetadataDir, expected)
+	}
+}
+
+func TestResolveImportInputsAllowsSymlinkedFastlaneScreenshotsWithExplicitTrust(t *testing.T) {
+	fastlane := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(fastlane, "metadata"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(metadata) error = %v", err)
+	}
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "en-US"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(screenshots) error = %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(fastlane, "screenshots")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	inputs, _, err := resolveImportInputs(importInputOptions{
+		FastlaneDir:              fastlane,
+		AllowExternalScreenshots: true,
+	})
+	if err != nil {
+		t.Fatalf("resolveImportInputs() error = %v, want explicitly trusted screenshot symlink accepted", err)
+	}
+	expected, err := filepath.EvalSymlinks(external)
+	if err != nil {
+		t.Fatalf("EvalSymlinks() error = %v", err)
+	}
+	if inputs.ScreenshotsDir != expected {
+		t.Fatalf("ScreenshotsDir = %q, want resolved trusted target %q", inputs.ScreenshotsDir, expected)
+	}
+}
+
+func TestResolveImportInputsRejectsSymlinkedDeliverfileByDefault(t *testing.T) {
+	workDir := t.TempDir()
+	external := filepath.Join(t.TempDir(), "Deliverfile")
+	writeMigrateContainmentFile(t, external, "skip_metadata true\nskip_screenshots true\n")
+	if err := os.Symlink(external, filepath.Join(workDir, "Deliverfile")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	if _, _, err := resolveImportInputs(importInputOptions{WorkDir: workDir}); err == nil {
+		t.Fatal("resolveImportInputs() error = nil, want symlinked Deliverfile rejected")
+	}
+
+	inputs, _, err := resolveImportInputs(importInputOptions{
+		WorkDir:                   workDir,
+		AllowSymlinkedDeliverfile: true,
+	})
+	if err != nil {
+		t.Fatalf("resolveImportInputs() error = %v, want explicitly trusted Deliverfile accepted", err)
+	}
+	if !inputs.DeliverfileConfig.SkipMetadata || !inputs.DeliverfileConfig.SkipScreenshots {
+		t.Fatalf("DeliverfileConfig = %+v, want parsed trusted file", inputs.DeliverfileConfig)
+	}
+}
+
 func TestScanFastlaneMetadataLocaleDirsRefusesSymlinkedInTreeMetadataDirectory(t *testing.T) {
 	t.Chdir(t.TempDir())
 	workDir, err := os.Getwd()

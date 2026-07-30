@@ -744,11 +744,10 @@ func sanitizeCheckpointToken(value string) string {
 // operator placed outside the working directory is anchored to its own parent,
 // which keeps explicitly selected external locations working.
 func checkpointRoot(path string) (rootfs.Root, string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
+	if path == "" {
 		return rootfs.Root{}, "", fmt.Errorf("checkpoint path is empty")
 	}
-	absolute, err := filepath.Abs(trimmed)
+	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return rootfs.Root{}, "", err
 	}

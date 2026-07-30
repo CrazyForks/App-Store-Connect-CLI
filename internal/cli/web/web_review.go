@@ -440,9 +440,8 @@ func sanitizePathPart(value string) string {
 }
 
 func resolveShowOutDir(appID, submissionID, out string) string {
-	trimmedOut := strings.TrimSpace(out)
-	if trimmedOut != "" {
-		return trimmedOut
+	if out != "" {
+		return out
 	}
 	return filepath.Join(".asc", "web-review", sanitizePathPart(appID), sanitizePathPart(submissionID))
 }
@@ -494,11 +493,10 @@ func normalizeAttachmentFilename(attachment webcore.ReviewAttachment) string {
 // the working directory is its own trusted root. The returned prefix is the
 // root-relative output directory.
 func newDownloadRoot(outDir string) (rootfs.Root, string, error) {
-	trimmed := strings.TrimSpace(outDir)
-	if trimmed == "" {
+	if outDir == "" {
 		return rootfs.Root{}, "", fmt.Errorf("output directory is required")
 	}
-	absolute, err := filepath.Abs(trimmed)
+	absolute, err := filepath.Abs(outDir)
 	if err != nil {
 		return rootfs.Root{}, "", fmt.Errorf("failed to resolve output directory %q: %w", outDir, err)
 	}

@@ -98,7 +98,7 @@ TestFlight allows you to distribute pre-release builds to internal and external 
     ```
 
     <Note>
-      Export prefixes a cell with a single quote when its first character would start a spreadsheet formula (`=`, `+`, `-`, `@`), so opening the file in Excel, Numbers, or Google Sheets cannot execute tester or group values. `asc testflight testers import` removes that prefix again.
+      Export prefixes a cell with a single quote when its first character would start a spreadsheet formula (`=`, `+`, `-`, `@`), so opening the file in Excel, Numbers, or Google Sheets cannot execute tester or group values. When a prefix is needed, export adds an `_asc_formula_escaping` provenance column. `asc testflight testers import` only removes prefixes from rows carrying that marker, so leading apostrophes in third-party or user-authored CSV files remain unchanged.
     </Note>
 
     Import testers from CSV (with dry-run first):

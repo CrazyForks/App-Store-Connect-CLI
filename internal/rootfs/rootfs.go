@@ -46,16 +46,18 @@ type Root struct {
 	// internalSymlinks tolerates symlinked components below the root when they
 	// resolve back inside the root.
 	internalSymlinks bool
+	// afterValidationForTest makes path-swap regressions deterministic. It is
+	// intentionally unexported and unset outside package tests.
+	afterValidationForTest func()
 }
 
 // New returns a Root anchored at path. The root itself is operator-selected and
 // may live outside the current repository; only paths below it are constrained.
 func New(path string) (Root, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
+	if path == "" {
 		return Root{}, fmt.Errorf("%w: trusted root path is empty", ErrEscapesRoot)
 	}
-	absolute, err := filepath.Abs(trimmed)
+	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return Root{}, fmt.Errorf("resolve trusted root %q: %w", path, err)
 	}
@@ -110,17 +112,16 @@ func (r Root) checkSymlinkComponent(path string) error {
 // can not smuggle a drive-relative, UNC-style, or backslash-traversing path
 // past validation on a different host platform.
 func ValidateRelative(name string) error {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
+	if name == "" {
 		return fmt.Errorf("%w: path is empty", ErrEscapesRoot)
 	}
-	if strings.ContainsRune(trimmed, 0) {
+	if strings.ContainsRune(name, 0) {
 		return fmt.Errorf("%w: %q contains a NUL byte", ErrEscapesRoot, name)
 	}
-	if isAbsoluteLike(trimmed) {
+	if isAbsoluteLike(name) {
 		return fmt.Errorf("%w: %q must be relative to the trusted root", ErrEscapesRoot, name)
 	}
-	for _, component := range strings.FieldsFunc(trimmed, isPathSeparator) {
+	for _, component := range strings.FieldsFunc(name, isPathSeparator) {
 		if component == ".." {
 			return fmt.Errorf("%w: %q traverses above the trusted root", ErrEscapesRoot, name)
 		}
@@ -133,14 +134,13 @@ func ValidateRelative(name string) error {
 // against a base directory below the root and then confirm containment of the
 // joined result with Resolve.
 func ValidateRelativeAllowingTraversal(name string) error {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
+	if name == "" {
 		return fmt.Errorf("%w: path is empty", ErrEscapesRoot)
 	}
-	if strings.ContainsRune(trimmed, 0) {
+	if strings.ContainsRune(name, 0) {
 		return fmt.Errorf("%w: %q contains a NUL byte", ErrEscapesRoot, name)
 	}
-	if isAbsoluteLike(trimmed) {
+	if isAbsoluteLike(name) {
 		return fmt.Errorf("%w: %q must be relative to the trusted root", ErrEscapesRoot, name)
 	}
 	return nil
@@ -149,33 +149,63 @@ func ValidateRelativeAllowingTraversal(name string) error {
 // Resolve validates name and returns its absolute path beneath the root. name
 // may be relative to the root or an absolute path that is already inside it.
 func (r Root) Resolve(name string) (string, error) {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
+	if name == "" {
 		return "", fmt.Errorf("%w: path is empty", ErrEscapesRoot)
 	}
-	if strings.ContainsRune(trimmed, 0) {
+	if strings.ContainsRune(name, 0) {
 		return "", fmt.Errorf("%w: %q contains a NUL byte", ErrEscapesRoot, name)
 	}
 
-	if isAbsoluteLike(trimmed) {
-		if !filepath.IsAbs(trimmed) {
+	if isAbsoluteLike(name) {
+		if !filepath.IsAbs(name) {
 			return "", fmt.Errorf("%w: %q is not an absolute path below %q", ErrEscapesRoot, name, r.path)
 		}
-		cleaned := filepath.Clean(trimmed)
+		cleaned := filepath.Clean(name)
 		if err := r.checkWithin(cleaned, name); err != nil {
 			return "", err
 		}
 		return cleaned, nil
 	}
 
-	if err := ValidateRelative(trimmed); err != nil {
+	if err := ValidateRelative(name); err != nil {
 		return "", err
 	}
-	joined := filepath.Join(r.path, trimmed)
+	joined := filepath.Join(r.path, name)
 	if err := r.checkWithin(joined, name); err != nil {
 		return "", err
 	}
 	return joined, nil
+}
+
+// ResolveContainedFinalSymlink resolves a final symlink only when its physical
+// target remains beneath this root. The returned name is relative to the root
+// and contains no symlink components, so callers can perform the actual I/O
+// through rooted no-follow operations without reopening the link.
+func (r Root) ResolveContainedFinalSymlink(name string) (string, error) {
+	absolute, err := r.Resolve(name)
+	if err != nil {
+		return "", err
+	}
+	if err := r.checkParentComponents(absolute); err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return "", fmt.Errorf("%w: %q is not a symlink", ErrSymlink, absolute)
+	}
+
+	physicalRoot, err := filepath.EvalSymlinks(r.path)
+	if err != nil {
+		return "", err
+	}
+	physicalTarget, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
+	}
+	return relativeWithinRoot(physicalRoot, physicalTarget)
 }
 
 // CheckContained verifies that name stays beneath the root and that neither its
@@ -219,10 +249,15 @@ func (r Root) OpenFile(name string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	parent, base, err := r.openParentRooted(resolved)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
 	if err := r.checkParentComponents(resolved); err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(resolved)
+	info, err := parent.Lstat(base)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +267,23 @@ func (r Root) OpenFile(name string) (*os.File, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%q is not a regular file", resolved)
 	}
-	return secureopen.OpenExistingNoFollow(resolved)
+	if r.afterValidationForTest != nil {
+		r.afterValidationForTest()
+	}
+	file, err := secureopen.OpenExistingNoFollowInRoot(parent, base)
+	if err != nil {
+		return nil, err
+	}
+	openedInfo, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, fmt.Errorf("%q is not a regular file", resolved)
+	}
+	return file, nil
 }
 
 // ReadFile reads a regular file beneath the root without following symlinks.
@@ -268,18 +319,18 @@ func (r Root) MkdirAll(name string, perm os.FileMode) error {
 	if err := r.ensureRootDir(perm); err != nil {
 		return err
 	}
-	components, err := r.componentsBelowRoot(resolved)
+	rooted, relative, err := r.openRooted(resolved, true)
 	if err != nil {
 		return err
 	}
-	current := r.path
-	for _, component := range components {
-		current = filepath.Join(current, component)
-		if err := r.mkdirNoFollow(current, perm); err != nil {
-			return err
-		}
+	defer rooted.Close()
+	if err := r.validateDirectoryComponents(resolved); err != nil {
+		return err
 	}
-	return nil
+	if err := rooted.MkdirAll(relative, perm); err != nil {
+		return err
+	}
+	return r.validateDirectoryComponents(resolved)
 }
 
 // WriteFile atomically creates or replaces a file beneath the root.
@@ -291,33 +342,63 @@ func (r Root) WriteFile(name string, data []byte, perm os.FileMode) error {
 // WriteFrom atomically creates or replaces a file beneath the root with the
 // contents of reader and returns the number of bytes written.
 func (r Root) WriteFrom(name string, reader io.Reader, perm os.FileMode) (int64, error) {
+	return r.writeFrom(name, reader, perm, true)
+}
+
+func (r Root) writeFrom(name string, reader io.Reader, perm os.FileMode, exactModeForNew bool) (int64, error) {
+	return r.writeFromPreservingMetadata(name, reader, perm, exactModeForNew, nil, nil)
+}
+
+func (r Root) writeFromPreservingMetadata(
+	name string,
+	reader io.Reader,
+	perm os.FileMode,
+	exactModeForNew bool,
+	metadataSource *os.File,
+	metadataInfo os.FileInfo,
+) (int64, error) {
 	resolved, err := r.prepareWrite(name)
 	if err != nil {
 		return 0, err
 	}
-
-	hadExisting, err := checkReplaceableFile(resolved)
+	parent, base, err := r.openParentRooted(resolved)
 	if err != nil {
 		return 0, err
 	}
+	defer parent.Close()
 
-	directory := filepath.Dir(resolved)
-	temporary, err := secureopen.CreateTempNoFollow(directory, temporaryFilePattern, perm)
+	hadExisting, err := checkReplaceableFileInRoot(parent, base, resolved)
 	if err != nil {
 		return 0, err
 	}
-	temporaryPath := temporary.Name()
+	if r.afterValidationForTest != nil {
+		r.afterValidationForTest()
+	}
+
+	temporary, temporaryName, err := secureopen.CreateTempNoFollowInRoot(parent, ".", temporaryFilePattern, perm)
+	if err != nil {
+		return 0, err
+	}
 	success := false
 	defer func() {
 		_ = temporary.Close()
 		if !success {
-			_ = os.Remove(temporaryPath)
+			_ = parent.Remove(temporaryName)
 		}
 	}()
 
-	// Set the final mode explicitly so the process umask cannot widen it.
-	if err := temporary.Chmod(perm); err != nil {
-		return 0, err
+	// Preserve supported filesystem metadata from the already-open original.
+	// Otherwise keep the exact mode of an ordinary replacement. For a new file,
+	// retain the process umask unless the caller explicitly requested an exact
+	// mode.
+	if metadataSource != nil {
+		if err := copyReplacementMetadata(temporary, metadataSource, metadataInfo); err != nil {
+			return 0, err
+		}
+	} else if hadExisting || exactModeForNew {
+		if err := temporary.Chmod(perm); err != nil {
+			return 0, err
+		}
 	}
 	written, err := io.Copy(temporary, reader)
 	if err != nil {
@@ -330,30 +411,107 @@ func (r Root) WriteFrom(name string, reader io.Reader, perm os.FileMode) (int64,
 		return 0, err
 	}
 
-	if err := replaceFile(temporaryPath, resolved, hadExisting); err != nil {
+	if err := replaceFileInRoot(parent, temporaryName, base, hadExisting); err != nil {
 		return 0, err
 	}
 	success = true
 	return written, nil
 }
 
-// WriteFilePreservingMode atomically creates or replaces a file beneath the
-// root, reusing an existing regular destination's permissions and falling back
-// to perm for a new file. Use it where the pre-rooted in-place write preserved
-// an operator's chosen mode across rewrites.
+// WriteFilePreservingMode atomically creates or replaces a regular file beneath
+// the root. Existing files retain supported ownership, permission, ACL, and
+// extended-attribute metadata without mutating aliases outside the rooted path.
+// Where the platform exposes link counts, multiply linked files are refused
+// rather than silently changing hard-link semantics. New files use perm subject
+// to the process umask.
 func (r Root) WriteFilePreservingMode(name string, data []byte, perm os.FileMode) error {
+	resolved, err := r.prepareWrite(name)
+	if err != nil {
+		return err
+	}
+	parent, base, err := r.openParentRooted(resolved)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+
+	hadExisting, err := checkReplaceableFileInRoot(parent, base, resolved)
+	if err != nil {
+		return err
+	}
+	if !hadExisting {
+		_, err := r.writeFrom(name, bytes.NewReader(data), perm, false)
+		return err
+	}
+
+	file, err := secureopen.OpenExistingWritableNoFollowInRoot(parent, base)
+	if err != nil {
+		return fmt.Errorf("open existing file %q for replacement: %w", resolved, err)
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if multiple, err := hasMultipleHardLinks(file, openedInfo); err != nil {
+		return fmt.Errorf("inspect existing file %q: %w", resolved, err)
+	} else if multiple {
+		return fmt.Errorf("refusing to rewrite multiply linked file %q", resolved)
+	}
+	_, err = r.writeFromPreservingMetadata(name, bytes.NewReader(data), perm, false, file, openedInfo)
+	return err
+}
+
+// CheckWriteFilePreservingMode performs the non-mutating checks required before
+// WriteFilePreservingMode replaces an existing file. Missing destinations are
+// accepted; callers can use this to preflight a multi-file plan before its first
+// write.
+func (r Root) CheckWriteFilePreservingMode(name string) error {
 	resolved, err := r.Resolve(name)
 	if err != nil {
 		return err
 	}
-	if info, err := os.Lstat(resolved); err == nil {
-		if info.Mode().IsRegular() {
-			perm = info.Mode().Perm()
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if resolved == r.path {
+		return fmt.Errorf("%w: %q is the trusted root itself", ErrEscapesRoot, name)
+	}
+	if err := r.checkParentComponents(resolved); err != nil {
 		return err
 	}
-	return r.WriteFile(name, data, perm)
+
+	info, err := os.Lstat(resolved)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return symlinkError(resolved)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%q is not a regular file", resolved)
+	}
+
+	parent, base, err := r.openParentRooted(resolved)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	file, err := secureopen.OpenExistingWritableNoFollowInRoot(parent, base)
+	if err != nil {
+		return fmt.Errorf("open existing file %q for replacement: %w", resolved, err)
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if multiple, err := hasMultipleHardLinks(file, openedInfo); err != nil {
+		return fmt.Errorf("inspect existing file %q: %w", resolved, err)
+	} else if multiple {
+		return fmt.Errorf("refusing to rewrite multiply linked file %q", resolved)
+	}
+	return nil
 }
 
 // CreateNewFile writes data to a new file beneath the root and fails when the
@@ -363,8 +521,13 @@ func (r Root) CreateNewFile(name string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
+	parent, base, err := r.openParentRooted(resolved)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
 
-	info, err := os.Lstat(resolved)
+	info, err := parent.Lstat(base)
 	switch {
 	case err == nil:
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -374,8 +537,11 @@ func (r Root) CreateNewFile(name string, data []byte, perm os.FileMode) error {
 	case !errors.Is(err, os.ErrNotExist):
 		return err
 	}
+	if r.afterValidationForTest != nil {
+		r.afterValidationForTest()
+	}
 
-	file, err := secureopen.OpenNewFileNoFollow(resolved, perm)
+	file, err := secureopen.OpenNewFileNoFollowInRoot(parent, base, perm)
 	if err != nil {
 		return err
 	}
@@ -393,8 +559,15 @@ func (r Root) AppendFile(name string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
+	parent, base, err := r.openParentRooted(resolved)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
 
-	if info, err := os.Lstat(resolved); err == nil {
+	hadExisting := false
+	if info, err := parent.Lstat(base); err == nil {
+		hadExisting = true
 		if info.Mode()&os.ModeSymlink != 0 {
 			return symlinkError(resolved)
 		}
@@ -404,16 +577,35 @@ func (r Root) AppendFile(name string, data []byte, perm os.FileMode) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if r.afterValidationForTest != nil {
+		r.afterValidationForTest()
+	}
 
-	file, err := secureopen.OpenAppendNoFollow(resolved, perm)
+	var file *os.File
+	if hadExisting {
+		file, err = secureopen.OpenExistingAppendNoFollowInRoot(parent, base)
+	} else {
+		file, err = secureopen.OpenNewFileNoFollowInRoot(parent, base, perm)
+	}
 	if err != nil {
 		return err
 	}
-	// The descriptor is known not to be a symlink, so tightening permissions
-	// here cannot affect an external file.
-	if err := file.Chmod(perm); err != nil {
+	openedInfo, err := file.Stat()
+	if err != nil {
 		_ = file.Close()
 		return err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		_ = file.Close()
+		return fmt.Errorf("%q is not a regular file", resolved)
+	}
+	if hadExisting {
+		// Security logs and similar callers use perm to tighten an existing
+		// file. New files retain the process umask from their exclusive create.
+		if err := file.Chmod(perm); err != nil {
+			_ = file.Close()
+			return err
+		}
 	}
 	if _, err := file.Write(data); err != nil {
 		_ = file.Close()
@@ -455,6 +647,109 @@ func (r Root) ensureRootDir(perm os.FileMode) error {
 		return err
 	}
 	return nil
+}
+
+func (r Root) openRooted(absolute string, resolveFinal bool) (*os.Root, string, error) {
+	rooted, err := os.OpenRoot(r.path)
+	if err != nil {
+		return nil, "", err
+	}
+	relative, err := r.rootedRelative(absolute, resolveFinal)
+	if err != nil {
+		_ = rooted.Close()
+		return nil, "", err
+	}
+	return rooted, relative, nil
+}
+
+func (r Root) openParentRooted(absolute string) (*os.Root, string, error) {
+	rooted, relative, err := r.openRooted(absolute, false)
+	if err != nil {
+		return nil, "", err
+	}
+	parent, err := rooted.OpenRoot(filepath.Dir(relative))
+	_ = rooted.Close()
+	if err != nil {
+		return nil, "", err
+	}
+	return parent, filepath.Base(relative), nil
+}
+
+// rootedRelative converts an already-contained absolute path into a name for
+// os.Root. Existing internal directory symlinks are resolved to their physical
+// path so AllowingInternalSymlinks remains compatible with absolute in-root
+// links, while the final file component remains unresolved for no-follow open.
+func (r Root) rootedRelative(absolute string, resolveFinal bool) (string, error) {
+	components, err := r.componentsBelowRoot(absolute)
+	if err != nil {
+		return "", err
+	}
+	physicalRoot, err := filepath.EvalSymlinks(r.path)
+	if err != nil {
+		return "", err
+	}
+	current := physicalRoot
+	resolveCount := len(components)
+	if !resolveFinal && resolveCount > 0 {
+		resolveCount--
+	}
+
+	for index := 0; index < resolveCount; index++ {
+		candidate := filepath.Join(current, components[index])
+		info, err := os.Lstat(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			for _, remaining := range components[index:] {
+				current = filepath.Join(current, remaining)
+			}
+			return relativeWithinRoot(physicalRoot, current)
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if !r.internalSymlinks {
+				return "", symlinkError(candidate)
+			}
+			resolved, err := filepath.EvalSymlinks(candidate)
+			if err != nil {
+				return "", err
+			}
+			if _, err := relativeWithinRoot(physicalRoot, resolved); err != nil {
+				return "", symlinkError(candidate)
+			}
+			resolvedInfo, err := os.Stat(candidate)
+			if err != nil {
+				return "", err
+			}
+			if !resolvedInfo.IsDir() {
+				return "", fmt.Errorf("%q is not a directory", candidate)
+			}
+			current = resolved
+			continue
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("%q is not a directory", candidate)
+		}
+		current = candidate
+	}
+	for _, remaining := range components[resolveCount:] {
+		current = filepath.Join(current, remaining)
+	}
+	return relativeWithinRoot(physicalRoot, current)
+}
+
+func relativeWithinRoot(root string, path string) (string, error) {
+	if !strings.EqualFold(filepath.VolumeName(path), filepath.VolumeName(root)) {
+		return "", fmt.Errorf("%w: %q changes volume from %q", ErrEscapesRoot, path, root)
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q is not below %q", ErrEscapesRoot, path, root)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: %q is not below %q", ErrEscapesRoot, path, root)
+	}
+	return relative, nil
 }
 
 func (r Root) componentsBelowRoot(absolute string) ([]string, error) {
@@ -534,16 +829,21 @@ func (r Root) checkParentComponents(absolute string) error {
 	return nil
 }
 
-func (r Root) mkdirNoFollow(path string, perm os.FileMode) error {
-	if err := r.validateExistingDir(path); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
+func (r Root) validateDirectoryComponents(absolute string) error {
+	components, err := r.componentsBelowRoot(absolute)
+	if err != nil {
 		return err
 	}
-	if err := os.Mkdir(path, perm); err != nil && !errors.Is(err, os.ErrExist) {
-		return err
+	current := r.path
+	for _, component := range components {
+		current = filepath.Join(current, component)
+		if err := r.validateExistingDir(current); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return err
+		}
 	}
-	return r.validateExistingDir(path)
+	return nil
 }
 
 func (r Root) validateExistingDir(path string) error {
@@ -570,8 +870,8 @@ func (r Root) validateExistingDir(path string) error {
 	return nil
 }
 
-func checkReplaceableFile(path string) (bool, error) {
-	info, err := os.Lstat(path)
+func checkReplaceableFileInRoot(rooted *os.Root, name string, displayPath string) (bool, error) {
+	info, err := rooted.Lstat(name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -579,43 +879,50 @@ func checkReplaceableFile(path string) (bool, error) {
 		return false, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return false, symlinkError(path)
+		return false, symlinkError(displayPath)
 	}
-	if info.IsDir() {
-		return false, fmt.Errorf("%q is a directory", path)
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("%q is not a regular file", displayPath)
 	}
 	return true, nil
 }
 
-// replaceFile moves the staged temporary file onto path. Unix renames replace
+// replaceFileInRoot moves the staged temporary file onto path. Unix renames replace
 // the destination atomically; Windows renames fail when the destination exists,
 // so the original is moved aside first and restored if the final move fails.
-func replaceFile(temporaryPath, path string, hadExisting bool) error {
-	if err := os.Rename(temporaryPath, path); err == nil {
+func replaceFileInRoot(parent *os.Root, temporaryName string, name string, hadExisting bool) error {
+	if err := parent.Rename(temporaryName, name); err == nil {
 		return nil
 	} else if !hadExisting || runtime.GOOS != "windows" {
 		return err
 	}
 
-	backup, err := secureopen.CreateTempNoFollow(filepath.Dir(path), backupFilePattern, 0o600)
+	backup, backupName, err := secureopen.CreateTempNoFollowInRoot(parent, ".", backupFilePattern, 0o600)
 	if err != nil {
 		return err
 	}
-	backupPath := backup.Name()
 	if err := backup.Close(); err != nil {
+		return errors.Join(err, parent.Remove(backupName))
+	}
+	if err := parent.Remove(backupName); err != nil {
 		return err
 	}
-	if err := os.Remove(backupPath); err != nil {
+	if err := parent.Rename(name, backupName); err != nil {
 		return err
 	}
-	if err := os.Rename(path, backupPath); err != nil {
+	if err := parent.Rename(temporaryName, name); err != nil {
+		restoreErr := parent.Rename(backupName, name)
+		if restoreErr != nil {
+			return errors.Join(
+				err,
+				fmt.Errorf("restore original from backup %q: %w", backupName, restoreErr),
+			)
+		}
 		return err
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		_ = os.Rename(backupPath, path)
-		return err
+	if err := parent.Remove(backupName); err != nil {
+		return fmt.Errorf("replacement succeeded but remove backup %q: %w", backupName, err)
 	}
-	_ = os.Remove(backupPath)
 	return nil
 }
 

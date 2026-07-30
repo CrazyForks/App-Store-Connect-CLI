@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,6 +52,8 @@ type preparedVersionWrite struct {
 	original []byte
 	updated  []byte
 	mode     os.FileMode
+	root     rootfs.Root
+	name     string
 }
 
 type xcconfigMutation struct {
@@ -880,6 +883,44 @@ func (project *structuredVersionProject) checkXCConfigWritable(path string, allo
 	return nil
 }
 
+func (project *structuredVersionProject) versionFileTarget(path string, allowExternal bool) (preparedVersionWrite, error) {
+	projectRoot, err := rootfs.New(project.rootDir)
+	if err != nil {
+		return preparedVersionWrite{}, err
+	}
+	projectRoot = projectRoot.AllowingInternalSymlinks()
+	if err := projectRoot.CheckContained(path); err == nil {
+		return preparedVersionWrite{path: path, root: projectRoot, name: path}, nil
+	} else if !allowExternal {
+		return preparedVersionWrite{}, err
+	}
+
+	// --allow-external-xcconfig deliberately authorizes the referenced parent
+	// directory as a separate trusted root. The final file must still be a
+	// regular, non-symlink entry below that root.
+	externalRoot, err := rootfs.New(filepath.Dir(path))
+	if err != nil {
+		return preparedVersionWrite{}, err
+	}
+	name := filepath.Base(path)
+	if err := externalRoot.CheckContained(name); err != nil {
+		return preparedVersionWrite{}, err
+	}
+	return preparedVersionWrite{path: path, root: externalRoot, name: name}, nil
+}
+
+func (project *structuredVersionProject) containedVersionFileTarget(path string) (preparedVersionWrite, error) {
+	projectRoot, err := rootfs.New(project.rootDir)
+	if err != nil {
+		return preparedVersionWrite{}, err
+	}
+	projectRoot = projectRoot.AllowingInternalSymlinks()
+	if err := projectRoot.CheckContained(path); err != nil {
+		return preparedVersionWrite{}, err
+	}
+	return preparedVersionWrite{path: path, root: projectRoot, name: path}, nil
+}
+
 func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*SetVersionResult, error) {
 	validation, err := project.validateSetVersion(opts)
 	if err != nil {
@@ -1002,7 +1043,11 @@ func (project *structuredVersionProject) setVersion(opts SetVersionOptions) (*Se
 		if err := project.checkXCConfigWritable(path, opts.AllowExternalXCConfig); err != nil {
 			return nil, err
 		}
-		write, fileChanges, changed, err := prepareXCConfigWrite(path, xcconfigMutations[path])
+		target, err := project.versionFileTarget(path, opts.AllowExternalXCConfig)
+		if err != nil {
+			return nil, fmt.Errorf("prepare xcconfig %s: %w", path, err)
+		}
+		write, fileChanges, changed, err := prepareXCConfigWrite(target, xcconfigMutations[path])
 		if err != nil {
 			return nil, err
 		}
@@ -1268,7 +1313,11 @@ func consumersSelected(paths []string, consumers map[string]map[string]bool, ide
 }
 
 func (project *structuredVersionProject) preparePBXProjWrite() (preparedVersionWrite, error) {
-	original, mode, err := readRegularVersionFile(project.pbxprojPath)
+	target, err := project.containedVersionFileTarget(project.pbxprojPath)
+	if err != nil {
+		return preparedVersionWrite{}, fmt.Errorf("prepare Xcode project file: %w", err)
+	}
+	original, mode, err := readRegularVersionFile(target)
 	if err != nil {
 		return preparedVersionWrite{}, err
 	}
@@ -1296,11 +1345,14 @@ func (project *structuredVersionProject) preparePBXProjWrite() (preparedVersionW
 	if _, err := xcodeproj.Open(stagedProjectPath); err != nil {
 		return preparedVersionWrite{}, fmt.Errorf("validate staged Xcode project: %w", err)
 	}
-	return preparedVersionWrite{path: project.pbxprojPath, original: original, updated: updated, mode: mode}, nil
+	target.original = original
+	target.updated = updated
+	target.mode = mode
+	return target, nil
 }
 
-func prepareXCConfigWrite(path string, mutations map[string]xcconfigMutation) (preparedVersionWrite, []VersionChange, bool, error) {
-	original, mode, err := readRegularVersionFile(path)
+func prepareXCConfigWrite(target preparedVersionWrite, mutations map[string]xcconfigMutation) (preparedVersionWrite, []VersionChange, bool, error) {
+	original, mode, err := readRegularVersionFile(target)
 	if err != nil {
 		return preparedVersionWrite{}, nil, false, err
 	}
@@ -1316,7 +1368,7 @@ func prepareXCConfigWrite(path string, mutations map[string]xcconfigMutation) (p
 		mutation := mutations[setting]
 		next, oldValues, settingChanged, err := editXCConfig(updated, setting, mutation.value)
 		if err != nil {
-			return preparedVersionWrite{}, nil, false, fmt.Errorf("edit %s: %w", path, err)
+			return preparedVersionWrite{}, nil, false, fmt.Errorf("edit %s: %w", target.path, err)
 		}
 		updated = next
 		if !settingChanged {
@@ -1334,36 +1386,41 @@ func prepareXCConfigWrite(path string, mutations map[string]xcconfigMutation) (p
 				NewValue:      mutation.value,
 				Target:        configuration.target,
 				Configuration: configuration.name,
-				Path:          path,
+				Path:          target.path,
 				Source:        "xcconfig",
 			})
 		}
 	}
 	if _, err := parseXCConfig(updated); err != nil {
-		return preparedVersionWrite{}, nil, false, fmt.Errorf("validate %s: %w", path, err)
+		return preparedVersionWrite{}, nil, false, fmt.Errorf("validate %s: %w", target.path, err)
 	}
-	return preparedVersionWrite{path: path, original: original, updated: updated, mode: mode}, changes, changed, nil
+	target.original = original
+	target.updated = updated
+	target.mode = mode
+	return target, changes, changed, nil
 }
 
-func readRegularVersionFile(path string) ([]byte, os.FileMode, error) {
-	info, err := os.Lstat(path)
+func readRegularVersionFile(target preparedVersionWrite) ([]byte, os.FileMode, error) {
+	file, err := target.root.OpenFile(target.name)
 	if err != nil {
 		return nil, 0, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, 0, fmt.Errorf("refusing to replace symlink: %s", path)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, 0, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, 0, fmt.Errorf("not a regular file: %s", path)
+		return nil, 0, fmt.Errorf("not a regular file: %s", target.path)
 	}
-	data, err := os.ReadFile(path)
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return nil, 0, err
 	}
 	return data, info.Mode().Perm(), nil
 }
 
-var atomicWriteVersionFileFn = atomicWriteVersionFile
+var atomicWriteVersionFileFn = atomicWritePreparedVersionFile
 
 func commitVersionWrites(writes []preparedVersionWrite) error {
 	sort.Slice(writes, func(left, right int) bool { return writes[left].path < writes[right].path })
@@ -1372,10 +1429,10 @@ func commitVersionWrites(writes []preparedVersionWrite) error {
 		if string(write.original) == string(write.updated) {
 			continue
 		}
-		if err := atomicWriteVersionFileFn(write.path, write.updated, write.mode); err != nil {
+		if err := atomicWriteVersionFileFn(write, write.updated); err != nil {
 			var rollbackErrors []error
 			for index := len(committed) - 1; index >= 0; index-- {
-				if rollbackErr := atomicWriteVersionFileFn(committed[index].path, committed[index].original, committed[index].mode); rollbackErr != nil {
+				if rollbackErr := atomicWriteVersionFileFn(committed[index], committed[index].original); rollbackErr != nil {
 					rollbackErrors = append(rollbackErrors, fmt.Errorf("restore %s: %w", committed[index].path, rollbackErr))
 				}
 			}
@@ -1390,41 +1447,20 @@ func commitVersionWrites(writes []preparedVersionWrite) error {
 	return nil
 }
 
+func atomicWritePreparedVersionFile(write preparedVersionWrite, data []byte) error {
+	return write.root.WriteFile(write.name, data, write.mode)
+}
+
+// atomicWriteVersionFile is retained for other Xcode outputs that already
+// select an operator-trusted destination path. Version project writes use
+// atomicWritePreparedVersionFile so their project-root anchor survives from
+// preparation through commit.
 func atomicWriteVersionFile(path string, data []byte, mode os.FileMode) error {
-	directory := filepath.Dir(path)
-	temporary, err := os.CreateTemp(directory, ".asc-version-*")
+	root, err := rootfs.New(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
-	temporaryPath := temporary.Name()
-	removeTemporary := true
-	defer func() {
-		_ = temporary.Close()
-		if removeTemporary {
-			_ = os.Remove(temporaryPath)
-		}
-	}()
-	if err := temporary.Chmod(mode); err != nil {
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return err
-	}
-	removeTemporary = false
-	if directoryHandle, err := os.Open(directory); err == nil {
-		_ = directoryHandle.Sync()
-		_ = directoryHandle.Close()
-	}
-	return nil
+	return root.WriteFile(filepath.Base(path), data, mode)
 }
 
 func sortVersionChanges(changes []VersionChange) {

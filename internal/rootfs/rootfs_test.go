@@ -16,7 +16,6 @@ func TestValidateRelativeRejectsEscapes(t *testing.T) {
 		path string
 	}{
 		{"empty", ""},
-		{"whitespace", "   "},
 		{"unix absolute", "/etc/passwd"},
 		{"windows absolute backslash", `\Windows\System32`},
 		{"windows drive absolute", `C:\Windows\System32`},
@@ -78,6 +77,43 @@ func TestResolveAcceptsAbsolutePathInsideRoot(t *testing.T) {
 	}
 }
 
+func TestRootPreservesWhitespaceInValidPathNames(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "trusted ")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	root := mustRoot(t, dir)
+	if root.Path() != dir {
+		t.Fatalf("Path() = %q, want exact path %q", root.Path(), dir)
+	}
+	if err := root.WriteFile("report ", []byte("exact"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if got := mustRead(t, filepath.Join(dir, "report ")); got != "exact" {
+		t.Fatalf("content = %q, want exact whitespace-bearing destination", got)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "report")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("trimmed sibling exists or returned unexpected error: %v", err)
+	}
+	if err := root.WriteFile("   ", []byte("all spaces"), 0o600); err != nil {
+		t.Fatalf("WriteFile(all-spaces) error = %v", err)
+	}
+	if got := mustRead(t, filepath.Join(dir, "   ")); got != "all spaces" {
+		t.Fatalf("all-space filename content = %q", got)
+	}
+
+	allSpaceDir := filepath.Join(parent, "   ")
+	if err := os.Mkdir(allSpaceDir, 0o755); err != nil {
+		t.Fatalf("Mkdir(all-space root) error = %v", err)
+	}
+	allSpaceRoot := mustRoot(t, allSpaceDir)
+	if allSpaceRoot.Path() != allSpaceDir {
+		t.Fatalf("all-space Path() = %q, want %q", allSpaceRoot.Path(), allSpaceDir)
+	}
+}
+
 func TestReadFileRefusesSymlinkedFinalComponent(t *testing.T) {
 	requireSymlinks(t)
 
@@ -94,6 +130,33 @@ func TestReadFileRefusesSymlinkedFinalComponent(t *testing.T) {
 	root := mustRoot(t, dir)
 	if _, err := root.ReadFile("description.txt"); !errors.Is(err, ErrSymlink) {
 		t.Fatalf("ReadFile() error = %v, want ErrSymlink", err)
+	}
+}
+
+func TestResolveContainedFinalSymlinkAcceptsOnlyInRootTarget(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "actual.md"), "inside")
+	if err := os.Symlink("actual.md", filepath.Join(dir, "ASC.md")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	root := mustRoot(t, dir)
+	resolved, err := root.ResolveContainedFinalSymlink("ASC.md")
+	if err != nil {
+		t.Fatalf("ResolveContainedFinalSymlink() error = %v", err)
+	}
+	if resolved != "actual.md" {
+		t.Fatalf("ResolveContainedFinalSymlink() = %q, want actual.md", resolved)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	mustWrite(t, outside, "outside")
+	if err := os.Symlink(outside, filepath.Join(dir, "external.md")); err != nil {
+		t.Fatalf("Symlink(external) error = %v", err)
+	}
+	if _, err := root.ResolveContainedFinalSymlink("external.md"); !errors.Is(err, ErrEscapesRoot) {
+		t.Fatalf("external ResolveContainedFinalSymlink() error = %v, want ErrEscapesRoot", err)
 	}
 }
 
@@ -125,6 +188,61 @@ func TestReadFileReadsOrdinaryFile(t *testing.T) {
 	}
 	if string(data) != "one,two" {
 		t.Fatalf("ReadFile() = %q, want %q", data, "one,two")
+	}
+}
+
+func TestReadFileDoesNotEscapeWhenParentIsSwappedAfterValidation(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "nested")
+	mustWrite(t, filepath.Join(nested, "report.txt"), "trusted")
+	external := t.TempDir()
+	mustWrite(t, filepath.Join(external, "report.txt"), "external-secret")
+
+	root := mustRoot(t, dir)
+	root.afterValidationForTest = func() {
+		if err := os.Rename(nested, filepath.Join(dir, "nested-original")); err != nil {
+			t.Fatalf("swap validated parent: %v", err)
+		}
+		if err := os.Symlink(external, nested); err != nil {
+			t.Fatalf("replace validated parent with symlink: %v", err)
+		}
+	}
+
+	data, err := root.ReadFile(filepath.Join("nested", "report.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(data) != "trusted" {
+		t.Fatalf("ReadFile() = %q, want the file anchored before the parent swap", data)
+	}
+}
+
+func TestReadFileRejectsFinalSymlinkSwappedAfterValidation(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	report := filepath.Join(dir, "report.txt")
+	mustWrite(t, report, "trusted")
+	mustWrite(t, filepath.Join(dir, "secret.txt"), "in-root-secret")
+
+	root := mustRoot(t, dir)
+	root.afterValidationForTest = func() {
+		if err := os.Remove(report); err != nil {
+			t.Fatalf("remove validated file: %v", err)
+		}
+		if err := os.Symlink("secret.txt", report); err != nil {
+			t.Fatalf("replace validated file with symlink: %v", err)
+		}
+	}
+
+	data, err := root.ReadFile("report.txt")
+	if err == nil {
+		t.Fatalf("ReadFile() returned %q through a swapped final symlink, want an error", data)
+	}
+	if string(data) == "in-root-secret" {
+		t.Fatal("ReadFile() disclosed the swapped symlink target")
 	}
 }
 
@@ -216,6 +334,38 @@ func TestWriteFileCreatesAndReplacesInRoot(t *testing.T) {
 	}
 }
 
+func TestWriteFileDoesNotEscapeWhenParentIsSwappedAfterValidation(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatalf("create nested directory: %v", err)
+	}
+	external := t.TempDir()
+
+	root := mustRoot(t, dir)
+	root.afterValidationForTest = func() {
+		if err := os.Rename(nested, filepath.Join(dir, "nested-original")); err != nil {
+			t.Fatalf("swap validated parent: %v", err)
+		}
+		if err := os.Symlink(external, nested); err != nil {
+			t.Fatalf("replace validated parent with symlink: %v", err)
+		}
+	}
+
+	err := root.WriteFile(filepath.Join("nested", "out.json"), []byte("attacker"), 0o600)
+	if err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(external, "out.json")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("WriteFile() created a file outside the trusted root: %v", statErr)
+	}
+	if got := mustRead(t, filepath.Join(dir, "nested-original", "out.json")); got != "attacker" {
+		t.Fatalf("WriteFile() content in anchored parent = %q", got)
+	}
+}
+
 func TestWriteFileDoesNotUsePredictableTemporaryPath(t *testing.T) {
 	requireSymlinks(t)
 
@@ -293,6 +443,83 @@ func TestWriteFilePreservingModeKeepsExistingModeAndDefaultsForNew(t *testing.T)
 	}
 }
 
+func TestWriteFilePreservingModeRefusesReadOnlyExistingFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not authoritative on Windows")
+	}
+
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	path := filepath.Join(dir, "read-only.txt")
+	mustWrite(t, path, "original")
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+
+	if err := root.WriteFilePreservingMode("read-only.txt", []byte("replacement"), 0o644); err == nil {
+		t.Fatal("WriteFilePreservingMode() error = nil, want read-only destination refusal")
+	}
+	if got := mustRead(t, path); got != "original" {
+		t.Fatalf("content = %q, want original", got)
+	}
+}
+
+func TestWriteFilePreservingModeRefusesMultiplyLinkedFile(t *testing.T) {
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	path := filepath.Join(dir, "existing.txt")
+	linkPath := filepath.Join(dir, "linked.txt")
+	mustWrite(t, path, "original")
+	if err := os.Link(path, linkPath); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	if err := root.WriteFilePreservingMode("existing.txt", []byte("replacement"), 0o644); err == nil {
+		t.Fatal("WriteFilePreservingMode() error = nil, want multiply-linked file refusal")
+	}
+	if got := mustRead(t, path); got != "original" {
+		t.Fatalf("destination content = %q, want original", got)
+	}
+	if got := mustRead(t, linkPath); got != "original" {
+		t.Fatalf("hard-link content = %q, want original", got)
+	}
+}
+
+func TestWriteFilePreservingModeDoesNotMutateHardLinkAddedAfterValidation(t *testing.T) {
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	path := filepath.Join(dir, "existing.txt")
+	externalLink := filepath.Join(t.TempDir(), "external.txt")
+	mustWrite(t, path, "original")
+	root.afterValidationForTest = func() {
+		if err := os.Link(path, externalLink); err != nil {
+			t.Skipf("hard links unavailable: %v", err)
+		}
+	}
+
+	if err := root.WriteFilePreservingMode("existing.txt", []byte("replacement"), 0o644); err != nil {
+		t.Fatalf("WriteFilePreservingMode() error = %v", err)
+	}
+	if got := mustRead(t, path); got != "replacement" {
+		t.Fatalf("destination content = %q, want replacement", got)
+	}
+	if got := mustRead(t, externalLink); got != "original" {
+		t.Fatalf("late hard link content = %q, want original", got)
+	}
+}
+
+func TestWriteFilePreservingModeCreatesMissingIntermediateDirectories(t *testing.T) {
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	name := filepath.Join("nested", "deep", "fresh.txt")
+
+	if err := root.WriteFilePreservingMode(name, []byte("data"), 0o640); err != nil {
+		t.Fatalf("WriteFilePreservingMode() error = %v", err)
+	}
+	if got := mustRead(t, filepath.Join(dir, name)); got != "data" {
+		t.Fatalf("content = %q, want %q", got, "data")
+	}
+}
+
 func TestCreateNewFileRefusesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "AuthKey.p8"), "existing")
@@ -303,6 +530,38 @@ func TestCreateNewFileRefusesExistingFile(t *testing.T) {
 	}
 	if got := mustRead(t, filepath.Join(dir, "AuthKey.p8")); got != "existing" {
 		t.Fatalf("content = %q, want %q", got, "existing")
+	}
+}
+
+func TestCreateNewFileDoesNotEscapeWhenParentIsSwappedAfterValidation(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatalf("create nested directory: %v", err)
+	}
+	external := t.TempDir()
+
+	root := mustRoot(t, dir)
+	root.afterValidationForTest = func() {
+		if err := os.Rename(nested, filepath.Join(dir, "nested-original")); err != nil {
+			t.Fatalf("swap validated parent: %v", err)
+		}
+		if err := os.Symlink(external, nested); err != nil {
+			t.Fatalf("replace validated parent with symlink: %v", err)
+		}
+	}
+
+	err := root.CreateNewFile(filepath.Join("nested", "AuthKey.p8"), []byte("private"), 0o600)
+	if err != nil {
+		t.Fatalf("CreateNewFile() error = %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(external, "AuthKey.p8")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("CreateNewFile() created a file outside the trusted root: %v", statErr)
+	}
+	if got := mustRead(t, filepath.Join(dir, "nested-original", "AuthKey.p8")); got != "private" {
+		t.Fatalf("CreateNewFile() content in anchored parent = %q", got)
 	}
 }
 
@@ -396,6 +655,66 @@ func TestAppendFileAppendsInRoot(t *testing.T) {
 	}
 	if got := mustRead(t, filepath.Join(dir, "snitch.log")); got != "one\ntwo\n" {
 		t.Fatalf("content = %q", got)
+	}
+}
+
+func TestAppendFileDoesNotEscapeWhenParentIsSwappedAfterValidation(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "nested")
+	mustWrite(t, filepath.Join(nested, "snitch.log"), "trusted\n")
+	external := t.TempDir()
+	externalLog := filepath.Join(external, "snitch.log")
+	mustWrite(t, externalLog, "external\n")
+
+	root := mustRoot(t, dir)
+	root.afterValidationForTest = func() {
+		if err := os.Rename(nested, filepath.Join(dir, "nested-original")); err != nil {
+			t.Fatalf("swap validated parent: %v", err)
+		}
+		if err := os.Symlink(external, nested); err != nil {
+			t.Fatalf("replace validated parent with symlink: %v", err)
+		}
+	}
+
+	err := root.AppendFile(filepath.Join("nested", "snitch.log"), []byte("attacker\n"), 0o600)
+	if err != nil {
+		t.Fatalf("AppendFile() error = %v", err)
+	}
+	if got := mustRead(t, externalLog); got != "external\n" {
+		t.Fatalf("AppendFile() modified a file outside the trusted root: %q", got)
+	}
+	if got := mustRead(t, filepath.Join(dir, "nested-original", "snitch.log")); got != "trusted\nattacker\n" {
+		t.Fatalf("AppendFile() content in anchored parent = %q", got)
+	}
+}
+
+func TestAppendFileRejectsFinalSymlinkSwappedAfterValidation(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "snitch.log")
+	mustWrite(t, logPath, "trusted\n")
+	siblingPath := filepath.Join(dir, "sibling.log")
+	mustWrite(t, siblingPath, "sibling\n")
+
+	root := mustRoot(t, dir)
+	root.afterValidationForTest = func() {
+		if err := os.Remove(logPath); err != nil {
+			t.Fatalf("remove validated file: %v", err)
+		}
+		if err := os.Symlink("sibling.log", logPath); err != nil {
+			t.Fatalf("replace validated file with symlink: %v", err)
+		}
+	}
+
+	err := root.AppendFile("snitch.log", []byte("attacker\n"), 0o600)
+	if err == nil {
+		t.Fatal("AppendFile() succeeded through a swapped final symlink, want an error")
+	}
+	if got := mustRead(t, siblingPath); got != "sibling\n" {
+		t.Fatalf("AppendFile() modified the swapped symlink target: %q", got)
 	}
 }
 

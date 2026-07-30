@@ -233,3 +233,102 @@ func TestSetVersionStillEditsXCConfigInsideProjectRoot(t *testing.T) {
 		t.Fatalf("in-root xcconfig content = %q, want update", after)
 	}
 }
+
+func TestSetVersionRefusesXCConfigParentSwapAfterValidation(t *testing.T) {
+	projectPath := writeStructuredVersionProject(t, true)
+	projectRoot := filepath.Dir(projectPath)
+	configsDir := filepath.Join(projectRoot, "Configs")
+	sharedPath := filepath.Join(configsDir, "Shared.xcconfig")
+	originalConfigsDir := filepath.Join(projectRoot, "Configs-original")
+	externalDir := t.TempDir()
+	externalPath := filepath.Join(externalDir, "Shared.xcconfig")
+	externalBefore := mustReadVersionTestFile(t, sharedPath)
+	if err := os.WriteFile(externalPath, []byte(externalBefore), 0o640); err != nil {
+		t.Fatalf("WriteFile(external Shared.xcconfig) error = %v", err)
+	}
+
+	swapped := false
+	originalWriter := atomicWriteVersionFileFn
+	atomicWriteVersionFileFn = func(write preparedVersionWrite, data []byte) error {
+		if write.path == sharedPath && !swapped {
+			swapped = true
+			if err := os.Rename(configsDir, originalConfigsDir); err != nil {
+				return err
+			}
+			if err := os.Symlink(externalDir, configsDir); err != nil {
+				return err
+			}
+		}
+		return atomicWritePreparedVersionFile(write, data)
+	}
+	t.Cleanup(func() { atomicWriteVersionFileFn = originalWriter })
+
+	_, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir:  projectPath,
+		Version:     "2.0.0",
+		BuildNumber: "99",
+	})
+	if err == nil {
+		t.Fatal("SetVersion() error = nil, want swapped xcconfig parent refusal")
+	}
+	if !swapped {
+		t.Fatal("test did not swap the xcconfig parent")
+	}
+	if after := mustReadVersionTestFile(t, externalPath); after != externalBefore {
+		t.Fatalf("external xcconfig changed through swapped parent: %q", after)
+	}
+	if after := mustReadVersionTestFile(t, filepath.Join(originalConfigsDir, "Shared.xcconfig")); after != externalBefore {
+		t.Fatalf("original in-root xcconfig changed after parent swap: %q", after)
+	}
+}
+
+func TestSetVersionRefusesXcodeprojParentSwapAfterValidation(t *testing.T) {
+	projectPath := writeStructuredVersionProject(t, false)
+	projectRoot := filepath.Dir(projectPath)
+	pbxprojPath := filepath.Join(projectPath, "project.pbxproj")
+	originalProjectPath := filepath.Join(projectRoot, "Demo-original.xcodeproj")
+	externalRoot := t.TempDir()
+	externalProjectPath := filepath.Join(externalRoot, "Demo.xcodeproj")
+	if err := os.MkdirAll(externalProjectPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	externalPBXProjPath := filepath.Join(externalProjectPath, "project.pbxproj")
+	externalBefore := mustReadVersionTestFile(t, pbxprojPath)
+	if err := os.WriteFile(externalPBXProjPath, []byte(externalBefore), 0o644); err != nil {
+		t.Fatalf("WriteFile(external project.pbxproj) error = %v", err)
+	}
+
+	swapped := false
+	originalWriter := atomicWriteVersionFileFn
+	atomicWriteVersionFileFn = func(write preparedVersionWrite, data []byte) error {
+		if write.path == pbxprojPath && !swapped {
+			swapped = true
+			if err := os.Rename(projectPath, originalProjectPath); err != nil {
+				return err
+			}
+			if err := os.Symlink(externalProjectPath, projectPath); err != nil {
+				return err
+			}
+		}
+		return atomicWritePreparedVersionFile(write, data)
+	}
+	t.Cleanup(func() { atomicWriteVersionFileFn = originalWriter })
+
+	_, err := SetVersion(context.Background(), SetVersionOptions{
+		ProjectDir:  projectPath,
+		Version:     "2.0.0",
+		BuildNumber: "99",
+	})
+	if err == nil {
+		t.Fatal("SetVersion() error = nil, want swapped .xcodeproj parent refusal")
+	}
+	if !swapped {
+		t.Fatal("test did not swap the .xcodeproj directory")
+	}
+	if after := mustReadVersionTestFile(t, externalPBXProjPath); after != externalBefore {
+		t.Fatalf("external project.pbxproj changed through swapped parent: %q", after)
+	}
+	if after := mustReadVersionTestFile(t, filepath.Join(originalProjectPath, "project.pbxproj")); after != externalBefore {
+		t.Fatalf("original project.pbxproj changed after parent swap: %q", after)
+	}
+}

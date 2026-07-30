@@ -526,8 +526,11 @@ func TestVerifyResumedCheckpointBindingKeepsProvenCheckpoint(t *testing.T) {
 	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, nil); err != nil {
 		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
 	}
-	if len(checkpoint.Completed) != 5 {
-		t.Fatalf("expected all verified completions to survive, got %#v", checkpoint.Completed)
+	if len(checkpoint.Completed) != 3 {
+		t.Fatalf("expected only remotely verifiable completions to survive, got %#v", checkpoint.Completed)
+	}
+	if checkpoint.Completed[stepApplyMetadata] || checkpoint.Completed[stepValidateReadiness] {
+		t.Fatalf("expected local unprovable completions to be discarded, got %#v", checkpoint.Completed)
 	}
 	if checkpoint.SubmissionID != "SUBMISSION_123" {
 		t.Fatalf("expected verified submission ID to survive, got %q", checkpoint.SubmissionID)
@@ -641,8 +644,55 @@ func TestVerifyResumedCheckpointBindingDropsReadinessWithIncompletePrerequisite(
 		t.Fatal("expected validate_readiness to be discarded while attach_build is incomplete")
 	}
 	joined := strings.Join(messages, "\n")
-	if !strings.Contains(joined, stepValidateReadiness) || !strings.Contains(joined, stepAttachBuild) {
-		t.Fatalf("expected a diagnostic naming validate_readiness and attach_build, got %v", messages)
+	if !strings.Contains(joined, stepValidateReadiness) || !strings.Contains(joined, stepApplyMetadata) {
+		t.Fatalf("expected diagnostics naming the unprovable local steps, got %v", messages)
+	}
+}
+
+// TestVerifyResumedCheckpointBindingRerunsUnprovableLocalSteps proves an
+// unsigned checkpoint cannot suppress operations whose effects cannot be
+// authenticated from current App Store Connect state. Metadata may have
+// changed locally after the checkpoint was written, and readiness is a
+// point-in-time validation, so both steps must run on every resume.
+func TestVerifyResumedCheckpointBindingRerunsUnprovableLocalSteps(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID: "VERSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion:     true,
+			stepApplyMetadata:     true,
+			stepAttachBuild:       true,
+			stepValidateReadiness: true,
+		},
+	}
+	var messages []string
+	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, func(message string) {
+		messages = append(messages, message)
+	}); err != nil {
+		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
+	}
+	if checkpoint.Completed[stepApplyMetadata] {
+		t.Fatal("expected unprovable apply_metadata completion to be discarded")
+	}
+	if checkpoint.Completed[stepValidateReadiness] {
+		t.Fatal("expected point-in-time validate_readiness completion to be discarded")
+	}
+	if !checkpoint.Completed[stepEnsureVersion] || !checkpoint.Completed[stepAttachBuild] {
+		t.Fatalf("expected authenticated remote-state completions to survive, got %#v", checkpoint.Completed)
+	}
+	joined := strings.Join(messages, "\n")
+	if !strings.Contains(joined, stepApplyMetadata) || !strings.Contains(joined, stepValidateReadiness) {
+		t.Fatalf("expected diagnostics naming both rerun steps, got %v", messages)
 	}
 }
 

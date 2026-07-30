@@ -2,6 +2,7 @@ package infoplist
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"strings"
@@ -62,6 +63,74 @@ func TestReadBoundedStopsShortOfEndlessStream(t *testing.T) {
 	if source.read > MaxBytes+1 {
 		t.Fatalf("expected at most %d bytes read, got %d", MaxBytes+1, source.read)
 	}
+}
+
+func TestValidateStructureAcceptsDeepButReasonableXML(t *testing.T) {
+	data := nestedXMLPlist(MaxDepth)
+	if err := ValidateStructure(data); err != nil {
+		t.Fatalf("ValidateStructure() rejected plist at depth limit: %v", err)
+	}
+}
+
+func TestValidateStructureRejectsXMLDepthAmplification(t *testing.T) {
+	data := nestedXMLPlist(MaxDepth + 1)
+	err := ValidateStructure(data)
+	if err == nil {
+		t.Fatal("expected excessive plist depth rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "nesting depth") {
+		t.Fatalf("expected nesting-depth error, got %v", err)
+	}
+}
+
+func TestValidateStructureRejectsXMLObjectAmplification(t *testing.T) {
+	var builder strings.Builder
+	builder.WriteString(`<?xml version="1.0"?><plist><array>`)
+	for range MaxObjects + 1 {
+		builder.WriteString(`<true/>`)
+	}
+	builder.WriteString(`</array></plist>`)
+
+	err := ValidateStructure([]byte(builder.String()))
+	if err == nil {
+		t.Fatal("expected excessive plist object-count rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "object count") {
+		t.Fatalf("expected object-count error, got %v", err)
+	}
+}
+
+func TestValidateStructureRejectsBinaryObjectAmplificationFromTrailer(t *testing.T) {
+	data := make([]byte, 40)
+	copy(data, "bplist00")
+	trailer := data[len(data)-32:]
+	trailer[6] = 1
+	trailer[7] = 1
+	binary.BigEndian.PutUint64(trailer[8:16], MaxObjects+1)
+	binary.BigEndian.PutUint64(trailer[16:24], 0)
+	binary.BigEndian.PutUint64(trailer[24:32], 9)
+
+	err := ValidateStructure(data)
+	if err == nil {
+		t.Fatal("expected excessive binary plist object-count rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "object count") {
+		t.Fatalf("expected object-count error, got %v", err)
+	}
+}
+
+func nestedXMLPlist(depth int) []byte {
+	var builder strings.Builder
+	builder.WriteString(`<?xml version="1.0"?><plist>`)
+	for range depth - 1 {
+		builder.WriteString(`<array>`)
+	}
+	builder.WriteString(`<string>value</string>`)
+	for range depth - 1 {
+		builder.WriteString(`</array>`)
+	}
+	builder.WriteString(`</plist>`)
+	return []byte(builder.String())
 }
 
 type countingReader struct {

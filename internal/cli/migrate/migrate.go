@@ -30,8 +30,8 @@ func MigrateCommand() *ffcli.Command {
 This enables transitioning from fastlane's deliver tool to asc.
 
 Examples:
-  asc migrate import --app "APP_ID" --version "VERSION_ID" --fastlane-dir ./fastlane --confirm
-  asc migrate export --app "APP_ID" --version "VERSION_ID" --output-dir ./fastlane
+  asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fastlane --confirm
+  asc migrate export --app "APP_ID" --version-id "VERSION_ID" --output-dir ./fastlane
   asc migrate metadata pull --app "APP_ID" --version "1.2.3" --dir "./metadata"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -57,6 +57,9 @@ func MigrateImportCommand() *ffcli.Command {
 	dryRun := fs.Bool("dry-run", false, "Preview changes without uploading")
 	confirm := fs.Bool("confirm", false, "Confirm uploading the imported metadata and screenshots (required unless --dry-run)")
 	skipScreenshots := fs.Bool("skip-screenshots", false, "Skip screenshot discovery and upload")
+	allowExternalMetadata := fs.Bool("allow-external-metadata", false, "Trust Deliverfile metadata paths and symlinks outside the selected Fastlane directory")
+	allowExternalScreenshots := fs.Bool("allow-external-screenshots", false, "Trust Deliverfile screenshot paths and symlinks outside the selected Fastlane directory")
+	allowSymlinkedDeliverfile := fs.Bool("allow-symlinked-deliverfile", false, "Trust and follow a symlinked Deliverfile")
 	includeSensitive := shared.BindIncludeSensitiveFlag(fs)
 	output := shared.BindOutputFlags(fs)
 
@@ -116,9 +119,12 @@ Examples:
 			}
 
 			inputs, skipped, err := resolveImportInputs(importInputOptions{
-				WorkDir:         workDir,
-				FastlaneDir:     strings.TrimSpace(*fastlaneDir),
-				SkipScreenshots: *skipScreenshots,
+				WorkDir:                   workDir,
+				FastlaneDir:               *fastlaneDir,
+				SkipScreenshots:           *skipScreenshots,
+				AllowExternalMetadata:     *allowExternalMetadata,
+				AllowExternalScreenshots:  *allowExternalScreenshots,
+				AllowSymlinkedDeliverfile: *allowSymlinkedDeliverfile,
 			})
 			if err != nil {
 				return fmt.Errorf("migrate import: %w", err)
@@ -176,10 +182,11 @@ Examples:
 			var screenshotPlan []ScreenshotPlan
 			var skippedScreenshots []SkippedItem
 			if screenshotsDir != "" {
-				screenshotPlan, skippedScreenshots, err = discoverScreenshotPlan(screenshotsDir)
+				screenshotPlan, skippedScreenshots, err = discoverScreenshotPlanForUpload(screenshotsDir)
 				if err != nil {
 					return fmt.Errorf("migrate import: %w", err)
 				}
+				defer closeScreenshotPlans(screenshotPlan)
 				skipped = append(skipped, skippedScreenshots...)
 			}
 
@@ -560,7 +567,7 @@ func readFastlaneAppInfoMetadata(metadataDir string) ([]AppInfoFastlaneLocalizat
 // directory outside the working directory is its own trusted root. The returned
 // prefix is the root-relative content directory.
 func newMigrateContentRoot(dir string) (rootfs.Root, string, error) {
-	absolute, err := filepath.Abs(strings.TrimSpace(dir))
+	absolute, err := filepath.Abs(dir)
 	if err != nil {
 		return rootfs.Root{}, "", err
 	}
@@ -908,6 +915,7 @@ func MigrateValidateCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("migrate validate", flag.ExitOnError)
 
 	fastlaneDir := fs.String("fastlane-dir", "", "Path to fastlane directory (required)")
+	allowExternalMetadata := fs.Bool("allow-external-metadata", false, "Trust a metadata symlink outside the selected Fastlane directory")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -935,7 +943,7 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
-			metadataDir, err := containFastlaneChild(*fastlaneDir, "metadata")
+			metadataDir, err := resolveFastlaneChild(*fastlaneDir, "metadata", *allowExternalMetadata)
 			if err != nil {
 				return fmt.Errorf("migrate validate: %w", err)
 			}

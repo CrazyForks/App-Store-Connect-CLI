@@ -69,6 +69,13 @@ func TestResolveShowOutDirSanitizesDotDotPathPart(t *testing.T) {
 	}
 }
 
+func TestResolveShowOutDirPreservesWhitespacePathBytes(t *testing.T) {
+	want := filepath.Join(t.TempDir(), " downloads ")
+	if got := resolveShowOutDir("app", "submission", want); got != want {
+		t.Fatalf("resolveShowOutDir() = %q, want %q", got, want)
+	}
+}
+
 func TestBuildReviewListTableRows(t *testing.T) {
 	submissions := []webcore.ReviewSubmission{
 		{

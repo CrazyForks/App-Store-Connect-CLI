@@ -188,22 +188,24 @@ ASC_BYPASS_KEYCHAIN=1 make test
 asc install-skills
 ```
 
-`asc install-skills` runs the pinned installer `skills@1.5.20` against a reviewed skills commit, so an upstream change cannot alter what gets installed. It needs Node.js (`npx`) and `git`.
-
-To do the same by hand, check out that commit into a fresh temporary directory and install from the local path. Each step stops the chain on failure, and the temporary directory lives under `/tmp` (outside any npm project, regardless of `TMPDIR`) with `npx` running from it, so a project `node_modules`, `package.json`, or `.npmrc` cannot shadow or redirect the pinned installer:
+`asc install-skills` checks out reviewed commit
+`e30039abddbe388179324d0f9cdccb66c3843115` and copies its 23 skills directly
+into the standard global agent-skills directory. It verifies the complete pack
+and every installed file before succeeding, preserves unrelated skills and
+unrelated lock entries, and pins the 23 ASC lock entries to the same reviewed
+commit so external checks cannot update them from a mutable branch. It rolls
+back the pack if any replacement fails. Only
+`git` is required; the command does not execute Node.js, `npx`, npm packages,
+or repository scripts.
 
 ```bash  theme={null}
-asc_skills="$(mktemp -d /tmp/asc-skills.XXXXXX)" &&
-  git init --quiet "$asc_skills/src" &&
-  git -C "$asc_skills/src" remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git &&
-  git -C "$asc_skills/src" fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115 &&
-  git -C "$asc_skills/src" checkout --detach e30039abddbe388179324d0f9cdccb66c3843115 &&
-  (cd "$asc_skills" && npx --yes skills@1.5.20 add "$asc_skills/src" --global --agent codex --yes) &&
-  rm -rf "$asc_skills"
+git --version
+asc install-skills
 ```
 
 <Note>
-  The installer resolves a source ref with `git clone --branch`, which accepts only branch and tag names, so the pinned commit has to be checked out locally and passed as a path. Upgrading the skill pack is an explicit change to the pinned installer version and commit in `internal/cli/install/install.go`.
+  Upgrading the skill pack is an explicit change to the pinned commit and the
+  reviewed 23-skill manifest in `internal/cli/install/install.go`.
 </Note>
 
 ## Shell completion

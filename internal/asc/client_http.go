@@ -565,28 +565,35 @@ func (c *Client) doStream(ctx context.Context, path string, accept string) (*htt
 	return resp, nil
 }
 
-func (c *Client) doStreamNoAuth(ctx context.Context, method, rawURL, accept string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
+func (c *Client) doStreamNoAuth(ctx context.Context, rawURL, accept string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, newSanitizedNoAuthStreamError("create download request", rawURL, err)
 	}
 	if strings.TrimSpace(accept) != "" {
 		req.Header.Set("Accept", accept)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	client := clientWithoutRedirects(c.httpClient)
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, newSanitizedNoAuthStreamError("download request", rawURL, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		if err := ParseErrorWithStatus(respBody, resp.StatusCode); err != nil {
-			return nil, err
+		// Presigned-CDN error bodies are untrusted and can echo the requested
+		// capability. The status code is sufficient diagnostic context here.
+		return nil, &APIError{
+			Code:       apiErrorCodeFromStatus(resp.StatusCode),
+			Title:      fmt.Sprintf("download request failed with status %d", resp.StatusCode),
+			StatusCode: resp.StatusCode,
 		}
-		return nil, fmt.Errorf("API request failed with status %d", resp.StatusCode)
 	}
 	return resp, nil
+}
+
+func newSanitizedNoAuthStreamError(operation, rawURL string, err error) error {
+	return urlsanitize.NewTransportError(operation, urlsanitize.RedactURLForError(rawURL), err)
 }
 
 // BuildRequestBody builds a JSON request body

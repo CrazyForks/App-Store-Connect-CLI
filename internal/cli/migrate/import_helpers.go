@@ -388,7 +388,21 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 					})
 					continue
 				}
-				item, err := assets.UploadScreenshotAsset(uploadCtx, client, setID, filePath)
+				var item asc.AssetUploadResultItem
+				var err error
+				if opened, ok, openErr := plan.openedFile(filePath); openErr != nil {
+					err = openErr
+				} else if ok {
+					item, err = assets.UploadScreenshotAssetFromFile(uploadCtx, client, setID, filePath, opened)
+					if closeErr := opened.Close(); err == nil {
+						err = closeErr
+					}
+				} else {
+					// Keep compatibility for callers that construct plans
+					// directly; migrate import discovery always supplies a
+					// pinned rooted handle.
+					item, err = assets.UploadScreenshotAsset(uploadCtx, client, setID, filePath)
+				}
 				if err != nil {
 					return nil, fmt.Errorf("migrate import: failed to upload screenshot %s: %w", filePath, err)
 				}

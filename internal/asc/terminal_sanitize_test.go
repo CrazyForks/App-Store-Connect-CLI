@@ -36,7 +36,7 @@ func TestSanitizeTerminalTextRemovesInterpretedSequences(t *testing.T) {
 		{
 			name:  "carriage return and del",
 			input: "visible\rhidden\u007f",
-			want:  "visiblehidden",
+			want:  "visible hidden",
 		},
 		{
 			name:  "bidi override",
@@ -60,23 +60,23 @@ func TestSanitizeTerminalTextRemovesInterpretedSequences(t *testing.T) {
 		},
 		{
 			name:  "unicode line and paragraph separators",
-			input: "row one\u2028row two\u2029row three",
-			want:  "row onerow tworow three",
+			input: "row one\u0085row two\u2028row three\u2029row four",
+			want:  "row one row two row three row four",
 		},
 		{
 			name:  "raw single-byte c1 controls in invalid utf-8",
 			input: "state\x9b2K\x9d0;pwned",
-			want:  "state2K0;pwned",
+			want:  "state�2K�0;pwned",
 		},
 		{
 			name:  "invalid utf-8 continuation byte",
 			input: "name\xc2suffix",
-			want:  "namesuffix",
+			want:  "name�suffix",
 		},
 		{
 			name:  "newline and tab",
 			input: "line one\nline\ttwo",
-			want:  "line onelinetwo",
+			want:  "line one line two",
 		},
 		{
 			name:  "non-latin text is preserved",
@@ -99,7 +99,7 @@ func TestSanitizeTerminalTextRemovesInterpretedSequences(t *testing.T) {
 }
 
 func TestHasInterpretedTerminalSequenceDetectsControls(t *testing.T) {
-	unsafe := []string{"\x1b[0m", "\u009b0m", "\u202e", "\u2069", "\u061c", "\u2028", "\u2029", "\x7f", "\r", "\n", "\x9b", "\x9d"}
+	unsafe := []string{"\x1b[0m", "\u0085", "\u009b0m", "\u202e", "\u2069", "\u061c", "\u2028", "\u2029", "\x7f", "\r", "\n", "\x9b", "\x9d"}
 	for _, value := range unsafe {
 		if !HasInterpretedTerminalSequence(value) {
 			t.Fatalf("HasInterpretedTerminalSequence(%q) = false, want true", value)

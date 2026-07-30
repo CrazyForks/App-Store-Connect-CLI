@@ -217,3 +217,62 @@ func TestXcodeInjectRejectsSymlinkedCopySourceFile(t *testing.T) {
 		t.Fatal("copy produced an artifact from a symlinked source file")
 	}
 }
+
+func TestXcodeInjectPreservesWhitespaceInCopySourcePath(t *testing.T) {
+	dir := t.TempDir()
+	sourceName := " source.txt "
+	if err := os.WriteFile(filepath.Join(dir, sourceName), []byte("exact source\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "copy", "source": " source.txt ", "path": "copied.txt"}
+		]
+	}`)
+
+	result, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("runXcodeInject() error = %v", err)
+	}
+	if want := filepath.Join(dir, sourceName); result.Outputs[0].Source != want {
+		t.Fatalf("reported source = %q, want exact path %q", result.Outputs[0].Source, want)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "copied.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if want := "exact source\n"; string(got) != want {
+		t.Fatalf("copied contents = %q, want %q", got, want)
+	}
+}
+
+func TestXcodeInjectPreservesWhitespaceInOutputPath(t *testing.T) {
+	dir := t.TempDir()
+	outputName := " generated.txt "
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": " generated.txt ", "contents": "exact output\n"}
+		]
+	}`)
+
+	result, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("runXcodeInject() error = %v", err)
+	}
+	if want := filepath.Join(dir, outputName); result.Outputs[0].Path != want {
+		t.Fatalf("reported output = %q, want exact path %q", result.Outputs[0].Path, want)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, outputName))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if want := "exact output\n"; string(got) != want {
+		t.Fatalf("output contents = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "generated.txt")); !os.IsNotExist(err) {
+		t.Fatalf("trimmed output path exists or returned unexpected error: %v", err)
+	}
+}

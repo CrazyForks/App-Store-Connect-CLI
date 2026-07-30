@@ -79,8 +79,9 @@ CSV format:
   email,first_name,last_name,groups
   - groups are semicolon-delimited when present (for fastlane compatibility)
   - a cell whose first character would start a spreadsheet formula (=, +, -, @)
-    is prefixed with a single quote so spreadsheet software treats it as text;
-    "beta-testers import" removes that prefix again
+    is prefixed with a single quote so spreadsheet software treats it as text
+  - when escaping is needed, an _asc_formula_escaping provenance column is
+    included so "beta-testers import" only removes prefixes added by this export
 
 Examples:
   asc testflight beta-testers export --app "APP_ID" --output "./testflight-testers.csv"
@@ -282,8 +283,9 @@ CSV formats accepted:
 
 Groups are semicolon-delimited in canonical import/export files.
 For compatibility, comma-delimited groups are also accepted when no semicolon is present.
-A leading single quote before =, +, -, or @ is removed, reversing the formula
-neutralization that "beta-testers export" applies.
+Exports that neutralize spreadsheet formulas include an _asc_formula_escaping
+provenance column. Only rows carrying the supported marker have the export-added
+single quote removed; user-authored CSV apostrophes are preserved.
 
 Examples:
   asc testflight beta-testers import --app "APP_ID" --input "./testflight-testers.csv" --dry-run
@@ -863,7 +865,7 @@ func validateBetaTestersCSVHeader(header []string) (map[string]int, error) {
 		}
 		canonical, ok := canonicalBetaTestersCSVColumn(col)
 		if !ok {
-			return nil, shared.UsageErrorf("unknown CSV column %q (allowed: email, first_name, last_name, groups)", col)
+			return nil, shared.UsageErrorf("unknown CSV column %q (allowed: email, first_name, last_name, groups, %s)", col, betaTestersFormulaEscapingColumn)
 		}
 		col = canonical
 		if _, exists := idx[col]; exists {
@@ -928,22 +930,32 @@ func canonicalBetaTestersCSVColumn(col string) (string, bool) {
 		return "last_name", true
 	case "groups":
 		return "groups", true
+	case betaTestersFormulaEscapingColumn:
+		return betaTestersFormulaEscapingColumn, true
 	default:
 		return "", false
 	}
 }
 
 func parseHeaderMappedBetaTesterCSVRow(record []string, headerIdx map[string]int) betaTestersCSVRow {
+	formulaEscaped := false
+	if idx, ok := headerIdx[betaTestersFormulaEscapingColumn]; ok && idx >= 0 && idx < len(record) {
+		formulaEscaped = strings.TrimSpace(record[idx]) == betaTestersFormulaEscapingVersion
+	}
 	get := func(col string) string {
 		i, ok := headerIdx[col]
 		if !ok || i < 0 || i >= len(record) {
 			return ""
 		}
-		return strings.TrimSpace(denormalizeSpreadsheetFormula(record[i]))
+		value := record[i]
+		if formulaEscaped {
+			value = denormalizeSpreadsheetFormula(value)
+		}
+		return strings.TrimSpace(value)
 	}
 	groups := make([]string, 0)
 	if idx, ok := headerIdx["groups"]; ok && idx >= 0 && idx < len(record) {
-		groups = splitBetaTesterCSVGroups(record[idx])
+		groups = splitBetaTesterCSVGroups(record[idx], formulaEscaped)
 	}
 	return betaTestersCSVRow{
 		email:     get("email"),
@@ -958,18 +970,21 @@ func parseLegacyBetaTesterCSVRow(record []string) (betaTestersCSVRow, error) {
 		return betaTestersCSVRow{}, shared.UsageError("legacy CSV rows must have 3 or 4 columns: first_name,last_name,email[,groups]")
 	}
 	row := betaTestersCSVRow{
-		firstName: strings.TrimSpace(denormalizeSpreadsheetFormula(record[0])),
-		lastName:  strings.TrimSpace(denormalizeSpreadsheetFormula(record[1])),
-		email:     strings.TrimSpace(denormalizeSpreadsheetFormula(record[2])),
+		firstName: strings.TrimSpace(record[0]),
+		lastName:  strings.TrimSpace(record[1]),
+		email:     strings.TrimSpace(record[2]),
 	}
 	if len(record) >= 4 {
-		row.groups = splitBetaTesterCSVGroups(record[3])
+		row.groups = splitBetaTesterCSVGroups(record[3], false)
 	}
 	return row, nil
 }
 
-func splitBetaTesterCSVGroups(value string) []string {
-	trimmed := strings.TrimSpace(denormalizeSpreadsheetFormula(value))
+func splitBetaTesterCSVGroups(value string, formulaEscaped bool) []string {
+	if formulaEscaped {
+		value = denormalizeSpreadsheetFormula(value)
+	}
+	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return nil
 	}
@@ -1008,9 +1023,14 @@ const spreadsheetFormulaMarkers = "=+-@"
 
 // spreadsheetTextPrefix neutralizes a formula-leading cell. Spreadsheet software
 // reads a leading apostrophe as "the rest of this cell is text" and does not
-// display it; `asc testflight beta-testers import` strips it again, so exported
-// files still round-trip.
+// display it. Exported rows carry a provenance marker so import can strip only
+// prefixes written by asc and leave user-authored apostrophes unchanged.
 const spreadsheetTextPrefix = "'"
+
+const (
+	betaTestersFormulaEscapingColumn  = "_asc_formula_escaping"
+	betaTestersFormulaEscapingVersion = "apostrophe-v1"
+)
 
 func neutralizeSpreadsheetFormulaRow(row []string) []string {
 	safe := make([]string, len(row))
@@ -1020,13 +1040,22 @@ func neutralizeSpreadsheetFormulaRow(row []string) []string {
 	return safe
 }
 
+func rowNeedsSpreadsheetFormulaEscaping(row []string) bool {
+	for _, cell := range row {
+		if neutralizeSpreadsheetFormula(cell) != cell {
+			return true
+		}
+	}
+	return false
+}
+
 // neutralizeSpreadsheetFormula prefixes externally derived cells whose first
 // effective character would start a spreadsheet formula. Leading whitespace and
 // control characters are skipped when looking for that character, because
 // spreadsheet software ignores them too. A cell that already begins with
-// literal apostrophes in front of a formula character gains one more, so import
-// can always remove exactly one and recover the original value. Safe cells are
-// returned unchanged.
+// literal apostrophes in front of a formula character gains one more; the
+// provenance-marked import path can then remove exactly one and recover the
+// original value. Safe cells are returned unchanged.
 func neutralizeSpreadsheetFormula(value string) string {
 	if !isSpreadsheetFormulaCell(strings.TrimLeft(value, spreadsheetTextPrefix)) {
 		return value
@@ -1034,10 +1063,9 @@ func neutralizeSpreadsheetFormula(value string) string {
 	return spreadsheetTextPrefix + value
 }
 
-// denormalizeSpreadsheetFormula reverses neutralizeSpreadsheetFormula so an
-// exported file can be imported again without the neutralization prefix leaking
-// into tester or group values. Exactly one prefix apostrophe is removed, which
-// also restores values whose originals begin with literal apostrophes.
+// denormalizeSpreadsheetFormula reverses neutralizeSpreadsheetFormula for rows
+// carrying the asc export provenance marker. Exactly one prefix apostrophe is
+// removed, which also restores values whose originals begin with apostrophes.
 func denormalizeSpreadsheetFormula(value string) string {
 	if !strings.HasPrefix(value, spreadsheetTextPrefix) {
 		return value
@@ -1099,11 +1127,27 @@ func writeCSVFileAtomicNoSymlink(outputPath string, header []string, rows [][]st
 	}
 
 	w := csv.NewWriter(tempFile)
-	if err := w.Write(header); err != nil {
+	formulaEscaping := false
+	for _, row := range rows {
+		if rowNeedsSpreadsheetFormulaEscaping(row) {
+			formulaEscaping = true
+			break
+		}
+	}
+
+	csvHeader := append([]string(nil), header...)
+	if formulaEscaping {
+		csvHeader = append(csvHeader, betaTestersFormulaEscapingColumn)
+	}
+	if err := w.Write(csvHeader); err != nil {
 		return err
 	}
 	for _, row := range rows {
-		if err := w.Write(neutralizeSpreadsheetFormulaRow(row)); err != nil {
+		csvRow := row
+		if formulaEscaping {
+			csvRow = append(neutralizeSpreadsheetFormulaRow(row), betaTestersFormulaEscapingVersion)
+		}
+		if err := w.Write(csvRow); err != nil {
 			return err
 		}
 	}

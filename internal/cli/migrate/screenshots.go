@@ -2,18 +2,24 @@ package migrate
 
 import (
 	"fmt"
+	"image"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/secureopen"
 )
 
 type ScreenshotPlan struct {
 	Locale      string   `json:"locale"`
 	DisplayType string   `json:"displayType"`
 	Files       []string `json:"files"`
+	sourceRoot  *screenshotSourceRoot
+	sources     map[string]screenshotSource
 }
 
 type ScreenshotUploadResult struct {
@@ -23,7 +29,21 @@ type ScreenshotUploadResult struct {
 	Skipped     []SkippedItem               `json:"skipped,omitempty"`
 }
 
+const maxMigrateScreenshotFileSize = int64(1024 * 1024 * 1024)
+
 func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedItem, error) {
+	return discoverScreenshotPlanWithOpenFiles(screenshotsDir, false)
+}
+
+// discoverScreenshotPlanForUpload pins discovery to one rooted directory
+// handle and records each file's identity. Upload reopens one file at a time
+// through that root, preventing path redirection without retaining an
+// unbounded number of descriptors.
+func discoverScreenshotPlanForUpload(screenshotsDir string) ([]ScreenshotPlan, []SkippedItem, error) {
+	return discoverScreenshotPlanWithOpenFiles(screenshotsDir, true)
+}
+
+func discoverScreenshotPlanWithOpenFiles(screenshotsDir string, retainOpenFiles bool) ([]ScreenshotPlan, []SkippedItem, error) {
 	// A screenshots directory inside the working directory ships with the
 	// checkout, so refuse symlinked components before traversing it; an
 	// operator-selected external directory remains its own trusted root.
@@ -34,7 +54,23 @@ func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedI
 	if err := checkContentRootContained(root, prefix); err != nil {
 		return nil, nil, err
 	}
-	entries, err := os.ReadDir(screenshotsDir)
+	rooted, err := os.OpenRoot(root.Path())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rooted.Close()
+	contentRoot, err := rooted.OpenRoot(filepath.ToSlash(prefix))
+	if err != nil {
+		return nil, nil, err
+	}
+	sourceRoot := &screenshotSourceRoot{root: contentRoot}
+	keepSourceRoot := false
+	defer func() {
+		if !keepSourceRoot {
+			_ = sourceRoot.root.Close()
+		}
+	}()
+	entries, err := fs.ReadDir(contentRoot.FS(), ".")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -43,7 +79,11 @@ func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedI
 		locale      string
 		displayType string
 	}
-	plans := make(map[planKey][]string)
+	type planFiles struct {
+		paths   []string
+		sources map[string]screenshotSource
+	}
+	plans := make(map[planKey]*planFiles)
 	var skipped []SkippedItem
 
 	for _, entry := range entries {
@@ -69,34 +109,57 @@ func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedI
 			return nil, nil, fmt.Errorf("invalid locale directory %q: %w", localeName, err)
 		}
 		localeDir := filepath.Join(screenshotsDir, entry.Name())
-		files, localeSkipped, err := collectScreenshotFiles(localeDir)
+		files, localeSkipped, err := collectScreenshotFiles(contentRoot, entry.Name(), localeDir)
 		if err != nil {
 			return nil, nil, err
 		}
 		skipped = append(skipped, localeSkipped...)
-		for _, filePath := range files {
-			dimensions, err := asc.ReadImageDimensions(filePath)
+		for candidateIndex, candidate := range files {
+			dimensions, err := readOpenedImageDimensions(candidate.path, candidate.file)
 			if err != nil {
-				return nil, nil, fmt.Errorf("invalid screenshot file %q: %w", filePath, err)
+				closeOpenedScreenshotCandidates(files[candidateIndex:])
+				return nil, nil, fmt.Errorf("invalid screenshot file %q: %w", candidate.path, err)
 			}
-			displayType, err := inferScreenshotDisplayTypeFromDimensions(filePath, dimensions.Width, dimensions.Height)
+			displayType, err := inferScreenshotDisplayTypeFromDimensions(candidate.path, dimensions.Width, dimensions.Height)
 			if err != nil {
+				closeOpenedScreenshotCandidates(files[candidateIndex:])
 				return nil, nil, err
 			}
 			key := planKey{locale: locale, displayType: displayType}
-			plans[key] = append(plans[key], filePath)
+			if plans[key] == nil {
+				plans[key] = &planFiles{sources: make(map[string]screenshotSource)}
+			}
+			plans[key].paths = append(plans[key].paths, candidate.path)
+			if retainOpenFiles {
+				info, err := candidate.file.Stat()
+				if err != nil {
+					closeOpenedScreenshotCandidates(files[candidateIndex:])
+					return nil, nil, err
+				}
+				plans[key].sources[candidate.path] = screenshotSource{
+					relative: candidate.relative,
+					info:     info,
+				}
+			}
+			_ = candidate.file.Close()
 		}
 	}
 
 	result := make([]ScreenshotPlan, 0, len(plans))
 	for key, files := range plans {
-		sort.Strings(files)
-		result = append(result, ScreenshotPlan{
+		sort.Strings(files.paths)
+		plan := ScreenshotPlan{
 			Locale:      key.locale,
 			DisplayType: key.displayType,
-			Files:       files,
-		})
+			Files:       files.paths,
+		}
+		if retainOpenFiles {
+			plan.sourceRoot = sourceRoot
+			plan.sources = files.sources
+		}
+		result = append(result, plan)
 	}
+	keepSourceRoot = retainOpenFiles && len(result) > 0
 
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Locale == result[j].Locale {
@@ -108,12 +171,118 @@ func discoverScreenshotPlan(screenshotsDir string) ([]ScreenshotPlan, []SkippedI
 	return result, skipped, nil
 }
 
-func collectScreenshotFiles(localeDir string) ([]string, []SkippedItem, error) {
-	var files []string
+func readOpenedImageDimensions(path string, file *os.File) (asc.ImageDimensions, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return asc.ImageDimensions{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return asc.ImageDimensions{}, fmt.Errorf("expected regular file: %q", path)
+	}
+	if info.Size() <= 0 {
+		return asc.ImageDimensions{}, fmt.Errorf("file is empty: %q", path)
+	}
+	if info.Size() > maxMigrateScreenshotFileSize {
+		return asc.ImageDimensions{}, fmt.Errorf("file size exceeds %d bytes: %q", maxMigrateScreenshotFileSize, path)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return asc.ImageDimensions{}, err
+	}
+	cfg, _, err := image.DecodeConfig(file)
+	if err != nil {
+		return asc.ImageDimensions{}, fmt.Errorf("decode image dimensions for %q: %w", path, err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return asc.ImageDimensions{}, fmt.Errorf("invalid image dimensions %dx%d for %q", cfg.Width, cfg.Height, path)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return asc.ImageDimensions{}, err
+	}
+	return asc.ImageDimensions{Width: cfg.Width, Height: cfg.Height}, nil
+}
+
+type screenshotSourceRoot struct {
+	root *os.Root
+}
+
+type screenshotSource struct {
+	relative string
+	info     os.FileInfo
+}
+
+func (p ScreenshotPlan) openedFile(path string) (*os.File, bool, error) {
+	source, ok := p.sources[path]
+	if !ok || p.sourceRoot == nil || p.sourceRoot.root == nil {
+		return nil, false, nil
+	}
+	file, err := secureopen.OpenExistingNoFollowInRoot(p.sourceRoot.root, source.relative)
+	if err != nil {
+		return nil, true, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, true, err
+	}
+	if !os.SameFile(source.info, info) ||
+		source.info.Size() != info.Size() ||
+		!source.info.ModTime().Equal(info.ModTime()) {
+		_ = file.Close()
+		return nil, true, fmt.Errorf("screenshot file %q changed after discovery", path)
+	}
+	return file, true, nil
+}
+
+func closeScreenshotPlans(plans []ScreenshotPlan) {
+	closed := make(map[*screenshotSourceRoot]struct{})
+	for _, plan := range plans {
+		if plan.sourceRoot == nil || plan.sourceRoot.root == nil {
+			continue
+		}
+		if _, ok := closed[plan.sourceRoot]; ok {
+			continue
+		}
+		closed[plan.sourceRoot] = struct{}{}
+		_ = plan.sourceRoot.root.Close()
+	}
+}
+
+type openedScreenshotCandidate struct {
+	path     string
+	relative string
+	file     *os.File
+}
+
+func closeOpenedScreenshotCandidates(files []openedScreenshotCandidate) {
+	for _, candidate := range files {
+		_ = candidate.file.Close()
+	}
+}
+
+func collectScreenshotFiles(rooted *os.Root, localeRelative, localeDir string) (_ []openedScreenshotCandidate, _ []SkippedItem, resultErr error) {
+	localeRoot, err := rooted.OpenRoot(filepath.ToSlash(localeRelative))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer localeRoot.Close()
+
+	var files []openedScreenshotCandidate
 	var skipped []SkippedItem
-	err := filepath.WalkDir(localeDir, func(path string, entry os.DirEntry, err error) error {
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		for _, candidate := range files {
+			_ = candidate.file.Close()
+		}
+	}()
+	err = fs.WalkDir(localeRoot.FS(), ".", func(relative string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		displayPath := localeDir
+		if relative != "." {
+			displayPath = filepath.Join(localeDir, filepath.FromSlash(strings.TrimPrefix(relative, "./")))
 		}
 		if entry.IsDir() {
 			return nil
@@ -123,19 +292,27 @@ func collectScreenshotFiles(localeDir string) ([]string, []SkippedItem, error) {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing to read symlink %q", path)
+			return fmt.Errorf("refusing to read symlink %q", displayPath)
 		}
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		if shouldSkipScreenshotFile(path) {
+		if shouldSkipScreenshotFile(displayPath) {
 			skipped = append(skipped, SkippedItem{
-				Path:   path,
+				Path:   displayPath,
 				Reason: "unsupported screenshot file",
 			})
 			return nil
 		}
-		files = append(files, path)
+		file, err := secureopen.OpenExistingNoFollowInRoot(localeRoot, relative)
+		if err != nil {
+			return fmt.Errorf("open screenshot file %q: %w", displayPath, err)
+		}
+		files = append(files, openedScreenshotCandidate{
+			path:     displayPath,
+			relative: filepath.ToSlash(filepath.Join(localeRelative, relative)),
+			file:     file,
+		})
 		return nil
 	})
 	if err != nil {
@@ -148,7 +325,9 @@ func collectScreenshotFiles(localeDir string) ([]string, []SkippedItem, error) {
 		})
 		return nil, skipped, nil
 	}
-	sort.Strings(files)
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].path < files[j].path
+	})
 	return files, skipped, nil
 }
 

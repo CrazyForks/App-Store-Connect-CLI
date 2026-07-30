@@ -95,3 +95,92 @@ func TestRedactResponseHelpersHandleNil(t *testing.T) {
 		t.Fatalf("RedactBetaAppReviewDetailsResponse(nil) = %v, want nil", got)
 	}
 }
+
+func TestRedactAppStoreReviewDetailIncludedResources(t *testing.T) {
+	originalIncluded := json.RawMessage(`[
+		{"type":"appStoreReviewDetails","id":"detail-1","attributes":{"demoAccountPassword":"` + reviewRedactionSentinel + `","notes":"keep"},"relationships":{"version":{"data":{"type":"appStoreVersions","id":"version-1"}}}},
+		{"type":"builds","id":"build-1","attributes":{"version":"42"}}
+	]`)
+	original := &SingleResponse[AppStoreVersionAttributes]{Included: originalIncluded}
+
+	safe, err := RedactAppStoreReviewDetailIncludesInSingleResponse(original)
+	if err != nil {
+		t.Fatalf("RedactAppStoreReviewDetailIncludesInSingleResponse() error = %v", err)
+	}
+	encoded, err := json.Marshal(safe)
+	if err != nil {
+		t.Fatalf("marshal redacted response: %v", err)
+	}
+	if strings.Contains(string(encoded), reviewRedactionSentinel) {
+		t.Fatalf("included resource leaked password: %s", encoded)
+	}
+	if !strings.Contains(string(encoded), `"demoAccountPassword":"`+RedactedValuePlaceholder+`"`) {
+		t.Fatalf("included resource missing placeholder: %s", encoded)
+	}
+	if !strings.Contains(string(encoded), `"notes":"keep"`) ||
+		!strings.Contains(string(encoded), `"relationships"`) ||
+		!strings.Contains(string(encoded), `"type":"builds"`) {
+		t.Fatalf("redaction dropped unrelated included data: %s", encoded)
+	}
+	if !strings.Contains(string(original.Included), reviewRedactionSentinel) {
+		t.Fatal("redaction mutated original Included bytes")
+	}
+}
+
+func TestRedactIncludedPasswordDoesNotTrustResourceType(t *testing.T) {
+	original := &SingleResponse[AppStoreVersionAttributes]{
+		Included: json.RawMessage(`[
+			{"type":"appStoreReviewDetails","type":"misleadingType","attributes":{"demoAccountPassword":"` + reviewRedactionSentinel + `"}}
+		]`),
+	}
+
+	safe, err := RedactAppStoreReviewDetailIncludesInSingleResponse(original)
+	if err != nil {
+		t.Fatalf("RedactAppStoreReviewDetailIncludesInSingleResponse() error = %v", err)
+	}
+	encoded, err := json.Marshal(safe)
+	if err != nil {
+		t.Fatalf("marshal redacted response: %v", err)
+	}
+	if strings.Contains(string(encoded), reviewRedactionSentinel) {
+		t.Fatalf("misleading resource type bypassed password redaction: %s", encoded)
+	}
+}
+
+func TestRedactIncludedPasswordCollapsesDuplicateAttributes(t *testing.T) {
+	original := &SingleResponse[AppStoreVersionAttributes]{
+		Included: json.RawMessage(`[
+			{"attributes":{"demoAccountPassword":"` + reviewRedactionSentinel + `"},"attributes":{"notes":"last"}}
+		]`),
+	}
+
+	safe, err := RedactAppStoreReviewDetailIncludesInSingleResponse(original)
+	if err != nil {
+		t.Fatalf("RedactAppStoreReviewDetailIncludesInSingleResponse() error = %v", err)
+	}
+	encoded, err := json.Marshal(safe)
+	if err != nil {
+		t.Fatalf("marshal redacted response: %v", err)
+	}
+	if strings.Contains(string(encoded), reviewRedactionSentinel) {
+		t.Fatalf("duplicate attributes bypassed password redaction: %s", encoded)
+	}
+	if !strings.Contains(string(encoded), `"notes":"last"`) {
+		t.Fatalf("last attributes object was not preserved: %s", encoded)
+	}
+}
+
+func TestValidateSecretMutationValueRejectsRedactionPlaceholder(t *testing.T) {
+	placeholder := RedactedValuePlaceholder
+	if err := validateSecretMutationValue(&placeholder); err == nil {
+		t.Fatal("validateSecretMutationValue() error = nil, want placeholder rejection")
+	}
+
+	actual := "actual-password"
+	if err := validateSecretMutationValue(&actual); err != nil {
+		t.Fatalf("validateSecretMutationValue(actual) error = %v", err)
+	}
+	if err := validateSecretMutationValue(nil); err != nil {
+		t.Fatalf("validateSecretMutationValue(nil) error = %v", err)
+	}
+}

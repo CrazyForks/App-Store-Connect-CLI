@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -200,6 +201,40 @@ func TestWritePrivacyDeclarationFileWritesOrdinaryOutput(t *testing.T) {
 	}
 }
 
+func TestWritePrivacyDeclarationFilePreservesWhitespacePathBytes(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, " privacy.json ")
+	trimmedPath := filepath.Join(dir, "privacy.json")
+
+	if err := writePrivacyDeclarationFile(outPath, privacyDeclarationFile{}); err != nil {
+		t.Fatalf("writePrivacyDeclarationFile() error = %v", err)
+	}
+	if _, err := os.Lstat(outPath); err != nil {
+		t.Fatalf("Lstat(%q) error = %v", outPath, err)
+	}
+	if _, err := os.Lstat(trimmedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Lstat(%q) error = %v, want not exist", trimmedPath, err)
+	}
+}
+
+func TestParsePrivacyDeclarationFilePreservesWhitespacePathBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), " privacy.json ")
+	writeWebContainmentFile(t, path, `{
+		"schemaVersion": 1,
+		"dataUsages": [
+			{"dataProtections": ["DATA_NOT_COLLECTED"]}
+		]
+	}`)
+
+	declaration, err := parsePrivacyDeclarationFile(path)
+	if err != nil {
+		t.Fatalf("parsePrivacyDeclarationFile() error = %v", err)
+	}
+	if len(declaration.DataUsages) != 1 {
+		t.Fatalf("dataUsages count = %d, want 1", len(declaration.DataUsages))
+	}
+}
+
 func TestParsePrivacyDeclarationFileRefusesSymlinkedInput(t *testing.T) {
 	dir := t.TempDir()
 	externalPath := filepath.Join(t.TempDir(), "external.json")
@@ -214,6 +249,29 @@ func TestParsePrivacyDeclarationFileRefusesSymlinkedInput(t *testing.T) {
 		t.Fatal("parsePrivacyDeclarationFile() error = nil, want symlink rejection")
 	} else if !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("parsePrivacyDeclarationFile() error = %v, want symlink rejection", err)
+	}
+}
+
+func TestDownloadRootPreservesWhitespacePathBytes(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), " downloads ")
+	trimmedDir := filepath.Join(filepath.Dir(outDir), "downloads")
+
+	root, prefix, err := newDownloadRoot(outDir)
+	if err != nil {
+		t.Fatalf("newDownloadRoot() error = %v", err)
+	}
+	name, err := resolveDownloadPath(root, prefix, "screenshot.png", false)
+	if err != nil {
+		t.Fatalf("resolveDownloadPath() error = %v", err)
+	}
+	if err := writeDownloadedAttachment(root, name, []byte("payload")); err != nil {
+		t.Fatalf("writeDownloadedAttachment() error = %v", err)
+	}
+	if got := readWebContainmentFile(t, filepath.Join(outDir, "screenshot.png")); got != "payload" {
+		t.Fatalf("content = %q, want payload", got)
+	}
+	if _, err := os.Lstat(trimmedDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Lstat(%q) error = %v, want not exist", trimmedDir, err)
 	}
 }
 

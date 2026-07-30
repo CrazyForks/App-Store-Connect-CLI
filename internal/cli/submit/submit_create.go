@@ -5,85 +5,114 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
-var submitCreateRecentlyCanceledRetryDelays = []time.Duration{
-	250 * time.Millisecond,
-	500 * time.Millisecond,
-	time.Second,
-	2 * time.Second,
-}
-
 func addVersionToSubmissionOrRecover(
 	ctx context.Context,
 	client *asc.Client,
-	submissionID, versionID string,
-	recentlyCanceledSubmissionIDs map[string]struct{},
+	submissionID, versionID, appID, platform string,
 	emit func(string),
 ) (string, error) {
-	for attempt := 0; ; attempt++ {
-		_, err := client.AddReviewSubmissionItem(ctx, submissionID, versionID)
-		if err == nil {
-			return submissionID, nil
-		}
-
-		conflict := extractSubmissionConflict(err)
-		conflictSubmissionID := strings.TrimSpace(conflict.SubmissionID)
-		if conflictSubmissionID == "" {
-			return "", err
-		}
-
-		switch conflict.Kind {
-		case submissionConflictAlreadyAttached:
-			if _, ok := recentlyCanceledSubmissionIDs[conflictSubmissionID]; !ok {
-				message := fmt.Sprintf("Version already in review submission %s, reusing it.", conflictSubmissionID)
-				if emit != nil {
-					emit(message)
-				} else {
-					fmt.Fprintln(os.Stderr, message)
-				}
-				return conflictSubmissionID, nil
-			}
-		case submissionConflictStillInProgress:
-			if _, ok := recentlyCanceledSubmissionIDs[conflictSubmissionID]; !ok {
-				return "", err
-			}
-		default:
-			return "", err
-		}
-		if attempt >= len(submitCreateRecentlyCanceledRetryDelays) {
-			return "", fmt.Errorf(
-				"version is still attached to recently canceled review submission %s after %d retries: %w",
-				conflictSubmissionID,
-				len(submitCreateRecentlyCanceledRetryDelays),
-				err,
-			)
-		}
-
-		delay := submitCreateRecentlyCanceledRetryDelays[attempt]
-		message := fmt.Sprintf(
-			"Version is still detaching from recently canceled review submission %s, retrying add in %s.",
-			conflictSubmissionID,
-			delay,
-		)
-		if emit != nil {
-			emit(message)
-		} else {
-			fmt.Fprintln(os.Stderr, message)
-		}
-		if err := sleepWithContext(ctx, delay); err != nil {
-			return "", fmt.Errorf("waiting for recently canceled review submission %s to clear: %w", conflictSubmissionID, err)
-		}
+	_, err := client.AddReviewSubmissionItem(ctx, submissionID, versionID)
+	if err == nil {
+		return submissionID, nil
 	}
+
+	conflict := extractSubmissionConflict(err)
+	conflictSubmissionID := strings.TrimSpace(conflict.SubmissionID)
+	if conflict.Kind != submissionConflictAlreadyAttached || conflictSubmissionID == "" {
+		return "", err
+	}
+	if verifyErr := verifyReviewSubmissionForSubmit(ctx, client, conflictSubmissionID, appID, platform, versionID); verifyErr != nil {
+		return "", fmt.Errorf(
+			"conflict review submission %s could not be safely reused: %w",
+			conflictSubmissionID,
+			verifyErr,
+		)
+	}
+
+	message := fmt.Sprintf("Version already in review submission %s, reusing it.", conflictSubmissionID)
+	if emit != nil {
+		emit(message)
+	} else {
+		fmt.Fprintln(os.Stderr, message)
+	}
+	return conflictSubmissionID, nil
+}
+
+func verifyReviewSubmissionForSubmit(
+	ctx context.Context,
+	client *asc.Client,
+	submissionID, appID, platform, versionID string,
+) error {
+	submissionID = strings.TrimSpace(submissionID)
+	appID = strings.TrimSpace(appID)
+	platform = strings.ToUpper(strings.TrimSpace(platform))
+	versionID = strings.TrimSpace(versionID)
+	if submissionID == "" || appID == "" || platform == "" || versionID == "" {
+		return fmt.Errorf("submission, app, platform, and version IDs are required")
+	}
+
+	refreshed, err := client.GetReviewSubmission(
+		ctx,
+		submissionID,
+		asc.WithReviewSubmissionInclude([]string{"app"}),
+	)
+	if err != nil {
+		return fmt.Errorf("refresh review submission: %w", err)
+	}
+	if refreshed == nil || strings.TrimSpace(refreshed.Data.ID) != submissionID {
+		return fmt.Errorf("app store connect did not return review submission %s", submissionID)
+	}
+	submission := &refreshed.Data
+	if submission.Attributes.SubmissionState != asc.ReviewSubmissionStateReadyForReview {
+		return fmt.Errorf(
+			"review submission %s is in state %q, not %q",
+			submissionID,
+			submission.Attributes.SubmissionState,
+			asc.ReviewSubmissionStateReadyForReview,
+		)
+	}
+	if !strings.EqualFold(string(submission.Attributes.Platform), platform) {
+		return fmt.Errorf(
+			"review submission %s is for platform %q, not %q",
+			submissionID,
+			submission.Attributes.Platform,
+			platform,
+		)
+	}
+	if actualAppID := reviewSubmissionAppID(submission); actualAppID != appID {
+		if actualAppID == "" {
+			return fmt.Errorf("review submission %s did not prove its app relationship", submissionID)
+		}
+		return fmt.Errorf("review submission %s belongs to app %q, not %q", submissionID, actualAppID, appID)
+	}
+
+	summary, err := summarizeReviewSubmissionItems(ctx, client, submissionID, versionID)
+	if err != nil {
+		return fmt.Errorf("inspect review submission items: %w", err)
+	}
+	if !summary.hasTargetVersion {
+		return fmt.Errorf("review submission %s does not contain target version %s", submissionID, versionID)
+	}
+	if summary.hasOtherItems {
+		return fmt.Errorf("review submission %s contains unrelated review items", submissionID)
+	}
+	return nil
+}
+
+func reviewSubmissionAppID(submission *asc.ReviewSubmissionResource) string {
+	if submission == nil || submission.Relationships == nil || submission.Relationships.App == nil {
+		return ""
+	}
+	return strings.TrimSpace(submission.Relationships.App.Data.ID)
 }
 
 type submitCreateReviewSubmissionPreparation struct {
 	reuseSubmissionID         string
 	reuseSubmissionHasVersion bool
-	canceledSubmissionIDs     map[string]struct{}
 }
 
 func prepareReviewSubmissionForCreate(
@@ -132,9 +161,7 @@ func prepareReviewSubmissionForCreate(
 		return submitCreateReviewSubmissionPreparation{}
 	}
 
-	result := submitCreateReviewSubmissionPreparation{
-		canceledSubmissionIDs: make(map[string]struct{}, len(submissions)),
-	}
+	result := submitCreateReviewSubmissionPreparation{}
 	normalizedPlatform := strings.ToUpper(strings.TrimSpace(platform))
 	targetVersionID := strings.TrimSpace(versionID)
 	inspector := newReviewSubmissionInspector(client, targetVersionID)
@@ -147,82 +174,32 @@ func prepareReviewSubmissionForCreate(
 		if normalizedPlatform != "" && !strings.EqualFold(string(sub.Attributes.Platform), normalizedPlatform) {
 			continue
 		}
-		if currentVersionID := reviewSubmissionAppStoreVersionID(&sub); targetVersionID != "" && currentVersionID == targetVersionID {
-			reusable, hasVersion, reuseErr := inspector.canReuse(ctx, &sub)
-			if reuseErr != nil {
-				emitMessage("Warning: failed to inspect review submission %s before reuse: %v", sub.ID, reuseErr)
-				continue
-			}
-			if reusable {
-				emitMessage("Reusing existing review submission %s because the target version is already attached.", sub.ID)
-				result.reuseSubmissionID = strings.TrimSpace(sub.ID)
-				result.reuseSubmissionHasVersion = hasVersion
-				result.canceledSubmissionIDs = nil
-				return result
-			}
-		}
-	}
-
-	for i := range submissions {
-		sub := submissions[i]
-		if sub.Attributes.SubmissionState != asc.ReviewSubmissionStateReadyForReview {
-			continue
-		}
-		if normalizedPlatform != "" && !strings.EqualFold(string(sub.Attributes.Platform), normalizedPlatform) {
-			continue
-		}
-
-		cancellable, blockedReason, inspectErr := inspector.canCancel(ctx, &sub)
-		if inspectErr != nil {
+		reusable, hasVersion, reuseErr := inspector.canReuse(ctx, &sub)
+		if reuseErr != nil {
 			emitMessage(
 				"Skipped stale review submission %s: could not confirm which versions it holds (%v). Cancel it explicitly with `asc submit cancel --id %s --confirm` if you intend to replace it.",
 				sub.ID,
-				inspectErr,
+				reuseErr,
 				sub.ID,
 			)
 			continue
 		}
-		if !cancellable {
-			emitMessage(
-				"Skipped stale review submission %s: %s. Cancel it explicitly with `asc submit cancel --id %s --confirm` if you intend to replace it.",
-				sub.ID,
-				blockedReason,
-				sub.ID,
-			)
-			continue
-		}
-
-		if _, cancelErr := client.CancelReviewSubmission(ctx, sub.ID); cancelErr != nil {
-			if isExpectedNonCancellableReviewSubmissionError(cancelErr) {
-				reuseSubmission, reuseHasVersion, reuseErr := inspector.reusableAfterCancelConflict(ctx, &sub)
-				if reuseErr == nil && reuseSubmission != "" {
-					if reuseHasVersion {
-						emitMessage("Reusing existing review submission %s because the target version is already attached and App Store Connect would not cancel it.", reuseSubmission)
-					} else {
-						emitMessage("Reusing existing empty review submission %s because App Store Connect would not cancel it.", reuseSubmission)
-					}
-					result.reuseSubmissionID = reuseSubmission
-					result.reuseSubmissionHasVersion = reuseHasVersion
-					if len(result.canceledSubmissionIDs) == 0 {
-						result.canceledSubmissionIDs = nil
-					}
-					return result
-				}
-				if reuseErr != nil {
-					emitMessage("Warning: failed to inspect stale submission %s after cancel conflict: %v", sub.ID, reuseErr)
-				}
-				emitMessage("Skipped stale submission %s: already transitioned to a non-cancellable state", sub.ID)
+		if reusable {
+			if hasVersion {
+				emitMessage("Reusing existing review submission %s because the target version is already attached.", sub.ID)
 			} else {
-				emitMessage("Warning: failed to cancel stale submission %s: %v", sub.ID, cancelErr)
+				emitMessage("Reusing existing review submission %s because it has no review items.", sub.ID)
 			}
-			continue
+			result.reuseSubmissionID = strings.TrimSpace(sub.ID)
+			result.reuseSubmissionHasVersion = hasVersion
+			return result
 		}
-		result.canceledSubmissionIDs[sub.ID] = struct{}{}
-		emitMessage("Canceled stale review submission %s", sub.ID)
-	}
-
-	if len(result.canceledSubmissionIDs) == 0 {
-		result.canceledSubmissionIDs = nil
+		emitMessage(
+			"Skipped stale review submission %s because it is not exclusively usable for version %s. Cancel it explicitly with `asc submit cancel --id %s --confirm` if you intend to replace it.",
+			sub.ID,
+			targetVersionID,
+			sub.ID,
+		)
 	}
 	return result
 }
@@ -247,6 +224,7 @@ type reviewSubmissionInspector struct {
 	client          *asc.Client
 	targetVersionID string
 	summaries       map[string]reviewSubmissionItemSummary
+	summaryErrors   map[string]error
 }
 
 func newReviewSubmissionInspector(client *asc.Client, targetVersionID string) *reviewSubmissionInspector {
@@ -254,25 +232,25 @@ func newReviewSubmissionInspector(client *asc.Client, targetVersionID string) *r
 		client:          client,
 		targetVersionID: strings.TrimSpace(targetVersionID),
 		summaries:       make(map[string]reviewSubmissionItemSummary),
+		summaryErrors:   make(map[string]error),
 	}
 }
 
 func (i *reviewSubmissionInspector) summarize(ctx context.Context, submissionID string) (reviewSubmissionItemSummary, error) {
+	submissionID = strings.TrimSpace(submissionID)
 	if cached, ok := i.summaries[submissionID]; ok {
 		return cached, nil
 	}
+	if cachedErr, ok := i.summaryErrors[submissionID]; ok {
+		return reviewSubmissionItemSummary{}, cachedErr
+	}
 	summary, err := summarizeReviewSubmissionItems(ctx, i.client, submissionID, i.targetVersionID)
 	if err != nil {
+		i.summaryErrors[submissionID] = err
 		return reviewSubmissionItemSummary{}, err
 	}
 	i.summaries[submissionID] = summary
 	return summary, nil
-}
-
-// forget drops the cached item summary for a submission whose membership may
-// have changed since it was read, forcing the next inspection to re-fetch.
-func (i *reviewSubmissionInspector) forget(submissionID string) {
-	delete(i.summaries, strings.TrimSpace(submissionID))
 }
 
 func (i *reviewSubmissionInspector) canReuse(ctx context.Context, submission *asc.ReviewSubmissionResource) (reusable bool, hasVersion bool, err error) {
@@ -282,6 +260,9 @@ func (i *reviewSubmissionInspector) canReuse(ctx context.Context, submission *as
 
 	submissionID := strings.TrimSpace(submission.ID)
 	if submissionID == "" {
+		return false, false, nil
+	}
+	if linkedVersionID := reviewSubmissionAppStoreVersionID(submission); linkedVersionID != "" && linkedVersionID != i.targetVersionID {
 		return false, false, nil
 	}
 
@@ -297,70 +278,6 @@ func (i *reviewSubmissionInspector) canReuse(ctx context.Context, submission *as
 	}
 
 	return true, false, nil
-}
-
-// canCancel reports whether a stale submission is proven empty or proven to
-// hold the selected version. Anything else may carry review work the operator
-// did not select, so preparation must leave it alone and say so; the returned
-// reason explains what blocked the implicit cancellation.
-func (i *reviewSubmissionInspector) canCancel(ctx context.Context, submission *asc.ReviewSubmissionResource) (bool, string, error) {
-	if submission == nil {
-		return false, "the submission could not be identified", nil
-	}
-
-	submissionID := strings.TrimSpace(submission.ID)
-	if submissionID == "" {
-		return false, "the submission could not be identified", nil
-	}
-
-	itemSummary, err := i.summarize(ctx, submissionID)
-	if err != nil {
-		return false, "", err
-	}
-	if itemSummary.hasTargetVersion {
-		if itemSummary.hasOtherItems {
-			return false, "it holds the selected version alongside other review items", nil
-		}
-		return true, "", nil
-	}
-	if itemSummary.hasItems {
-		return false, "it holds review items that are not the selected version", nil
-	}
-	if versionForReview := reviewSubmissionAppStoreVersionID(submission); versionForReview != "" && versionForReview != i.targetVersionID {
-		return false, fmt.Sprintf("it is bound to version %s", versionForReview), nil
-	}
-	return true, "", nil
-}
-
-func (i *reviewSubmissionInspector) reusableAfterCancelConflict(ctx context.Context, submission *asc.ReviewSubmissionResource) (submissionID string, hasVersion bool, err error) {
-	if submission == nil {
-		return "", false, nil
-	}
-
-	submissionID = strings.TrimSpace(submission.ID)
-	if submissionID == "" {
-		return "", false, nil
-	}
-	refreshed, err := refreshReviewSubmission(ctx, i.client, submissionID)
-	if err != nil {
-		return "", false, err
-	}
-
-	// The cancel conflict proves the submission changed after the initial
-	// inspection, so the cached item summary can no longer decide reuse.
-	i.forget(submissionID)
-	if refreshed == nil || refreshed.Attributes.SubmissionState != asc.ReviewSubmissionStateReadyForReview {
-		return "", false, nil
-	}
-
-	reusable, hasVersion, err := i.canReuse(ctx, refreshed)
-	if err != nil {
-		return "", false, err
-	}
-	if reusable {
-		return submissionID, hasVersion, nil
-	}
-	return "", false, nil
 }
 
 func summarizeReviewSubmissionItems(
@@ -456,21 +373,5 @@ func cleanupEmptyReviewSubmission(ctx context.Context, client *asc.Client, submi
 		} else {
 			fmt.Fprintln(os.Stderr, message)
 		}
-	}
-}
-
-func sleepWithContext(ctx context.Context, delay time.Duration) error {
-	if delay <= 0 {
-		return nil
-	}
-
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
 	}
 }

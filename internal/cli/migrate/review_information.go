@@ -101,6 +101,9 @@ func readFastlaneReviewInformation(metadataDir string) (*ReviewInformation, erro
 	if assigned == 0 {
 		return nil, nil
 	}
+	if err := asc.ValidateSecretMutationValue(info.DemoAccountPassword); err != nil {
+		return nil, fmt.Errorf("review information: %w", err)
+	}
 	return info, nil
 }
 

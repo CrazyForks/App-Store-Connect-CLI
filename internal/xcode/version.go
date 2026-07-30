@@ -116,14 +116,13 @@ type BumpVersionResult struct {
 }
 
 func resolvedProjectDir(projectDir string) string {
-	trimmed := strings.TrimSpace(projectDir)
-	if trimmed == "" {
+	if projectDir == "" {
 		return "."
 	}
-	if strings.HasSuffix(trimmed, ".xcodeproj") {
-		return filepath.Dir(trimmed)
+	if strings.HasSuffix(projectDir, ".xcodeproj") {
+		return filepath.Dir(projectDir)
 	}
-	return trimmed
+	return projectDir
 }
 
 // GetVersion reads the current marketing version and build number.
@@ -591,22 +590,21 @@ func buildSettingsTargetNames(output string) []string {
 // findXcodeproj resolves an explicit .xcodeproj path or finds one in a project dir.
 // Returns an error if zero or multiple .xcodeproj directories are found.
 func findXcodeproj(projectDir string) (string, error) {
-	trimmedDir := strings.TrimSpace(projectDir)
-	if trimmedDir == "" {
-		trimmedDir = "."
+	if projectDir == "" {
+		projectDir = "."
 	}
-	if strings.HasSuffix(trimmedDir, ".xcodeproj") {
-		info, err := os.Stat(trimmedDir)
+	if strings.HasSuffix(projectDir, ".xcodeproj") {
+		info, err := os.Stat(projectDir)
 		if err != nil {
-			return "", fmt.Errorf("failed to read Xcode project %s: %w", trimmedDir, err)
+			return "", fmt.Errorf("failed to read Xcode project %s: %w", projectDir, err)
 		}
 		if !info.IsDir() {
-			return "", fmt.Errorf("%s is not an .xcodeproj directory", trimmedDir)
+			return "", fmt.Errorf("%s is not an .xcodeproj directory", projectDir)
 		}
-		return trimmedDir, nil
+		return projectDir, nil
 	}
 
-	entries, err := os.ReadDir(trimmedDir)
+	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to read project directory: %w", err)
 	}
@@ -618,11 +616,11 @@ func findXcodeproj(projectDir string) (string, error) {
 	}
 	switch len(matches) {
 	case 0:
-		return "", fmt.Errorf("no .xcodeproj found in %s", trimmedDir)
+		return "", fmt.Errorf("no .xcodeproj found in %s", projectDir)
 	case 1:
-		return filepath.Join(trimmedDir, matches[0]), nil
+		return filepath.Join(projectDir, matches[0]), nil
 	default:
-		return "", fmt.Errorf("multiple .xcodeproj found in %s (%s); use --project to pick one", trimmedDir, strings.Join(matches, ", "))
+		return "", fmt.Errorf("multiple .xcodeproj found in %s (%s); use --project to pick one", projectDir, strings.Join(matches, ", "))
 	}
 }
 
