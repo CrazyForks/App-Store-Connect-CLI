@@ -727,23 +727,6 @@ func sanitizeErrorBody(body []byte) string {
 	return string(result)
 }
 
-// sanitizeTerminal strips control characters to prevent terminal escape injection.
-// It removes ASCII control characters (0x00-0x1F) and DEL (0x7F).
-func sanitizeTerminal(input string) string {
-	if input == "" {
-		return ""
-	}
-	var b strings.Builder
-	b.Grow(len(input))
-	for _, r := range input {
-		if r < 0x20 || r == 0x7f {
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
 // validateAPIPath checks a relative API path for dangerous characters that
 // could indicate a hallucinated or malicious resource ID. Full URLs (pagination
 // cursors) are skipped — they are validated separately by validateNextURL.

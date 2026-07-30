@@ -41,10 +41,16 @@ Install them globally so they are available across projects:
 asc install-skills
 ```
 
-Direct install:
+`asc install-skills` runs the pinned installer `skills@1.5.20` against a reviewed skills commit, so an upstream change cannot alter what gets installed. To do the same by hand, check out that commit into a fresh temporary directory and install from the local path. Each step stops the chain on failure, and the temporary directory lives under `/tmp` (outside any npm project, regardless of `TMPDIR`) with `npx` running from it, so a project `node_modules`, `package.json`, or `.npmrc` cannot shadow or redirect the pinned installer:
 
 ```bash
-npx skills add rorkai/app-store-connect-cli-skills --global --agent codex
+asc_skills="$(mktemp -d /tmp/asc-skills.XXXXXX)" &&
+  git init --quiet "$asc_skills/src" &&
+  git -C "$asc_skills/src" remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git &&
+  git -C "$asc_skills/src" fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115 &&
+  git -C "$asc_skills/src" checkout --detach e30039abddbe388179324d0f9cdccb66c3843115 &&
+  (cd "$asc_skills" && npx --yes skills@1.5.20 add "$asc_skills/src" --global --agent codex --yes) &&
+  rm -rf "$asc_skills"
 ```
 
 ## Quick Start

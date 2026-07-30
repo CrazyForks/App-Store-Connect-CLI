@@ -96,8 +96,8 @@ func TestDefaultRunSkillsCheckCommandGivesDirectHelperOnlyAllowlistedEnvironment
 	lookupSkillsCheckCLI = func(string) (string, error) {
 		return mockSkills, nil
 	}
-	lookupNpx = func(string) (string, error) {
-		t.Fatal("lookupNpx should not run when skills is available")
+	lookupExecutable = func(string) (string, error) {
+		t.Fatal("lookupExecutable should not run when skills is available")
 		return "", nil
 	}
 
@@ -123,7 +123,7 @@ func TestDefaultRunSkillsCheckCommandGivesNpxFallbackOnlyAllowlistedEnvironment(
 	lookupSkillsCheckCLI = func(string) (string, error) {
 		return "", os.ErrNotExist
 	}
-	lookupNpx = func(string) (string, error) {
+	lookupExecutable = func(string) (string, error) {
 		return mockNpx, nil
 	}
 
