@@ -213,12 +213,18 @@ func validateBinaryStructure(data []byte) error {
 
 	state := make([]uint8, trailer.numObjects)
 	metrics := make([]binaryObjectMetrics, trailer.numObjects)
-	var inspectObject func(uint64) (binaryObjectMetrics, error)
-	inspectObject = func(object uint64) (binaryObjectMetrics, error) {
+	var inspectObject func(uint64, int) (binaryObjectMetrics, error)
+	inspectObject = func(object uint64, traversalDepth int) (binaryObjectMetrics, error) {
+		if traversalDepth > MaxDepth {
+			return binaryObjectMetrics{}, fmt.Errorf("info.plist nesting depth exceeds %d", MaxDepth)
+		}
 		switch state[object] {
 		case 1:
 			return binaryObjectMetrics{}, fmt.Errorf("inspect binary structure: self-referential container")
 		case 2:
+			if metrics[object].depth > MaxDepth-traversalDepth+1 {
+				return binaryObjectMetrics{}, fmt.Errorf("info.plist nesting depth exceeds %d", MaxDepth)
+			}
 			return metrics[object], nil
 		}
 		state[object] = 1
@@ -232,7 +238,7 @@ func validateBinaryStructure(data []byte) error {
 			if child >= trailer.numObjects {
 				return binaryObjectMetrics{}, fmt.Errorf("inspect binary structure: object reference is out of range")
 			}
-			childMetrics, err := inspectObject(child)
+			childMetrics, err := inspectObject(child, traversalDepth+1)
 			if err != nil {
 				return binaryObjectMetrics{}, err
 			}
@@ -251,7 +257,7 @@ func validateBinaryStructure(data []byte) error {
 		metrics[object] = current
 		return current, nil
 	}
-	_, err := inspectObject(trailer.topObject)
+	_, err := inspectObject(trailer.topObject, 1)
 	return err
 }
 

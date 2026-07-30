@@ -139,6 +139,90 @@ func TestValidateStructureAcceptsReasonableBinarySharedObjects(t *testing.T) {
 	}
 }
 
+func TestValidateStructureRejectsBinaryDepthBeforeDescending(t *testing.T) {
+	data := binaryPlistWithMalformedObjectBeyondDepthLimit()
+
+	err := ValidateStructure(data)
+	if err == nil {
+		t.Fatal("expected excessive binary plist depth rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "nesting depth") {
+		t.Fatalf("expected nesting-depth error before inspecting the deeper object, got %v", err)
+	}
+}
+
+func TestValidateStructureRejectsBinaryCachedObjectPastDepthLimit(t *testing.T) {
+	data := binaryPlistWithCachedObjectBeyondDepthLimit()
+
+	err := ValidateStructure(data)
+	if err == nil {
+		t.Fatal("expected excessive binary plist depth rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "nesting depth") {
+		t.Fatalf("expected nesting-depth error before inspecting the deeper sibling, got %v", err)
+	}
+}
+
+func binaryPlistWithMalformedObjectBeyondDepthLimit() []byte {
+	const objectCount = MaxDepth + 1
+	data := append([]byte(nil), "bplist00"...)
+	offsets := make([]uint16, 0, objectCount)
+	for object := 0; object < objectCount-1; object++ {
+		offsets = append(offsets, uint16(len(data)))
+		data = append(data, 0xA1, byte(object+1))
+	}
+	offsets = append(offsets, uint16(len(data)))
+	data = append(data, 0xAF, 0x00)
+
+	offsetTable := uint64(len(data))
+	for _, offset := range offsets {
+		data = binary.BigEndian.AppendUint16(data, offset)
+	}
+	trailer := make([]byte, 32)
+	trailer[6] = 2
+	trailer[7] = 1
+	binary.BigEndian.PutUint64(trailer[8:16], objectCount)
+	binary.BigEndian.PutUint64(trailer[16:24], 0)
+	binary.BigEndian.PutUint64(trailer[24:32], offsetTable)
+	return append(data, trailer...)
+}
+
+func binaryPlistWithCachedObjectBeyondDepthLimit() []byte {
+	const (
+		chainObjects = MaxDepth - 1
+		objectCount  = chainObjects + 3
+		cachedObject = 1
+		firstChain   = 2
+		malformed    = objectCount - 1
+	)
+	data := append([]byte(nil), "bplist00"...)
+	offsets := make([]uint16, 0, objectCount)
+	appendObject := func(object ...byte) {
+		offsets = append(offsets, uint16(len(data)))
+		data = append(data, object...)
+	}
+
+	appendObject(0xA2, cachedObject, firstChain)
+	appendObject(0x51, 'x')
+	for object := 0; object < chainObjects-1; object++ {
+		appendObject(0xA1, byte(firstChain+object+1))
+	}
+	appendObject(0xA2, cachedObject, malformed)
+	appendObject(0xAF, 0x00)
+
+	offsetTable := uint64(len(data))
+	for _, offset := range offsets {
+		data = binary.BigEndian.AppendUint16(data, offset)
+	}
+	trailer := make([]byte, 32)
+	trailer[6] = 2
+	trailer[7] = 1
+	binary.BigEndian.PutUint64(trailer[8:16], objectCount)
+	binary.BigEndian.PutUint64(trailer[16:24], 0)
+	binary.BigEndian.PutUint64(trailer[24:32], offsetTable)
+	return append(data, trailer...)
+}
+
 func binaryPlistWithSharedArrayLevels(levels int) []byte {
 	data := append([]byte(nil), "bplist00"...)
 	offsets := make([]byte, 0, levels+3)
