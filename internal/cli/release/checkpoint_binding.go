@@ -90,6 +90,26 @@ func verifyResumedCheckpointBinding(
 		}
 	}
 
+	// A real run completes the pipeline in order and persists each step before
+	// the next one starts, so a completed validate_readiness always follows
+	// completed prerequisites. An unsigned checkpoint can claim otherwise: the
+	// pipeline would then apply the missing mutation and skip readiness, leaving
+	// the version unvalidated against the state that mutation produced.
+	if checkpoint.Completed[stepValidateReadiness] {
+		for _, prerequisite := range []string{stepEnsureVersion, stepApplyMetadata, stepAttachBuild} {
+			if checkpoint.Completed[prerequisite] {
+				continue
+			}
+			delete(checkpoint.Completed, stepValidateReadiness)
+			emitMessage(
+				"Rechecking %s: prerequisite step %s is not complete, so readiness must run again after it does.",
+				stepValidateReadiness,
+				prerequisite,
+			)
+			break
+		}
+	}
+
 	if checkpoint.Completed[stepSubmitReview] {
 		submissionID := strings.TrimSpace(checkpoint.SubmissionID)
 		if submissionID == "" {

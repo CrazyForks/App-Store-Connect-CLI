@@ -607,3 +607,41 @@ func TestExecuteRun_RejectsForgedCheckpointVersionBeforeMutation(t *testing.T) {
 		t.Fatalf("expected no mutating requests, got %v", mutations)
 	}
 }
+
+// TestVerifyResumedCheckpointBindingDropsReadinessWithIncompletePrerequisite
+// proves an unsigned checkpoint cannot claim validate_readiness while a
+// prerequisite mutation step is missing. The pipeline would run that mutation
+// and then skip readiness, submitting a version whose readiness was never
+// validated against the state the mutation produced.
+func TestVerifyResumedCheckpointBindingDropsReadinessWithIncompletePrerequisite(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID: "VERSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion:     true,
+			stepApplyMetadata:     true,
+			stepValidateReadiness: true,
+		},
+	}
+	var messages []string
+	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, func(message string) {
+		messages = append(messages, message)
+	}); err != nil {
+		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
+	}
+	if checkpoint.Completed[stepValidateReadiness] {
+		t.Fatal("expected validate_readiness to be discarded while attach_build is incomplete")
+	}
+	joined := strings.Join(messages, "\n")
+	if !strings.Contains(joined, stepValidateReadiness) || !strings.Contains(joined, stepAttachBuild) {
+		t.Fatalf("expected a diagnostic naming validate_readiness and attach_build, got %v", messages)
+	}
+}
