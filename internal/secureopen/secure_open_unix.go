@@ -28,3 +28,24 @@ func OpenExistingNoFollow(path string) (*os.File, error) {
 	flags := os.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK
 	return os.OpenFile(path, flags, 0)
 }
+
+// OpenNewFileNoFollowInRoot creates a new file relative to root without
+// following the final component or permitting parent traversal outside root.
+func OpenNewFileNoFollowInRoot(root *os.Root, name string, perm os.FileMode) (*os.File, error) {
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL | unix.O_NOFOLLOW
+	return root.OpenFile(name, flags, perm)
+}
+
+// OpenAppendNoFollowInRoot opens a file for appending relative to root without
+// following the final component or permitting parent traversal outside root.
+func OpenAppendNoFollowInRoot(root *os.Root, name string, perm os.FileMode) (*os.File, error) {
+	flags := os.O_WRONLY | os.O_APPEND | os.O_CREATE | unix.O_NOFOLLOW | unix.O_NONBLOCK
+	return root.OpenFile(name, flags, perm)
+}
+
+// OpenExistingNoFollowInRoot opens an existing file relative to root without
+// following the final component or permitting parent traversal outside root.
+func OpenExistingNoFollowInRoot(root *os.Root, name string) (*os.File, error) {
+	flags := os.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK
+	return root.OpenFile(name, flags, 0)
+}
