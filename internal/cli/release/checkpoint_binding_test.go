@@ -253,6 +253,125 @@ func TestVerifyResumedCheckpointBindingDropsSubmissionNotBoundToVersion(t *testi
 	}
 }
 
+// TestVerifyResumedCheckpointBindingResolvesSubmissionVersionFromItems proves
+// that a proven-submitted checkpoint survives when the submission response
+// omits the appStoreVersionForReview linkage (a plain GET may not include it):
+// binding is then re-derived from the submission's items.
+func TestVerifyResumedCheckpointBindingResolvesSubmissionVersionFromItems(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"SUBMISSION_123","attributes":{"state":"WAITING_FOR_REVIEW","platform":"IOS"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123/items":
+			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"reviewSubmissionItems","id":"ITEM_1","relationships":{"appStoreVersion":{"data":{"type":"appStoreVersions","id":"VERSION_123"}}}}],"links":{}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID:    "VERSION_123",
+		SubmissionID: "SUBMISSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion: true,
+			stepAttachBuild:   true,
+			stepSubmitReview:  true,
+		},
+	}
+	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, nil); err != nil {
+		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
+	}
+	if !checkpoint.Completed[stepSubmitReview] {
+		t.Fatal("expected item-proven submit_review completion to survive a missing relationship linkage")
+	}
+	if checkpoint.SubmissionID != "SUBMISSION_123" {
+		t.Fatalf("expected submission ID to survive, got %q", checkpoint.SubmissionID)
+	}
+}
+
+// TestVerifyResumedCheckpointBindingAbortsOnIndeterminateSubmissionRead proves
+// that a transient submission read failure aborts the resume instead of
+// discarding the completion: re-running submit_review is not idempotent and
+// could create a second submission.
+func TestVerifyResumedCheckpointBindingAbortsOnIndeterminateSubmissionRead(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123":
+			return releaseJSONResponse(http.StatusInternalServerError, `{"errors":[{"status":"500","title":"Server error"}]}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID:    "VERSION_123",
+		SubmissionID: "SUBMISSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion: true,
+			stepAttachBuild:   true,
+			stepSubmitReview:  true,
+		},
+	}
+	err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, nil)
+	if err == nil {
+		t.Fatal("expected an indeterminate submission read to abort the resume")
+	}
+	if !strings.Contains(err.Error(), "SUBMISSION_123") {
+		t.Fatalf("expected error naming the submission, got %v", err)
+	}
+	if !checkpoint.Completed[stepSubmitReview] {
+		t.Fatal("expected the completion to be preserved when verification is indeterminate")
+	}
+	if checkpoint.SubmissionID != "SUBMISSION_123" {
+		t.Fatalf("expected submission ID to be preserved, got %q", checkpoint.SubmissionID)
+	}
+}
+
+// TestVerifyResumedCheckpointBindingDropsSubmissionThatNoLongerExists pins the
+// definitive contradiction: a 404 for the recorded submission discards the
+// completion so the step runs again.
+func TestVerifyResumedCheckpointBindingDropsSubmissionThatNoLongerExists(t *testing.T) {
+	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/build":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"BUILD_123","attributes":{"version":"42"}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/SUBMISSION_123":
+			return releaseJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+	})
+
+	checkpoint := runCheckpoint{
+		VersionID:    "VERSION_123",
+		SubmissionID: "SUBMISSION_123",
+		Completed: map[string]bool{
+			stepEnsureVersion: true,
+			stepAttachBuild:   true,
+			stepSubmitReview:  true,
+		},
+	}
+	if err := verifyResumedCheckpointBinding(context.Background(), client, checkpointBindingOptions(), &checkpoint, nil); err != nil {
+		t.Fatalf("verifyResumedCheckpointBinding error: %v", err)
+	}
+	if checkpoint.Completed[stepSubmitReview] {
+		t.Fatal("expected the completion for a missing submission to be discarded")
+	}
+	if checkpoint.SubmissionID != "" {
+		t.Fatalf("expected the missing submission ID to be cleared, got %q", checkpoint.SubmissionID)
+	}
+}
+
 // TestVerifyResumedCheckpointBindingDropsUnsubmittedDraftSubmission proves
 // that a completed submit_review flag is discarded when the referenced
 // submission is still a READY_FOR_REVIEW draft: it is bound to the selected
