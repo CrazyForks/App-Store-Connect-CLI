@@ -189,10 +189,11 @@ func binaryPlistWithMalformedObjectBeyondDepthLimit() []byte {
 
 func binaryPlistWithCachedObjectBeyondDepthLimit() []byte {
 	const (
-		chainObjects = MaxDepth - 1
-		objectCount  = chainObjects + 3
+		chainObjects = MaxDepth - 2
+		objectCount  = chainObjects + 4
 		cachedObject = 1
-		firstChain   = 2
+		cachedLeaf   = 2
+		firstChain   = 3
 		malformed    = objectCount - 1
 	)
 	data := append([]byte(nil), "bplist00"...)
@@ -203,6 +204,7 @@ func binaryPlistWithCachedObjectBeyondDepthLimit() []byte {
 	}
 
 	appendObject(0xA2, cachedObject, firstChain)
+	appendObject(0xA1, cachedLeaf)
 	appendObject(0x51, 'x')
 	for object := 0; object < chainObjects-1; object++ {
 		appendObject(0xA1, byte(firstChain+object+1))

@@ -179,6 +179,7 @@ func TestNotifySlackNon2xxResponseBodyRemovesTerminalControls(t *testing.T) {
 	t.Setenv(slackWebhookAllowLocalEnv, "1")
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
+	splitSecret := slackWebhookSecretSentinel[:12] + "\u202e" + slackWebhookSecretSentinel[12:]
 	original := slackHTTPClient
 	t.Cleanup(func() {
 		slackHTTPClient = original
@@ -187,7 +188,7 @@ func TestNotifySlackNon2xxResponseBodyRemovesTerminalControls(t *testing.T) {
 		return &http.Client{
 			Transport: &respondingSlackTransport{
 				status: http.StatusBadGateway,
-				body:   "proxy error\x1b]8;;https://evil.invalid\x07click\x1b]8;;\x07\u202egpj.exe",
+				body:   "proxy error " + splitSecret + "\x1b]8;;https://evil.invalid\x07click\x1b]8;;\x07\u202egpj.exe",
 			},
 		}
 	}
@@ -214,6 +215,9 @@ func TestNotifySlackNon2xxResponseBodyRemovesTerminalControls(t *testing.T) {
 	}
 	if asc.HasInterpretedTerminalSequence(stderr) {
 		t.Fatalf("stderr contains interpreted terminal sequences: %q", stderr)
+	}
+	if strings.Contains(runErr.Error(), slackWebhookSecretSentinel) {
+		t.Fatalf("error reconstructed the webhook secret after sanitization: %q", runErr.Error())
 	}
 	if !strings.Contains(runErr.Error(), "unexpected response 502") {
 		t.Fatalf("error dropped the status context: %q", runErr.Error())
