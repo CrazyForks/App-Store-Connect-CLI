@@ -23,6 +23,12 @@ type importInputOptions struct {
 	MetadataDir     string
 	ScreenshotsDir  string
 	SkipScreenshots bool
+	// The allow options preserve legacy Fastlane layouts only when the operator
+	// explicitly trusts paths that repository-controlled configuration can
+	// redirect outside the selected checkout.
+	AllowExternalMetadata     bool
+	AllowExternalScreenshots  bool
+	AllowSymlinkedDeliverfile bool
 }
 
 type importInputs struct {
@@ -35,8 +41,8 @@ type importInputs struct {
 }
 
 func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, error) {
-	workDir := strings.TrimSpace(opts.WorkDir)
-	if workDir == "" {
+	workDir := opts.WorkDir
+	if strings.TrimSpace(workDir) == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return importInputs{}, nil, fmt.Errorf("resolve import paths: %w", err)
@@ -57,7 +63,7 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 
 	var config DeliverfileConfig
 	if deliverfilePath != "" {
-		config, err = parseDeliverfile(deliverfilePath)
+		config, err = readDeliverfileConfig(workDir, opts.FastlaneDir, deliverfilePath, opts.AllowSymlinkedDeliverfile)
 		if err != nil {
 			return importInputs{}, nil, err
 		}
@@ -68,11 +74,11 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 		DeliverfileConfig: config,
 	}
 
-	metadataDir, metadataSource, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.MetadataDir, config.MetadataPath, "metadata")
+	metadataDir, metadataSource, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.MetadataDir, config.MetadataPath, "metadata", opts.AllowExternalMetadata)
 	if err != nil {
 		return importInputs{}, nil, err
 	}
-	screenshotsDir, screenshotsSource, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots")
+	screenshotsDir, screenshotsSource, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots", opts.AllowExternalScreenshots)
 	if err != nil {
 		return importInputs{}, nil, err
 	}
@@ -98,12 +104,12 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 	return inputs, skipped, nil
 }
 
-func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deliverfilePathValue, defaultDir string) (string, pathSource, error) {
+func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deliverfilePathValue, defaultDir string, allowExternal bool) (string, pathSource, error) {
 	if strings.TrimSpace(explicitPath) != "" {
 		return explicitPath, pathSourceFlag, nil
 	}
 	if strings.TrimSpace(fastlaneDir) != "" {
-		resolved, err := containFastlaneChild(fastlaneDir, defaultDir)
+		resolved, err := resolveFastlaneChild(fastlaneDir, defaultDir, allowExternal)
 		if err != nil {
 			return "", pathSourceFlag, err
 		}
@@ -116,7 +122,13 @@ func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deli
 		}
 		resolved, err := containDeliverfilePath(workDir, base, deliverfilePathValue)
 		if err != nil {
-			return "", pathSourceDeliverfile, err
+			if !allowExternal {
+				return "", pathSourceDeliverfile, err
+			}
+			resolved, err = resolveTrustedDeliverfilePath(base, deliverfilePathValue)
+			if err != nil {
+				return "", pathSourceDeliverfile, err
+			}
 		}
 		return resolved, pathSourceDeliverfile, nil
 	}
@@ -125,6 +137,29 @@ func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deli
 		base = filepath.Dir(deliverfilePath)
 	}
 	return filepath.Join(base, defaultDir), pathSourceDefault, nil
+}
+
+func resolveFastlaneChild(fastlaneDir, child string, allowExternal bool) (string, error) {
+	resolved, err := containFastlaneChild(fastlaneDir, child)
+	if err == nil {
+		return resolved, nil
+	}
+	if !allowExternal {
+		return "", err
+	}
+	return filepath.EvalSymlinks(filepath.Join(fastlaneDir, child))
+}
+
+func resolveTrustedDeliverfilePath(base, value string) (string, error) {
+	path := value
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(base, path)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
 }
 
 // containFastlaneChild resolves a conventional child directory beneath the
@@ -147,8 +182,7 @@ func containFastlaneChild(fastlaneDir, child string) (string, error) {
 // inside the working directory, because the Deliverfile ships with the checkout
 // and must not select files outside it.
 func containDeliverfilePath(workDir, base, value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if err := rootfs.ValidateRelativeAllowingTraversal(trimmed); err != nil {
+	if err := rootfs.ValidateRelativeAllowingTraversal(value); err != nil {
 		return "", fmt.Errorf("deliverfile path %q: %w", value, err)
 	}
 	root, err := rootfs.New(workDir)
@@ -162,7 +196,7 @@ func containDeliverfilePath(workDir, base, value string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resolved, err := root.Resolve(filepath.Clean(filepath.Join(absoluteBase, trimmed)))
+	resolved, err := root.Resolve(filepath.Clean(filepath.Join(absoluteBase, value)))
 	if err != nil {
 		return "", fmt.Errorf("deliverfile path %q must stay inside %s: %w", value, root.Path(), err)
 	}
@@ -209,6 +243,37 @@ func discoverDeliverfilePath(workDir, fastlaneDir string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// readDeliverfileConfig reads repository-controlled Deliverfiles through a
+// rooted no-follow handle. The legacy symlink-following behavior remains
+// available only behind an explicit trust decision.
+func readDeliverfileConfig(workDir, fastlaneDir, path string, allowSymlink bool) (DeliverfileConfig, error) {
+	if allowSymlink {
+		return parseDeliverfile(path)
+	}
+	rootPath := workDir
+	if strings.TrimSpace(fastlaneDir) != "" {
+		rootPath = fastlaneDir
+	}
+	root, err := rootfs.New(rootPath)
+	if err != nil {
+		return DeliverfileConfig{}, err
+	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return DeliverfileConfig{}, err
+	}
+	relative, err := filepath.Rel(root.Path(), absolutePath)
+	if err != nil {
+		return DeliverfileConfig{}, err
+	}
+	file, err := root.OpenFile(relative)
+	if err != nil {
+		return DeliverfileConfig{}, fmt.Errorf("read Deliverfile: %w", err)
+	}
+	defer file.Close()
+	return parseDeliverfileReader(path, file)
 }
 
 func ensureDirExists(path string) error {

@@ -724,7 +724,6 @@ func validateApplyPlanUsageIDs(plan privacyPlanOutput) error {
 }
 
 func parsePrivacyDeclarationFile(path string) (privacyDeclarationFile, error) {
-	path = strings.TrimSpace(path)
 	if path == "" {
 		return privacyDeclarationFile{}, fmt.Errorf("file path is required")
 	}
@@ -761,11 +760,10 @@ func parsePrivacyDeclarationFile(path string) (privacyDeclarationFile, error) {
 // parent directory of the operator-selected path, so the final component and any
 // component created below it cannot resolve through a symlink.
 func privacyDeclarationRoot(path string) (rootfs.Root, string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
+	if path == "" {
 		return rootfs.Root{}, "", fmt.Errorf("file path is required")
 	}
-	absolute, err := filepath.Abs(trimmed)
+	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return rootfs.Root{}, "", err
 	}
@@ -1303,11 +1301,13 @@ Examples:
 			}
 
 			declaration := declarationFromRemoteDataUsages(remoteUsages)
-			outPath := strings.TrimSpace(*out)
+			outPath := *out
 			if outPath != "" {
 				if err := writePrivacyDeclarationFile(outPath, declaration); err != nil {
 					return err
 				}
+			} else {
+				outPath = ""
 			}
 
 			payload := privacyPullOutput{
@@ -1360,7 +1360,7 @@ Examples:
 			if resolvedAppID == "" {
 				return shared.UsageError("--app is required (or set ASC_APP_ID)")
 			}
-			resolvedFilePath := strings.TrimSpace(*filePath)
+			resolvedFilePath := *filePath
 			if resolvedFilePath == "" {
 				return shared.UsageError("--file is required")
 			}
@@ -1440,7 +1440,7 @@ Examples:
 			if resolvedAppID == "" {
 				return shared.UsageError("--app is required (or set ASC_APP_ID)")
 			}
-			resolvedFilePath := strings.TrimSpace(*filePath)
+			resolvedFilePath := *filePath
 			if resolvedFilePath == "" {
 				return shared.UsageError("--file is required")
 			}

@@ -110,14 +110,13 @@ Examples:
 }
 
 func selectedProjectInput(projectDir, project string) string {
-	if explicitProject := strings.TrimSpace(project); explicitProject != "" {
-		return explicitProject
+	if project != "" {
+		return project
 	}
-	dir := strings.TrimSpace(projectDir)
-	if dir == "" {
+	if projectDir == "" {
 		return "."
 	}
-	return dir
+	return projectDir
 }
 
 func xcodeVersionViewCommand() *ffcli.Command {

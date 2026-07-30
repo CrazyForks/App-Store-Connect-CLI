@@ -118,3 +118,48 @@ func TestReadLocalLogRefusesSymlinkedLog(t *testing.T) {
 		t.Fatalf("readLocalLog() error = %v, want symlink rejection", err)
 	}
 }
+
+func TestReadLocalLogPreservesWhitespaceInPath(t *testing.T) {
+	dir := t.TempDir()
+	exactPath := filepath.Join(dir, " snitch.log ")
+	trimmedPath := filepath.Join(dir, "snitch.log")
+
+	writeLogEntry := func(path, description string) {
+		t.Helper()
+		data := []byte(`{"description":"` + description + `","severity":"bug"}` + "\n")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", path, err)
+		}
+	}
+	writeLogEntry(exactPath, "exact whitespace path")
+	writeLogEntry(trimmedPath, "trimmed sibling")
+
+	entries, err := readLocalLog(exactPath)
+	if err != nil {
+		t.Fatalf("readLocalLog(%q) error = %v", exactPath, err)
+	}
+	if len(entries) != 1 || entries[0].Description != "exact whitespace path" {
+		t.Fatalf("readLocalLog(%q) = %#v, want exact whitespace-bearing file", exactPath, entries)
+	}
+}
+
+func TestSnitchFlushPreservesWhitespaceInFileFlag(t *testing.T) {
+	dir := t.TempDir()
+	exactPath := filepath.Join(dir, " snitch.log ")
+	trimmedPath := filepath.Join(dir, "snitch.log")
+
+	if err := os.WriteFile(exactPath, []byte(`{"description":"exact whitespace path","severity":"bug"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", exactPath, err)
+	}
+	if err := os.WriteFile(trimmedPath, []byte(`{"description":"trimmed sibling","severity":"bug"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", trimmedPath, err)
+	}
+
+	stdout, _, err := runSnitchCommand(t, "1.2.3", "flush", "--file", exactPath)
+	if err != nil {
+		t.Fatalf("snitch flush --file %q error = %v", exactPath, err)
+	}
+	if !strings.Contains(stdout, "exact whitespace path") || strings.Contains(stdout, "trimmed sibling") {
+		t.Fatalf("snitch flush output = %q, want exact whitespace-bearing file only", stdout)
+	}
+}

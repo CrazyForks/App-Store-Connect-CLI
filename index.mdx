@@ -76,16 +76,11 @@
         asc install-skills
         ```
 
-        This runs the pinned installer `skills@1.5.20` against a reviewed skills commit and needs Node.js (`npx`) and `git`. To do the same by hand, using a fresh directory under `/tmp` (outside any npm project regardless of `TMPDIR`, and the directory `npx` runs from, so project npm files cannot shadow or redirect the pinned installer) and stopping on the first failed step:
+        This checks out reviewed commit `e30039abddbe388179324d0f9cdccb66c3843115` and installs its 23 skills directly. The command verifies the complete pack and every installed file, preserves unrelated skills and lock entries, and pins the 23 ASC lock entries to that commit so external checks cannot update them from a mutable branch. It rolls back on a partial failure. It requires `git` but does not execute Node.js, `npx`, npm packages, or repository scripts.
 
         ```bash  theme={null}
-        asc_skills="$(mktemp -d /tmp/asc-skills.XXXXXX)" &&
-          git init --quiet "$asc_skills/src" &&
-          git -C "$asc_skills/src" remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git &&
-          git -C "$asc_skills/src" fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115 &&
-          git -C "$asc_skills/src" checkout --detach e30039abddbe388179324d0f9cdccb66c3843115 &&
-          (cd "$asc_skills" && npx --yes skills@1.5.20 add "$asc_skills/src" --global --agent codex --yes) &&
-          rm -rf "$asc_skills"
+        git --version
+        asc install-skills
         ```
       </Step>
 

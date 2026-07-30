@@ -193,10 +193,11 @@ env:
   ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
   ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
   ASC_BYPASS_KEYCHAIN: true
+  ASC_APP_ID: ${{ secrets.APP_ID }}
 
 steps:
   - name: Upload to TestFlight
-    run: asc builds upload --app ${{ secrets.APP_ID }} --ipa MyApp.ipa
+    run: asc builds upload --app "$ASC_APP_ID" --ipa MyApp.ipa
 ```
 
 ### Testing with staging vs production keys

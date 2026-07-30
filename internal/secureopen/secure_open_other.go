@@ -46,10 +46,26 @@ func OpenAppendNoFollowInRoot(root *os.Root, name string, perm os.FileMode) (*os
 	})
 }
 
+// OpenExistingAppendNoFollowInRoot opens an existing file for appending
+// relative to root using best-effort final-component checks.
+func OpenExistingAppendNoFollowInRoot(root *os.Root, name string) (*os.File, error) {
+	return openExistingNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
+		return root.OpenFile(name, os.O_WRONLY|os.O_APPEND, 0)
+	})
+}
+
 // OpenExistingNoFollowInRoot opens an existing file relative to root using
 // best-effort final-component checks. Root itself prevents parent traversal.
 func OpenExistingNoFollowInRoot(root *os.Root, name string) (*os.File, error) {
 	return openExistingNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
 		return root.Open(name)
+	})
+}
+
+// OpenExistingWritableNoFollowInRoot opens an existing file for writing
+// relative to root using best-effort final-component checks.
+func OpenExistingWritableNoFollowInRoot(root *os.Root, name string) (*os.File, error) {
+	return openExistingNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
+		return root.OpenFile(name, os.O_WRONLY, 0)
 	})
 }

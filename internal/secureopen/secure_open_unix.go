@@ -47,10 +47,29 @@ func OpenAppendNoFollowInRoot(root *os.Root, name string, perm os.FileMode) (*os
 	})
 }
 
+// OpenExistingAppendNoFollowInRoot opens an existing file for atomic appends
+// without following the final component.
+func OpenExistingAppendNoFollowInRoot(root *os.Root, name string) (*os.File, error) {
+	flags := os.O_WRONLY | os.O_APPEND | unix.O_NOFOLLOW | unix.O_NONBLOCK
+	return openExistingNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
+		return root.OpenFile(name, flags, 0)
+	})
+}
+
 // OpenExistingNoFollowInRoot opens an existing file relative to root without
 // following the final component or permitting parent traversal outside root.
 func OpenExistingNoFollowInRoot(root *os.Root, name string) (*os.File, error) {
 	flags := os.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK
+	return openExistingNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
+		return root.OpenFile(name, flags, 0)
+	})
+}
+
+// OpenExistingWritableNoFollowInRoot opens an existing file for writing
+// relative to root without following its final component. Opening the existing
+// inode lets callers honor write ACLs and preserve filesystem metadata.
+func OpenExistingWritableNoFollowInRoot(root *os.Root, name string) (*os.File, error) {
+	flags := os.O_WRONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK
 	return openExistingNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
 		return root.OpenFile(name, flags, 0)
 	})

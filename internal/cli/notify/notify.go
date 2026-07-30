@@ -37,6 +37,20 @@ var slackHTTPClient = func() *http.Client {
 	return &http.Client{Timeout: asc.ResolveTimeout()}
 }
 
+func slackClientWithoutRedirects(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{Timeout: asc.ResolveTimeout()}
+	}
+	safeClient := *client
+	safeClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		// Return the redirect response to the caller without making the next
+		// request. Following it can disclose the webhook path through Referer,
+		// and 307/308 responses can also replay the JSON message body.
+		return http.ErrUseLastResponse
+	}
+	return &safeClient
+}
+
 func slackFlags(fs *flag.FlagSet) (
 	webhook *string,
 	channel *string,
@@ -185,7 +199,7 @@ Examples:
 			}
 			req.Header.Set("Content-Type", "application/json")
 
-			client := slackHTTPClient()
+			client := slackClientWithoutRedirects(slackHTTPClient())
 			resp, err := client.Do(req)
 			if err != nil {
 				return fmt.Errorf("notify slack: failed to send: %w", newSanitizedWebhookError("webhook POST", webhookURL, err))
@@ -390,6 +404,9 @@ func validateSlackWebhookURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil {
 		return fmt.Errorf("--webhook must be a valid Slack webhook URL (https://hooks.slack.com/... or https://hooks.slack-gov.com/...)")
+	}
+	if parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return fmt.Errorf("--webhook must not contain a query string or fragment")
 	}
 	host := strings.ToLower(parsed.Hostname())
 	if allowLocalSlackWebhook() && isLocalhost(host) {

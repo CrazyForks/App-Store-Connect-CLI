@@ -67,6 +67,25 @@ func TestInitReference_ReturnsTypedErrorWhenASCExists(t *testing.T) {
 	}
 }
 
+func TestResolveOutputPathPreservesWhitespaceInDirectoryName(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, " repo ")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatalf("create whitespace-named repo: %v", err)
+	}
+
+	target, linkRoot, err := resolveOutputPath(repo)
+	if err != nil {
+		t.Fatalf("resolveOutputPath() error = %v", err)
+	}
+	if target != filepath.Join(repo, ascReferenceFile) {
+		t.Fatalf("target = %q, want %q", target, filepath.Join(repo, ascReferenceFile))
+	}
+	if linkRoot != repo {
+		t.Fatalf("link root = %q, want %q", linkRoot, repo)
+	}
+}
+
 func TestPlanAgentsLink_RewritesLegacyReference(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "AGENTS.md")

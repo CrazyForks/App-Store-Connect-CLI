@@ -13,7 +13,7 @@ import (
 // proves that preparation never withdraws a review submission holding another
 // version's review items.
 func TestPrepareReviewSubmissionForCreateDoesNotCancelSubmissionForAnotherVersion(t *testing.T) {
-	requests := make([]string, 0, 3)
+	requests := make([]string, 0, 2)
 	client := newSubmitTestClient(t, submitRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requests = append(requests, req.Method+" "+req.URL.RequestURI())
 
@@ -53,14 +53,10 @@ func TestPrepareReviewSubmissionForCreateDoesNotCancelSubmissionForAnotherVersio
 		if got.reuseSubmissionID != "" {
 			t.Fatalf("expected no reusable submission, got %#v", got)
 		}
-		if got.canceledSubmissionIDs != nil {
-			t.Fatalf("expected no canceled submissions, got %#v", got.canceledSubmissionIDs)
-		}
 	})
 
 	wantRequests := []string{
 		"GET /v1/apps/app-1/reviewSubmissions?filter%5Bplatform%5D=IOS&filter%5Bstate%5D=READY_FOR_REVIEW&include=appStoreVersionForReview&limit=200",
-		"GET /v1/reviewSubmissions/other-version-submission/items?limit=200",
 	}
 	if !reflect.DeepEqual(requests, wantRequests) {
 		t.Fatalf("unexpected requests: got %v want %v", requests, wantRequests)
@@ -74,9 +70,9 @@ func TestPrepareReviewSubmissionForCreateDoesNotCancelSubmissionForAnotherVersio
 }
 
 // TestPrepareReviewSubmissionForCreateDoesNotCancelUnprovenSubmission proves
-// that a failed item lookup blocks cancellation instead of falling back to it.
+// that a failed item lookup blocks reuse without falling back to cancellation.
 func TestPrepareReviewSubmissionForCreateDoesNotCancelUnprovenSubmission(t *testing.T) {
-	requests := make([]string, 0, 3)
+	requests := make([]string, 0, 2)
 	client := newSubmitTestClient(t, submitRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requests = append(requests, req.Method+" "+req.URL.RequestURI())
 
@@ -90,7 +86,7 @@ func TestPrepareReviewSubmissionForCreateDoesNotCancelUnprovenSubmission(t *test
 				}]
 			}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/unproven-submission/items":
-			return submitJSONResponse(http.StatusInternalServerError, `{"errors":[{"status":"500","title":"Server error"}]}`)
+			return submitJSONResponse(http.StatusBadRequest, `{"errors":[{"status":"400","title":"Invalid request"}]}`)
 		default:
 			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.RequestURI())
 		}
@@ -98,8 +94,8 @@ func TestPrepareReviewSubmissionForCreateDoesNotCancelUnprovenSubmission(t *test
 
 	stderr := captureSubmitStderr(t, func() {
 		got := prepareReviewSubmissionForCreate(context.Background(), client, "app-1", "IOS", "version-1", nil)
-		if got.canceledSubmissionIDs != nil {
-			t.Fatalf("expected no canceled submissions, got %#v", got.canceledSubmissionIDs)
+		if got.reuseSubmissionID != "" {
+			t.Fatalf("expected unproven submission not to be reused, got %#v", got)
 		}
 	})
 
@@ -110,113 +106,5 @@ func TestPrepareReviewSubmissionForCreateDoesNotCancelUnprovenSubmission(t *test
 	}
 	if !strings.Contains(stderr, "Skipped stale review submission unproven-submission") {
 		t.Fatalf("expected skip diagnostic naming the submission, got %q", stderr)
-	}
-}
-
-// TestPrepareReviewSubmissionForCreateDoesNotReuseSubmissionThatGainedItemsAfterCancelConflict
-// proves the post-cancel-conflict reuse path re-reads item membership: the
-// conflict is evidence the submission changed after the initial inspection, so
-// the cached summary must not decide reuse.
-func TestPrepareReviewSubmissionForCreateDoesNotReuseSubmissionThatGainedItemsAfterCancelConflict(t *testing.T) {
-	itemCalls := 0
-	client := newSubmitTestClient(t, submitRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		switch {
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/app-1/reviewSubmissions":
-			return submitJSONResponse(http.StatusOK, `{
-				"data": [{
-					"type": "reviewSubmissions",
-					"id": "raced-submission",
-					"attributes": {"state": "READY_FOR_REVIEW", "platform": "IOS"}
-				}]
-			}`)
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/raced-submission/items":
-			itemCalls++
-			if itemCalls == 1 {
-				return submitJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
-			}
-			return submitJSONResponse(http.StatusOK, `{
-				"data": [{
-					"type": "reviewSubmissionItems",
-					"id": "other-version-item",
-					"relationships": {
-						"appStoreVersion": {
-							"data": {"type": "appStoreVersions", "id": "version-2"}
-						}
-					}
-				}]
-			}`)
-		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/raced-submission":
-			return submitJSONResponse(http.StatusConflict, `{
-				"errors": [{
-					"status": "409",
-					"code": "CONFLICT",
-					"title": "Resource state is invalid.",
-					"detail": "Resource is not in cancellable state"
-				}]
-			}`)
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/raced-submission":
-			return submitJSONResponse(http.StatusOK, `{
-				"data": {
-					"type": "reviewSubmissions",
-					"id": "raced-submission",
-					"attributes": {"state": "READY_FOR_REVIEW", "platform": "IOS"}
-				}
-			}`)
-		default:
-			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.RequestURI())
-		}
-	}))
-
-	captureSubmitStderr(t, func() {
-		got := prepareReviewSubmissionForCreate(context.Background(), client, "app-1", "IOS", "version-1", nil)
-		if got.reuseSubmissionID != "" {
-			t.Fatalf("expected no reuse of a submission that gained other items, got %#v", got)
-		}
-	})
-
-	if itemCalls < 2 {
-		t.Fatalf("expected item membership to be re-read after the cancel conflict, got %d fetch(es)", itemCalls)
-	}
-}
-
-// TestPrepareReviewSubmissionForCreateCancelsSubmissionProvenEmpty keeps the
-// working path: a submission with no review items is safe to withdraw.
-func TestPrepareReviewSubmissionForCreateCancelsSubmissionProvenEmpty(t *testing.T) {
-	requests := make([]string, 0, 3)
-	client := newSubmitTestClient(t, submitRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requests = append(requests, req.Method+" "+req.URL.RequestURI())
-
-		switch {
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/app-1/reviewSubmissions":
-			return submitJSONResponse(http.StatusOK, `{
-				"data": [{
-					"type": "reviewSubmissions",
-					"id": "empty-submission",
-					"attributes": {"state": "READY_FOR_REVIEW", "platform": "IOS"}
-				}]
-			}`)
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/reviewSubmissions/empty-submission/items":
-			return submitJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
-		case req.Method == http.MethodPatch && req.URL.Path == "/v1/reviewSubmissions/empty-submission":
-			return submitJSONResponse(http.StatusOK, `{"data":{"type":"reviewSubmissions","id":"empty-submission"}}`)
-		default:
-			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.RequestURI())
-		}
-	}))
-
-	captureSubmitStderr(t, func() {
-		got := prepareReviewSubmissionForCreate(context.Background(), client, "app-1", "IOS", "version-1", nil)
-		if _, ok := got.canceledSubmissionIDs["empty-submission"]; !ok {
-			t.Fatalf("expected empty submission to be canceled, got %#v", got.canceledSubmissionIDs)
-		}
-	})
-
-	wantRequests := []string{
-		"GET /v1/apps/app-1/reviewSubmissions?filter%5Bplatform%5D=IOS&filter%5Bstate%5D=READY_FOR_REVIEW&include=appStoreVersionForReview&limit=200",
-		"GET /v1/reviewSubmissions/empty-submission/items?limit=200",
-		"PATCH /v1/reviewSubmissions/empty-submission",
-	}
-	if !reflect.DeepEqual(requests, wantRequests) {
-		t.Fatalf("unexpected requests: got %v want %v", requests, wantRequests)
 	}
 }

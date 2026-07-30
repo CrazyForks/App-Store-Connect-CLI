@@ -83,6 +83,9 @@ func readBundleInfoFromInfoPlist(file *zip.File) (IPABundleInfo, error) {
 	if err != nil {
 		return IPABundleInfo{}, fmt.Errorf("read Info.plist: %w", err)
 	}
+	if err := infoplist.ValidateStructure(data); err != nil {
+		return IPABundleInfo{}, fmt.Errorf("decode Info.plist: %w", err)
+	}
 
 	var info map[string]any
 	decoder := plist.NewDecoder(bytes.NewReader(data))

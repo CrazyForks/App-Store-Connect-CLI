@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 )
 
 // RedactedPlaceholder replaces a URL that cannot be reduced to a safe form.
@@ -62,6 +64,8 @@ func parseForError(rawURL string) (*url.URL, bool) {
 // ClassifyTransportFailure returns a short, credential-free description of a
 // transport failure so sanitized errors keep their diagnostic value.
 func ClassifyTransportFailure(err error) string {
+	var dnsError *net.DNSError
+	var netError *net.OpError
 	switch {
 	case err == nil:
 		return ""
@@ -69,6 +73,18 @@ func ClassifyTransportFailure(err error) string {
 		return "timeout"
 	case errors.Is(err, context.Canceled):
 		return "canceled"
+	case errors.As(err, &dnsError):
+		return "dns lookup"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "connection refused"
+	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
+		return "network unreachable"
+	case errors.As(err, &netError):
+		operation := strings.ToLower(netError.Op)
+		if strings.Contains(operation, "proxy") {
+			return "proxy connection"
+		}
+		return "network connection"
 	default:
 		return ""
 	}

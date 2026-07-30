@@ -63,6 +63,19 @@ func verifyResumedCheckpointBinding(
 		return fmt.Errorf("checkpoint version %s is version %q, not %q", versionID, resolved, strings.TrimSpace(opts.Version))
 	}
 
+	// These completions cannot be authenticated from current remote state.
+	// Metadata input may have changed since the checkpoint was written, and
+	// readiness is a point-in-time observation rather than a durable server
+	// state. An unsigned checkpoint must never be able to suppress either.
+	if checkpoint.Completed[stepApplyMetadata] {
+		delete(checkpoint.Completed, stepApplyMetadata)
+		emitMessage("Rechecking %s: an unsigned checkpoint cannot prove the current metadata input was applied.", stepApplyMetadata)
+	}
+	if checkpoint.Completed[stepValidateReadiness] {
+		delete(checkpoint.Completed, stepValidateReadiness)
+		emitMessage("Rechecking %s: readiness must be evaluated again against current App Store Connect state.", stepValidateReadiness)
+	}
+
 	if checkpoint.Completed[stepAttachBuild] {
 		attachedBuildID, buildErr := attachedAppStoreVersionBuildID(ctx, client, versionID)
 		attachDiscarded := false

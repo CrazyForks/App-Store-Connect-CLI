@@ -100,6 +100,7 @@ func ExecuteUploadOperations(ctx context.Context, filePath string, operations []
 	if uploadOpts.Client == nil {
 		uploadOpts.Client = newUploadClient()
 	}
+	uploadOpts.Client = clientWithoutRedirects(uploadOpts.Client)
 	if uploadOpts.Concurrency > len(operations) {
 		uploadOpts.Concurrency = len(operations)
 	}

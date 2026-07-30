@@ -3,7 +3,9 @@ package urlsanitize
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -112,11 +114,17 @@ func TestNewTransportErrorClassifiesAndStaysInspectable(t *testing.T) {
 	}
 }
 
-func TestClassifyTransportFailureIgnoresUnknownCauses(t *testing.T) {
+func TestClassifyTransportFailureUsesSafeTypedCauses(t *testing.T) {
 	if got := ClassifyTransportFailure(nil); got != "" {
 		t.Fatalf("ClassifyTransportFailure(nil) = %q, want empty", got)
 	}
-	if got := ClassifyTransportFailure(errors.New("tls: handshake failure")); got != "" {
-		t.Fatalf("ClassifyTransportFailure(tls) = %q, want empty", got)
+	if got := ClassifyTransportFailure(&net.DNSError{Err: "no such host", Name: "secret.invalid"}); got != "dns lookup" {
+		t.Fatalf("ClassifyTransportFailure(dns) = %q, want dns lookup", got)
+	}
+	if got := ClassifyTransportFailure(syscall.ECONNREFUSED); got != "connection refused" {
+		t.Fatalf("ClassifyTransportFailure(refused) = %q, want connection refused", got)
+	}
+	if got := ClassifyTransportFailure(errors.New("arbitrary secret-bearing cause")); got != "" {
+		t.Fatalf("ClassifyTransportFailure(unknown) = %q, want empty", got)
 	}
 }

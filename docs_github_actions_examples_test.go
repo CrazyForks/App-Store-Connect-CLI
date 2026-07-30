@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,15 +11,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
-
-// githubActionsDocFiles lists documentation pages whose GitHub Actions examples
-// are copied into workflows that already have App Store Connect credentials
-// configured. A ref-controlled expression inside `run:` becomes shell source in
-// those workflows, so the examples must keep refs in `env:` instead.
-var githubActionsDocFiles = []string{
-	filepath.Join("configuration", "workflows.mdx"),
-	filepath.Join("commands", "validate.mdx"),
-}
 
 // refNameInjectionPayload is a valid Git ref name (no space, `~`, `^`, `:`, `?`,
 // `*`, `[`, or `\`) that appends a redirect if it ever reaches shell source.
@@ -34,29 +26,25 @@ type docActionStep struct {
 }
 
 func TestGitHubActionsDocExamplesKeepRefNameOutOfShellSource(t *testing.T) {
-	for _, file := range githubActionsDocFiles {
+	sawUntrustedEnv := false
+	for _, file := range githubActionsDocFiles(t) {
 		steps := gitHubActionsDocSteps(t, file)
-		if len(steps) == 0 {
-			t.Fatalf("%s: expected at least one GitHub Actions run step", file)
-		}
-
-		refInEnv := false
 		for _, step := range steps {
 			if match := actionsExpressionPattern.FindString(step.Run); match != "" {
 				t.Errorf("%s: step %q interpolates %s inside run source; pass it through env instead", file, step.Name, match)
 			}
 			for name, value := range step.Env {
-				if strings.Contains(value, "github.ref_name") {
-					refInEnv = true
-					if !referencesQuotedShellVariable(step.Run, name) {
+				if hasUntrustedActionsExpression(value) {
+					sawUntrustedEnv = true
+					if referencesShellVariable(step.Run, name) && !referencesQuotedShellVariable(step.Run, name) {
 						t.Errorf("%s: step %q sets env %s but does not reference it as a quoted shell variable", file, step.Name, name)
 					}
 				}
 			}
 		}
-		if !refInEnv {
-			t.Errorf("%s: expected a step-level env entry carrying github.ref_name", file)
-		}
+	}
+	if !sawUntrustedEnv {
+		t.Fatal("expected at least one documented step to route an untrusted GitHub value through env")
 	}
 }
 
@@ -66,12 +54,12 @@ func TestGitHubActionsDocExamplesTreatRefNameAsInertArgument(t *testing.T) {
 		t.Skipf("bash is not installed; shell-safety of the documented examples cannot be executed here: %v", err)
 	}
 
-	for _, file := range githubActionsDocFiles {
+	for _, file := range githubActionsDocFiles(t) {
 		for _, step := range gitHubActionsDocSteps(t, file) {
-			script, env := renderDocStepScript(t, file, step)
-			if !strings.Contains(script, refNameInjectionPayload) && !stepEnvContains(env, refNameInjectionPayload) {
+			if !strings.Contains(step.Run, "asc ") || !stepReferencesUntrustedEnv(step) {
 				continue
 			}
+			script, env := renderDocStepScript(t, file, step)
 
 			t.Run(file+"/"+step.Name, func(t *testing.T) {
 				workDir := t.TempDir()
@@ -116,6 +104,74 @@ func TestGitHubActionsDocExamplesTreatRefNameAsInertArgument(t *testing.T) {
 	}
 }
 
+func githubActionsDocFiles(t *testing.T) []string {
+	t.Helper()
+
+	files := make([]string, 0)
+	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if path != "." && (entry.Name() == ".git" || entry.Name() == "node_modules") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".md" && ext != ".mdx" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		content := string(data)
+		if strings.Contains(content, "${{") && strings.Contains(content, "run:") {
+			files = append(files, filepath.Clean(path))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("discover GitHub Actions documentation: %v", err)
+	}
+	return files
+}
+
+func hasUntrustedActionsExpression(value string) bool {
+	for _, match := range actionsExpressionPattern.FindAllStringSubmatch(value, -1) {
+		expression := strings.TrimSpace(match[1])
+		if strings.HasPrefix(expression, "github.ref") ||
+			strings.HasPrefix(expression, "github.event.inputs.") ||
+			strings.HasPrefix(expression, "inputs.") ||
+			strings.HasPrefix(expression, "secrets.") {
+			return true
+		}
+	}
+	return false
+}
+
+func stepReferencesUntrustedEnv(step docActionStep) bool {
+	for name, value := range step.Env {
+		if hasRefOrInputActionsExpression(value) && referencesQuotedShellVariable(step.Run, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRefOrInputActionsExpression(value string) bool {
+	for _, match := range actionsExpressionPattern.FindAllStringSubmatch(value, -1) {
+		expression := strings.TrimSpace(match[1])
+		if strings.HasPrefix(expression, "github.ref") ||
+			strings.HasPrefix(expression, "github.event.inputs.") ||
+			strings.HasPrefix(expression, "inputs.") {
+			return true
+		}
+	}
+	return false
+}
+
 // referencesQuotedShellVariable reports whether script expands name at least
 // once and never expands it outside double quotes, so word splitting and glob
 // expansion cannot act on the value.
@@ -132,9 +188,6 @@ func referencesQuotedShellVariable(script string, name string) bool {
 			inSingle = !inSingle
 		case c == '"' && !inSingle:
 			inDouble = !inDouble
-		case c == '\n':
-			inSingle = false
-			inDouble = false
 		case c == '$' && !inSingle:
 			rest := script[i+1:]
 			braced := strings.HasPrefix(rest, "{"+name+"}")
@@ -150,6 +203,10 @@ func referencesQuotedShellVariable(script string, name string) bool {
 	}
 
 	return found
+}
+
+func referencesShellVariable(script string, name string) bool {
+	return strings.Contains(script, "$"+name) || strings.Contains(script, "${"+name+"}")
 }
 
 func isShellNameByte(c byte) bool {
@@ -172,15 +229,17 @@ func gitHubActionsDocSteps(t *testing.T, file string) []docActionStep {
 	}
 
 	var steps []docActionStep
-	for _, block := range fencedBlocks(string(data), "yaml") {
-		if !strings.Contains(block, "run:") {
-			continue
+	for _, language := range []string{"yaml", "yml"} {
+		for _, block := range fencedBlocks(string(data), language) {
+			if !strings.Contains(block, "run:") {
+				continue
+			}
+			var root yaml.Node
+			if err := yaml.Unmarshal([]byte(block), &root); err != nil {
+				t.Fatalf("%s: parse yaml example: %v\n%s", file, err, block)
+			}
+			collectDocActionSteps(file, &root, &steps)
 		}
-		var root yaml.Node
-		if err := yaml.Unmarshal([]byte(block), &root); err != nil {
-			t.Fatalf("%s: parse yaml example: %v\n%s", file, err, block)
-		}
-		collectDocActionSteps(file, &root, &steps)
 	}
 	return steps
 }
@@ -260,25 +319,11 @@ func expandActionsExpressions(t *testing.T, file string, step docActionStep, val
 
 	return actionsExpressionPattern.ReplaceAllStringFunc(value, func(match string) string {
 		expression := strings.TrimSpace(actionsExpressionPattern.FindStringSubmatch(match)[1])
-		switch {
-		case expression == "github.ref_name":
-			return refNameInjectionPayload
-		case strings.HasPrefix(expression, "secrets."):
-			return "123456789"
-		default:
-			t.Fatalf("%s: step %q uses unsupported expression %q", file, step.Name, expression)
-			return ""
+		if expression == "" {
+			t.Fatalf("%s: step %q contains an empty GitHub Actions expression", file, step.Name)
 		}
+		return refNameInjectionPayload
 	})
-}
-
-func stepEnvContains(env []string, value string) bool {
-	for _, entry := range env {
-		if strings.Contains(entry, value) {
-			return true
-		}
-	}
-	return false
 }
 
 func writeASCStub(t *testing.T, argsFile string) string {

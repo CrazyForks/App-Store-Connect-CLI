@@ -1,12 +1,17 @@
 package reviews
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
 // TestLoadReviewBatchTargetsReadsFileAtSizeLimit proves an at-limit file
@@ -228,6 +233,155 @@ func TestLoadReviewBatchTargetsTokenBudgetAdmitsFileAtTokenLimit(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "JSON tokens") {
 		t.Fatalf("file at the token limit must pass the token budget, got %v", err)
+	}
+}
+
+func TestLoadReviewBatchTargetsRejectsInvalidUTF8(t *testing.T) {
+	path := writeReviewBatchTestFile(t, []byte("{\"replies\":[{\"response\":\"\xff\",\"reviewIds\":[\"review-1\"]}]}"))
+
+	_, err := loadReviewBatchTargets(path)
+	if err == nil {
+		t.Fatal("expected invalid UTF-8 rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid UTF-8") {
+		t.Fatalf("expected invalid UTF-8 error, got %v", err)
+	}
+}
+
+func TestLoadReviewBatchTargetsRejectsUnpairedSurrogateEscape(t *testing.T) {
+	path := writeReviewBatchTestFile(t, []byte(`{"replies":[{"response":"\ud835x","reviewIds":["review-1"]}]}`))
+
+	_, err := loadReviewBatchTargets(path)
+	if err == nil {
+		t.Fatal("expected unpaired surrogate rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "surrogate") {
+		t.Fatalf("expected surrogate error, got %v", err)
+	}
+}
+
+func TestLoadReviewBatchTargetsRejectsDuplicateObjectKeys(t *testing.T) {
+	for _, body := range []string{
+		`{"replies":[],"replies":[]}`,
+		`{"replies":[{"response":"first","response":"second","reviewIds":["review-1"]}]}`,
+		`{"replies":[{"response":"first","reviewIds":["review-1"],"reviewIds":["review-2"]}]}`,
+	} {
+		path := writeReviewBatchTestFile(t, []byte(body))
+		_, err := loadReviewBatchTargets(path)
+		if err == nil {
+			t.Fatalf("expected duplicate-key rejection for %s", body)
+		}
+		if !strings.Contains(err.Error(), "duplicate JSON field") {
+			t.Fatalf("expected duplicate-field error for %s, got %v", body, err)
+		}
+	}
+}
+
+func TestLoadReviewBatchTargetsClonesTrimmedStrings(t *testing.T) {
+	body := `{"replies":[{"response":"  Thanks  ","reviewIds":["  review-1  "]}]}`
+	path := writeReviewBatchTestFile(t, []byte(body))
+
+	targets, err := loadReviewBatchTargets(path)
+	if err != nil {
+		t.Fatalf("loadReviewBatchTargets() error: %v", err)
+	}
+	if len(targets) != 1 || targets[0].Response != "Thanks" || targets[0].ReviewID != "review-1" {
+		t.Fatalf("unexpected trimmed target: %+v", targets)
+	}
+}
+
+func TestLoadReviewBatchTargetsPreservesTrailingSpaceInPath(t *testing.T) {
+	directory := t.TempDir()
+	plainPath := filepath.Join(directory, "replies.json")
+	spacedPath := plainPath + " "
+	plainBody := []byte(`{"replies":[{"response":"plain","reviewIds":["plain-review"]}]}`)
+	spacedBody := []byte(`{"replies":[{"response":"spaced","reviewIds":["spaced-review"]}]}`)
+	if err := os.WriteFile(plainPath, plainBody, 0o600); err != nil {
+		t.Fatalf("write plain batch file: %v", err)
+	}
+	if err := os.WriteFile(spacedPath, spacedBody, 0o600); err != nil {
+		t.Fatalf("write trailing-space batch file: %v", err)
+	}
+
+	targets, err := loadReviewBatchTargets(spacedPath)
+	if err != nil {
+		t.Fatalf("loadReviewBatchTargets() error: %v", err)
+	}
+	if len(targets) != 1 || targets[0].ReviewID != "spaced-review" || targets[0].Response != "spaced" {
+		t.Fatalf("expected exact trailing-space path, got %+v", targets)
+	}
+}
+
+func TestLoadReviewBatchTargetsAcceptsAllSpaceFilename(t *testing.T) {
+	path := filepath.Join(t.TempDir(), " ")
+	body := []byte(`{"replies":[{"response":"spaces are a legal filename","reviewIds":["review-1"]}]}`)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("write all-space batch file: %v", err)
+	}
+
+	targets, err := loadReviewBatchTargets(path)
+	if err != nil {
+		t.Fatalf("loadReviewBatchTargets() error: %v", err)
+	}
+	if len(targets) != 1 || targets[0].ReviewID != "review-1" {
+		t.Fatalf("unexpected targets: %+v", targets)
+	}
+}
+
+func TestFetchReviewBatchReviewInfoRejectsRepeatedPaginationURL(t *testing.T) {
+	requests := 0
+	transport := testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		requests++
+		return testJSONResponse(http.StatusOK, `{
+			"data": [],
+			"links": {"next": "https://api.appstoreconnect.apple.com/v1/apps/app-1/customerReviews?cursor=same"}
+		}`), nil
+	})
+	client := newTestHistoryClient(t, transport)
+
+	_, err := fetchReviewBatchReviewInfo(
+		context.Background(),
+		client,
+		"app-1",
+		[]reviewBatchTarget{{ReviewID: "review-1", Response: "Thanks"}},
+	)
+	if err == nil {
+		t.Fatal("expected repeated pagination URL rejection, got nil")
+	}
+	if !errors.Is(err, asc.ErrRepeatedPaginationURL) {
+		t.Fatalf("expected ErrRepeatedPaginationURL, got %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected two requests before repeated-link rejection, got %d", requests)
+	}
+}
+
+func TestFetchReviewBatchReviewInfoAppliesPageBound(t *testing.T) {
+	requests := 0
+	transport := testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		requests++
+		return testJSONResponse(http.StatusOK, fmt.Sprintf(`{
+			"data": [],
+			"links": {"next": "https://api.appstoreconnect.apple.com/v1/apps/app-1/customerReviews?cursor=%d"}
+		}`, requests)), nil
+	})
+	client := newTestHistoryClient(t, transport)
+
+	_, err := fetchReviewBatchReviewInfoWithPageLimit(
+		context.Background(),
+		client,
+		"app-1",
+		[]reviewBatchTarget{{ReviewID: "review-1", Response: "Thanks"}},
+		2,
+	)
+	if err == nil {
+		t.Fatal("expected pagination page-limit rejection, got nil")
+	}
+	if !strings.Contains(err.Error(), "must not exceed 2 pages") {
+		t.Fatalf("expected page-limit error, got %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected two requests before the page bound, got %d", requests)
 	}
 }
 

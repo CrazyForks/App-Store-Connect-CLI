@@ -41,6 +41,11 @@ func betaAppReviewDetailJSON() string {
 		`"demoAccountPassword":"` + testFlightDemoPasswordSentinel + `"}}}`
 }
 
+func includedAppStoreReviewDetailJSON() string {
+	return `{"type":"appStoreReviewDetails","id":"detail-1","attributes":{` +
+		`"demoAccountPassword":"` + appStoreDemoPasswordSentinel + `","notes":"keep"}}`
+}
+
 func assertNoSentinel(t *testing.T, label, sentinel, content string) {
 	t.Helper()
 	if strings.Contains(content, sentinel) {
@@ -165,6 +170,75 @@ func TestReviewDetailsForVersionRedactsDemoAccountPassword(t *testing.T) {
 	assertNoSentinel(t, "stderr", appStoreDemoPasswordSentinel, stderr)
 	if !strings.Contains(stdout, redactedDemoPasswordText) {
 		t.Fatalf("expected redaction placeholder, got %q", stdout)
+	}
+}
+
+func TestIncludedReviewDetailsRedactDemoAccountPasswordByDefault(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		args []string
+		body string
+	}{
+		{
+			name: "versions view",
+			path: "/v1/appStoreVersions/version-1",
+			args: []string{
+				"versions", "view", "--version-id", "version-1",
+				"--include", "appStoreReviewDetail", "--output", "json",
+			},
+			body: `{"data":{"type":"appStoreVersions","id":"version-1","attributes":{"versionString":"1.0","platform":"IOS"}},"included":[` +
+				includedAppStoreReviewDetailJSON() + `]}`,
+		},
+		{
+			name: "review attachment list",
+			path: "/v1/appStoreReviewDetails/detail-1/appStoreReviewAttachments",
+			args: []string{
+				"review", "attachments-list", "--review-detail", "detail-1",
+				"--include", "appStoreReviewDetail", "--detail-fields", "demoAccountPassword", "--output", "json",
+			},
+			body: `{"data":[],"included":[` + includedAppStoreReviewDetailJSON() + `]}`,
+		},
+		{
+			name: "review attachment get",
+			path: "/v1/appStoreReviewAttachments/attachment-1",
+			args: []string{
+				"review", "attachments-get", "--id", "attachment-1",
+				"--include", "appStoreReviewDetail", "--detail-fields", "demoAccountPassword", "--output", "json",
+			},
+			body: `{"data":{"type":"appStoreReviewAttachments","id":"attachment-1","attributes":{"fileName":"review.pdf"}},"included":[` +
+				includedAppStoreReviewDetailJSON() + `]}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setupAuth(t)
+			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+			stubTransport(t, func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path != test.path {
+					t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+				}
+				return jsonResponse(http.StatusOK, test.body)
+			})
+
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(test.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				if err := root.Run(context.Background()); err != nil {
+					t.Fatalf("run error: %v", err)
+				}
+			})
+
+			assertNoSentinel(t, "stdout", appStoreDemoPasswordSentinel, stdout)
+			assertNoSentinel(t, "stderr", appStoreDemoPasswordSentinel, stderr)
+			if !strings.Contains(stdout, redactedDemoPasswordText) {
+				t.Fatalf("expected redaction placeholder, got %q", stdout)
+			}
+		})
 	}
 }
 

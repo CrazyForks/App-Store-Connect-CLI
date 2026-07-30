@@ -336,7 +336,6 @@ func StoreCredentialsWithKeyType(name, keyID, issuerID, keyPath, keyType string)
 }
 
 func loadPrivateKeyPEMForStorage(path string) (string, error) {
-	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", nil
 	}
@@ -490,7 +489,6 @@ func MigrateKeychainToConfig(opts MigrateKeychainToConfigOptions) (MigrateKeycha
 }
 
 func resolveMigrationConfigPath(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return config.Path()
 	}
@@ -502,7 +500,6 @@ func resolveMigrationConfigPath(raw string) (string, error) {
 }
 
 func resolveMigrationPrivateKeyDir(raw, configPath string) (string, error) {
-	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		raw = filepath.Join(filepath.Dir(configPath), "keys")
 	}
@@ -514,7 +511,7 @@ func resolveMigrationPrivateKeyDir(raw, configPath string) (string, error) {
 }
 
 func migrationPrivateKeyPath(cred Credential, privateKeyDir string, configName string) (string, bool, error) {
-	currentPath := strings.TrimSpace(cred.PrivateKeyPath)
+	currentPath := cred.PrivateKeyPath
 	if currentPath != "" {
 		info, err := os.Stat(currentPath)
 		if err == nil {
@@ -1629,7 +1626,7 @@ func hasAnyCredentials(cfg *config.Config) bool {
 	}
 	if strings.TrimSpace(cfg.KeyID) != "" ||
 		strings.TrimSpace(cfg.IssuerID) != "" ||
-		strings.TrimSpace(cfg.PrivateKeyPath) != "" ||
+		cfg.PrivateKeyPath != "" ||
 		strings.TrimSpace(cfg.KeyType) != "" {
 		return true
 	}
@@ -1637,7 +1634,7 @@ func hasAnyCredentials(cfg *config.Config) bool {
 		if strings.TrimSpace(cred.Name) != "" ||
 			strings.TrimSpace(cred.KeyID) != "" ||
 			strings.TrimSpace(cred.IssuerID) != "" ||
-			strings.TrimSpace(cred.PrivateKeyPath) != "" ||
+			cred.PrivateKeyPath != "" ||
 			strings.TrimSpace(cred.KeyType) != "" {
 			return true
 		}
@@ -1650,14 +1647,14 @@ func isCompleteConfigCredential(cred config.Credential) bool {
 		config.IsIndividualCredentialKeyType(cred.KeyType)
 	return strings.TrimSpace(cred.KeyID) != "" &&
 		hasIssuer &&
-		strings.TrimSpace(cred.PrivateKeyPath) != ""
+		cred.PrivateKeyPath != ""
 }
 
 func hasLegacyCredentials(cfg *config.Config) bool {
 	return cfg != nil &&
 		strings.TrimSpace(cfg.KeyID) != "" &&
 		(strings.TrimSpace(cfg.IssuerID) != "" || config.IsIndividualCredentialKeyType(cfg.KeyType)) &&
-		strings.TrimSpace(cfg.PrivateKeyPath) != ""
+		cfg.PrivateKeyPath != ""
 }
 
 func configCredentialList(cfg *config.Config) []config.Credential {
@@ -1719,7 +1716,7 @@ func findConfigCredential(cfg *config.Config, name string) (config.Credential, b
 	}
 	if name == legacyName && (strings.TrimSpace(cfg.KeyID) != "" ||
 		strings.TrimSpace(cfg.IssuerID) != "" ||
-		strings.TrimSpace(cfg.PrivateKeyPath) != "" ||
+		cfg.PrivateKeyPath != "" ||
 		strings.TrimSpace(cfg.KeyType) != "") {
 		cred := config.Credential{
 			Name:           legacyName,

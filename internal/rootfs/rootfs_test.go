@@ -16,7 +16,6 @@ func TestValidateRelativeRejectsEscapes(t *testing.T) {
 		path string
 	}{
 		{"empty", ""},
-		{"whitespace", "   "},
 		{"unix absolute", "/etc/passwd"},
 		{"windows absolute backslash", `\Windows\System32`},
 		{"windows drive absolute", `C:\Windows\System32`},
@@ -78,6 +77,43 @@ func TestResolveAcceptsAbsolutePathInsideRoot(t *testing.T) {
 	}
 }
 
+func TestRootPreservesWhitespaceInValidPathNames(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "trusted ")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	root := mustRoot(t, dir)
+	if root.Path() != dir {
+		t.Fatalf("Path() = %q, want exact path %q", root.Path(), dir)
+	}
+	if err := root.WriteFile("report ", []byte("exact"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if got := mustRead(t, filepath.Join(dir, "report ")); got != "exact" {
+		t.Fatalf("content = %q, want exact whitespace-bearing destination", got)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "report")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("trimmed sibling exists or returned unexpected error: %v", err)
+	}
+	if err := root.WriteFile("   ", []byte("all spaces"), 0o600); err != nil {
+		t.Fatalf("WriteFile(all-spaces) error = %v", err)
+	}
+	if got := mustRead(t, filepath.Join(dir, "   ")); got != "all spaces" {
+		t.Fatalf("all-space filename content = %q", got)
+	}
+
+	allSpaceDir := filepath.Join(parent, "   ")
+	if err := os.Mkdir(allSpaceDir, 0o755); err != nil {
+		t.Fatalf("Mkdir(all-space root) error = %v", err)
+	}
+	allSpaceRoot := mustRoot(t, allSpaceDir)
+	if allSpaceRoot.Path() != allSpaceDir {
+		t.Fatalf("all-space Path() = %q, want %q", allSpaceRoot.Path(), allSpaceDir)
+	}
+}
+
 func TestReadFileRefusesSymlinkedFinalComponent(t *testing.T) {
 	requireSymlinks(t)
 
@@ -94,6 +130,33 @@ func TestReadFileRefusesSymlinkedFinalComponent(t *testing.T) {
 	root := mustRoot(t, dir)
 	if _, err := root.ReadFile("description.txt"); !errors.Is(err, ErrSymlink) {
 		t.Fatalf("ReadFile() error = %v, want ErrSymlink", err)
+	}
+}
+
+func TestResolveContainedFinalSymlinkAcceptsOnlyInRootTarget(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "actual.md"), "inside")
+	if err := os.Symlink("actual.md", filepath.Join(dir, "ASC.md")); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	root := mustRoot(t, dir)
+	resolved, err := root.ResolveContainedFinalSymlink("ASC.md")
+	if err != nil {
+		t.Fatalf("ResolveContainedFinalSymlink() error = %v", err)
+	}
+	if resolved != "actual.md" {
+		t.Fatalf("ResolveContainedFinalSymlink() = %q, want actual.md", resolved)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	mustWrite(t, outside, "outside")
+	if err := os.Symlink(outside, filepath.Join(dir, "external.md")); err != nil {
+		t.Fatalf("Symlink(external) error = %v", err)
+	}
+	if _, err := root.ResolveContainedFinalSymlink("external.md"); !errors.Is(err, ErrEscapesRoot) {
+		t.Fatalf("external ResolveContainedFinalSymlink() error = %v, want ErrEscapesRoot", err)
 	}
 }
 
@@ -377,6 +440,70 @@ func TestWriteFilePreservingModeKeepsExistingModeAndDefaultsForNew(t *testing.T)
 	}
 	if runtime.GOOS != "windows" && freshInfo.Mode().Perm() != 0o640 {
 		t.Fatalf("new mode = %v, want default 0640", freshInfo.Mode().Perm())
+	}
+}
+
+func TestWriteFilePreservingModeRefusesReadOnlyExistingFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not authoritative on Windows")
+	}
+
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	path := filepath.Join(dir, "read-only.txt")
+	mustWrite(t, path, "original")
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+
+	if err := root.WriteFilePreservingMode("read-only.txt", []byte("replacement"), 0o644); err == nil {
+		t.Fatal("WriteFilePreservingMode() error = nil, want read-only destination refusal")
+	}
+	if got := mustRead(t, path); got != "original" {
+		t.Fatalf("content = %q, want original", got)
+	}
+}
+
+func TestWriteFilePreservingModeRefusesMultiplyLinkedFile(t *testing.T) {
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	path := filepath.Join(dir, "existing.txt")
+	linkPath := filepath.Join(dir, "linked.txt")
+	mustWrite(t, path, "original")
+	if err := os.Link(path, linkPath); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	if err := root.WriteFilePreservingMode("existing.txt", []byte("replacement"), 0o644); err == nil {
+		t.Fatal("WriteFilePreservingMode() error = nil, want multiply-linked file refusal")
+	}
+	if got := mustRead(t, path); got != "original" {
+		t.Fatalf("destination content = %q, want original", got)
+	}
+	if got := mustRead(t, linkPath); got != "original" {
+		t.Fatalf("hard-link content = %q, want original", got)
+	}
+}
+
+func TestWriteFilePreservingModeDoesNotMutateHardLinkAddedAfterValidation(t *testing.T) {
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+	path := filepath.Join(dir, "existing.txt")
+	externalLink := filepath.Join(t.TempDir(), "external.txt")
+	mustWrite(t, path, "original")
+	root.afterValidationForTest = func() {
+		if err := os.Link(path, externalLink); err != nil {
+			t.Skipf("hard links unavailable: %v", err)
+		}
+	}
+
+	if err := root.WriteFilePreservingMode("existing.txt", []byte("replacement"), 0o644); err != nil {
+		t.Fatalf("WriteFilePreservingMode() error = %v", err)
+	}
+	if got := mustRead(t, path); got != "replacement" {
+		t.Fatalf("destination content = %q, want replacement", got)
+	}
+	if got := mustRead(t, externalLink); got != "original" {
+		t.Fatalf("late hard link content = %q, want original", got)
 	}
 }
 

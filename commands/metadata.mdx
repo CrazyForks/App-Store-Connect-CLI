@@ -332,9 +332,10 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_APP_ID: ${{ secrets.APP_ID }}
         run: |
           asc metadata push \
-            --app "${{ secrets.APP_ID }}" \
+            --app "$ASC_APP_ID" \
             --version "1.2.3" \
             --dir "./metadata"
 ```

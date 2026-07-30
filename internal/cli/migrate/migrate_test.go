@@ -14,6 +14,40 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
+func TestMigrateCommandExamplesUseVersionIDFlag(t *testing.T) {
+	help := MigrateCommand().LongHelp
+	if strings.Contains(help, `migrate import --app "APP_ID" --version "VERSION_ID"`) {
+		t.Fatalf("migrate help still documents unsupported --version for import:\n%s", help)
+	}
+	if strings.Contains(help, `migrate export --app "APP_ID" --version "VERSION_ID"`) {
+		t.Fatalf("migrate help still documents unsupported --version for export:\n%s", help)
+	}
+	for _, want := range []string{
+		`migrate import --app "APP_ID" --version-id "VERSION_ID"`,
+		`migrate export --app "APP_ID" --version-id "VERSION_ID"`,
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("migrate help = %q, want example containing %q", help, want)
+		}
+	}
+}
+
+func TestMigrateImportExposesExplicitPathTrustFlags(t *testing.T) {
+	flags := MigrateImportCommand().FlagSet
+	for _, name := range []string{
+		"allow-external-metadata",
+		"allow-external-screenshots",
+		"allow-symlinked-deliverfile",
+	} {
+		if flags.Lookup(name) == nil {
+			t.Fatalf("migrate import flag --%s is missing", name)
+		}
+	}
+	if MigrateValidateCommand().FlagSet.Lookup("allow-external-metadata") == nil {
+		t.Fatal("migrate validate flag --allow-external-metadata is missing")
+	}
+}
+
 func TestReadMetadataFile_FileExists(t *testing.T) {
 	// Create a temp file
 	dir := t.TempDir()

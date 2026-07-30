@@ -413,8 +413,10 @@ jobs:
           echo "Credentials configured"
       
       - name: Run release workflow
+        env:
+          VERSION: ${{ github.event.inputs.version }}
         run: |
-          asc workflow run release VERSION:${{ github.event.inputs.version }}
+          asc workflow run release "VERSION:$VERSION"
       
       - name: Upload workflow output
         uses: actions/upload-artifact@v3

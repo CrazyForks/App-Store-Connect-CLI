@@ -112,6 +112,9 @@ func InitReference(opts InitOptions) (InitResult, error) {
 			return InitResult{}, err
 		}
 	}
+	if err := validateInitReferencePlan(ascPlan, linkPlan); err != nil {
+		return InitResult{}, err
+	}
 
 	created, overwritten, err := writeASCReference(ascPlan)
 	if err != nil {
@@ -132,9 +135,8 @@ func InitReference(opts InitOptions) (InitResult, error) {
 }
 
 func resolveOutputPath(path string) (string, string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed != "" {
-		abs, err := filepath.Abs(trimmed)
+	if path != "" {
+		abs, err := filepath.Abs(path)
 		if err != nil {
 			return "", "", err
 		}
@@ -204,11 +206,11 @@ func isASCReferencePath(path string) bool {
 }
 
 func normalizeReferencePath(path string) string {
-	trimmed := strings.TrimSpace(filepath.ToSlash(path))
-	if trimmed == "" || trimmed == "." {
+	normalized := filepath.ToSlash(path)
+	if normalized == "" || normalized == "." {
 		return ascReferenceFile
 	}
-	return trimmed
+	return normalized
 }
 
 func findRepoRoot(start string) (string, error) {
@@ -249,8 +251,9 @@ func planASCReference(path string, force bool) (ascReferencePlan, error) {
 	}
 	name := filepath.Base(path)
 
-	// Lstat, not Stat, so a dangling symlink still counts as an existing entry
-	// and is never followed.
+	// Lstat, not Stat, so a dangling symlink still counts as an existing entry.
+	// A final symlink may be followed only after proving that its physical target
+	// is still a regular file beneath the repository root.
 	exists := false
 	perm := defaultDocsFileMode
 	if info, err := os.Lstat(path); err == nil {
@@ -258,6 +261,22 @@ func planASCReference(path string, force bool) (ascReferencePlan, error) {
 		if info.Mode().IsRegular() {
 			// Preserve the operator's chosen mode when replacing the file.
 			perm = info.Mode().Perm()
+		} else if info.Mode()&os.ModeSymlink != 0 {
+			name, err = root.ResolveContainedFinalSymlink(name)
+			if err != nil {
+				return ascReferencePlan{}, fmt.Errorf("%w: ASC.md target is not contained: %w", rootfs.ErrSymlink, err)
+			}
+			if err := validateContainedMarkdownTarget(name); err != nil {
+				return ascReferencePlan{}, err
+			}
+			targetInfo, err := os.Lstat(filepath.Join(root.Path(), name))
+			if err != nil {
+				return ascReferencePlan{}, err
+			}
+			if !targetInfo.Mode().IsRegular() {
+				return ascReferencePlan{}, fmt.Errorf("%q is not a regular file", path)
+			}
+			perm = targetInfo.Mode().Perm()
 		}
 	} else if !os.IsNotExist(err) {
 		return ascReferencePlan{}, err
@@ -267,8 +286,9 @@ func planASCReference(path string, force bool) (ascReferencePlan, error) {
 		return ascReferencePlan{}, fmt.Errorf("%w: %s (use --force to overwrite)", ErrASCReferenceExists, path)
 	}
 
-	// Reject a symlinked destination while planning so the failure happens
-	// before any file is written; the rooted write re-checks at write time.
+	// The name now denotes either the ordinary destination or the already
+	// resolved target of a safe final symlink. The rooted write re-checks every
+	// component at write time.
 	if err := root.CheckContained(name); err != nil {
 		return ascReferencePlan{}, err
 	}
@@ -282,7 +302,7 @@ func writeASCReference(plan ascReferencePlan) (bool, bool, error) {
 		content += "\n"
 	}
 
-	if err := plan.root.WriteFile(plan.name, []byte(content), plan.perm); err != nil {
+	if err := plan.root.WriteFilePreservingMode(plan.name, []byte(content), plan.perm); err != nil {
 		return false, false, err
 	}
 
@@ -294,9 +314,10 @@ func writeASCReference(plan ascReferencePlan) (bool, bool, error) {
 
 // agentFileUpdate is one planned agent-file rewrite.
 type agentFileUpdate struct {
-	name    string
-	content string
-	perm    os.FileMode
+	name        string
+	content     string
+	perm        os.FileMode
+	reportPaths []string
 }
 
 // agentLinkPlan holds every agent-file update computed during planning.
@@ -314,37 +335,164 @@ func planAgentFileLinks(rootDir string, relRef string) (agentLinkPlan, error) {
 		return agentLinkPlan{}, err
 	}
 	plan := agentLinkPlan{root: root, rootDir: rootDir}
+	pending := make(map[string]agentFileUpdate)
 
 	agentsName := "AGENTS.md"
 	if !entryExists(filepath.Join(rootDir, agentsName)) {
 		agentsName = "Agents.md"
 	}
-	agentsContent, agentsChanged, err := planAgentsLink(root, agentsName, relRef)
+	agentsTarget, err := resolveContainedDocsEntry(root, agentsName)
 	if err != nil {
 		return agentLinkPlan{}, err
 	}
-	if agentsChanged {
-		update, err := plannedAgentFileUpdate(rootDir, agentsName, agentsContent)
+	agentsContent, agentsFound, err := readPendingAgentFile(root, pending, agentsTarget)
+	if err != nil {
+		return agentLinkPlan{}, err
+	}
+	if agentsFound {
+		agentsContent, agentsChanged, err := planAgentsLinkContent(agentsContent, relRef)
 		if err != nil {
 			return agentLinkPlan{}, err
 		}
-		plan.updates = append(plan.updates, update)
+		if agentsChanged {
+			update, err := plannedAgentFileUpdate(rootDir, agentsTarget, agentsContent)
+			if err != nil {
+				return agentLinkPlan{}, err
+			}
+			update.reportPaths = append(update.reportPaths, agentsName)
+			pending[agentsTarget] = update
+		}
 	}
 
 	claudeName := "CLAUDE.md"
-	claudeContent, claudeChanged, err := planClaudeLink(root, claudeName, relRef)
+	claudeTarget, err := resolveContainedDocsEntry(root, claudeName)
 	if err != nil {
 		return agentLinkPlan{}, err
 	}
-	if claudeChanged {
-		update, err := plannedAgentFileUpdate(rootDir, claudeName, claudeContent)
+	claudeContent, claudeFound, err := readPendingAgentFile(root, pending, claudeTarget)
+	if err != nil {
+		return agentLinkPlan{}, err
+	}
+	if claudeFound {
+		claudeContent, claudeChanged, err := planClaudeLinkContent(claudeContent, relRef)
 		if err != nil {
 			return agentLinkPlan{}, err
 		}
+		if claudeChanged {
+			update, ok := pending[claudeTarget]
+			if !ok {
+				update, err = plannedAgentFileUpdate(rootDir, claudeTarget, claudeContent)
+				if err != nil {
+					return agentLinkPlan{}, err
+				}
+			} else {
+				update.content = claudeContent
+			}
+			update.reportPaths = append(update.reportPaths, claudeName)
+			pending[claudeTarget] = update
+		}
+	}
+
+	for _, name := range []string{agentsTarget, claudeTarget} {
+		update, ok := pending[name]
+		if !ok {
+			continue
+		}
 		plan.updates = append(plan.updates, update)
+		delete(pending, name)
 	}
 
 	return plan, nil
+}
+
+// resolveContainedDocsEntry keeps ordinary files unchanged while permitting a
+// final symlink whose resolved target remains inside the repository. External
+// and dangling links are rejected.
+func resolveContainedDocsEntry(root rootfs.Root, name string) (string, error) {
+	if !entryExists(filepath.Join(root.Path(), name)) {
+		return name, nil
+	}
+	if err := root.CheckContained(name); err == nil {
+		return name, nil
+	} else if !errors.Is(err, rootfs.ErrSymlink) {
+		return "", err
+	}
+	target, err := root.ResolveContainedFinalSymlink(name)
+	if err != nil {
+		return "", fmt.Errorf("%w: agent-file target is not contained: %w", rootfs.ErrSymlink, err)
+	}
+	if err := validateContainedAgentTarget(target); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+func validateContainedMarkdownTarget(name string) error {
+	if !strings.EqualFold(filepath.Ext(name), ".md") {
+		return fmt.Errorf("%w: contained target %q is not a Markdown file", rootfs.ErrSymlink, name)
+	}
+	for _, component := range strings.FieldsFunc(filepath.Clean(name), func(r rune) bool {
+		return r == '/' || r == '\\'
+	}) {
+		switch strings.ToLower(component) {
+		case ".git", ".hg", ".svn":
+			return fmt.Errorf("%w: contained target %q is repository metadata", rootfs.ErrSymlink, name)
+		}
+	}
+	return nil
+}
+
+func validateContainedAgentTarget(name string) error {
+	if err := validateContainedMarkdownTarget(name); err != nil {
+		return err
+	}
+	switch strings.ToLower(filepath.Base(name)) {
+	case "agents.md", "claude.md":
+		return nil
+	default:
+		return fmt.Errorf("%w: agent-file link target %q is not AGENTS.md or CLAUDE.md", rootfs.ErrSymlink, name)
+	}
+}
+
+func validateInitReferencePlan(ascPlan ascReferencePlan, linkPlan agentLinkPlan) error {
+	paths := make(map[string]string, len(linkPlan.updates)+1)
+	check := func(root rootfs.Root, name, label string) error {
+		if err := root.CheckWriteFilePreservingMode(name); err != nil {
+			return fmt.Errorf("preflight %s: %w", label, err)
+		}
+		physicalRoot := filepath.Clean(root.Path())
+		if resolvedRoot, err := filepath.EvalSymlinks(root.Path()); err == nil {
+			physicalRoot = resolvedRoot
+		}
+		physicalPath := filepath.Join(physicalRoot, name)
+		if previous, exists := paths[physicalPath]; exists {
+			return fmt.Errorf("%s and %s resolve to the same destination %q", previous, label, physicalPath)
+		}
+		paths[physicalPath] = label
+		return nil
+	}
+
+	if err := check(ascPlan.root, ascPlan.name, ascReferenceFile); err != nil {
+		return err
+	}
+	for _, update := range linkPlan.updates {
+		label := update.name
+		if len(update.reportPaths) > 0 {
+			label = strings.Join(update.reportPaths, "/")
+		}
+		if err := check(linkPlan.root, update.name, label); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readPendingAgentFile(root rootfs.Root, pending map[string]agentFileUpdate, name string) (string, bool, error) {
+	if update, ok := pending[name]; ok {
+		return update.content, true, nil
+	}
+	data, found, err := root.ReadFileOptional(name)
+	return string(data), found, err
 }
 
 // plannedAgentFileUpdate records the rewrite along with the file's current
@@ -367,10 +515,12 @@ func plannedAgentFileUpdate(rootDir, name, content string) (agentFileUpdate, err
 func applyAgentFileLinks(plan agentLinkPlan) ([]string, error) {
 	linked := []string{}
 	for _, update := range plan.updates {
-		if err := plan.root.WriteFile(update.name, []byte(update.content), update.perm); err != nil {
+		if err := plan.root.WriteFilePreservingMode(update.name, []byte(update.content), update.perm); err != nil {
 			return nil, err
 		}
-		linked = append(linked, filepath.Join(plan.rootDir, update.name))
+		for _, reportPath := range update.reportPaths {
+			linked = append(linked, filepath.Join(plan.rootDir, reportPath))
+		}
 	}
 	return linked, nil
 }
@@ -396,10 +546,13 @@ func planAgentsLink(root rootfs.Root, name string, relRef string) (string, bool,
 	if !found {
 		return "", false, nil
 	}
+	return planAgentsLinkContent(string(data), relRef)
+}
 
+func planAgentsLinkContent(content string, relRef string) (string, bool, error) {
 	desiredLine := fmt.Sprintf("See `%s` for the command catalog and workflows.", relRef)
 
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(content, "\n")
 	foundReference := false
 	changed := false
 	for i, line := range lines {
@@ -422,11 +575,11 @@ func planAgentsLink(root rootfs.Root, name string, relRef string) (string, bool,
 		if !changed {
 			return "", false, nil
 		}
-		return plannedContent(string(data), strings.Join(lines, "\n"))
+		return plannedContent(content, strings.Join(lines, "\n"))
 	}
 
 	section := fmt.Sprintf("## asc cli reference\n\n%s", desiredLine)
-	return plannedContent(string(data), appendSection(string(data), section))
+	return plannedContent(content, appendSection(content, section))
 }
 
 // planClaudeLink computes the updated CLAUDE.md content without writing it.
@@ -438,10 +591,13 @@ func planClaudeLink(root rootfs.Root, name string, relRef string) (string, bool,
 	if !found {
 		return "", false, nil
 	}
+	return planClaudeLinkContent(string(data), relRef)
+}
 
+func planClaudeLinkContent(content string, relRef string) (string, bool, error) {
 	desiredLine := "@" + relRef
 
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(content, "\n")
 	updatedLines := make([]string, 0, len(lines))
 	foundReference := false
 	changed := false
@@ -465,16 +621,16 @@ func planClaudeLink(root rootfs.Root, name string, relRef string) (string, bool,
 		if !changed {
 			return "", false, nil
 		}
-		return plannedContent(string(data), strings.Join(updatedLines, "\n"))
+		return plannedContent(content, strings.Join(updatedLines, "\n"))
 	}
 
-	updated := strings.TrimRight(string(data), "\n")
+	updated := strings.TrimRight(content, "\n")
 	if updated != "" {
 		updated += "\n"
 	}
 	updated += desiredLine + "\n"
 
-	return plannedContent(string(data), updated)
+	return plannedContent(content, updated)
 }
 
 func isAgentsReferenceLine(line string) bool {

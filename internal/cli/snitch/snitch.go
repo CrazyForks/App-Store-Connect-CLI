@@ -281,7 +281,7 @@ Examples:
 				return shared.UsageError("snitch flush does not accept positional arguments; use --file PATH to specify a log file")
 			}
 
-			path := strings.TrimSpace(*logFile)
+			path := *logFile
 			if path == "" {
 				path = filepath.Join(".asc", "snitch.log")
 			}
@@ -574,7 +574,11 @@ func validateRequestedLabels(ctx context.Context, token string, requested []stri
 // repository-controlled .asc directory and log file cannot redirect the log, and
 // falls back to the log's own parent for a log the operator placed elsewhere.
 func localLogRoot(path string) (rootfs.Root, string, error) {
-	absolute, err := filepath.Abs(strings.TrimSpace(path))
+	if path == "" {
+		return rootfs.Root{}, "", fmt.Errorf("log path must not be empty")
+	}
+
+	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return rootfs.Root{}, "", err
 	}

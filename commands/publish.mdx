@@ -118,9 +118,11 @@ asc publish appstore \
 ```yaml  theme={null}
 # GitHub Actions
 - name: Publish to TestFlight
+  env:
+    ASC_APP_ID: ${{ secrets.APP_ID }}
   run: |
     asc publish testflight \
-      --app ${{ secrets.APP_ID }} \
+      --app "$ASC_APP_ID" \
       --ipa MyApp.ipa \
       --group "External Testers"
 ```

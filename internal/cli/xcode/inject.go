@@ -633,7 +633,7 @@ func validateXcodeInjectDestination(path string, overwrite bool) error {
 // wrote it: resolved from the manifest directory as typed, so a relative
 // --manifest keeps relative result paths and an absolute one stays absolute.
 func xcodeInjectDisplayPath(displayBase, path string) string {
-	return filepath.Clean(filepath.Join(displayBase, strings.TrimSpace(path)))
+	return filepath.Clean(filepath.Join(displayBase, path))
 }
 
 // resolveXcodeInjectPath resolves a manifest-declared path from the manifest
@@ -641,18 +641,17 @@ func xcodeInjectDisplayPath(displayBase, path string) string {
 // paths, volume or UNC-style changes, and traversal that leaves the root are
 // refused because the manifest is repository-controlled.
 func resolveXcodeInjectPath(root rootfs.Root, baseDir string, path string) (string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
+	if path == "" {
 		return "", newXcodeInjectUsageError("path is required")
 	}
-	if err := rootfs.ValidateRelativeAllowingTraversal(trimmed); err != nil {
+	if err := rootfs.ValidateRelativeAllowingTraversal(path); err != nil {
 		return "", fmt.Errorf(
 			"%w; manifest paths must be relative to the manifest directory and stay inside %s",
 			err,
 			root.Path(),
 		)
 	}
-	resolved, err := root.Resolve(filepath.Clean(filepath.Join(baseDir, trimmed)))
+	resolved, err := root.Resolve(filepath.Clean(filepath.Join(baseDir, path)))
 	if err != nil {
 		return "", fmt.Errorf("%w; manifest paths must stay inside %s", err, root.Path())
 	}
