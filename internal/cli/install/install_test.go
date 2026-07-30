@@ -14,6 +14,7 @@ import (
 
 type recordedCommand struct {
 	name string
+	dir  string
 	args []string
 }
 
@@ -38,9 +39,16 @@ func recordCommands(t *testing.T) *[]recordedCommand {
 	originalRun := runCommand
 	t.Cleanup(func() { runCommand = originalRun })
 
+	originalRunInDir := runCommandInDir
+	t.Cleanup(func() { runCommandInDir = originalRunInDir })
+
 	recorded := &[]recordedCommand{}
 	runCommand = func(ctx context.Context, name string, args ...string) error {
 		*recorded = append(*recorded, recordedCommand{name: name, args: append([]string(nil), args...)})
+		return nil
+	}
+	runCommandInDir = func(ctx context.Context, dir string, name string, args ...string) error {
+		*recorded = append(*recorded, recordedCommand{name: name, dir: dir, args: append([]string(nil), args...)})
 		return nil
 	}
 	return recorded
@@ -79,12 +87,13 @@ func TestInstallSkillsRunsPinnedInstallerAgainstPinnedCommit(t *testing.T) {
 		t.Fatalf("expected an absolute checkout directory, got %q", sourceDir)
 	}
 
+	installerDir := (*recorded)[4].dir
 	want := []recordedCommand{
 		{name: "/bin/git", args: []string{"-C", sourceDir, "init", "--quiet"}},
 		{name: "/bin/git", args: []string{"-C", sourceDir, "remote", "add", "origin", skillsSourceRepositoryURL}},
 		{name: "/bin/git", args: []string{"-C", sourceDir, "fetch", "--quiet", "--depth", "1", "origin", skillsSourceCommit}},
 		{name: "/bin/git", args: []string{"-C", sourceDir, "checkout", "--quiet", "--detach", skillsSourceCommit}},
-		{name: "/bin/npx", args: []string{"--yes", skillsInstallerPackage, "add", sourceDir, "--global", "--agent", "codex", "--yes"}},
+		{name: "/bin/npx", dir: installerDir, args: []string{"--yes", skillsInstallerPackage, "add", sourceDir, "--global", "--agent", "codex", "--yes"}},
 	}
 	if !reflect.DeepEqual(*recorded, want) {
 		t.Fatalf("subprocess calls =\n%#v\nwant\n%#v", *recorded, want)
@@ -92,6 +101,51 @@ func TestInstallSkillsRunsPinnedInstallerAgainstPinnedCommit(t *testing.T) {
 
 	if _, err := os.Stat(sourceDir); !os.IsNotExist(err) {
 		t.Fatalf("expected the pinned checkout %q to be removed, stat error: %v", sourceDir, err)
+	}
+	if _, err := os.Stat(installerDir); !os.IsNotExist(err) {
+		t.Fatalf("expected the isolated installer directory %q to be removed, stat error: %v", installerDir, err)
+	}
+}
+
+// TestInstallSkillsRunsInstallerOutsideCallerDirectory pins the npx working
+// directory to a fresh isolated directory. npx prefers a local dependency whose
+// name and version match the requested package, so running it inside a caller
+// project containing node_modules/skills at the pinned version would execute
+// repository-controlled code instead of the reviewed registry package.
+func TestInstallSkillsRunsInstallerOutsideCallerDirectory(t *testing.T) {
+	stubLookups(t, map[string]string{"npx": "/bin/npx", "git": "/bin/git"})
+	recorded := recordCommands(t)
+
+	cmd := InstallSkillsCommand()
+	if err := cmd.Parse([]string{}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if err := cmd.Run(context.Background()); err != nil {
+		t.Fatalf("run error: %v", err)
+	}
+
+	installer := (*recorded)[len(*recorded)-1]
+	if installer.name != "/bin/npx" {
+		t.Fatalf("last subprocess = %q, want the installer", installer.name)
+	}
+	if installer.dir == "" || !filepath.IsAbs(installer.dir) {
+		t.Fatalf("installer working directory = %q, want an absolute isolated directory", installer.dir)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if installer.dir == cwd {
+		t.Fatalf("installer ran in the caller directory %q", cwd)
+	}
+	if rel, err := filepath.Rel(cwd, installer.dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("installer working directory %q is inside the caller directory %q", installer.dir, cwd)
+	}
+
+	sourceDir := installer.args[3]
+	if installer.dir == sourceDir {
+		t.Fatalf("installer must not run inside the skills checkout %q", sourceDir)
 	}
 }
 
@@ -134,9 +188,13 @@ func TestInstallSkillsAppliesASCTimeout(t *testing.T) {
 	stubLookups(t, map[string]string{"npx": "/bin/npx", "git": "/bin/git"})
 
 	originalRun := runCommand
-	t.Cleanup(func() { runCommand = originalRun })
+	originalRunInDir := runCommandInDir
+	t.Cleanup(func() {
+		runCommand = originalRun
+		runCommandInDir = originalRunInDir
+	})
 	calls := 0
-	runCommand = func(ctx context.Context, name string, args ...string) error {
+	assertDeadline := func(ctx context.Context) {
 		calls++
 		deadline, ok := ctx.Deadline()
 		if !ok {
@@ -146,6 +204,13 @@ func TestInstallSkillsAppliesASCTimeout(t *testing.T) {
 		if remaining <= 0 || remaining > time.Minute {
 			t.Fatalf("expected ASC_TIMEOUT deadline within 1m, got %s", remaining)
 		}
+	}
+	runCommand = func(ctx context.Context, name string, args ...string) error {
+		assertDeadline(ctx)
+		return nil
+	}
+	runCommandInDir = func(ctx context.Context, dir string, name string, args ...string) error {
+		assertDeadline(ctx)
 		return nil
 	}
 
@@ -208,7 +273,11 @@ func TestInstallSkillsStopsWhenPinnedCommitCannotBeFetched(t *testing.T) {
 	stubLookups(t, map[string]string{"npx": "/bin/npx", "git": "/bin/git"})
 
 	originalRun := runCommand
-	t.Cleanup(func() { runCommand = originalRun })
+	originalRunInDir := runCommandInDir
+	t.Cleanup(func() {
+		runCommand = originalRun
+		runCommandInDir = originalRunInDir
+	})
 
 	var recorded []recordedCommand
 	runCommand = func(ctx context.Context, name string, args ...string) error {
@@ -216,6 +285,10 @@ func TestInstallSkillsStopsWhenPinnedCommitCannotBeFetched(t *testing.T) {
 		if len(args) > 2 && args[2] == "fetch" {
 			return errors.New("could not read from remote repository")
 		}
+		return nil
+	}
+	runCommandInDir = func(ctx context.Context, dir string, name string, args ...string) error {
+		recorded = append(recorded, recordedCommand{name: name, dir: dir, args: append([]string(nil), args...)})
 		return nil
 	}
 

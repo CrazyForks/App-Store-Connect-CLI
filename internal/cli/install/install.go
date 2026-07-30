@@ -32,6 +32,7 @@ const (
 var (
 	lookupExecutable = exec.LookPath
 	runCommand       = defaultRunCommand
+	runCommandInDir  = defaultRunCommandInDir
 	errNpxNotFound   = errors.New("npx not found")
 	errGitNotFound   = errors.New("git not found")
 )
@@ -93,7 +94,21 @@ func installSkills(ctx context.Context) error {
 		return err
 	}
 
-	return runCommand(ctx, npxPath, "--yes", skillsInstallerPackage, "add", sourceDir, "--global", "--agent", "codex", "--yes")
+	// npx prefers a local dependency whose name and version match the requested
+	// package, so running it inside a caller project that carries
+	// node_modules/skills at the pinned version would execute
+	// repository-controlled code instead of the reviewed registry package. The
+	// installer therefore runs in a fresh empty directory with no node_modules
+	// in reach.
+	runDir, err := os.MkdirTemp("", "asc-skills-npx-")
+	if err != nil {
+		return fmt.Errorf("failed to create an isolated working directory for the installer: %w", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(runDir)
+	}()
+
+	return runCommandInDir(ctx, runDir, npxPath, "--yes", skillsInstallerPackage, "add", sourceDir, "--global", "--agent", "codex", "--yes")
 }
 
 // checkoutPinnedSkills fetches exactly skillsSourceCommit into sourceDir. Git
@@ -115,6 +130,15 @@ func checkoutPinnedSkills(ctx context.Context, gitPath string, sourceDir string)
 	}
 
 	return nil
+}
+
+func defaultRunCommandInDir(ctx context.Context, dir string, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
 }
 
 func defaultRunCommand(ctx context.Context, name string, args ...string) error {
