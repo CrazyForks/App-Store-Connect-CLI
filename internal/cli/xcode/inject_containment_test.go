@@ -7,6 +7,41 @@ import (
 	"testing"
 )
 
+func TestXcodeInjectReportsManifestRelativePathsForRelativeManifest(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(".asc", 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(".asc", "icon.txt"), []byte("icon\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	writeXcodeInjectTestManifest(t, filepath.Join(".asc", "deployment.json"), `{
+		"outputs": [
+			{"type": "text", "path": "../Generated/version.txt", "contents": "1.2.3\n"},
+			{"type": "copy", "source": "icon.txt", "path": "../Generated/icon.txt"}
+		]
+	}`)
+
+	result, err := runXcodeInject(xcodeInjectOptions{ManifestPath: filepath.Join(".asc", "deployment.json"), Overwrite: true})
+	if err != nil {
+		t.Fatalf("runXcodeInject() error = %v", err)
+	}
+	if len(result.Outputs) != 2 {
+		t.Fatalf("outputs = %#v, want 2 entries", result.Outputs)
+	}
+	// A relative --manifest must keep manifest-relative result paths, matching
+	// the pre-rooting output contract.
+	if want := filepath.Join("Generated", "version.txt"); result.Outputs[0].Path != want {
+		t.Fatalf("outputs[0].path = %q, want %q", result.Outputs[0].Path, want)
+	}
+	if want := filepath.Join("Generated", "icon.txt"); result.Outputs[1].Path != want {
+		t.Fatalf("outputs[1].path = %q, want %q", result.Outputs[1].Path, want)
+	}
+	if want := filepath.Join(".asc", "icon.txt"); result.Outputs[1].Source != want {
+		t.Fatalf("outputs[1].source = %q, want %q", result.Outputs[1].Source, want)
+	}
+}
+
 func TestXcodeInjectRejectsParentTraversingOutputPath(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "deployment.json")
