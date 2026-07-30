@@ -76,10 +76,10 @@
         asc install-skills
         ```
 
-        This runs the pinned installer `skills@1.5.20` against a reviewed skills commit and needs Node.js (`npx`) and `git`. To do the same by hand, using a fresh temporary directory (which `npx` also runs from, so a local `node_modules/skills` cannot shadow the pinned installer) and stopping on the first failed step:
+        This runs the pinned installer `skills@1.5.20` against a reviewed skills commit and needs Node.js (`npx`) and `git`. To do the same by hand, using a fresh directory under `/tmp` (outside any npm project regardless of `TMPDIR`, and the directory `npx` runs from, so project npm files cannot shadow or redirect the pinned installer) and stopping on the first failed step:
 
         ```bash  theme={null}
-        asc_skills="$(mktemp -d)" &&
+        asc_skills="$(mktemp -d /tmp/asc-skills.XXXXXX)" &&
           git init --quiet "$asc_skills/src" &&
           git -C "$asc_skills/src" remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git &&
           git -C "$asc_skills/src" fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115 &&

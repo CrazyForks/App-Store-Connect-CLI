@@ -190,10 +190,10 @@ asc install-skills
 
 `asc install-skills` runs the pinned installer `skills@1.5.20` against a reviewed skills commit, so an upstream change cannot alter what gets installed. It needs Node.js (`npx`) and `git`.
 
-To do the same by hand, check out that commit into a fresh temporary directory and install from the local path. Each step stops the chain on failure, and `npx` runs from the temporary directory so a local `node_modules/skills` in the current project cannot shadow the pinned installer:
+To do the same by hand, check out that commit into a fresh temporary directory and install from the local path. Each step stops the chain on failure, and the temporary directory lives under `/tmp` (outside any npm project, regardless of `TMPDIR`) with `npx` running from it, so a project `node_modules`, `package.json`, or `.npmrc` cannot shadow or redirect the pinned installer:
 
 ```bash  theme={null}
-asc_skills="$(mktemp -d)" &&
+asc_skills="$(mktemp -d /tmp/asc-skills.XXXXXX)" &&
   git init --quiet "$asc_skills/src" &&
   git -C "$asc_skills/src" remote add origin https://github.com/rorkai/app-store-connect-cli-skills.git &&
   git -C "$asc_skills/src" fetch --depth 1 origin e30039abddbe388179324d0f9cdccb66c3843115 &&
