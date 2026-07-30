@@ -156,6 +156,33 @@ func TestReadFileDoesNotEscapeWhenParentIsSwappedAfterValidation(t *testing.T) {
 	}
 }
 
+func TestReadFileRejectsFinalSymlinkSwappedAfterValidation(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	report := filepath.Join(dir, "report.txt")
+	mustWrite(t, report, "trusted")
+	mustWrite(t, filepath.Join(dir, "secret.txt"), "in-root-secret")
+
+	root := mustRoot(t, dir)
+	root.afterValidationForTest = func() {
+		if err := os.Remove(report); err != nil {
+			t.Fatalf("remove validated file: %v", err)
+		}
+		if err := os.Symlink("secret.txt", report); err != nil {
+			t.Fatalf("replace validated file with symlink: %v", err)
+		}
+	}
+
+	data, err := root.ReadFile("report.txt")
+	if err == nil {
+		t.Fatalf("ReadFile() returned %q through a swapped final symlink, want an error", data)
+	}
+	if string(data) == "in-root-secret" {
+		t.Fatal("ReadFile() disclosed the swapped symlink target")
+	}
+}
+
 func TestReadFileOptionalReportsMissingWithoutError(t *testing.T) {
 	root := mustRoot(t, t.TempDir())
 
@@ -533,6 +560,34 @@ func TestAppendFileDoesNotEscapeWhenParentIsSwappedAfterValidation(t *testing.T)
 	}
 	if got := mustRead(t, filepath.Join(dir, "nested-original", "snitch.log")); got != "trusted\nattacker\n" {
 		t.Fatalf("AppendFile() content in anchored parent = %q", got)
+	}
+}
+
+func TestAppendFileRejectsFinalSymlinkSwappedAfterValidation(t *testing.T) {
+	requireSymlinks(t)
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "snitch.log")
+	mustWrite(t, logPath, "trusted\n")
+	siblingPath := filepath.Join(dir, "sibling.log")
+	mustWrite(t, siblingPath, "sibling\n")
+
+	root := mustRoot(t, dir)
+	root.afterValidationForTest = func() {
+		if err := os.Remove(logPath); err != nil {
+			t.Fatalf("remove validated file: %v", err)
+		}
+		if err := os.Symlink("sibling.log", logPath); err != nil {
+			t.Fatalf("replace validated file with symlink: %v", err)
+		}
+	}
+
+	err := root.AppendFile("snitch.log", []byte("attacker\n"), 0o600)
+	if err == nil {
+		t.Fatal("AppendFile() succeeded through a swapped final symlink, want an error")
+	}
+	if got := mustRead(t, siblingPath); got != "sibling\n" {
+		t.Fatalf("AppendFile() modified the swapped symlink target: %q", got)
 	}
 }
 
