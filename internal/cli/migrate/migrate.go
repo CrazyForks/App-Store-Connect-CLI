@@ -610,12 +610,13 @@ func readMetadataFile(root rootfs.Root, name string) (string, error) {
 }
 
 // writeAndCount writes content beneath root and returns 1 when a file was
-// written and 0 when the content was empty.
+// written and 0 when the content was empty. An existing destination keeps its
+// permissions, matching the previous in-place write.
 func writeAndCount(root rootfs.Root, name, content string) (int, error) {
 	if content == "" {
 		return 0, nil
 	}
-	if err := root.WriteFile(name, []byte(content+"\n"), 0o644); err != nil {
+	if err := root.WriteFilePreservingMode(name, []byte(content+"\n"), 0o644); err != nil {
 		return 0, err
 	}
 	return 1, nil

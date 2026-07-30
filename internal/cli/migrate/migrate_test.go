@@ -3,6 +3,7 @@ package migrate
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -93,6 +94,39 @@ func TestWriteAndCount_WritesContent(t *testing.T) {
 
 	if string(data) != "content\n" {
 		t.Errorf("expected 'content\\n', got %q", string(data))
+	}
+}
+
+func TestWriteAndCountPreservesExistingFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not reported faithfully on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "description.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("failed to create file: %v", err)
+	}
+
+	count, err := writeAndCount(mustMigrateRoot(t, dir), "description.txt", "new")
+	if err != nil {
+		t.Fatalf("writeAndCount() error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1, got %d", count)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("Lstat() error: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v, want preserved 0600", info.Mode().Perm())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+	if string(data) != "new\n" {
+		t.Fatalf("content = %q, want %q", data, "new\n")
 	}
 }
 

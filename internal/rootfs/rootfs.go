@@ -337,6 +337,25 @@ func (r Root) WriteFrom(name string, reader io.Reader, perm os.FileMode) (int64,
 	return written, nil
 }
 
+// WriteFilePreservingMode atomically creates or replaces a file beneath the
+// root, reusing an existing regular destination's permissions and falling back
+// to perm for a new file. Use it where the pre-rooted in-place write preserved
+// an operator's chosen mode across rewrites.
+func (r Root) WriteFilePreservingMode(name string, data []byte, perm os.FileMode) error {
+	resolved, err := r.Resolve(name)
+	if err != nil {
+		return err
+	}
+	if info, err := os.Lstat(resolved); err == nil {
+		if info.Mode().IsRegular() {
+			perm = info.Mode().Perm()
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return r.WriteFile(name, data, perm)
+}
+
 // CreateNewFile writes data to a new file beneath the root and fails when the
 // destination already exists.
 func (r Root) CreateNewFile(name string, data []byte, perm os.FileMode) error {

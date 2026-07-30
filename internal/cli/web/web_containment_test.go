@@ -3,6 +3,7 @@ package web
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -134,6 +135,28 @@ func TestWriteDownloadedAttachmentWritesOrdinaryFile(t *testing.T) {
 	}
 	if got := readWebContainmentFile(t, filepath.Join(outDir, second)); got != "payload-2" {
 		t.Fatalf("content = %q", got)
+	}
+}
+
+func TestWritePrivacyDeclarationFilePreservesExistingMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not reported faithfully on Windows")
+	}
+	outPath := filepath.Join(t.TempDir(), "privacy.json")
+	if err := os.WriteFile(outPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if err := writePrivacyDeclarationFile(outPath, privacyDeclarationFile{}); err != nil {
+		t.Fatalf("writePrivacyDeclarationFile() error = %v", err)
+	}
+
+	info, err := os.Lstat(outPath)
+	if err != nil {
+		t.Fatalf("Lstat() error = %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("mode = %v, want preserved 0644", info.Mode().Perm())
 	}
 }
 

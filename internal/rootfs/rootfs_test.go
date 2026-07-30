@@ -258,6 +258,41 @@ func TestWriteFromWritesReaderContents(t *testing.T) {
 	}
 }
 
+func TestWriteFilePreservingModeKeepsExistingModeAndDefaultsForNew(t *testing.T) {
+	dir := t.TempDir()
+	root := mustRoot(t, dir)
+
+	existingPath := filepath.Join(dir, "existing.txt")
+	mustWrite(t, existingPath, "old")
+	if err := os.Chmod(existingPath, 0o600); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+	if err := root.WriteFilePreservingMode("existing.txt", []byte("new"), 0o644); err != nil {
+		t.Fatalf("WriteFilePreservingMode() error = %v", err)
+	}
+	info, err := os.Lstat(existingPath)
+	if err != nil {
+		t.Fatalf("Lstat() error = %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("existing mode = %v, want preserved 0600", info.Mode().Perm())
+	}
+	if got := mustRead(t, existingPath); got != "new" {
+		t.Fatalf("content = %q, want %q", got, "new")
+	}
+
+	if err := root.WriteFilePreservingMode("fresh.txt", []byte("data"), 0o640); err != nil {
+		t.Fatalf("WriteFilePreservingMode() new file error = %v", err)
+	}
+	freshInfo, err := os.Lstat(filepath.Join(dir, "fresh.txt"))
+	if err != nil {
+		t.Fatalf("Lstat() error = %v", err)
+	}
+	if runtime.GOOS != "windows" && freshInfo.Mode().Perm() != 0o640 {
+		t.Fatalf("new mode = %v, want default 0640", freshInfo.Mode().Perm())
+	}
+}
+
 func TestCreateNewFileRefusesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "AuthKey.p8"), "existing")

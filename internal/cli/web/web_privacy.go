@@ -789,7 +789,9 @@ func writePrivacyDeclarationFile(path string, declaration privacyDeclarationFile
 		return fmt.Errorf("failed to marshal privacy declaration: %w", err)
 	}
 	jsonData = append(jsonData, '\n')
-	if err := root.WriteFile(name, jsonData, 0o600); err != nil {
+	// An existing declaration keeps its permissions, matching the previous
+	// in-place write; new files default to 0600.
+	if err := root.WriteFilePreservingMode(name, jsonData, 0o600); err != nil {
 		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	return nil
