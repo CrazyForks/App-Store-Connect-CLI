@@ -211,6 +211,8 @@ type analyticsReportsQuery struct {
 
 type analyticsReportInstancesQuery struct {
 	listQuery
+	granularities   []string
+	processingDates []string
 }
 
 type analyticsReportSegmentsQuery struct {
@@ -290,6 +292,20 @@ func WithAnalyticsReportInstancesNextURL(next string) AnalyticsReportInstancesOp
 	}
 }
 
+// WithAnalyticsReportInstancesGranularities filters instances by one or more granularities.
+func WithAnalyticsReportInstancesGranularities(granularities []string) AnalyticsReportInstancesOption {
+	return func(q *analyticsReportInstancesQuery) {
+		q.granularities = normalizeUniqueList(normalizeUpperList(granularities))
+	}
+}
+
+// WithAnalyticsReportInstancesProcessingDates filters instances by one or more processing dates.
+func WithAnalyticsReportInstancesProcessingDates(dates []string) AnalyticsReportInstancesOption {
+	return func(q *analyticsReportInstancesQuery) {
+		q.processingDates = normalizeUniqueList(dates)
+	}
+}
+
 // WithAnalyticsReportSegmentsLimit sets the max number of segments to return.
 func WithAnalyticsReportSegmentsLimit(limit int) AnalyticsReportSegmentsOption {
 	return func(q *analyticsReportSegmentsQuery) {
@@ -351,6 +367,8 @@ func buildAnalyticsReportsQuery(query *analyticsReportsQuery) string {
 
 func buildAnalyticsReportInstancesQuery(query *analyticsReportInstancesQuery) string {
 	values := url.Values{}
+	addCSV(values, "filter[granularity]", query.granularities)
+	addCSV(values, "filter[processingDate]", query.processingDates)
 	addLimit(values, query.limit)
 	return values.Encode()
 }

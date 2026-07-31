@@ -356,7 +356,8 @@ func AnalyticsGetCommand() *ffcli.Command {
 
 	requestID := fs.String("request-id", "", "Analytics report request ID")
 	instanceID := fs.String("instance-id", "", "Filter by specific instance ID")
-	date := fs.String("date", "", "Filter instances by date (YYYY-MM-DD)")
+	date := fs.String("date", "", "Filter instances by processing date (YYYY-MM-DD)")
+	granularity := fs.String("granularity", "", "Filter instances by granularity (comma-separated: DAILY, WEEKLY, MONTHLY)")
 	includeSegments := fs.Bool("include-segments", false, "Include report segments with download URLs")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
@@ -369,11 +370,15 @@ func AnalyticsGetCommand() *ffcli.Command {
 		ShortHelp:  "View analytics reports for a request.",
 		LongHelp: `View analytics reports for a request.
 
+The --date and --granularity filters are sent to App Store Connect when
+fetching report instances. Granularity accepts DAILY, WEEKLY, and MONTHLY.
+
 Examples:
   asc analytics view --request-id "REQUEST_ID"
   asc analytics view --request-id "REQUEST_ID" --include-segments
   asc analytics view --request-id "REQUEST_ID" --instance-id "INSTANCE_ID"
-  asc analytics view --request-id "REQUEST_ID" --date "2024-01-20" --paginate`,
+  asc analytics view --request-id "REQUEST_ID" --date "2024-01-20" --paginate
+  asc analytics view --request-id "REQUEST_ID" --date "2024-01-20" --granularity "DAILY,WEEKLY" --paginate`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -403,6 +408,20 @@ Examples:
 				return fmt.Errorf("analytics view: %w", err)
 			}
 
+			granularityProvided := false
+			fs.Visit(func(item *flag.Flag) {
+				if item.Name == "granularity" {
+					granularityProvided = true
+				}
+			})
+			var granularities []string
+			if granularityProvided {
+				granularities, err = normalizeAnalyticsGranularities(*granularity)
+				if err != nil {
+					return shared.UsageErrorf("analytics view: %v", err)
+				}
+			}
+
 			client, err := shared.GetASCClient()
 			if err != nil {
 				return fmt.Errorf("analytics view: %w", err)
@@ -421,10 +440,17 @@ Examples:
 				RequestID: strings.TrimSpace(*requestID),
 				Links:     links,
 			}
+			instanceOpts := make([]asc.AnalyticsReportInstancesOption, 0, 2)
+			if dateFilter != "" {
+				instanceOpts = append(instanceOpts, asc.WithAnalyticsReportInstancesProcessingDates([]string{dateFilter}))
+			}
+			if len(granularities) > 0 {
+				instanceOpts = append(instanceOpts, asc.WithAnalyticsReportInstancesGranularities(granularities))
+			}
 
 			foundInstance := false
 			for _, report := range reports {
-				instances, err := fetchAnalyticsReportInstances(requestCtx, client, report.ID)
+				instances, err := fetchAnalyticsReportInstances(requestCtx, client, report.ID, instanceOpts...)
 				if err != nil {
 					return fmt.Errorf("analytics view: failed to fetch instances: %w", err)
 				}
@@ -439,9 +465,6 @@ Examples:
 
 				for _, instance := range instances {
 					if strings.TrimSpace(*instanceID) != "" && instance.ID != strings.TrimSpace(*instanceID) {
-						continue
-					}
-					if !matchAnalyticsInstanceDate(instance.Attributes, dateFilter) {
 						continue
 					}
 

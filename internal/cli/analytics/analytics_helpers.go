@@ -169,14 +169,27 @@ func normalizeAnalyticsDateFilter(value string) (string, error) {
 	return parsed.Format("2006-01-02"), nil
 }
 
-func matchAnalyticsInstanceDate(attrs asc.AnalyticsReportInstanceAttributes, date string) bool {
-	if strings.TrimSpace(date) == "" {
-		return true
+func normalizeAnalyticsGranularities(value string) ([]string, error) {
+	parts := strings.Split(value, ",")
+	seen := make(map[string]struct{}, len(parts))
+	granularities := make([]string, 0, len(parts))
+	for _, part := range parts {
+		granularity := strings.ToUpper(strings.TrimSpace(part))
+		if granularity == "" {
+			return nil, fmt.Errorf("--granularity must be a comma-separated list of: DAILY, WEEKLY, MONTHLY")
+		}
+		switch granularity {
+		case "DAILY", "WEEKLY", "MONTHLY":
+		default:
+			return nil, fmt.Errorf("--granularity must be a comma-separated list of: DAILY, WEEKLY, MONTHLY")
+		}
+		if _, exists := seen[granularity]; exists {
+			continue
+		}
+		seen[granularity] = struct{}{}
+		granularities = append(granularities, granularity)
 	}
-	if strings.HasPrefix(attrs.ReportDate, date) {
-		return true
-	}
-	return strings.HasPrefix(attrs.ProcessingDate, date)
+	return granularities, nil
 }
 
 func fetchAnalyticsReports(ctx context.Context, client *asc.Client, requestID string, limit int, next string, paginate bool) ([]asc.Resource[asc.AnalyticsReportAttributes], asc.Links, error) {
@@ -226,7 +239,7 @@ func fetchAnalyticsReports(ctx context.Context, client *asc.Client, requestID st
 	return all, links, nil
 }
 
-func fetchAnalyticsReportInstances(ctx context.Context, client *asc.Client, reportID string) ([]asc.Resource[asc.AnalyticsReportInstanceAttributes], error) {
+func fetchAnalyticsReportInstances(ctx context.Context, client *asc.Client, reportID string, opts ...asc.AnalyticsReportInstancesOption) ([]asc.Resource[asc.AnalyticsReportInstanceAttributes], error) {
 	var (
 		all  []asc.Resource[asc.AnalyticsReportInstanceAttributes]
 		next string
@@ -242,7 +255,10 @@ func fetchAnalyticsReportInstances(ctx context.Context, client *asc.Client, repo
 			seen[next] = true
 			resp, err = client.GetAnalyticsReportInstances(ctx, reportID, asc.WithAnalyticsReportInstancesNextURL(next))
 		} else {
-			resp, err = client.GetAnalyticsReportInstances(ctx, reportID, asc.WithAnalyticsReportInstancesLimit(analyticsMaxLimit))
+			firstPageOpts := make([]asc.AnalyticsReportInstancesOption, 0, len(opts)+1)
+			firstPageOpts = append(firstPageOpts, asc.WithAnalyticsReportInstancesLimit(analyticsMaxLimit))
+			firstPageOpts = append(firstPageOpts, opts...)
+			resp, err = client.GetAnalyticsReportInstances(ctx, reportID, firstPageOpts...)
 		}
 		if err != nil {
 			return nil, err
