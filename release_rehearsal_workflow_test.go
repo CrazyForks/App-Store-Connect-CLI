@@ -118,14 +118,14 @@ func TestReleaseRehearsalWorkflowContractRejectsMisorderedAnonymousCheckout(t *t
 	workflow = replaceRehearsalFixture(
 		t,
 		workflow,
-		"      - name: Checkout requested source\n        uses: actions/checkout@v6",
+		"      - name: Checkout requested source\n        uses: actions/checkout@v7",
 		"      - run: echo harmless\n\n      - name: Cache source\n        uses: actions/cache@v5",
 	)
 	fixture := replaceRehearsalFixture(
 		t,
 		workflow,
 		"      - name: Set up Go",
-		"      - uses: actions/checkout@v6\n        with:\n          ref: ${{ inputs.ref }}\n          fetch-depth: 0\n          persist-credentials: false\n\n      - name: Set up Go",
+		"      - uses: actions/checkout@v7\n        with:\n          ref: ${{ inputs.ref }}\n          fetch-depth: 0\n          persist-credentials: false\n\n      - name: Set up Go",
 	)
 	if err := validateReleaseRehearsalWorkflow([]byte(fixture)); err == nil {
 		t.Fatal("misordered anonymous checkout fixture passed the workflow contract")
