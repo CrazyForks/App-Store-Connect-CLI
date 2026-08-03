@@ -62,7 +62,8 @@ func PrepareBuildUpload(ctx context.Context, client *asc.Client, appID string, f
 // CommitBuildUploadFile marks a reserved upload file as uploaded and optionally
 // persists source-file checksums. When the mutation result is ambiguous, it
 // reads the parent build upload once and accepts success only when App Store
-// Connect reports that processing has started or completed.
+// Connect reports that processing has started or completed. A reconciled
+// success returns a nil response because no authoritative file payload exists.
 func CommitBuildUploadFile(ctx context.Context, client *asc.Client, uploadID, fileID string, checksums *asc.Checksums) (*asc.BuildUploadFileResponse, error) {
 	uploaded := true
 	req := asc.BuildUploadFileUpdateRequest{
@@ -90,9 +91,10 @@ func CommitBuildUploadFile(ctx context.Context, client *asc.Client, uploadID, fi
 		return nil, buildUploadCommitError(uploadID, err, "build upload ID is unavailable for reconciliation")
 	}
 
-	// The mutation context may already have reached its deadline. Return to its
-	// parent operation before creating a fresh, bounded readback context.
-	reconcileBase := ContextWithoutTimeout(ctx)
+	// The mutation context may already have reached its deadline. Remove only
+	// that request deadline so an outer operation deadline still bounds the
+	// reconciliation readback.
+	reconcileBase := contextWithoutCurrentTimeout(ctx)
 	if parentErr := reconcileBase.Err(); parentErr != nil {
 		return nil, buildUploadCommitError(uploadID, err, fmt.Sprintf("reconciliation skipped because the parent operation ended: %v", parentErr))
 	}

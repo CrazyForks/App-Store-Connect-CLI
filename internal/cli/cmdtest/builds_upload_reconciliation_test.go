@@ -84,10 +84,13 @@ func TestBuildsUploadRecoversAmbiguousCommitFromBuildUploadState(t *testing.T) {
 		case req.Method == http.MethodPut && req.URL.Host == "upload.example.com":
 			body, err := io.ReadAll(req.Body)
 			if err != nil {
-				t.Fatalf("read uploaded IPA: %v", err)
+				t.Errorf("read uploaded IPA: %v", err)
+				return nil, fmt.Errorf("read uploaded IPA: %w", err)
 			}
 			if int64(len(body)) != ipaSize {
-				t.Fatalf("expected %d uploaded bytes, got %d", ipaSize, len(body))
+				err := fmt.Errorf("expected %d uploaded bytes, got %d", ipaSize, len(body))
+				t.Error(err)
+				return nil, err
 			}
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}}, nil
 		case req.Method == http.MethodPatch && req.URL.Path == "/v1/buildUploadFiles/file-1":
@@ -96,8 +99,9 @@ func TestBuildsUploadRecoversAmbiguousCommitFromBuildUploadState(t *testing.T) {
 			reconciliationChecks++
 			return jsonResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-1","attributes":{"state":{"state":"PROCESSING"}}}}`)
 		default:
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-			return nil, nil
+			err := fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			t.Error(err)
+			return nil, err
 		}
 	})
 

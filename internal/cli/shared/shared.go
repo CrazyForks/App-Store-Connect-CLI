@@ -1451,6 +1451,16 @@ func contextWithoutTimeout(ctx context.Context) context.Context {
 	return ctx
 }
 
+func contextWithoutCurrentTimeout(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	if base, ok := ctx.Value(timeoutParentContextKey{}).(context.Context); ok && base != nil {
+		return base
+	}
+	return ctx
+}
+
 func contextWithTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return withTimeoutContext(ctx, asc.ResolveTimeout())
 }

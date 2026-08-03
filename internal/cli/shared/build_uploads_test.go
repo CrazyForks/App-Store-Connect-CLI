@@ -173,20 +173,16 @@ func TestCommitBuildUploadFileReconcilesAmbiguousServerFailure(t *testing.T) {
 }
 
 func TestCommitBuildUploadFileReconcilesAfterMutationDeadline(t *testing.T) {
-	requestCount := 0
+	patchCount := 0
+	getCount := 0
 	client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
-		requestCount++
-		switch requestCount {
-		case 1:
-			if req.Method != http.MethodPatch {
-				t.Fatalf("expected PATCH, got %s", req.Method)
-			}
+		switch {
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/buildUploadFiles/file-456":
+			patchCount++
 			<-req.Context().Done()
 			return nil, req.Context().Err()
-		case 2:
-			if req.Method != http.MethodGet || req.URL.Path != "/v1/buildUploads/upload-123" {
-				t.Fatalf("unexpected reconciliation request: %s %s", req.Method, req.URL.String())
-			}
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/buildUploads/upload-123":
+			getCount++
 			if err := req.Context().Err(); err != nil {
 				t.Fatalf("expected fresh reconciliation context, got %v", err)
 			}
@@ -195,8 +191,9 @@ func TestCommitBuildUploadFileReconcilesAfterMutationDeadline(t *testing.T) {
 			}
 			return buildUploadsJSONStatusResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":"COMPLETE"}}}}`)
 		default:
-			t.Fatalf("unexpected request count %d", requestCount)
-			return nil, nil
+			err := fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			t.Error(err)
+			return nil, err
 		}
 	})
 
@@ -208,6 +205,51 @@ func TestCommitBuildUploadFileReconcilesAfterMutationDeadline(t *testing.T) {
 	}
 	if resp != nil {
 		t.Fatalf("expected no synthetic file response after reconciliation, got %#v", resp)
+	}
+	if patchCount > 1 {
+		t.Fatalf("expected at most one commit request, got %d", patchCount)
+	}
+	if getCount != 1 {
+		t.Fatalf("expected one reconciliation lookup, got %d", getCount)
+	}
+}
+
+func TestCommitBuildUploadFileDoesNotReconcilePastParentDeadline(t *testing.T) {
+	patchCount := 0
+	getCount := 0
+	var parentCtx context.Context
+	client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/buildUploadFiles/file-456":
+			patchCount++
+			<-req.Context().Done()
+			<-parentCtx.Done()
+			return nil, req.Context().Err()
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/buildUploads/upload-123":
+			getCount++
+			return buildUploadsJSONStatusResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":"COMPLETE"}}}}`)
+		default:
+			err := fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			t.Error(err)
+			return nil, err
+		}
+	})
+
+	var parentCancel context.CancelFunc
+	parentCtx, parentCancel = ContextWithTimeoutDuration(context.Background(), 5*time.Millisecond)
+	defer parentCancel()
+	commitCtx, commitCancel := ContextWithTimeoutDuration(parentCtx, time.Second)
+	defer commitCancel()
+
+	_, err := CommitBuildUploadFile(commitCtx, client, "upload-123", "file-456", nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected parent deadline error, got %v", err)
+	}
+	if patchCount != 1 {
+		t.Fatalf("expected one commit request, got %d", patchCount)
+	}
+	if getCount != 0 {
+		t.Fatalf("expected no reconciliation after parent deadline, got %d lookups", getCount)
 	}
 }
 

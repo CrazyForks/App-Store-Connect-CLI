@@ -2,6 +2,7 @@ package publish
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -25,7 +26,7 @@ func TestUploadBuildAndWaitForIDRecoversAmbiguousCommit(t *testing.T) {
 
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	reconciliationChecks := 0
+	buildUploadLookups := 0
 	http.DefaultTransport = publishCommandRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch {
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/buildUploads":
@@ -37,16 +38,17 @@ func TestUploadBuildAndWaitForIDRecoversAmbiguousCommit(t *testing.T) {
 		case req.Method == http.MethodPatch && req.URL.Path == "/v1/buildUploadFiles/file-1":
 			return publishCommandJSONResponse(http.StatusServiceUnavailable, `{"errors":[{"status":"503","code":"SERVICE_UNAVAILABLE","title":"Service unavailable"}]}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/buildUploads/upload-1":
-			reconciliationChecks++
-			if reconciliationChecks == 1 {
+			buildUploadLookups++
+			if buildUploadLookups == 1 {
 				return publishCommandJSONResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-1","attributes":{"state":{"state":"PROCESSING"}}}}`)
 			}
 			return publishCommandJSONResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-1","attributes":{"state":{"state":"COMPLETE"}},"relationships":{"build":{"data":{"type":"builds","id":"build-1"}}}}}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/builds/build-1":
 			return publishCommandJSONResponse(http.StatusOK, `{"data":{"type":"builds","id":"build-1","attributes":{"version":"42","processingState":"PROCESSING"}}}`)
 		default:
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-			return nil, nil
+			err := fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			t.Error(err)
+			return nil, err
 		}
 	})
 	client := newPublishCommandTestClient(t)
@@ -69,8 +71,8 @@ func TestUploadBuildAndWaitForIDRecoversAmbiguousCommit(t *testing.T) {
 	if !strings.Contains(stderr, "Upload committed in App Store Connect.") {
 		t.Fatalf("expected commit progress on stderr, got %q", stderr)
 	}
-	if reconciliationChecks != 2 {
-		t.Fatalf("expected reconciliation and build-wait lookups, got %d", reconciliationChecks)
+	if buildUploadLookups != 2 {
+		t.Fatalf("expected reconciliation and build-wait lookups, got %d", buildUploadLookups)
 	}
 	if result == nil || result.Build == nil || result.Build.Data.ID != "build-1" {
 		t.Fatalf("expected recovered build result, got %#v", result)
