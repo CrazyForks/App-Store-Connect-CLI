@@ -363,7 +363,7 @@ func AnalyticsGetCommand() *ffcli.Command {
 	includeSegments := fs.Bool("include-segments", false, "Include report segments with download URLs")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
-	paginate := fs.Bool("paginate", false, "Paginate all reports (recommended with --date)")
+	paginate := fs.Bool("paginate", false, "Paginate all reports (recommended with --processing-date)")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -372,15 +372,17 @@ func AnalyticsGetCommand() *ffcli.Command {
 		ShortHelp:  "View analytics reports for a request.",
 		LongHelp: `View analytics reports for a request.
 
-The --date and --granularity filters are sent to App Store Connect when
-fetching report instances. Granularity accepts DAILY, WEEKLY, and MONTHLY.
+The --processing-date and --granularity filters are sent to App Store Connect
+when fetching report instances. Granularity accepts DAILY, WEEKLY, and MONTHLY.
+The deprecated --date compatibility flag retains its previous local matching
+against either reportDate or processingDate.
 
 Examples:
   asc analytics view --request-id "REQUEST_ID"
   asc analytics view --request-id "REQUEST_ID" --include-segments
   asc analytics view --request-id "REQUEST_ID" --instance-id "INSTANCE_ID"
-  asc analytics view --request-id "REQUEST_ID" --date "2024-01-20" --paginate
-  asc analytics view --request-id "REQUEST_ID" --date "2024-01-20" --granularity "DAILY,WEEKLY" --paginate`,
+  asc analytics view --request-id "REQUEST_ID" --processing-date "2024-01-20" --paginate
+  asc analytics view --request-id "REQUEST_ID" --processing-date "2024-01-20" --granularity "DAILY,WEEKLY" --paginate`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
