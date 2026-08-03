@@ -31,7 +31,12 @@ GitHub job summary.
 
 A custom release output directory is passed through to the build, but it must
 not contain tracked files, overlap Git metadata, or contain the repository. The
-rehearsal rejects those paths before Make can run its cleaning prerequisite.
+rehearsal safely quotes whitespace in valid paths and rejects Make or shell
+metacharacters before Make can run its cleaning prerequisite.
+
+Guardrails and release builds run with `GOWORK=off`, preventing an ignored
+local `go.work` or `go.work.sum` from replacing the dependencies represented by
+the tested commit.
 
 The workflow has read-only repository permissions and disables interactive Git
 and GitHub CLI prompts. It does not import signing certificates, sign binaries,

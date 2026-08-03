@@ -62,6 +62,41 @@ func TestMakeBuildAllUsesStrippedTrimmedReleaseFlags(t *testing.T) {
 	}
 }
 
+func TestMakeBuildAllQuotesCustomReleaseDirectory(t *testing.T) {
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	workspaceDir := t.TempDir()
+	releaseDir := filepath.Join(workspaceDir, "release output")
+
+	cmd := exec.Command(
+		"make",
+		"-n",
+		"-f",
+		filepath.Join(repoRoot, "Makefile"),
+		"-C",
+		workspaceDir,
+		"build-all",
+		"VERSION=1.2.3",
+		"RELEASE_DIR="+releaseDir,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make -n build-all with custom output failed: %v\n%s", err, output)
+	}
+	commands := string(output)
+	for _, want := range []string{
+		`rm -rf build dist "` + releaseDir + `"`,
+		`mkdir -p "` + releaseDir + `"`,
+		`-o "` + releaseDir + `/asc_1.2.3_`,
+	} {
+		if !strings.Contains(commands, want) {
+			t.Fatalf("custom release directory is not safely quoted in %q; got:\n%s", want, commands)
+		}
+	}
+}
+
 func TestMakeBuildKeepsDebugSymbolsForDevBuilds(t *testing.T) {
 	output := makeDryRun(t, "build")
 	for _, unwanted := range []string{"-trimpath", "-s -w"} {

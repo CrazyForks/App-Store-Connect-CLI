@@ -167,6 +167,33 @@ class ReleaseRehearsalTests(unittest.TestCase):
 
         run_command.assert_not_called()
 
+    def test_run_command_disables_go_workspace(self) -> None:
+        completed = subprocess.CompletedProcess(args=[], returncode=0)
+        with mock.patch.object(
+            release_rehearsal.subprocess, "run", return_value=completed
+        ) as subprocess_run:
+            release_rehearsal.run_command(self.root, "make", "release-guardrails")
+
+        self.assertEqual(subprocess_run.call_args.kwargs["env"]["GOWORK"], "off")
+
+    def test_run_rejects_make_unsafe_release_dir_before_make(self) -> None:
+        self.commit("candidate change")
+        head = self.git("rev-parse", "HEAD")
+        release_dir = self.root / "release$(shell unsafe)"
+
+        with mock.patch.object(release_rehearsal, "run_command") as run_command:
+            with self.assertRaisesRegex(
+                release_rehearsal.RehearsalError, "cannot be represented safely"
+            ):
+                release_rehearsal.run_release_rehearsal(
+                    root=self.root,
+                    version="1.2.4",
+                    expected_sha=head,
+                    release_dir=release_dir,
+                )
+
+        run_command.assert_not_called()
+
     def test_run_rejects_repository_root_release_dir_before_make(self) -> None:
         self.commit("candidate change")
         head = self.git("rev-parse", "HEAD")

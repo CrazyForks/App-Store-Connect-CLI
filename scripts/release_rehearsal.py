@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -144,6 +145,11 @@ def ensure_clean_source(*, root: Path, release_dir: Path) -> None:
     release_dir = resolve_release_dir(root=root, release_dir=release_dir)
     pathspecs = ["."]
 
+    if any(character in str(release_dir) for character in ('$', '`', '"', "\\", "\n", "\r")):
+        raise RehearsalError(
+            "release output directory cannot be represented safely in the Make build"
+        )
+
     try:
         root.relative_to(release_dir)
     except ValueError:
@@ -235,7 +241,9 @@ def rehearse(*, root: Path, version: str, expected_sha: str, release_dir: Path) 
 
 
 def run_command(root: Path, *args: str) -> None:
-    result = subprocess.run(args, cwd=root, check=False)
+    environment = os.environ.copy()
+    environment["GOWORK"] = "off"
+    result = subprocess.run(args, cwd=root, check=False, env=environment)
     if result.returncode != 0:
         raise RehearsalError(f"{' '.join(args)} failed with exit {result.returncode}")
 

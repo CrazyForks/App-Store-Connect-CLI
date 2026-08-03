@@ -52,7 +52,7 @@ build:
 .PHONY: build-all
 build-all: clean
 	@echo "$(BLUE)Building for multiple platforms...$(NC)"
-	@mkdir -p $(RELEASE_DIR)
+	@mkdir -p "$(RELEASE_DIR)"
 	@for target in "darwin amd64 macOS" "darwin arm64 macOS" "linux amd64 linux" "linux arm64 linux" "windows amd64 windows"; do \
 		set -- $$target; \
 		os="$$1"; arch="$$2"; label="$$3"; suffix=""; \
@@ -236,7 +236,7 @@ check-wall-of-apps:
 clean:
 	@echo "$(BLUE)Cleaning...$(NC)"
 	rm -f $(BINARY_NAME) $(BINARY_NAME)-debug
-	rm -rf $(BUILD_DIR) $(DIST_DIR) $(RELEASE_DIR)
+	rm -rf $(BUILD_DIR) $(DIST_DIR) "$(RELEASE_DIR)"
 	rm -f coverage.out coverage.html
 
 # Install the binary
