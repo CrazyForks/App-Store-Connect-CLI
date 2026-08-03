@@ -32,7 +32,9 @@ GitHub job summary.
 A custom release output directory is passed through to the build, but it must
 not contain tracked files, overlap Git metadata, or contain the repository. The
 rehearsal safely quotes whitespace in valid paths and rejects Make or shell
-metacharacters before Make can run its cleaning prerequisite.
+metacharacters before Make can run its cleaning prerequisite. Non-default
+custom output paths must be absent or empty, so cleanup cannot erase unrelated
+existing content.
 
 Guardrails and release builds run with `GOWORK=off`, preventing an ignored
 local `go.work` or `go.work.sum` from replacing the dependencies represented by

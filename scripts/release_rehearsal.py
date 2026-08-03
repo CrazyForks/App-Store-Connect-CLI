@@ -140,7 +140,9 @@ def resolve_release_dir(*, root: Path, release_dir: Path) -> Path:
     return release_dir.resolve()
 
 
-def ensure_clean_source(*, root: Path, release_dir: Path) -> None:
+def ensure_clean_source(
+    *, root: Path, release_dir: Path, require_empty_release_dir: bool = False
+) -> None:
     root = root.resolve()
     release_dir = resolve_release_dir(root=root, release_dir=release_dir)
     pathspecs = ["."]
@@ -188,6 +190,19 @@ def ensure_clean_source(*, root: Path, release_dir: Path) -> None:
             raise RehearsalError("release output directory must not be inside Git metadata")
     else:
         raise RehearsalError("release output directory must not contain Git metadata")
+
+    default_release_dir = (root / "release").resolve()
+    if require_empty_release_dir and release_dir != default_release_dir and release_dir.exists():
+        try:
+            populated = not release_dir.is_dir() or any(release_dir.iterdir())
+        except OSError as error:
+            raise RehearsalError(
+                f"could not inspect custom release output directory {release_dir}: {error}"
+            ) from error
+        if populated:
+            raise RehearsalError(
+                "custom release output directory must be absent or empty before rehearsal"
+            )
 
     status = run_git(
         root,
@@ -254,7 +269,7 @@ def run_release_rehearsal(
     root = root.resolve()
     release_dir = resolve_release_dir(root=root, release_dir=release_dir)
     validate_source(root=root, version=version, expected_sha=expected_sha)
-    ensure_clean_source(root=root, release_dir=release_dir)
+    ensure_clean_source(root=root, release_dir=release_dir, require_empty_release_dir=True)
     run_command(root, "make", "release-guardrails")
     run_command(
         root,

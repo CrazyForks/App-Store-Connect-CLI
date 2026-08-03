@@ -250,6 +250,30 @@ class ReleaseRehearsalTests(unittest.TestCase):
         self.assertTrue(git_dir.exists())
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
 
+    def test_run_rejects_populated_external_release_dir_before_make(self) -> None:
+        self.commit("candidate change")
+        head = self.git("rev-parse", "HEAD")
+
+        with tempfile.TemporaryDirectory() as external_tempdir:
+            release_dir = Path(external_tempdir) / "existing-output"
+            release_dir.mkdir()
+            existing_file = release_dir / "keep.txt"
+            existing_file.write_text("keep me\n")
+
+            with mock.patch.object(release_rehearsal, "run_command") as run_command:
+                with self.assertRaisesRegex(
+                    release_rehearsal.RehearsalError, "must be absent or empty"
+                ):
+                    release_rehearsal.run_release_rehearsal(
+                        root=self.root,
+                        version="1.2.4",
+                        expected_sha=head,
+                        release_dir=release_dir,
+                    )
+
+            run_command.assert_not_called()
+            self.assertEqual(existing_file.read_text(), "keep me\n")
+
     def test_run_rejects_modified_tracked_source_before_make(self) -> None:
         self.commit("candidate change")
         head = self.git("rev-parse", "HEAD")
