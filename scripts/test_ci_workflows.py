@@ -32,8 +32,11 @@ def assert_go_toolchain_workflows(workflows: list[tuple[Path, str]]) -> None:
         assert "go-version:" not in workflow, f"{path}: source Go versions from go.mod"
         lines = workflow.splitlines()
         for index, line in enumerate(lines):
-            uses = re.match(r"^(\s*)(-\s*)?uses:\s*actions/setup-go@\S+", line)
+            uses = re.match(r"^(\s*)(-\s*)?uses:\s*(.*?)\s*$", line)
             if not uses:
+                continue
+            uses_value = normalize_yaml_scalar(uses.group(3))
+            if not uses_value.startswith("actions/setup-go@") or uses_value == "actions/setup-go@":
                 continue
 
             setup_go_count += 1
@@ -45,6 +48,41 @@ def assert_go_toolchain_workflows(workflows: list[tuple[Path, str]]) -> None:
     assert setup_go_count > 0, "expected at least one setup-go step"
 
 
+def normalize_yaml_scalar(value: str) -> str:
+    scalar = value.strip()
+    quote = ""
+    escaped = False
+    index = 0
+
+    while index < len(scalar):
+        char = scalar[index]
+        if quote == '"':
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+        elif quote == "'":
+            if char == quote:
+                if index + 1 < len(scalar) and scalar[index + 1] == quote:
+                    index += 1
+                else:
+                    quote = ""
+        elif char in {'"', "'"}:
+            quote = char
+        elif char == "#" and (index == 0 or scalar[index - 1].isspace()):
+            scalar = scalar[:index].rstrip()
+            break
+        index += 1
+
+    if len(scalar) >= 2 and scalar[0] == scalar[-1] and scalar[0] in {'"', "'"}:
+        scalar = scalar[1:-1]
+        if value.strip().startswith("'"):
+            scalar = scalar.replace("''", "'")
+    return scalar
+
+
 def setup_go_step_uses_go_mod(lines: list[str], uses_indent: int) -> bool:
     for index, line in enumerate(lines):
         if line.strip() and len(line) - len(line.lstrip()) < uses_indent:
@@ -54,33 +92,68 @@ def setup_go_step_uses_go_mod(lines: list[str], uses_indent: int) -> bool:
         if not match or len(match.group(1)) != uses_indent:
             continue
 
+        input_indent = 0
         for setting in lines[index + 1 :]:
             if not setting.strip() or setting.lstrip().startswith("#"):
                 continue
             setting_indent = len(setting) - len(setting.lstrip())
             if setting_indent <= uses_indent:
                 break
-            if setting.strip() == "go-version-file: go.mod":
+            if input_indent == 0:
+                input_indent = setting_indent
+            if setting_indent != input_indent:
+                continue
+
+            go_version_file = re.match(r"^\s*go-version-file:\s*(.*?)\s*$", setting)
+            if go_version_file and normalize_yaml_scalar(go_version_file.group(1)) == "go.mod":
                 return True
         return False
     return False
 
 
-def assert_go_toolchain_source_rejects_masked_missing_version_file() -> None:
-    masked_workflow = """jobs:
+def assert_go_toolchain_source_accepts_normalized_scalars() -> None:
+    valid_workflow = """jobs:
+  test:
+    steps:
+      - uses: "actions/setup-go@v6"
+        with:
+          go-version-file: "go.mod" # quoted source of truth
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod # source of truth
+"""
+    assert_go_toolchain_workflows([(Path("normalized-scalars.yml"), valid_workflow)])
+
+
+def assert_go_toolchain_source_rejects_step_local_violations() -> None:
+    invalid_workflows = {
+        "missing-before-valid.yml": """jobs:
+  test:
+    steps:
+      - uses: "actions/setup-go@v6"
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+""",
+        "comment-only.yml": """jobs:
   test:
     steps:
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
-          # go-version-file: go.mod
-      - uses: actions/setup-go@v6
-"""
-    try:
-        assert_go_toolchain_workflows([(Path("masked-setup-go.yml"), masked_workflow)])
-    except AssertionError:
-        return
-    raise AssertionError("a setup-go step without its own go-version-file must fail")
+          go-version-file: # go.mod
+""",
+    }
+
+    for filename, workflow in invalid_workflows.items():
+        path = Path(filename)
+        expected = f"{path}: every setup-go step must source go.mod"
+        try:
+            assert_go_toolchain_workflows([(path, workflow)])
+        except AssertionError as error:
+            if str(error) != expected:
+                raise
+        else:
+            raise AssertionError(f"{filename} must fail: {expected}")
 
 
 def assert_govulncheck_version_source() -> None:
@@ -227,7 +300,8 @@ def assert_security_target_contract() -> None:
 
 
 def main() -> None:
-    assert_go_toolchain_source_rejects_masked_missing_version_file()
+    assert_go_toolchain_source_accepts_normalized_scalars()
+    assert_go_toolchain_source_rejects_step_local_violations()
     assert_go_toolchain_source()
     assert_govulncheck_version_source()
     assert_optimized_workflow(PR_WORKFLOW, "unit-test-shards")
