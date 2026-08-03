@@ -16,6 +16,29 @@ var (
 	ErrRepeatedPaginationURL = errors.New("detected repeated pagination URL")
 )
 
+type buildUploadFileCommitResponseDecodingError struct {
+	err error
+}
+
+func (e *buildUploadFileCommitResponseDecodingError) Error() string {
+	return fmt.Sprintf("failed to parse response: %v", e.err)
+}
+
+func (e *buildUploadFileCommitResponseDecodingError) Unwrap() error {
+	return e.err
+}
+
+func newBuildUploadFileCommitResponseDecodingError(err error) error {
+	return &buildUploadFileCommitResponseDecodingError{err: err}
+}
+
+// IsBuildUploadFileCommitResponseDecodingError reports whether a successful
+// build-upload-file commit response could not be decoded.
+func IsBuildUploadFileCommitResponseDecodingError(err error) bool {
+	var decodeErr *buildUploadFileCommitResponseDecodingError
+	return errors.As(err, &decodeErr)
+}
+
 // APIError represents a parsed App Store Connect error response.
 type APIError struct {
 	Code             string

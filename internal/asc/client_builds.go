@@ -847,7 +847,7 @@ func (c *Client) UpdateBuildUploadFile(ctx context.Context, id string, req Build
 
 	var response BuildUploadFileResponse
 	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, newBuildUploadFileCommitResponseDecodingError(err)
 	}
 
 	return &response, nil

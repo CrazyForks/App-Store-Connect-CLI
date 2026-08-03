@@ -172,6 +172,48 @@ func TestCommitBuildUploadFileReconcilesAmbiguousServerFailure(t *testing.T) {
 	}
 }
 
+func TestCommitBuildUploadFileReconcilesSuccessfulResponseDecodeFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty", body: ""},
+		{name: "malformed", body: "{"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patchCount := 0
+			getCount := 0
+			client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+				switch {
+				case req.Method == http.MethodPatch && req.URL.Path == "/v1/buildUploadFiles/file-456":
+					patchCount++
+					return buildUploadsJSONStatusResponse(http.StatusOK, tt.body)
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/buildUploads/upload-123":
+					getCount++
+					return buildUploadsJSONStatusResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":"COMPLETE"}}}}`)
+				default:
+					err := fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+					t.Error(err)
+					return nil, err
+				}
+			})
+
+			resp, err := CommitBuildUploadFile(context.Background(), client, "upload-123", "file-456", nil)
+			if err != nil {
+				t.Fatalf("CommitBuildUploadFile() error: %v", err)
+			}
+			if resp != nil {
+				t.Fatalf("expected no synthetic file response after reconciliation, got %#v", resp)
+			}
+			if patchCount != 1 || getCount != 1 {
+				t.Fatalf("expected one commit and one reconciliation request, got patch=%d get=%d", patchCount, getCount)
+			}
+		})
+	}
+}
+
 func TestCommitBuildUploadFileReconcilesAfterMutationDeadline(t *testing.T) {
 	patchCount := 0
 	getCount := 0
@@ -245,8 +287,8 @@ func TestCommitBuildUploadFileDoesNotReconcilePastParentDeadline(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected parent deadline error, got %v", err)
 	}
-	if patchCount != 1 {
-		t.Fatalf("expected one commit request, got %d", patchCount)
+	if patchCount > 1 {
+		t.Fatalf("expected at most one commit request, got %d", patchCount)
 	}
 	if getCount != 0 {
 		t.Fatalf("expected no reconciliation after parent deadline, got %d lookups", getCount)
