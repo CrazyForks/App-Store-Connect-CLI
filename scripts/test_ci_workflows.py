@@ -17,17 +17,65 @@ MAKEFILE = ROOT / "Makefile"
 def assert_go_toolchain_source() -> None:
     workflow_dir = ROOT / ".github/workflows"
     workflows = sorted([*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")])
-    setup_go_count = 0
-    version_file_count = 0
+    assert_go_toolchain_workflows([(path, path.read_text()) for path in workflows])
 
-    for path in workflows:
-        workflow = path.read_text()
-        setup_go_count += workflow.count("uses: actions/setup-go@")
-        version_file_count += workflow.count("go-version-file: go.mod")
+
+def assert_go_toolchain_workflows(workflows: list[tuple[Path, str]]) -> None:
+    setup_go_count = 0
+
+    for path, workflow in workflows:
         assert "go-version:" not in workflow, f"{path}: source Go versions from go.mod"
+        lines = workflow.splitlines()
+        for index, line in enumerate(lines):
+            uses = re.match(r"^(\s*)(-\s*)?uses:\s*actions/setup-go@\S+", line)
+            if not uses:
+                continue
+
+            setup_go_count += 1
+            uses_indent = len(uses.group(1)) + len(uses.group(2) or "")
+            assert setup_go_step_uses_go_mod(lines[index + 1 :], uses_indent), (
+                f"{path}: every setup-go step must source go.mod"
+            )
 
     assert setup_go_count > 0, "expected at least one setup-go step"
-    assert version_file_count == setup_go_count, "every setup-go step must source go.mod"
+
+
+def setup_go_step_uses_go_mod(lines: list[str], uses_indent: int) -> bool:
+    for index, line in enumerate(lines):
+        if line.strip() and len(line) - len(line.lstrip()) < uses_indent:
+            return False
+
+        match = re.match(r"^(\s*)with:\s*$", line)
+        if not match or len(match.group(1)) != uses_indent:
+            continue
+
+        for setting in lines[index + 1 :]:
+            if not setting.strip() or setting.lstrip().startswith("#"):
+                continue
+            setting_indent = len(setting) - len(setting.lstrip())
+            if setting_indent <= uses_indent:
+                break
+            if setting.strip() == "go-version-file: go.mod":
+                return True
+        return False
+    return False
+
+
+def assert_go_toolchain_source_rejects_masked_missing_version_file() -> None:
+    masked_workflow = """jobs:
+  test:
+    steps:
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          # go-version-file: go.mod
+      - uses: actions/setup-go@v6
+"""
+    try:
+        assert_go_toolchain_workflows([(Path("masked-setup-go.yml"), masked_workflow)])
+    except AssertionError:
+        return
+    raise AssertionError("a setup-go step without its own go-version-file must fail")
 
 
 def assert_govulncheck_version_source() -> None:
@@ -118,6 +166,7 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
 
 
 def main() -> None:
+    assert_go_toolchain_source_rejects_masked_missing_version_file()
     assert_go_toolchain_source()
     assert_govulncheck_version_source()
     assert_optimized_workflow(PR_WORKFLOW, "unit-test-shards")
