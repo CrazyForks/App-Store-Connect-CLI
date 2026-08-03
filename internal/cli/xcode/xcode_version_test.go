@@ -571,9 +571,19 @@ func TestXcodeVersionBumpResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 		runBumpVersion = originalBump
 		runResolveXcodeNextBuildNumber = originalResolve
 	})
-	runValidateBumpVersion = func(ctx context.Context, opts localxcode.BumpVersionOptions) error { return nil }
+	var lookupSession *localxcode.BuildSettingsLookupSession
+	runValidateBumpVersion = func(ctx context.Context, opts localxcode.BumpVersionOptions) error {
+		if opts.BuildSettingsSession == nil {
+			t.Fatal("validate phase did not receive a build settings lookup session")
+		}
+		lookupSession = opts.BuildSettingsSession
+		return nil
+	}
 
 	runGetConsistentMarketingVersion = func(ctx context.Context, opts localxcode.GetVersionOptions) (string, error) {
+		if opts.BuildSettingsSession != lookupSession {
+			t.Fatal("marketing-version phase did not reuse the validation lookup session")
+		}
 		return "3.0.0", nil
 	}
 	runResolveXcodeNextBuildNumber = func(ctx context.Context, opts xcodeRemoteBuildNumberOptions) (string, error) {
@@ -583,6 +593,9 @@ func TestXcodeVersionBumpResolvesAndAppliesRemoteSafeBuildNumber(t *testing.T) {
 		return "301", nil
 	}
 	runBumpVersion = func(ctx context.Context, opts localxcode.BumpVersionOptions) (*localxcode.BumpVersionResult, error) {
+		if opts.BuildSettingsSession != lookupSession {
+			t.Fatal("mutation phase did not reuse the validation lookup session")
+		}
 		if opts.BumpType != localxcode.BumpBuild || opts.BuildNumber != "301" || opts.Target != "Widget" || opts.Configuration != "Debug" {
 			t.Fatalf("unexpected bump options: %#v", opts)
 		}

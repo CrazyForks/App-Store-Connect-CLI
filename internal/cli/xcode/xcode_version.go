@@ -168,6 +168,7 @@ auto policy warns on stderr before running xcodebuild -showBuildSettings. Use
 			if err != nil {
 				return err
 			}
+			lookupSession := localxcode.NewBuildSettingsLookupSession(lookupPolicy, os.Stderr)
 
 			result, err := runGetVersion(ctx, localxcode.GetVersionOptions{
 				ProjectDir:              selectedProjectInput(*projectDir, *project),
@@ -175,6 +176,7 @@ auto policy warns on stderr before running xcodebuild -showBuildSettings. Use
 				Configuration:           strings.TrimSpace(*configuration),
 				BuildSettingsLookup:     lookupPolicy,
 				BuildSettingsDiagnostic: os.Stderr,
+				BuildSettingsSession:    lookupSession,
 			})
 			if err != nil {
 				return fmt.Errorf("xcode version view: %w", err)
@@ -263,6 +265,7 @@ Examples:
 			if err != nil {
 				return err
 			}
+			lookupSession := localxcode.NewBuildSettingsLookupSession(lookupPolicy, os.Stderr)
 
 			v := strings.TrimSpace(*version)
 			b := strings.TrimSpace(*buildNumber)
@@ -302,6 +305,7 @@ Examples:
 						Configuration:           strings.TrimSpace(*configuration),
 						BuildSettingsLookup:     lookupPolicy,
 						BuildSettingsDiagnostic: os.Stderr,
+						BuildSettingsSession:    lookupSession,
 					})
 					if err != nil {
 						return fmt.Errorf("xcode version edit: resolve local version for remote build selection: %w", err)
@@ -384,6 +388,7 @@ Examples:
 			if err != nil {
 				return err
 			}
+			lookupSession := localxcode.NewBuildSettingsLookupSession(lookupPolicy, os.Stderr)
 
 			parsed, err := localxcode.ParseBumpType(*bumpType)
 			if err != nil {
@@ -413,6 +418,7 @@ Examples:
 					BuildNumber:             "1",
 					BuildSettingsLookup:     lookupPolicy,
 					BuildSettingsDiagnostic: os.Stderr,
+					BuildSettingsSession:    lookupSession,
 					AllowExternalXCConfig:   *allowExternalXCConfig,
 				}); err != nil {
 					return fmt.Errorf("xcode version bump: validate local mutation: %w", err)
@@ -423,6 +429,7 @@ Examples:
 					Configuration:           strings.TrimSpace(*configuration),
 					BuildSettingsLookup:     lookupPolicy,
 					BuildSettingsDiagnostic: os.Stderr,
+					BuildSettingsSession:    lookupSession,
 				})
 				if err != nil {
 					return fmt.Errorf("xcode version bump: resolve local version for remote build selection: %w", err)
@@ -441,6 +448,7 @@ Examples:
 				BuildNumber:             remoteBuildNumber,
 				BuildSettingsLookup:     lookupPolicy,
 				BuildSettingsDiagnostic: os.Stderr,
+				BuildSettingsSession:    lookupSession,
 				AllowExternalXCConfig:   *allowExternalXCConfig,
 			})
 			if err != nil {

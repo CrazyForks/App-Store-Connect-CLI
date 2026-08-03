@@ -18,6 +18,15 @@ type BumpType string
 // xcodebuild when structured project parsing cannot resolve version settings.
 type BuildSettingsLookupPolicy string
 
+// BuildSettingsLookupSession shares successful fallback reads and diagnostic
+// state across the phases of one version command.
+type BuildSettingsLookupSession struct {
+	policy     BuildSettingsLookupPolicy
+	diagnostic io.Writer
+	warned     bool
+	cache      map[string]map[string]string
+}
+
 const (
 	BumpMajor BumpType = "major"
 	BumpMinor BumpType = "minor"
@@ -58,6 +67,55 @@ func ParseBuildSettingsLookupPolicy(value string) (BuildSettingsLookupPolicy, er
 	}
 }
 
+// NewBuildSettingsLookupSession creates command-scoped state for xcodebuild
+// build-settings fallback reads.
+func NewBuildSettingsLookupSession(policy BuildSettingsLookupPolicy, diagnostic io.Writer) *BuildSettingsLookupSession {
+	return &BuildSettingsLookupSession{
+		policy:     policy,
+		diagnostic: diagnostic,
+		cache:      make(map[string]map[string]string),
+	}
+}
+
+func resolveBuildSettingsLookupSession(
+	policy BuildSettingsLookupPolicy,
+	diagnostic io.Writer,
+	session *BuildSettingsLookupSession,
+) (*BuildSettingsLookupSession, error) {
+	if session == nil {
+		normalized, err := ParseBuildSettingsLookupPolicy(string(policy))
+		if err != nil {
+			return nil, err
+		}
+		return NewBuildSettingsLookupSession(normalized, diagnostic), nil
+	}
+
+	normalizedSessionPolicy, err := ParseBuildSettingsLookupPolicy(string(session.policy))
+	if err != nil {
+		return nil, err
+	}
+	session.policy = normalizedSessionPolicy
+	if strings.TrimSpace(string(policy)) != "" {
+		normalizedPolicy, err := ParseBuildSettingsLookupPolicy(string(policy))
+		if err != nil {
+			return nil, err
+		}
+		if normalizedPolicy != normalizedSessionPolicy {
+			return nil, fmt.Errorf("build settings lookup session policy %q conflicts with policy %q", normalizedSessionPolicy, normalizedPolicy)
+		}
+	}
+	if session.cache == nil {
+		session.cache = make(map[string]map[string]string)
+	}
+	return session, nil
+}
+
+func (session *BuildSettingsLookupSession) invalidateCache() {
+	if session != nil {
+		clear(session.cache)
+	}
+}
+
 // VersionInfo holds the current version and build number from an Xcode project.
 type VersionInfo struct {
 	Version           string `json:"version"`
@@ -77,6 +135,7 @@ type GetVersionOptions struct {
 	Configuration           string
 	BuildSettingsLookup     BuildSettingsLookupPolicy
 	BuildSettingsDiagnostic io.Writer
+	BuildSettingsSession    *BuildSettingsLookupSession
 }
 
 // SetVersionOptions configures what to set.
@@ -122,6 +181,7 @@ type BumpVersionOptions struct {
 	BuildNumber             string
 	BuildSettingsLookup     BuildSettingsLookupPolicy
 	BuildSettingsDiagnostic io.Writer
+	BuildSettingsSession    *BuildSettingsLookupSession
 	// AllowExternalXCConfig authorizes rewriting xcconfig files that the project
 	// references outside its own directory. Without it, such a mutation fails.
 	AllowExternalXCConfig bool
@@ -160,8 +220,7 @@ func getVersionLegacy(
 	ctx context.Context,
 	projectDir string,
 	target string,
-	lookupPolicy BuildSettingsLookupPolicy,
-	diagnostic io.Writer,
+	lookupSession *BuildSettingsLookupSession,
 ) (*VersionInfo, error) {
 	if err := requireMacOS(); err != nil {
 		return nil, err
@@ -193,7 +252,7 @@ func getVersionLegacy(
 
 	// Modern project: agvtool returns $(MARKETING_VERSION). Resolve via xcodebuild.
 	if modern {
-		resolved, err := readBuildSettings(ctx, projectDir, target, lookupPolicy, diagnostic)
+		resolved, err := readBuildSettings(ctx, projectDir, target, lookupSession)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve build settings: %w", err)
 		}
@@ -304,9 +363,15 @@ func validateSetVersionLegacy() error {
 
 // BumpVersion increments the version or build number.
 func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResult, error) {
-	if _, err := ParseBuildSettingsLookupPolicy(string(opts.BuildSettingsLookup)); err != nil {
+	lookupSession, err := resolveBuildSettingsLookupSession(
+		opts.BuildSettingsLookup,
+		opts.BuildSettingsDiagnostic,
+		opts.BuildSettingsSession,
+	)
+	if err != nil {
 		return nil, err
 	}
+	opts.BuildSettingsSession = lookupSession
 	if err := validateBumpVersionOptions(opts); err != nil {
 		return nil, err
 	}
@@ -342,9 +407,15 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 // baseline across the selected configurations, without changing any files.
 // Callers can use it before remote work such as resolving a build number.
 func ValidateBumpVersion(ctx context.Context, opts BumpVersionOptions) error {
-	if _, err := ParseBuildSettingsLookupPolicy(string(opts.BuildSettingsLookup)); err != nil {
+	lookupSession, err := resolveBuildSettingsLookupSession(
+		opts.BuildSettingsLookup,
+		opts.BuildSettingsDiagnostic,
+		opts.BuildSettingsSession,
+	)
+	if err != nil {
 		return err
 	}
+	opts.BuildSettingsSession = lookupSession
 	if err := validateBumpVersionOptions(opts); err != nil {
 		return err
 	}
@@ -371,7 +442,7 @@ func ValidateBumpVersion(ctx context.Context, opts BumpVersionOptions) error {
 	if err := validateSetVersionLegacy(); err != nil {
 		return err
 	}
-	current, err := getVersionLegacy(ctx, opts.ProjectDir, "", opts.BuildSettingsLookup, opts.BuildSettingsDiagnostic)
+	current, err := getVersionLegacy(ctx, opts.ProjectDir, "", opts.BuildSettingsSession)
 	if err != nil {
 		return err
 	}
@@ -471,7 +542,7 @@ func bumpVersionLegacy(ctx context.Context, opts BumpVersionOptions) (*BumpVersi
 	}
 	trimmedTarget := strings.TrimSpace(opts.Target)
 
-	current, err := getVersionLegacy(ctx, opts.ProjectDir, trimmedTarget, opts.BuildSettingsLookup, opts.BuildSettingsDiagnostic)
+	current, err := getVersionLegacy(ctx, opts.ProjectDir, trimmedTarget, opts.BuildSettingsSession)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +564,8 @@ func bumpVersionLegacy(ctx context.Context, opts BumpVersionOptions) (*BumpVersi
 		if _, err := runAgvtool(ctx, opts.ProjectDir, "next-version", "-all"); err != nil {
 			return nil, fmt.Errorf("failed to increment build number: %w", err)
 		}
-		updated, err := getVersionLegacy(ctx, opts.ProjectDir, trimmedTarget, opts.BuildSettingsLookup, opts.BuildSettingsDiagnostic)
+		opts.BuildSettingsSession.invalidateCache()
+		updated, err := getVersionLegacy(ctx, opts.ProjectDir, trimmedTarget, opts.BuildSettingsSession)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read updated build number: %w", err)
 		}
@@ -556,8 +628,7 @@ func readBuildSettings(
 	ctx context.Context,
 	projectDir string,
 	target string,
-	lookupPolicy BuildSettingsLookupPolicy,
-	diagnostic io.Writer,
+	lookupSession *BuildSettingsLookupSession,
 ) (map[string]string, error) {
 	xcodeproj, err := findXcodeproj(projectDir)
 	if err != nil {
@@ -568,15 +639,24 @@ func readBuildSettings(
 	if t := strings.TrimSpace(target); t != "" {
 		args = append(args, "-target", t)
 	}
-	policy, err := ParseBuildSettingsLookupPolicy(string(lookupPolicy))
-	if err != nil {
-		return nil, err
+	if lookupSession == nil {
+		return nil, fmt.Errorf("build settings lookup session is required")
 	}
-	if policy == BuildSettingsLookupNever {
+	if lookupSession.policy == BuildSettingsLookupNever {
 		return nil, fmt.Errorf("xcodebuild -showBuildSettings fallback is disabled by --xcodebuild-settings-lookup never; define MARKETING_VERSION and CURRENT_PROJECT_VERSION in the project or referenced xcconfig files")
 	}
-	if diagnostic != nil {
-		fmt.Fprintln(diagnostic, "Warning: structured project parsing could not resolve MARKETING_VERSION and CURRENT_PROJECT_VERSION; running xcodebuild -showBuildSettings. Define both settings in the project or referenced xcconfig files, or pass --xcodebuild-settings-lookup never to fail without running xcodebuild.")
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cacheKey := filepath.Clean(xcodeproj) + "\x00" + strings.TrimSpace(target)
+	if cached, ok := lookupSession.cache[cacheKey]; ok {
+		return cached, nil
+	}
+	if !lookupSession.warned {
+		if lookupSession.diagnostic != nil {
+			fmt.Fprintln(lookupSession.diagnostic, "Warning: structured project parsing could not resolve MARKETING_VERSION and CURRENT_PROJECT_VERSION; running xcodebuild -showBuildSettings. Define both settings in the project or referenced xcconfig files, or pass --xcodebuild-settings-lookup never to fail without running xcodebuild.")
+		}
+		lookupSession.warned = true
 	}
 	cmd := commandContextFn(ctx, "xcodebuild", args...)
 	cmd.Dir = resolvedProjectDir(projectDir)
@@ -613,6 +693,7 @@ func readBuildSettings(
 			}
 		}
 	}
+	lookupSession.cache[cacheKey] = settings
 	return settings, nil
 }
 

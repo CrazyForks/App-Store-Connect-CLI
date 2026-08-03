@@ -438,6 +438,95 @@ func TestGetVersionScopedStructuredParsingRemainsSilent(t *testing.T) {
 	}
 }
 
+func TestBumpVersionLegacyBuildWarnsOnceAcrossPostMutationReread(t *testing.T) {
+	projectDir := writeLegacyVersionProject(t)
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	var diagnostic bytes.Buffer
+
+	restore := overrideTestEnvironment(t)
+	runtimeGOOS = "darwin"
+	lookPathFn = func(file string) (string, error) { return "/usr/bin/" + file, nil }
+	commandContextFn = helperCommandContext(t, logPath)
+	t.Setenv("ASC_XCODE_HELPER_VARIABLE_VERSION", "1")
+	t.Setenv("ASC_XCODE_HELPER_SINGLE_TARGET", "1")
+	t.Cleanup(restore)
+
+	_, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir:              projectDir,
+		BumpType:                BumpBuild,
+		BuildSettingsLookup:     BuildSettingsLookupAuto,
+		BuildSettingsDiagnostic: &diagnostic,
+	})
+	if err != nil {
+		t.Fatalf("BumpVersion() error = %v", err)
+	}
+	if got := strings.Count(diagnostic.String(), "Warning: structured project parsing"); got != 1 {
+		t.Fatalf("fallback warning count = %d, want 1; stderr = %q", got, diagnostic.String())
+	}
+	logData, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatalf("read helper log: %v", readErr)
+	}
+	if got := strings.Count(string(logData), "xcodebuild|-showBuildSettings"); got != 2 {
+		t.Fatalf("xcodebuild fallback count = %d, want 2 fresh reads across mutation; log = %q", got, logData)
+	}
+}
+
+func TestBuildSettingsLookupIsSharedAcrossPreMutationBumpPhases(t *testing.T) {
+	projectDir := writeLegacyVersionProject(t)
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	var diagnostic bytes.Buffer
+
+	restore := overrideTestEnvironment(t)
+	runtimeGOOS = "darwin"
+	lookPathFn = func(file string) (string, error) { return "/usr/bin/" + file, nil }
+	commandContextFn = helperCommandContext(t, logPath)
+	t.Setenv("ASC_XCODE_HELPER_VARIABLE_VERSION", "1")
+	t.Setenv("ASC_XCODE_HELPER_SINGLE_TARGET", "1")
+	t.Cleanup(restore)
+	lookupSession := NewBuildSettingsLookupSession(BuildSettingsLookupAuto, &diagnostic)
+
+	if err := ValidateBumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir:              projectDir,
+		BumpType:                BumpBuild,
+		BuildNumber:             "108",
+		BuildSettingsLookup:     BuildSettingsLookupAuto,
+		BuildSettingsDiagnostic: &diagnostic,
+		BuildSettingsSession:    lookupSession,
+	}); err != nil {
+		t.Fatalf("ValidateBumpVersion() error = %v", err)
+	}
+	if _, err := GetConsistentMarketingVersion(context.Background(), GetVersionOptions{
+		ProjectDir:              projectDir,
+		BuildSettingsLookup:     BuildSettingsLookupAuto,
+		BuildSettingsDiagnostic: &diagnostic,
+		BuildSettingsSession:    lookupSession,
+	}); err != nil {
+		t.Fatalf("GetConsistentMarketingVersion() error = %v", err)
+	}
+	if _, err := BumpVersion(context.Background(), BumpVersionOptions{
+		ProjectDir:              projectDir,
+		BumpType:                BumpBuild,
+		BuildNumber:             "108",
+		BuildSettingsLookup:     BuildSettingsLookupAuto,
+		BuildSettingsDiagnostic: &diagnostic,
+		BuildSettingsSession:    lookupSession,
+	}); err != nil {
+		t.Fatalf("BumpVersion() error = %v", err)
+	}
+
+	if got := strings.Count(diagnostic.String(), "Warning: structured project parsing"); got != 1 {
+		t.Fatalf("fallback warning count = %d, want 1; stderr = %q", got, diagnostic.String())
+	}
+	logData, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatalf("read helper log: %v", readErr)
+	}
+	if got := strings.Count(string(logData), "xcodebuild|-showBuildSettings"); got != 1 {
+		t.Fatalf("xcodebuild fallback count = %d, want 1 shared pre-mutation read; log = %q", got, logData)
+	}
+}
+
 func TestSetVersionTargetedWritesRequireStructuredProject(t *testing.T) {
 	prevOS := runtimeGOOS
 	prevLookPath := lookPathFn
