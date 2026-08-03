@@ -2,6 +2,7 @@ package shared
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
@@ -123,7 +125,7 @@ func TestCommitBuildUploadFileMarksUploadComplete(t *testing.T) {
 		return buildUploadsJSONStatusResponse(http.StatusOK, `{"data":{"type":"buildUploadFiles","id":"file-456","attributes":{"uploaded":true}}}`)
 	})
 
-	resp, err := CommitBuildUploadFile(context.Background(), client, "file-456", &asc.Checksums{
+	resp, err := CommitBuildUploadFile(context.Background(), client, "upload-123", "file-456", &asc.Checksums{
 		File: &asc.Checksum{
 			Hash:      "abc123",
 			Algorithm: asc.ChecksumAlgorithmSHA256,
@@ -134,5 +136,179 @@ func TestCommitBuildUploadFileMarksUploadComplete(t *testing.T) {
 	}
 	if resp == nil || resp.Data.Attributes.Uploaded == nil || !*resp.Data.Attributes.Uploaded {
 		t.Fatalf("expected uploaded response, got %#v", resp)
+	}
+}
+
+func TestCommitBuildUploadFileReconcilesAmbiguousServerFailure(t *testing.T) {
+	requestCount := 0
+	client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		switch requestCount {
+		case 1:
+			if req.Method != http.MethodPatch || req.URL.Path != "/v1/buildUploadFiles/file-456" {
+				t.Fatalf("unexpected commit request: %s %s", req.Method, req.URL.String())
+			}
+			return buildUploadsJSONStatusResponse(http.StatusServiceUnavailable, `{"errors":[{"status":"503","code":"SERVICE_UNAVAILABLE","title":"Service unavailable"}]}`)
+		case 2:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/buildUploads/upload-123" {
+				t.Fatalf("unexpected reconciliation request: %s %s", req.Method, req.URL.String())
+			}
+			return buildUploadsJSONStatusResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":"PROCESSING"}}}}`)
+		default:
+			t.Fatalf("unexpected request count %d", requestCount)
+			return nil, nil
+		}
+	})
+
+	resp, err := CommitBuildUploadFile(context.Background(), client, "upload-123", "file-456", nil)
+	if err != nil {
+		t.Fatalf("CommitBuildUploadFile() error: %v", err)
+	}
+	if resp != nil {
+		t.Fatalf("expected no synthetic file response after reconciliation, got %#v", resp)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected commit and reconciliation requests, got %d", requestCount)
+	}
+}
+
+func TestCommitBuildUploadFileReconcilesAfterMutationDeadline(t *testing.T) {
+	requestCount := 0
+	client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		switch requestCount {
+		case 1:
+			if req.Method != http.MethodPatch {
+				t.Fatalf("expected PATCH, got %s", req.Method)
+			}
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		case 2:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/buildUploads/upload-123" {
+				t.Fatalf("unexpected reconciliation request: %s %s", req.Method, req.URL.String())
+			}
+			if err := req.Context().Err(); err != nil {
+				t.Fatalf("expected fresh reconciliation context, got %v", err)
+			}
+			if _, ok := req.Context().Deadline(); !ok {
+				t.Fatal("expected reconciliation lookup to have a bounded deadline")
+			}
+			return buildUploadsJSONStatusResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":"COMPLETE"}}}}`)
+		default:
+			t.Fatalf("unexpected request count %d", requestCount)
+			return nil, nil
+		}
+	})
+
+	commitCtx, cancel := ContextWithTimeoutDuration(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	resp, err := CommitBuildUploadFile(commitCtx, client, "upload-123", "file-456", nil)
+	if err != nil {
+		t.Fatalf("CommitBuildUploadFile() error: %v", err)
+	}
+	if resp != nil {
+		t.Fatalf("expected no synthetic file response after reconciliation, got %#v", resp)
+	}
+}
+
+func TestCommitBuildUploadFileDoesNotReconcileDefinitiveClientErrors(t *testing.T) {
+	for _, status := range []int{http.StatusUnprocessableEntity, http.StatusTooManyRequests} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			requestCount := 0
+			client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+				requestCount++
+				if req.Method != http.MethodPatch {
+					t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+				}
+				return buildUploadsJSONStatusResponse(status, fmt.Sprintf(`{"errors":[{"status":"%d","code":"CLIENT_ERROR","title":"Client error"}]}`, status))
+			})
+
+			_, err := CommitBuildUploadFile(context.Background(), client, "upload-123", "file-456", nil)
+			if err == nil {
+				t.Fatal("expected commit error, got nil")
+			}
+			if requestCount != 1 {
+				t.Fatalf("expected no reconciliation lookup, got %d requests", requestCount)
+			}
+			if !strings.Contains(err.Error(), `build upload "upload-123"`) || !strings.Contains(err.Error(), `asc builds uploads view --id "upload-123"`) {
+				t.Fatalf("expected upload ID and remediation, got %v", err)
+			}
+			var apiErr *asc.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+				t.Fatalf("expected original status %d to remain inspectable, got %v", status, err)
+			}
+		})
+	}
+}
+
+func TestCommitBuildUploadFileRejectsUnprovenReconciliationStates(t *testing.T) {
+	tests := []struct {
+		name      string
+		stateJSON string
+		want      string
+	}{
+		{name: "awaiting upload", stateJSON: `"AWAITING_UPLOAD"`, want: "AWAITING_UPLOAD"},
+		{name: "failed", stateJSON: `"FAILED"`, want: "FAILED"},
+		{name: "unknown", stateJSON: `"FUTURE_STATE"`, want: "FUTURE_STATE"},
+		{name: "missing", stateJSON: `null`, want: "no authoritative upload state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requestCount := 0
+			client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+				requestCount++
+				switch requestCount {
+				case 1:
+					return buildUploadsJSONStatusResponse(http.StatusServiceUnavailable, `{"errors":[{"status":"503","code":"SERVICE_UNAVAILABLE","title":"Service unavailable"}]}`)
+				case 2:
+					body := fmt.Sprintf(`{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":%s}}}}`, tt.stateJSON)
+					return buildUploadsJSONStatusResponse(http.StatusOK, body)
+				default:
+					t.Fatalf("unexpected request count %d", requestCount)
+					return nil, nil
+				}
+			})
+
+			_, err := CommitBuildUploadFile(context.Background(), client, "upload-123", "file-456", nil)
+			if err == nil {
+				t.Fatal("expected original commit error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected %q in error, got %v", tt.want, err)
+			}
+			var retryableErr *asc.RetryableError
+			if !errors.As(err, &retryableErr) {
+				t.Fatalf("expected original retryable commit error to remain inspectable, got %v", err)
+			}
+		})
+	}
+}
+
+func TestCommitBuildUploadFilePreservesMutationErrorWhenReadbackFails(t *testing.T) {
+	requestCount := 0
+	client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		switch requestCount {
+		case 1:
+			return buildUploadsJSONStatusResponse(http.StatusServiceUnavailable, `{"errors":[{"status":"503","code":"SERVICE_UNAVAILABLE","title":"Service unavailable"}]}`)
+		case 2:
+			return buildUploadsJSONStatusResponse(http.StatusForbidden, `{"errors":[{"status":"403","code":"FORBIDDEN","title":"Forbidden"}]}`)
+		default:
+			t.Fatalf("unexpected request count %d", requestCount)
+			return nil, nil
+		}
+	})
+
+	_, err := CommitBuildUploadFile(context.Background(), client, "upload-123", "file-456", nil)
+	if err == nil {
+		t.Fatal("expected commit error, got nil")
+	}
+	if !strings.Contains(err.Error(), "reconciliation lookup failed") || !strings.Contains(err.Error(), "Forbidden") {
+		t.Fatalf("expected reconciliation diagnostics, got %v", err)
+	}
+	var retryableErr *asc.RetryableError
+	if !errors.As(err, &retryableErr) {
+		t.Fatalf("expected original mutation error to remain inspectable, got %v", err)
 	}
 }

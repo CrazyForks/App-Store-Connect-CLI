@@ -291,7 +291,7 @@ Examples:
 				}
 
 				commitCtx, commitCancel := shared.ContextWithUploadTimeout(ctx)
-				commitResp, err := shared.CommitBuildUploadFile(commitCtx, client, fileResp.Data.ID, verifiedChecksums)
+				commitResp, err := shared.CommitBuildUploadFile(commitCtx, client, uploadResp.Data.ID, fileResp.Data.ID, verifiedChecksums)
 				commitCancel()
 				if err != nil {
 					return fmt.Errorf("builds upload: %w", err)
