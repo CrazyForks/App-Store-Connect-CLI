@@ -6,7 +6,8 @@ The repository gets a manually dispatched `Release rehearsal` GitHub Actions
 workflow. It accepts a required candidate semantic version and a required Git
 ref or commit SHA. The workflow resolves that input through `actions/checkout`,
 records the exact checked-out SHA, and passes both values to the repository's
-release rehearsal script.
+release rehearsal script. Its guardrails run on `macos-latest`, matching the
+publishing workflow so Darwin-only release tests are exercised.
 
 The local invocation uses the same entrypoint:
 
@@ -51,12 +52,12 @@ and expire with the job.
 ## Verification
 
 Workflow-contract tests establish RED before the workflow exists, then assert
-the parsed dispatch inputs, checkout binding, prompt guards, every permissions
-block, script entrypoint, persisted SHA flow, generated summary content, and
-absence of publishing steps or commands. The workflow invokes one Python
-entrypoint; its dynamic orchestration test proves that `make
-release-guardrails` runs before `build-all`, avoiding a second YAML-owned
-orchestration path. Script tests cover valid and invalid versions, SHA
+the parsed dispatch inputs, checkout binding, release-platform runner, prompt
+guards, every permissions block, script entrypoint, persisted SHA flow,
+generated summary content, and absence of publishing steps or commands. The
+workflow invokes one Python entrypoint; its dynamic orchestration test proves
+that `make release-guardrails` runs before `build-all`, avoiding a second
+YAML-owned orchestration path. Script tests cover valid and invalid versions, SHA
 mismatches, repository-wide and candidate-ancestor tag boundaries, dirty
 tracked and untracked inputs, repository-root output rejection, post-build
 source mutation, release-output exclusion, and artifact validation. A local

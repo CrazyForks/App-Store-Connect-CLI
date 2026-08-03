@@ -27,8 +27,9 @@ type rehearsalInput struct {
 }
 
 type rehearsalJob struct {
-	Env   map[string]string `yaml:"env"`
-	Steps []rehearsalStep   `yaml:"steps"`
+	RunsOn string            `yaml:"runs-on"`
+	Env    map[string]string `yaml:"env"`
+	Steps  []rehearsalStep   `yaml:"steps"`
 }
 
 type rehearsalStep struct {
@@ -132,6 +133,19 @@ func TestReleaseRehearsalWorkflowContractRejectsWritablePermissions(t *testing.T
 	}
 }
 
+func TestReleaseRehearsalWorkflowContractRejectsNonReleasePlatform(t *testing.T) {
+	workflow := readReleaseRehearsalWorkflow(t)
+	fixture := replaceRehearsalFixture(
+		t,
+		workflow,
+		"runs-on: macos-latest",
+		"runs-on: ubuntu-latest",
+	)
+	if err := validateReleaseRehearsalWorkflow([]byte(fixture)); err == nil {
+		t.Fatal("non-release-platform fixture passed the workflow contract")
+	}
+}
+
 func TestReleaseRehearsalWorkflowContractRejectsPublishingSteps(t *testing.T) {
 	workflow := readReleaseRehearsalWorkflow(t)
 	cases := map[string]string{
@@ -213,6 +227,9 @@ func validateReleaseRehearsalWorkflow(data []byte) error {
 	job, ok := workflow.Jobs["rehearse"]
 	if !ok {
 		return fmt.Errorf("missing rehearse job")
+	}
+	if job.RunsOn != "macos-latest" {
+		return fmt.Errorf("rehearsal guardrails must run on the macOS release platform")
 	}
 	if job.Env["GIT_TERMINAL_PROMPT"] != "0" || job.Env["GH_PROMPT_DISABLED"] != "1" {
 		return fmt.Errorf("rehearse job must disable interactive Git and GitHub prompts")
