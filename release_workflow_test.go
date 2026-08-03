@@ -58,7 +58,7 @@ func TestReleaseWorkflowPreservesRubyBinInterpolationInFormulaTest(t *testing.T)
 	}
 }
 
-func TestReleaseWorkflowKeepsDocsGuardrails(t *testing.T) {
+func TestReleaseWorkflowKeepsHistoricalGuardrailsInline(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
@@ -67,11 +67,39 @@ func TestReleaseWorkflowKeepsDocsGuardrails(t *testing.T) {
 	workflow := string(data)
 	for _, want := range []string{
 		`python3 scripts/test_check_docs.py`,
+		`make format-check`,
 		`make check-docs`,
+		`make check-wall-of-apps`,
+		`make lint`,
+		`ASC_BYPASS_KEYCHAIN=1 make test`,
 	} {
 		if !strings.Contains(workflow, want) {
-			t.Fatalf("release workflow missing docs guardrail %q", want)
+			t.Errorf("release workflow missing historical guardrail %q", want)
 		}
+	}
+	if strings.Contains(workflow, "make release-guardrails") {
+		t.Fatal("release workflow cannot call a target absent from historical tags")
+	}
+}
+
+func TestReleaseRehearsalGuardrailsIncludeDocsValidatorSelfTest(t *testing.T) {
+	data, err := os.ReadFile("Makefile")
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+
+	makefile := string(data)
+	start := strings.Index(makefile, "release-guardrails:\n")
+	if start == -1 {
+		t.Fatal("Makefile missing release-guardrails target")
+	}
+	end := strings.Index(makefile[start:], "\n# Show help")
+	if end == -1 {
+		t.Fatal("could not find end of release-guardrails target")
+	}
+	guardrails := makefile[start : start+end]
+	if !strings.Contains(guardrails, "python3 scripts/test_check_docs.py") {
+		t.Fatal("release-guardrails must run the docs-validator self-test")
 	}
 }
 

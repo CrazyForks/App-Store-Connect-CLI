@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -327,6 +328,13 @@ def main() -> None:
 
     release = RELEASE_WORKFLOW.read_text()
     assert "actions/upload-artifact" in release, "release workflow must retain official artifact publication"
+
+    subprocess.run(
+        ["go", "test", ".", "-run", "^TestReleaseRehearsalWorkflowContract", "-count=1"],
+        cwd=ROOT,
+        check=True,
+    )
+    subprocess.run([sys.executable, str(ROOT / "scripts/test_release_rehearsal.py")], check=True)
 
     dependabot = DEPENDABOT_CONFIG.read_text()
     assert dependabot == """version: 2
