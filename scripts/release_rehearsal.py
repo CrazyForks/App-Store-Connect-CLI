@@ -70,9 +70,14 @@ def parse_version(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in value.split("."))
 
 
-def latest_release_tag(root: Path) -> str | None:
+def latest_release_tag(root: Path, *, merged_only: bool) -> str | None:
+    tag_args = ["tag"]
+    if merged_only:
+        tag_args.extend(("--merged", "HEAD"))
+    tag_args.append("--list")
+
     candidates: list[tuple[tuple[int, int, int], str]] = []
-    for tag in run_git(root, "tag", "--merged", "HEAD", "--list").splitlines():
+    for tag in run_git(root, *tag_args).splitlines():
         if SEMVER.fullmatch(tag):
             candidates.append((parse_version(tag), tag))
     if not candidates:
@@ -115,16 +120,51 @@ def validate_source(*, root: Path, version: str, expected_sha: str) -> SourceSta
     if existing_tag.returncode not in (0, 1):
         raise RehearsalError(f"could not determine whether candidate tag {version} exists")
 
-    previous_tag = latest_release_tag(root)
-    if previous_tag and candidate_version <= parse_version(previous_tag):
-        raise RehearsalError(f"candidate version {version} must be newer than {previous_tag}")
+    latest_tag = latest_release_tag(root, merged_only=False)
+    if latest_tag and candidate_version <= parse_version(latest_tag):
+        raise RehearsalError(f"candidate version {version} must be newer than {latest_tag}")
 
+    previous_tag = latest_release_tag(root, merged_only=True)
     subjects = commit_subjects(root, previous_tag)
     if not subjects:
         boundary = previous_tag or "the start of repository history"
         raise RehearsalError(f"no commits found after {boundary}")
 
     return SourceState(tested_sha=tested_sha, previous_tag=previous_tag, subjects=subjects)
+
+
+def resolve_release_dir(*, root: Path, release_dir: Path) -> Path:
+    if not release_dir.is_absolute():
+        release_dir = root / release_dir
+    return release_dir.resolve()
+
+
+def ensure_clean_source(*, root: Path, release_dir: Path) -> None:
+    root = root.resolve()
+    release_dir = resolve_release_dir(root=root, release_dir=release_dir)
+    pathspecs = ["."]
+
+    try:
+        relative_release_dir = release_dir.relative_to(root)
+    except ValueError:
+        relative_release_dir = None
+
+    if relative_release_dir is not None:
+        if relative_release_dir == Path("."):
+            raise RehearsalError("release output directory must not be the repository root")
+        release_pathspec = relative_release_dir.as_posix()
+        pathspecs.append(f":(exclude,top,literal){release_pathspec}")
+
+    status = run_git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        *pathspecs,
+    )
+    if status:
+        raise RehearsalError(f"source tree is dirty outside the release output directory:\n{status}")
 
 
 def write_outputs(*, source: SourceState, version: str, release_dir: Path) -> RehearsalResult:
@@ -176,9 +216,12 @@ def run_release_rehearsal(
     *, root: Path, version: str, expected_sha: str, release_dir: Path
 ) -> RehearsalResult:
     root = root.resolve()
+    release_dir = resolve_release_dir(root=root, release_dir=release_dir)
     validate_source(root=root, version=version, expected_sha=expected_sha)
+    ensure_clean_source(root=root, release_dir=release_dir)
     run_command(root, "make", "release-guardrails")
     run_command(root, "make", "build-all", f"VERSION={version}")
+    ensure_clean_source(root=root, release_dir=release_dir)
     source = validate_source(root=root, version=version, expected_sha=expected_sha)
     return write_outputs(source=source, version=version, release_dir=release_dir)
 

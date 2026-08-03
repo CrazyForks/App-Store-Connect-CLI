@@ -106,6 +106,42 @@ class ReleaseRehearsalTests(unittest.TestCase):
                 release_dir=self.root / "release",
             )
 
+    def test_rejects_existing_candidate_tag(self) -> None:
+        self.git("tag", "1.2.4")
+
+        with self.assertRaisesRegex(release_rehearsal.RehearsalError, "already exists"):
+            release_rehearsal.rehearse(
+                root=self.root,
+                version="1.2.4",
+                expected_sha=self.git("rev-parse", "HEAD"),
+                release_dir=self.root / "release",
+            )
+
+    def test_rejects_candidate_older_than_previous_tag(self) -> None:
+        with self.assertRaisesRegex(release_rehearsal.RehearsalError, "must be newer"):
+            release_rehearsal.rehearse(
+                root=self.root,
+                version="1.2.2",
+                expected_sha=self.git("rev-parse", "HEAD"),
+                release_dir=self.root / "release",
+            )
+
+    def test_rejects_candidate_older_than_tag_on_other_ref(self) -> None:
+        candidate_branch = self.git("branch", "--show-current")
+        self.git("checkout", "-b", "newer-release")
+        self.commit("newer release")
+        self.git("tag", "2.0.0")
+        self.git("checkout", candidate_branch)
+        self.commit("candidate change")
+
+        with self.assertRaisesRegex(release_rehearsal.RehearsalError, "newer than 2.0.0"):
+            release_rehearsal.rehearse(
+                root=self.root,
+                version="1.9.0",
+                expected_sha=self.git("rev-parse", "HEAD"),
+                release_dir=self.root / "release",
+            )
+
     def test_rejects_missing_artifact(self) -> None:
         self.commit("candidate change")
         release_dir = self.create_artifacts("1.2.4")
@@ -130,6 +166,58 @@ class ReleaseRehearsalTests(unittest.TestCase):
                 )
 
         run_command.assert_not_called()
+
+    def test_run_rejects_modified_tracked_source_before_make(self) -> None:
+        self.commit("candidate change")
+        head = self.git("rev-parse", "HEAD")
+        (self.root / "history.txt").write_text("modified after commit\n")
+
+        with mock.patch.object(release_rehearsal, "run_command") as run_command:
+            with self.assertRaisesRegex(release_rehearsal.RehearsalError, "source tree is dirty"):
+                release_rehearsal.run_release_rehearsal(
+                    root=self.root,
+                    version="1.2.4",
+                    expected_sha=head,
+                    release_dir=self.root / "release",
+                )
+
+        run_command.assert_not_called()
+
+    def test_run_rejects_untracked_source_before_make(self) -> None:
+        self.commit("candidate change")
+        head = self.git("rev-parse", "HEAD")
+        (self.root / "candidate.go").write_text("package candidate\n")
+
+        with mock.patch.object(release_rehearsal, "run_command") as run_command:
+            with self.assertRaisesRegex(release_rehearsal.RehearsalError, "source tree is dirty"):
+                release_rehearsal.run_release_rehearsal(
+                    root=self.root,
+                    version="1.2.4",
+                    expected_sha=head,
+                    release_dir=self.root / "release",
+                )
+
+        run_command.assert_not_called()
+
+    def test_run_rejects_source_changed_by_build(self) -> None:
+        self.commit("candidate change")
+        head = self.git("rev-parse", "HEAD")
+
+        def run_command(root: Path, *args: str) -> None:
+            if args[:2] == ("make", "build-all"):
+                self.create_artifacts("1.2.4")
+                (self.root / "history.txt").write_text("modified by build\n")
+
+        with mock.patch.object(release_rehearsal, "run_command", side_effect=run_command) as command:
+            with self.assertRaisesRegex(release_rehearsal.RehearsalError, "source tree is dirty"):
+                release_rehearsal.run_release_rehearsal(
+                    root=self.root,
+                    version="1.2.4",
+                    expected_sha=head,
+                    release_dir=self.root / "release",
+                )
+
+        self.assertEqual(command.call_count, 2)
 
     def test_run_invokes_make_only_after_source_validation(self) -> None:
         self.commit("candidate change")
