@@ -242,17 +242,17 @@ make test-integration
 3. Right-click → Get Info → Access Control
 4. Add your terminal app (Terminal.app, iTerm2, etc.)
 
-### Linux Missing Dependencies
+### Linux Source Build Dependencies
 
-**Problem**: Build or runtime errors on Linux.
+**Problem**: Building from source fails because the required Go toolchain is unavailable.
 
-**Solution**: Ensure Go 1.26+ is installed:
+**Solution**: Use the Go version declared by `go.mod`. The Go toolchain can download that version automatically when needed:
 
 ```bash  theme={null}
-go version  # Should show 1.26 or higher
+go version
 ```
 
-For keychain features, the CLI falls back to config files on Linux.
+Released `asc` binaries do not require Go. For keychain features, the CLI falls back to config files on Linux.
 
 ## Common Error Messages
 

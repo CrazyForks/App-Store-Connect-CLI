@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/rorkai/App-Store-Connect-CLI/releases/latest"><img src="https://img.shields.io/github/v/release/rorkai/App-Store-Connect-CLI?style=for-the-badge&color=blue" alt="Latest Release"></a>
   <a href="https://github.com/rorkai/App-Store-Connect-CLI/stargazers"><img src="https://img.shields.io/github/stars/rorkai/app-store-connect-cli?style=for-the-badge" alt="GitHub Stars"></a>
-  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/github/go-mod/go-version/rorkai/App-Store-Connect-CLI?filename=go.mod&style=for-the-badge&logo=go" alt="Go version from go.mod">
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/Homebrew-compatible-blue?style=for-the-badge" alt="Homebrew">
 </p>
@@ -90,6 +90,8 @@ release binaries directly from the
 [GitHub releases page](https://github.com/rorkai/App-Store-Connect-CLI/releases/latest).
 
 For source builds and contributor setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Released binaries are self-contained and do not require a Go installation;
+source builds use the toolchain version declared by `go.mod`.
 
 ### 2. Authenticate
 

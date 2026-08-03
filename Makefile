@@ -23,6 +23,7 @@ GOLANGCI_LINT_TIMEOUT ?= 5m
 INSTALL_PREFIX ?= /usr/local/bin
 GOFUMPT_VERSION ?= v0.10.0
 GOLANGCI_LINT_VERSION ?= v2.12.1
+GOVULNCHECK_VERSION ?= v1.6.0
 
 # Directories
 SRC_DIR := .
@@ -146,6 +147,10 @@ tools:
 	GOTOOLCHAIN=$(GO_TOOLCHAIN_VERSION) $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo "$(GREEN)✓ Tools installed$(NC)"
 	@echo "$(YELLOW)Make sure '$(GOBIN)' is on your PATH$(NC)"
+
+.PHONY: install-govulncheck
+install-govulncheck:
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 # Install local git hooks
 .PHONY: install-hooks
@@ -277,6 +282,7 @@ help:
 	@echo "  format         Format code"
 	@echo "  format-check   Check formatting without writing files"
 	@echo "  tools          Install dev tools"
+	@echo "  install-govulncheck Install the pinned vulnerability scanner"
 	@echo "  install-hooks  Install local git hooks"
 	@echo "  deps           Install dependencies"
 	@echo "  update-deps    Update dependencies"
