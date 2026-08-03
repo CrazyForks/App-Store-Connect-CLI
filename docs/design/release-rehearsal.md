@@ -51,12 +51,16 @@ and expire with the job.
 ## Verification
 
 Workflow-contract tests establish RED before the workflow exists, then assert
-the trigger, checkout, prompt guards, read-only permissions, script entrypoint, SHA
-summary, and absence of publishing steps. Script tests cover valid and invalid
-versions, SHA mismatches, repository-wide and candidate-ancestor tag boundaries,
-dirty tracked and untracked inputs, post-build source mutation, release-output
-exclusion, and artifact validation. A local safe rehearsal verifies the
-end-to-end script entrypoint without credentials.
+the parsed dispatch inputs, checkout binding, prompt guards, every permissions
+block, script entrypoint, persisted SHA flow, generated summary content, and
+absence of publishing steps or commands. The workflow invokes one Python
+entrypoint; its dynamic orchestration test proves that `make
+release-guardrails` runs before `build-all`, avoiding a second YAML-owned
+orchestration path. Script tests cover valid and invalid versions, SHA
+mismatches, repository-wide and candidate-ancestor tag boundaries, dirty
+tracked and untracked inputs, repository-root output rejection, post-build
+source mutation, release-output exclusion, and artifact validation. A local
+safe rehearsal verifies the end-to-end script entrypoint without credentials.
 
 Keeping this as a separate non-publishing workflow is preferable to adding a
 dry-run flag to the release workflow: publishing steps and secrets are absent

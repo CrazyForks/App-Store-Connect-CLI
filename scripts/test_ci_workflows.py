@@ -14,7 +14,6 @@ ROOT = Path(__file__).resolve().parent.parent
 PR_WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
 MAIN_WORKFLOW = ROOT / ".github/workflows/main-branch.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
-RELEASE_REHEARSAL_WORKFLOW = ROOT / ".github/workflows/release-rehearsal.yml"
 WEBSITE_WORKFLOW = ROOT / ".github/workflows/website-checks.yml"
 GOVULNCHECK_WORKFLOW = ROOT / ".github/workflows/govulncheck.yml"
 DEPENDABOT_CONFIG = ROOT / ".github/dependabot.yml"
@@ -330,40 +329,11 @@ def main() -> None:
     release = RELEASE_WORKFLOW.read_text()
     assert "actions/upload-artifact" in release, "release workflow must retain official artifact publication"
 
-    rehearsal = RELEASE_REHEARSAL_WORKFLOW.read_text()
-    assert "workflow_dispatch:" in rehearsal
-    assert "version:" in rehearsal
-    assert "ref:" in rehearsal
-    assert "contents: read" in rehearsal
-    assert "GIT_TERMINAL_PROMPT: 0" in rehearsal
-    assert "GH_PROMPT_DISABLED: 1" in rehearsal
-    assert "ref: ${{ inputs.ref }}" in rehearsal
-    assert "Candidate commit SHA or Git ref containing rehearsal tooling" in rehearsal
-    assert "fetch-depth: 0" in rehearsal
-    assert "persist-credentials: false" in rehearsal
-    assert "[ ! -f scripts/release_rehearsal.py ]" in rehearsal
-    assert "grep -q '^release-guardrails:' Makefile" in rehearsal
-    assert "Requested ref must contain the hosted release rehearsal tooling" in rehearsal
-    assert "go-version-file: go.mod" in rehearsal
-    assert "go-version:" not in rehearsal
-    assert 'TESTED_SHA="$(git rev-parse HEAD)"' in rehearsal
-    assert 'python3 scripts/release_rehearsal.py' in rehearsal
-    assert '--version "${VERSION}"' in rehearsal
-    assert '--expected-sha "${TESTED_SHA}"' in rehearsal
-    assert "make release-rehearsal" not in rehearsal
-    assert "GITHUB_STEP_SUMMARY" in rehearsal
-    for forbidden in (
-        "contents: write",
-        "secrets.",
-        "apple-actions/import-codesign-certs",
-        "actions/upload-artifact",
-        "gh release create",
-        "gh release upload",
-        "git push",
-        "git tag",
-    ):
-        assert forbidden not in rehearsal, f"release rehearsal must not contain {forbidden!r}"
-
+    subprocess.run(
+        ["go", "test", ".", "-run", "^TestReleaseRehearsalWorkflowContract", "-count=1"],
+        cwd=ROOT,
+        check=True,
+    )
     subprocess.run([sys.executable, str(ROOT / "scripts/test_release_rehearsal.py")], check=True)
 
     dependabot = DEPENDABOT_CONFIG.read_text()
