@@ -149,11 +149,14 @@ asc analytics view --request-id "REQUEST_ID"
 **Optional Flags:**
 
 * `--instance-id` - Filter by specific report instance
-* `--date` - Filter instances by date (`YYYY-MM-DD`)
+* `--processing-date` - Filter instances by Apple's processing date (`YYYY-MM-DD`)
+* `--granularity` - Filter instances by `DAILY`, `WEEKLY`, or `MONTHLY` (comma-separated)
 * `--include-segments` - Include download URLs for report segments
 * `--limit` - Results per page (1-200)
-* `--paginate` - Fetch all reports (recommended with `--date`)
+* `--paginate` - Fetch all reports (recommended with `--processing-date`)
 * `--next` - Pagination URL
+
+`--date` remains available as a deprecated compatibility flag. It warns and preserves the previous local match against either `reportDate` or `processingDate`; new automation should use `--processing-date` for Apple's server-side filter.
 
 **Examples:**
 
@@ -166,10 +169,10 @@ asc analytics view \
   --request-id "REQUEST_ID" \
   --include-segments
 
-# Filter by date and paginate
+# Filter by processing date and paginate
 asc analytics view \
   --request-id "REQUEST_ID" \
-  --date "2024-01-20" \
+  --processing-date "2024-01-20" \
   --paginate
 
 # Get specific instance

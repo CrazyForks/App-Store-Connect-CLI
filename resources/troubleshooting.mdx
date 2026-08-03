@@ -88,7 +88,7 @@ For analytics operations with large datasets:
 
 ```bash  theme={null}
 export ASC_TIMEOUT=5m
-asc analytics view --request-id "REQUEST_ID" --date "2024-01-01" --paginate
+asc analytics view --request-id "REQUEST_ID" --processing-date "2024-01-01" --paginate
 ```
 
 ## Permission Errors
@@ -140,7 +140,7 @@ If the build shows `PROCESSING` for more than 30 minutes, check App Store Connec
 **Solution**: Always use `--paginate` for complete results:
 
 ```bash  theme={null}
-asc analytics view --request-id "REQUEST_ID" --date "2024-01-01" --paginate
+asc analytics view --request-id "REQUEST_ID" --processing-date "2024-01-01" --paginate
 asc testflight feedback list --app "123456789" --paginate
 ```
 
