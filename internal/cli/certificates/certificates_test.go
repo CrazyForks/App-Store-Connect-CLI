@@ -12,7 +12,9 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,19 +142,36 @@ func TestCertificatesCreateCommand_PassTypeIDRelationship(t *testing.T) {
 	}
 
 	var got asc.CertificateCreateRequest
-	client := newCertificatesTestClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost || req.URL.Path != "/v1/certificates" {
-			t.Fatalf("expected POST /v1/certificates, got %s %s", req.Method, req.URL.Path)
+			t.Errorf("expected POST /v1/certificates, got %s %s", req.Method, req.URL.Path)
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
 		}
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			t.Fatalf("read request body: %v", err)
+		if err := json.NewDecoder(req.Body).Decode(&got); err != nil {
+			t.Errorf("decode request body: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
-		if err := json.Unmarshal(body, &got); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
-		return jsonHTTPResponse(http.StatusCreated, `{"data":{"type":"certificates","id":"cert-1","attributes":{"name":"Pass Cert","certificateType":"PASS_TYPE_ID"}}}`), nil
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"data":{"type":"certificates","id":"cert-1","attributes":{"name":"Pass Cert","certificateType":"PASS_TYPE_ID"}}}`)
 	}))
+	t.Cleanup(server.Close)
+
+	transport, ok := server.Client().Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("server transport type = %T, want *http.Transport", server.Client().Transport)
+	}
+	transport = transport.Clone()
+	transport.Proxy = nil
+	transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+	transport.TLSClientConfig.ServerName = "example.com"
+	dialer := &net.Dialer{}
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	client := newCertificatesTestClient(t, transport)
 
 	originalGetClient := getCertificatesASCClient
 	getCertificatesASCClient = func() (*asc.Client, error) { return client, nil }
