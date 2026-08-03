@@ -15,6 +15,7 @@ MAIN_WORKFLOW = ROOT / ".github/workflows/main-branch.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
 WEBSITE_WORKFLOW = ROOT / ".github/workflows/website-checks.yml"
 GOVULNCHECK_WORKFLOW = ROOT / ".github/workflows/govulncheck.yml"
+DEPENDABOT_CONFIG = ROOT / ".github/dependabot.yml"
 MAKEFILE = ROOT / "Makefile"
 
 
@@ -252,6 +253,21 @@ def main() -> None:
 
     release = RELEASE_WORKFLOW.read_text()
     assert "actions/upload-artifact" in release, "release workflow must retain official artifact publication"
+
+    dependabot = DEPENDABOT_CONFIG.read_text()
+    assert dependabot == """version: 2
+
+updates:
+  - package-ecosystem: \"gomod\"
+    directory: \"/\"
+    schedule:
+      interval: \"weekly\"
+
+  - package-ecosystem: \"github-actions\"
+    directory: \"/\"
+    schedule:
+      interval: \"weekly\"
+""", "Dependabot must monitor root Go modules and GitHub Actions weekly"
 
     assert_security_target_contract()
 
