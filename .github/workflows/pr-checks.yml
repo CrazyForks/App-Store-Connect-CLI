@@ -68,7 +68,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.5'
+          go-version-file: go.mod
           cache: true
 
       - name: Check Wall of Apps source
@@ -90,7 +90,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.5'
+          go-version-file: go.mod
           cache: true
 
       - name: Cache Go tools
@@ -190,7 +190,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.5'
+          go-version-file: go.mod
           cache: true
 
       - name: Run Go test shard
@@ -207,7 +207,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.5'
+          go-version-file: go.mod
           cache: true
 
       - name: Run telemetry tests
@@ -224,7 +224,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.5'
+          go-version-file: go.mod
           cache: true
 
       - name: Run telemetry tests
@@ -290,7 +290,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.5'
+          go-version-file: go.mod
           cache: true
 
       - name: Create build directory
@@ -321,7 +321,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.5'
+          go-version-file: go.mod
           cache: true
 
       - name: Compile CLI

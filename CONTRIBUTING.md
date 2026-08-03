@@ -5,7 +5,11 @@ Thanks for your interest in contributing to asc cli!
 ## Development Setup
 
 Requirements:
-- Go 1.26+
+- Git
+- The Go version declared by `go.mod`; the Go toolchain can download it automatically when needed
+
+Released `asc` binaries are self-contained and do not require Go. Go is only
+required when building or testing from source.
 
 Clone and build:
 ```bash
