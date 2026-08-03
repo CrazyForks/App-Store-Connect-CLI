@@ -305,6 +305,8 @@ dev: format lint test build
 .PHONY: security
 security:
 	@echo "$(BLUE)Checking for security vulnerabilities...$(NC)"
-	@which gosec > /dev/null 2>&1 && \
-		gosec ./... || \
-		echo "$(YELLOW)Install gosec for security checks$(NC)"
+	@if command -v gosec > /dev/null 2>&1; then \
+		gosec ./...; \
+	else \
+		echo "$(YELLOW)Install gosec for security checks$(NC)"; \
+	fi

@@ -610,7 +610,7 @@ func runAgvtool(ctx context.Context, projectDir string, args ...string) (string,
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runXcodeCommand(cmd); err != nil {
 		stderrText := strings.TrimSpace(stderr.String())
 		if stderrText != "" {
 			return "", fmt.Errorf("%w: %s", err, stderrText)
@@ -664,7 +664,7 @@ func readBuildSettings(
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := runXcodeCommand(cmd); err != nil {
 		stderrText := strings.TrimSpace(stderr.String())
 		if stderrText != "" {
 			return nil, fmt.Errorf("%w: %s", err, stderrText)
