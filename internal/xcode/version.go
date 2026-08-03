@@ -361,17 +361,24 @@ func validateSetVersionLegacy() error {
 	return requireAgvtool()
 }
 
-// BumpVersion increments the version or build number.
-func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResult, error) {
+func attachBuildSettingsLookupSession(opts *BumpVersionOptions) error {
 	lookupSession, err := resolveBuildSettingsLookupSession(
 		opts.BuildSettingsLookup,
 		opts.BuildSettingsDiagnostic,
 		opts.BuildSettingsSession,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	opts.BuildSettingsSession = lookupSession
+	return nil
+}
+
+// BumpVersion increments the version or build number.
+func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResult, error) {
+	if err := attachBuildSettingsLookupSession(&opts); err != nil {
+		return nil, err
+	}
 	if err := validateBumpVersionOptions(opts); err != nil {
 		return nil, err
 	}
@@ -407,15 +414,9 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 // baseline across the selected configurations, without changing any files.
 // Callers can use it before remote work such as resolving a build number.
 func ValidateBumpVersion(ctx context.Context, opts BumpVersionOptions) error {
-	lookupSession, err := resolveBuildSettingsLookupSession(
-		opts.BuildSettingsLookup,
-		opts.BuildSettingsDiagnostic,
-		opts.BuildSettingsSession,
-	)
-	if err != nil {
+	if err := attachBuildSettingsLookupSession(&opts); err != nil {
 		return err
 	}
-	opts.BuildSettingsSession = lookupSession
 	if err := validateBumpVersionOptions(opts); err != nil {
 		return err
 	}
