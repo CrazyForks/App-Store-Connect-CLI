@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Protect CI runner, build, and artifact ownership contracts."""
+"""Protect CI runner, build, artifact, and security-check contracts."""
 
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -9,6 +13,7 @@ PR_WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
 MAIN_WORKFLOW = ROOT / ".github/workflows/main-branch.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
 WEBSITE_WORKFLOW = ROOT / ".github/workflows/website-checks.yml"
+MAKEFILE = ROOT / "Makefile"
 
 
 def job_block(workflow: str, job: str) -> str:
@@ -87,6 +92,62 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
     assert "needs.ordinary-build.result" in build
 
 
+def run_security_target(path: str) -> subprocess.CompletedProcess[str]:
+    make = shutil.which("make")
+    if make is None:
+        raise AssertionError("make is required to test Makefile contracts")
+
+    env = os.environ.copy()
+    env["PATH"] = path
+    return subprocess.run(
+        [
+            make,
+            "--no-print-directory",
+            "-f",
+            str(MAKEFILE),
+            "VERSION=test",
+            "COMMIT=test",
+            "DATE=test",
+            "GOBIN=/tmp/asc-test-bin",
+            "GO_TOOLCHAIN_VERSION=test",
+            "security",
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def assert_security_target_contract() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_go = Path(tmpdir) / "go"
+        fake_go.write_text("#!/bin/sh\nexit 0\n")
+        fake_go.chmod(0o755)
+
+        missing = run_security_target(tmpdir)
+        assert missing.returncode == 0, missing.stderr
+        assert "Install gosec for security checks" in missing.stdout
+
+        fake_gosec = Path(tmpdir) / "gosec"
+        fake_gosec.write_text("#!/bin/sh\necho scanner-result >&2\nexit 23\n")
+        fake_gosec.chmod(0o755)
+
+        finding = run_security_target(tmpdir)
+        assert finding.returncode != 0, (
+            "make security must fail when gosec fails; "
+            f"stdout:\n{finding.stdout}\nstderr:\n{finding.stderr}"
+        )
+        assert "scanner-result" in finding.stderr
+        assert "Install gosec for security checks" not in finding.stdout
+
+        fake_gosec.write_text("#!/bin/sh\nexit 0\n")
+        success = run_security_target(tmpdir)
+        assert success.returncode == 0, success.stderr
+        assert "Install gosec for security checks" not in success.stdout
+
+
 def main() -> None:
     assert_optimized_workflow(PR_WORKFLOW, "unit-test-shards")
     assert_optimized_workflow(MAIN_WORKFLOW, "test-shards")
@@ -111,6 +172,8 @@ def main() -> None:
 
     release = RELEASE_WORKFLOW.read_text()
     assert "actions/upload-artifact" in release, "release workflow must retain official artifact publication"
+
+    assert_security_target_contract()
 
     print("CI workflow contracts passed")
 
