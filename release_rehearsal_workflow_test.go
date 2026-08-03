@@ -169,7 +169,7 @@ func TestReleaseRehearsalWorkflowContractRejectsPublishingSteps(t *testing.T) {
 	workflow := readReleaseRehearsalWorkflow(t)
 	cases := map[string]string{
 		"release action": replaceRehearsalFixture(t, workflow,
-			"uses: actions/setup-go@v6", "uses: actions/upload-artifact@v7"),
+			"uses: actions/setup-go@v7", "uses: actions/upload-artifact@v7"),
 		"github release": replaceRehearsalFixture(t, workflow,
 			"run: make tools", "run: gh release create 9.9.9"),
 		"package publish": replaceRehearsalFixture(t, workflow,
