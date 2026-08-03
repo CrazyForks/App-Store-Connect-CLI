@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Protect CI runner, build, and artifact ownership contracts."""
 
+import re
 from pathlib import Path
 
 
@@ -9,6 +10,35 @@ PR_WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
 MAIN_WORKFLOW = ROOT / ".github/workflows/main-branch.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
 WEBSITE_WORKFLOW = ROOT / ".github/workflows/website-checks.yml"
+GOVULNCHECK_WORKFLOW = ROOT / ".github/workflows/govulncheck.yml"
+MAKEFILE = ROOT / "Makefile"
+
+
+def assert_go_toolchain_source() -> None:
+    workflow_dir = ROOT / ".github/workflows"
+    workflows = sorted([*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")])
+    setup_go_count = 0
+    version_file_count = 0
+
+    for path in workflows:
+        workflow = path.read_text()
+        setup_go_count += workflow.count("uses: actions/setup-go@")
+        version_file_count += workflow.count("go-version-file: go.mod")
+        assert "go-version:" not in workflow, f"{path}: source Go versions from go.mod"
+
+    assert setup_go_count > 0, "expected at least one setup-go step"
+    assert version_file_count == setup_go_count, "every setup-go step must source go.mod"
+
+
+def assert_govulncheck_version_source() -> None:
+    makefile = MAKEFILE.read_text()
+    workflow = GOVULNCHECK_WORKFLOW.read_text()
+
+    assert re.search(r"^GOVULNCHECK_VERSION \?= v\d+\.\d+\.\d+$", makefile, re.MULTILINE)
+    assert "golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)" in makefile
+    assert "run: make install-govulncheck" in workflow
+    assert "golang.org/x/vuln/cmd/govulncheck@" not in workflow
+    assert "govulncheck@latest" not in makefile
 
 
 def job_block(workflow: str, job: str) -> str:
@@ -88,6 +118,8 @@ def assert_optimized_workflow(path: Path, test_job: str) -> None:
 
 
 def main() -> None:
+    assert_go_toolchain_source()
+    assert_govulncheck_version_source()
     assert_optimized_workflow(PR_WORKFLOW, "unit-test-shards")
     assert_optimized_workflow(MAIN_WORKFLOW, "test-shards")
 
