@@ -50,7 +50,11 @@ jobs:
       - name: Run release guardrails
         run: |
           export PATH="$(go env GOPATH)/bin:$PATH"
-          make release-guardrails
+          make format-check
+          make check-docs
+          make check-wall-of-apps
+          make lint
+          ASC_BYPASS_KEYCHAIN=1 make test
 
       - name: Create release directory
         run: mkdir -p release

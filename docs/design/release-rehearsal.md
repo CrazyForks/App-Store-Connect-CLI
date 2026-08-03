@@ -6,29 +6,38 @@ The repository gets a manually dispatched `Release rehearsal` GitHub Actions
 workflow. It accepts a required candidate semantic version and a required Git
 ref or commit SHA. The workflow resolves that input through `actions/checkout`,
 records the exact checked-out SHA, and passes both values to the repository's
-release rehearsal Make target.
+release rehearsal script.
 
-The Make target is also the local invocation:
+The local invocation uses the same entrypoint:
 
 ```bash
-make release-rehearsal VERSION=4.5.0 EXPECTED_SHA="$(git rev-parse HEAD)"
+python3 scripts/release_rehearsal.py \
+  --version 4.5.0 \
+  --expected-sha "$(git rev-parse HEAD)"
 ```
 
 ## Behavior and safety
 
-The rehearsal runs release guardrails, builds the supported release binaries,
-checks their expected names, creates checksums, and generates a local Markdown
-preview from commits since the latest semantic-version tag. Diagnostics and
-the tested SHA go to the job log and GitHub job summary.
+The script validates the candidate version, tag boundary, and exact commit
+before it invokes Make. It then runs release guardrails, builds the supported
+release binaries, checks their expected names, creates checksums, and generates
+a local Markdown preview from commits since the latest semantic-version tag.
+Diagnostics and the tested SHA go to the job log and GitHub job summary.
 
 The workflow has read-only repository permissions and disables interactive Git
 and GitHub CLI prompts. It does not import signing certificates, sign binaries,
 create or push tags, create or update GitHub releases, upload artifacts, update
 Homebrew, or submit WinGet changes. No App Store Connect API is involved.
 
+The requested candidate ref must contain this workflow's rehearsal script and
+`release-guardrails` target. Refs predating the rehearsal feature fail early
+with an explicit diagnostic. Supporting those refs would require running newer
+orchestration code against older source, which would weaken the exact-source
+contract and is intentionally outside this pre-tag workflow.
+
 ## Compatibility and failure behavior
 
-This adds an opt-in workflow and Make target without changing the publishing
+This adds an opt-in workflow and script without changing the publishing
 workflow or CLI surface. Missing inputs, an invalid version, a mismatched SHA,
 an existing candidate tag, no commits after the latest release, missing build
 artifacts, or a failed release guardrail produce a nonzero exit. The preview and
@@ -37,10 +46,10 @@ artifacts remain runner-local and expire with the job.
 ## Verification
 
 Workflow-contract tests establish RED before the workflow exists, then assert
-the trigger, checkout, prompt guards, read-only permissions, shared target, SHA
+the trigger, checkout, prompt guards, read-only permissions, script entrypoint, SHA
 summary, and absence of publishing steps. Script tests cover valid and invalid
 versions, SHA mismatches, changelog boundaries, and artifact validation. A local
-safe rehearsal verifies the end-to-end Make target without credentials.
+safe rehearsal verifies the end-to-end script entrypoint without credentials.
 
 Keeping this as a separate non-publishing workflow is preferable to adding a
 dry-run flag to the release workflow: publishing steps and secrets are absent

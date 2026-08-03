@@ -33,6 +33,13 @@ class RehearsalResult:
         self.checksums_path = checksums_path
 
 
+class SourceState:
+    def __init__(self, *, tested_sha: str, previous_tag: str | None, subjects: list[str]) -> None:
+        self.tested_sha = tested_sha
+        self.previous_tag = previous_tag
+        self.subjects = subjects
+
+
 def expected_artifact_names(version: str) -> tuple[str, ...]:
     return (
         f"asc_{version}_macOS_amd64",
@@ -87,10 +94,9 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def rehearse(*, root: Path, version: str, expected_sha: str, release_dir: Path) -> RehearsalResult:
+def validate_source(*, root: Path, version: str, expected_sha: str) -> SourceState:
     candidate_version = parse_version(version)
     root = root.resolve()
-    release_dir = release_dir.resolve()
 
     tested_sha = run_git(root, "rev-parse", "HEAD")
     resolved_expected_sha = run_git(root, "rev-parse", "--verify", f"{expected_sha}^{{commit}}")
@@ -118,6 +124,11 @@ def rehearse(*, root: Path, version: str, expected_sha: str, release_dir: Path) 
         boundary = previous_tag or "the start of repository history"
         raise RehearsalError(f"no commits found after {boundary}")
 
+    return SourceState(tested_sha=tested_sha, previous_tag=previous_tag, subjects=subjects)
+
+
+def write_outputs(*, source: SourceState, version: str, release_dir: Path) -> RehearsalResult:
+    release_dir = release_dir.resolve()
     artifacts: list[Path] = []
     for name in expected_artifact_names(version):
         artifact = release_dir / name
@@ -126,15 +137,14 @@ def rehearse(*, root: Path, version: str, expected_sha: str, release_dir: Path) 
         artifacts.append(artifact)
 
     notes_path = release_dir / f"asc_{version}_release-notes.md"
-    boundary = previous_tag or "repository start"
     notes = [
         f"# Release {version}",
         "",
-        f"Tested commit: `{tested_sha}`",
+        f"Tested commit: `{source.tested_sha}`",
         "",
-        f"## Changes since {boundary}",
+        f"## Changes since {source.previous_tag or 'repository start'}",
         "",
-        *(f"- {subject}" for subject in subjects),
+        *(f"- {subject}" for subject in source.subjects),
         "",
     ]
     notes_path.write_text("\n".join(notes), encoding="utf-8")
@@ -144,11 +154,33 @@ def rehearse(*, root: Path, version: str, expected_sha: str, release_dir: Path) 
     checksums_path.write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
 
     return RehearsalResult(
-        tested_sha=tested_sha,
-        previous_tag=previous_tag,
+        tested_sha=source.tested_sha,
+        previous_tag=source.previous_tag,
         notes_path=notes_path,
         checksums_path=checksums_path,
     )
+
+
+def rehearse(*, root: Path, version: str, expected_sha: str, release_dir: Path) -> RehearsalResult:
+    source = validate_source(root=root, version=version, expected_sha=expected_sha)
+    return write_outputs(source=source, version=version, release_dir=release_dir)
+
+
+def run_command(root: Path, *args: str) -> None:
+    result = subprocess.run(args, cwd=root, check=False)
+    if result.returncode != 0:
+        raise RehearsalError(f"{' '.join(args)} failed with exit {result.returncode}")
+
+
+def run_release_rehearsal(
+    *, root: Path, version: str, expected_sha: str, release_dir: Path
+) -> RehearsalResult:
+    root = root.resolve()
+    validate_source(root=root, version=version, expected_sha=expected_sha)
+    run_command(root, "make", "release-guardrails")
+    run_command(root, "make", "build-all", f"VERSION={version}")
+    source = validate_source(root=root, version=version, expected_sha=expected_sha)
+    return write_outputs(source=source, version=version, release_dir=release_dir)
 
 
 def main() -> int:
@@ -159,7 +191,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        result = rehearse(
+        result = run_release_rehearsal(
             root=Path.cwd(),
             version=args.version,
             expected_sha=args.expected_sha,

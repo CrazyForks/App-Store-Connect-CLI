@@ -123,12 +123,19 @@ def main() -> None:
     assert "GIT_TERMINAL_PROMPT: 0" in rehearsal
     assert "GH_PROMPT_DISABLED: 1" in rehearsal
     assert "ref: ${{ inputs.ref }}" in rehearsal
+    assert "Candidate commit SHA or Git ref containing rehearsal tooling" in rehearsal
     assert "fetch-depth: 0" in rehearsal
     assert "persist-credentials: false" in rehearsal
+    assert "[ ! -f scripts/release_rehearsal.py ]" in rehearsal
+    assert "grep -q '^release-guardrails:' Makefile" in rehearsal
+    assert "Requested ref must contain the hosted release rehearsal tooling" in rehearsal
     assert "go-version-file: go.mod" in rehearsal
     assert "go-version:" not in rehearsal
     assert 'TESTED_SHA="$(git rev-parse HEAD)"' in rehearsal
-    assert 'make release-rehearsal VERSION="${VERSION}" EXPECTED_SHA="${TESTED_SHA}"' in rehearsal
+    assert 'python3 scripts/release_rehearsal.py' in rehearsal
+    assert '--version "${VERSION}"' in rehearsal
+    assert '--expected-sha "${TESTED_SHA}"' in rehearsal
+    assert "make release-rehearsal" not in rehearsal
     assert "GITHUB_STEP_SUMMARY" in rehearsal
     for forbidden in (
         "contents: write",

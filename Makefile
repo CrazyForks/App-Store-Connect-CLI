@@ -259,7 +259,7 @@ release: clean
 	@echo "$(BLUE)Creating release...$(NC)"
 	@echo "$(YELLOW)Note: Use GitHub Actions for releases$(NC)"
 
-# Run the non-publishing checks shared by release and rehearsal workflows
+# Run the non-publishing checks used by the release rehearsal workflow
 .PHONY: release-guardrails
 release-guardrails:
 	python3 scripts/test_release_rehearsal.py
@@ -268,20 +268,6 @@ release-guardrails:
 	$(MAKE) check-wall-of-apps
 	$(MAKE) lint
 	ASC_BYPASS_KEYCHAIN=1 $(MAKE) test
-
-# Build and inspect a release candidate without publishing or signing it
-.PHONY: release-rehearsal
-release-rehearsal:
-	@if [ -z "$(EXPECTED_SHA)" ]; then \
-		echo "EXPECTED_SHA is required" >&2; \
-		exit 2; \
-	fi
-	$(MAKE) release-guardrails
-	$(MAKE) build-all VERSION="$(VERSION)"
-	python3 scripts/release_rehearsal.py \
-		--version "$(VERSION)" \
-		--expected-sha "$(EXPECTED_SHA)" \
-		--release-dir "$(RELEASE_DIR)"
 
 # Show help
 .PHONY: help
@@ -314,7 +300,6 @@ help:
 	@echo "  check-openapi  Validate generated OpenAPI indexes"
 	@echo "  check-docs     Run all documentation checks"
 	@echo "  release-guardrails Run non-publishing release checks"
-	@echo "  release-rehearsal Build and inspect an unpublished release candidate"
 	@echo "  clean          Clean build artifacts"
 	@echo "  install        Install binary"
 	@echo "  uninstall      Uninstall binary"

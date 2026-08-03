@@ -58,41 +58,27 @@ func TestReleaseWorkflowPreservesRubyBinInterpolationInFormulaTest(t *testing.T)
 	}
 }
 
-func TestReleaseWorkflowKeepsSharedGuardrails(t *testing.T) {
+func TestReleaseWorkflowKeepsHistoricalGuardrailsInline(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
 
 	workflow := string(data)
-	for _, want := range []string{`python3 scripts/test_check_docs.py`, `make release-guardrails`} {
-		if !strings.Contains(workflow, want) {
-			t.Fatalf("release workflow missing docs guardrail %q", want)
-		}
-	}
-
-	makefileData, err := os.ReadFile("Makefile")
-	if err != nil {
-		t.Fatalf("read Makefile: %v", err)
-	}
-	makefile := string(makefileData)
-	start := strings.Index(makefile, "release-guardrails:\n")
-	end := strings.Index(makefile, "# Build and inspect a release candidate")
-	if start == -1 || end == -1 || end <= start {
-		t.Fatal("Makefile missing release-guardrails target")
-	}
-	guardrails := makefile[start:end]
 	for _, want := range []string{
-		"scripts/test_release_rehearsal.py",
-		"$(MAKE) format-check",
-		"$(MAKE) check-docs",
-		"$(MAKE) check-wall-of-apps",
-		"$(MAKE) lint",
-		"ASC_BYPASS_KEYCHAIN=1 $(MAKE) test",
+		`python3 scripts/test_check_docs.py`,
+		`make format-check`,
+		`make check-docs`,
+		`make check-wall-of-apps`,
+		`make lint`,
+		`ASC_BYPASS_KEYCHAIN=1 make test`,
 	} {
-		if !strings.Contains(guardrails, want) {
-			t.Errorf("release-guardrails target missing %q", want)
+		if !strings.Contains(workflow, want) {
+			t.Errorf("release workflow missing historical guardrail %q", want)
 		}
+	}
+	if strings.Contains(workflow, "make release-guardrails") {
+		t.Fatal("release workflow cannot call a target absent from historical tags")
 	}
 }
 

@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("release_rehearsal.py")
@@ -117,6 +118,43 @@ class ReleaseRehearsalTests(unittest.TestCase):
                 expected_sha=self.git("rev-parse", "HEAD"),
                 release_dir=release_dir,
             )
+
+    def test_run_rejects_invalid_version_before_make(self) -> None:
+        with mock.patch.object(release_rehearsal, "run_command") as run_command:
+            with self.assertRaisesRegex(release_rehearsal.RehearsalError, "x.y.z"):
+                release_rehearsal.run_release_rehearsal(
+                    root=self.root,
+                    version="$(warning expanded)",
+                    expected_sha=self.git("rev-parse", "HEAD"),
+                    release_dir=self.root / "release",
+                )
+
+        run_command.assert_not_called()
+
+    def test_run_invokes_make_only_after_source_validation(self) -> None:
+        self.commit("candidate change")
+        head = self.git("rev-parse", "HEAD")
+
+        def run_command(root: Path, *args: str) -> None:
+            if args[:2] == ("make", "build-all"):
+                self.create_artifacts("1.2.4")
+
+        with mock.patch.object(release_rehearsal, "run_command", side_effect=run_command) as command:
+            result = release_rehearsal.run_release_rehearsal(
+                root=self.root,
+                version="1.2.4",
+                expected_sha=head,
+                release_dir=self.root / "release",
+            )
+
+        self.assertEqual(result.tested_sha, head)
+        self.assertEqual(
+            command.call_args_list,
+            [
+                mock.call(self.root.resolve(), "make", "release-guardrails"),
+                mock.call(self.root.resolve(), "make", "build-all", "VERSION=1.2.4"),
+            ],
+        )
 
 
 if __name__ == "__main__":
