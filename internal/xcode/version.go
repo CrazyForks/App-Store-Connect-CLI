@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,11 +14,18 @@ import (
 // BumpType represents the version component to increment.
 type BumpType string
 
+// BuildSettingsLookupPolicy controls whether version commands may fall back to
+// xcodebuild when structured project parsing cannot resolve version settings.
+type BuildSettingsLookupPolicy string
+
 const (
 	BumpMajor BumpType = "major"
 	BumpMinor BumpType = "minor"
 	BumpPatch BumpType = "patch"
 	BumpBuild BumpType = "build"
+
+	BuildSettingsLookupAuto  BuildSettingsLookupPolicy = "auto"
+	BuildSettingsLookupNever BuildSettingsLookupPolicy = "never"
 )
 
 // ParseBumpType validates and normalizes a bump type string.
@@ -36,6 +44,20 @@ func ParseBumpType(s string) (BumpType, error) {
 	}
 }
 
+// ParseBuildSettingsLookupPolicy validates and normalizes the xcodebuild
+// build-settings fallback policy. An empty value preserves the default auto
+// behavior for programmatic callers.
+func ParseBuildSettingsLookupPolicy(value string) (BuildSettingsLookupPolicy, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", string(BuildSettingsLookupAuto):
+		return BuildSettingsLookupAuto, nil
+	case string(BuildSettingsLookupNever):
+		return BuildSettingsLookupNever, nil
+	default:
+		return "", fmt.Errorf("--xcodebuild-settings-lookup must be one of: auto, never")
+	}
+}
+
 // VersionInfo holds the current version and build number from an Xcode project.
 type VersionInfo struct {
 	Version           string `json:"version"`
@@ -50,9 +72,11 @@ type VersionInfo struct {
 
 // GetVersionOptions configures a structured version read.
 type GetVersionOptions struct {
-	ProjectDir    string
-	Target        string
-	Configuration string
+	ProjectDir              string
+	Target                  string
+	Configuration           string
+	BuildSettingsLookup     BuildSettingsLookupPolicy
+	BuildSettingsDiagnostic io.Writer
 }
 
 // SetVersionOptions configures what to set.
@@ -91,11 +115,13 @@ type SetVersionResult struct {
 
 // BumpVersionOptions configures the bump operation.
 type BumpVersionOptions struct {
-	ProjectDir    string
-	Target        string
-	Configuration string
-	BumpType      BumpType
-	BuildNumber   string
+	ProjectDir              string
+	Target                  string
+	Configuration           string
+	BumpType                BumpType
+	BuildNumber             string
+	BuildSettingsLookup     BuildSettingsLookupPolicy
+	BuildSettingsDiagnostic io.Writer
 	// AllowExternalXCConfig authorizes rewriting xcconfig files that the project
 	// references outside its own directory. Without it, such a mutation fails.
 	AllowExternalXCConfig bool
@@ -130,7 +156,13 @@ func GetVersion(ctx context.Context, projectDir, target string) (*VersionInfo, e
 	return GetVersionScoped(ctx, GetVersionOptions{ProjectDir: projectDir, Target: target})
 }
 
-func getVersionLegacy(ctx context.Context, projectDir, target string) (*VersionInfo, error) {
+func getVersionLegacy(
+	ctx context.Context,
+	projectDir string,
+	target string,
+	lookupPolicy BuildSettingsLookupPolicy,
+	diagnostic io.Writer,
+) (*VersionInfo, error) {
 	if err := requireMacOS(); err != nil {
 		return nil, err
 	}
@@ -161,7 +193,7 @@ func getVersionLegacy(ctx context.Context, projectDir, target string) (*VersionI
 
 	// Modern project: agvtool returns $(MARKETING_VERSION). Resolve via xcodebuild.
 	if modern {
-		resolved, err := readBuildSettings(ctx, projectDir, target)
+		resolved, err := readBuildSettings(ctx, projectDir, target, lookupPolicy, diagnostic)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve build settings: %w", err)
 		}
@@ -272,6 +304,9 @@ func validateSetVersionLegacy() error {
 
 // BumpVersion increments the version or build number.
 func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResult, error) {
+	if _, err := ParseBuildSettingsLookupPolicy(string(opts.BuildSettingsLookup)); err != nil {
+		return nil, err
+	}
 	if err := validateBumpVersionOptions(opts); err != nil {
 		return nil, err
 	}
@@ -307,6 +342,9 @@ func BumpVersion(ctx context.Context, opts BumpVersionOptions) (*BumpVersionResu
 // baseline across the selected configurations, without changing any files.
 // Callers can use it before remote work such as resolving a build number.
 func ValidateBumpVersion(ctx context.Context, opts BumpVersionOptions) error {
+	if _, err := ParseBuildSettingsLookupPolicy(string(opts.BuildSettingsLookup)); err != nil {
+		return err
+	}
 	if err := validateBumpVersionOptions(opts); err != nil {
 		return err
 	}
@@ -333,7 +371,7 @@ func ValidateBumpVersion(ctx context.Context, opts BumpVersionOptions) error {
 	if err := validateSetVersionLegacy(); err != nil {
 		return err
 	}
-	current, err := getVersionLegacy(ctx, opts.ProjectDir, "")
+	current, err := getVersionLegacy(ctx, opts.ProjectDir, "", opts.BuildSettingsLookup, opts.BuildSettingsDiagnostic)
 	if err != nil {
 		return err
 	}
@@ -433,7 +471,7 @@ func bumpVersionLegacy(ctx context.Context, opts BumpVersionOptions) (*BumpVersi
 	}
 	trimmedTarget := strings.TrimSpace(opts.Target)
 
-	current, err := getVersionLegacy(ctx, opts.ProjectDir, trimmedTarget)
+	current, err := getVersionLegacy(ctx, opts.ProjectDir, trimmedTarget, opts.BuildSettingsLookup, opts.BuildSettingsDiagnostic)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +493,7 @@ func bumpVersionLegacy(ctx context.Context, opts BumpVersionOptions) (*BumpVersi
 		if _, err := runAgvtool(ctx, opts.ProjectDir, "next-version", "-all"); err != nil {
 			return nil, fmt.Errorf("failed to increment build number: %w", err)
 		}
-		updated, err := getVersionLegacy(ctx, opts.ProjectDir, trimmedTarget)
+		updated, err := getVersionLegacy(ctx, opts.ProjectDir, trimmedTarget, opts.BuildSettingsLookup, opts.BuildSettingsDiagnostic)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read updated build number: %w", err)
 		}
@@ -514,7 +552,13 @@ func runAgvtool(ctx context.Context, projectDir string, args ...string) (string,
 // readBuildSettings runs xcodebuild -showBuildSettings and extracts key=value pairs.
 // If target is non-empty, scopes to that target for deterministic results in
 // multi-target projects.
-func readBuildSettings(ctx context.Context, projectDir, target string) (map[string]string, error) {
+func readBuildSettings(
+	ctx context.Context,
+	projectDir string,
+	target string,
+	lookupPolicy BuildSettingsLookupPolicy,
+	diagnostic io.Writer,
+) (map[string]string, error) {
 	xcodeproj, err := findXcodeproj(projectDir)
 	if err != nil {
 		return nil, err
@@ -523,6 +567,16 @@ func readBuildSettings(ctx context.Context, projectDir, target string) (map[stri
 	args := []string{"-showBuildSettings", "-project", filepath.Base(xcodeproj)}
 	if t := strings.TrimSpace(target); t != "" {
 		args = append(args, "-target", t)
+	}
+	policy, err := ParseBuildSettingsLookupPolicy(string(lookupPolicy))
+	if err != nil {
+		return nil, err
+	}
+	if policy == BuildSettingsLookupNever {
+		return nil, fmt.Errorf("xcodebuild -showBuildSettings fallback is disabled by --xcodebuild-settings-lookup never; define MARKETING_VERSION and CURRENT_PROJECT_VERSION in the project or referenced xcconfig files")
+	}
+	if diagnostic != nil {
+		fmt.Fprintln(diagnostic, "Warning: structured project parsing could not resolve MARKETING_VERSION and CURRENT_PROJECT_VERSION; running xcodebuild -showBuildSettings. Define both settings in the project or referenced xcconfig files, or pass --xcodebuild-settings-lookup never to fail without running xcodebuild.")
 	}
 	cmd := commandContextFn(ctx, "xcodebuild", args...)
 	cmd.Dir = resolvedProjectDir(projectDir)
