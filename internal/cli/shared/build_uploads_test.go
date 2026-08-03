@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
@@ -28,6 +32,36 @@ func newBuildUploadsTestClient(t *testing.T, transport buildUploadsRoundTripFunc
 	writeECDSAPEM(t, keyPath)
 
 	httpClient := &http.Client{Transport: transport}
+	client, err := asc.NewClientWithHTTPClient("KEY123", "ISS456", keyPath, httpClient)
+	if err != nil {
+		t.Fatalf("NewClientWithHTTPClient() error: %v", err)
+	}
+	return client
+}
+
+func newBuildUploadsServerTestClient(t *testing.T, server *httptest.Server) *asc.Client {
+	t.Helper()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("url.Parse() error: %v", err)
+	}
+
+	httpClient := server.Client()
+	serverTransport := httpClient.Transport
+	httpClient.Transport = buildUploadsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		routedReq := req.Clone(req.Context())
+		routedURL := *req.URL
+		routedURL.Scheme = serverURL.Scheme
+		routedURL.Host = serverURL.Host
+		routedReq.URL = &routedURL
+		routedReq.Host = serverURL.Host
+		return serverTransport.RoundTrip(routedReq)
+	})
+
+	keyPath := filepath.Join(t.TempDir(), "key.p8")
+	writeECDSAPEM(t, keyPath)
+
 	client, err := asc.NewClientWithHTTPClient("KEY123", "ISS456", keyPath, httpClient)
 	if err != nil {
 		t.Fatalf("NewClientWithHTTPClient() error: %v", err)
@@ -183,22 +217,29 @@ func TestCommitBuildUploadFileReconcilesSuccessfulResponseDecodeFailure(t *testi
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patchCount := 0
-			getCount := 0
-			client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+			var patchCount atomic.Int32
+			var getCount atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
 				switch {
 				case req.Method == http.MethodPatch && req.URL.Path == "/v1/buildUploadFiles/file-456":
-					patchCount++
-					return buildUploadsJSONStatusResponse(http.StatusOK, tt.body)
+					patchCount.Add(1)
+					w.WriteHeader(http.StatusOK)
+					if _, err := io.WriteString(w, tt.body); err != nil {
+						t.Errorf("WriteString() error: %v", err)
+					}
 				case req.Method == http.MethodGet && req.URL.Path == "/v1/buildUploads/upload-123":
-					getCount++
-					return buildUploadsJSONStatusResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":"COMPLETE"}}}}`)
+					getCount.Add(1)
+					if _, err := io.WriteString(w, `{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":"COMPLETE"}}}}`); err != nil {
+						t.Errorf("WriteString() error: %v", err)
+					}
 				default:
-					err := fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
-					t.Error(err)
-					return nil, err
+					t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+					http.Error(w, "unexpected request", http.StatusInternalServerError)
 				}
-			})
+			}))
+			defer server.Close()
+			client := newBuildUploadsServerTestClient(t, server)
 
 			resp, err := CommitBuildUploadFile(context.Background(), client, "upload-123", "file-456", nil)
 			if err != nil {
@@ -207,10 +248,44 @@ func TestCommitBuildUploadFileReconcilesSuccessfulResponseDecodeFailure(t *testi
 			if resp != nil {
 				t.Fatalf("expected no synthetic file response after reconciliation, got %#v", resp)
 			}
-			if patchCount != 1 || getCount != 1 {
-				t.Fatalf("expected one commit and one reconciliation request, got patch=%d get=%d", patchCount, getCount)
+			if patchCount.Load() != 1 || getCount.Load() != 1 {
+				t.Fatalf("expected one commit and one reconciliation request, got patch=%d get=%d", patchCount.Load(), getCount.Load())
 			}
 		})
+	}
+}
+
+func TestCommitBuildUploadFileReconcilesSuccessfulResponseReadFailure(t *testing.T) {
+	patchCount := 0
+	getCount := 0
+	client := newBuildUploadsTestClient(t, func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/buildUploadFiles/file-456":
+			patchCount++
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(iotest.ErrReader(errors.New("response body read failed"))),
+			}, nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/buildUploads/upload-123":
+			getCount++
+			return buildUploadsJSONStatusResponse(http.StatusOK, `{"data":{"type":"buildUploads","id":"upload-123","attributes":{"state":{"state":"COMPLETE"}}}}`)
+		default:
+			err := fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			t.Error(err)
+			return nil, err
+		}
+	})
+
+	resp, err := CommitBuildUploadFile(context.Background(), client, "upload-123", "file-456", nil)
+	if err != nil {
+		t.Fatalf("CommitBuildUploadFile() error: %v", err)
+	}
+	if resp != nil {
+		t.Fatalf("expected no synthetic file response after reconciliation, got %#v", resp)
+	}
+	if patchCount != 1 || getCount != 1 {
+		t.Fatalf("expected one commit and one reconciliation request, got patch=%d get=%d", patchCount, getCount)
 	}
 }
 

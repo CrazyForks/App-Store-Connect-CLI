@@ -121,7 +121,7 @@ func isAmbiguousBuildUploadCommitError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return false
 	}
-	if asc.IsBuildUploadFileCommitResponseDecodingError(err) {
+	if asc.IsBuildUploadFileCommitResponseError(err) {
 		return true
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
