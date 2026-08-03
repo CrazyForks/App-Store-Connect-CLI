@@ -9,7 +9,30 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
+
+func TestAnalyticsViewProcessingDateFlagLifecycle(t *testing.T) {
+	cmd := AnalyticsGetCommand()
+	if cmd.FlagSet.Lookup("processing-date") == nil {
+		t.Fatal("canonical --processing-date flag is not registered")
+	}
+	if cmd.FlagSet.Lookup("date") == nil {
+		t.Fatal("deprecated --date compatibility flag is not registered")
+	}
+
+	visible := make(map[string]bool)
+	for _, item := range shared.VisibleHelpFlags(cmd.FlagSet) {
+		visible[item.Name] = true
+	}
+	if !visible["processing-date"] {
+		t.Fatal("canonical --processing-date flag is hidden from help")
+	}
+	if visible["date"] {
+		t.Fatal("deprecated --date flag should be hidden from canonical help")
+	}
+}
 
 func parseAnalyticsArgs(args []string) []string {
 	if len(args) > 0 && args[0] == "analytics" {

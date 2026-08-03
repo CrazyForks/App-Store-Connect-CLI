@@ -356,7 +356,9 @@ func AnalyticsGetCommand() *ffcli.Command {
 
 	requestID := fs.String("request-id", "", "Analytics report request ID")
 	instanceID := fs.String("instance-id", "", "Filter by specific instance ID")
-	date := fs.String("date", "", "Filter instances by processing date (YYYY-MM-DD)")
+	processingDate := fs.String("processing-date", "", "Filter instances by processing date (YYYY-MM-DD)")
+	legacyDate := fs.String("date", "", "DEPRECATED: filter instances by report or processing date (YYYY-MM-DD); use --processing-date")
+	shared.HideFlagFromHelp(fs.Lookup("date"))
 	granularity := fs.String("granularity", "", "Filter instances by granularity (comma-separated: DAILY, WEEKLY, MONTHLY)")
 	includeSegments := fs.Bool("include-segments", false, "Include report segments with download URLs")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
@@ -382,6 +384,23 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			var processingDateProvided, legacyDateProvided, granularityProvided bool
+			fs.Visit(func(item *flag.Flag) {
+				switch item.Name {
+				case "processing-date":
+					processingDateProvided = true
+				case "date":
+					legacyDateProvided = true
+				case "granularity":
+					granularityProvided = true
+				}
+			})
+			if legacyDateProvided {
+				fmt.Fprintln(os.Stderr, "Warning: `--date` is deprecated. Use `--processing-date`.")
+				if processingDateProvided {
+					return shared.UsageError("--date conflicts with --processing-date; use only --processing-date")
+				}
+			}
 			if strings.TrimSpace(*requestID) == "" && strings.TrimSpace(*next) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --request-id is required")
 				return shared.MissingRequiredUsageError()
@@ -403,23 +422,30 @@ Examples:
 				return fmt.Errorf("analytics view: %w", err)
 			}
 
-			dateFilter, err := normalizeAnalyticsDateFilter(*date)
-			if err != nil {
-				return fmt.Errorf("analytics view: %w", err)
+			var processingDateFilter string
+			if processingDateProvided {
+				normalized, normalizeErr := normalizeAnalyticsProcessingDateFilter(*processingDate)
+				if normalizeErr != nil {
+					return shared.UsageErrorf("analytics view: %v", normalizeErr)
+				}
+				processingDateFilter = normalized
+			}
+			var legacyDateFilter string
+			if legacyDateProvided {
+				normalized, normalizeErr := normalizeAnalyticsDateFilter(*legacyDate)
+				if normalizeErr != nil {
+					return shared.UsageErrorf("analytics view: %v", normalizeErr)
+				}
+				legacyDateFilter = normalized
 			}
 
-			granularityProvided := false
-			fs.Visit(func(item *flag.Flag) {
-				if item.Name == "granularity" {
-					granularityProvided = true
-				}
-			})
 			var granularities []string
 			if granularityProvided {
-				granularities, err = normalizeAnalyticsGranularities(*granularity)
-				if err != nil {
-					return shared.UsageErrorf("analytics view: %v", err)
+				normalized, normalizeErr := normalizeAnalyticsGranularities(*granularity)
+				if normalizeErr != nil {
+					return shared.UsageErrorf("analytics view: %v", normalizeErr)
 				}
+				granularities = normalized
 			}
 
 			client, err := shared.GetASCClient()
@@ -441,8 +467,8 @@ Examples:
 				Links:     links,
 			}
 			instanceOpts := make([]asc.AnalyticsReportInstancesOption, 0, 2)
-			if dateFilter != "" {
-				instanceOpts = append(instanceOpts, asc.WithAnalyticsReportInstancesProcessingDates([]string{dateFilter}))
+			if processingDateFilter != "" {
+				instanceOpts = append(instanceOpts, asc.WithAnalyticsReportInstancesProcessingDates([]string{processingDateFilter}))
 			}
 			if len(granularities) > 0 {
 				instanceOpts = append(instanceOpts, asc.WithAnalyticsReportInstancesGranularities(granularities))
@@ -465,6 +491,9 @@ Examples:
 
 				for _, instance := range instances {
 					if strings.TrimSpace(*instanceID) != "" && instance.ID != strings.TrimSpace(*instanceID) {
+						continue
+					}
+					if legacyDateFilter != "" && !matchAnalyticsInstanceDate(instance.Attributes, legacyDateFilter) {
 						continue
 					}
 
@@ -504,7 +533,7 @@ Examples:
 					continue
 				}
 
-				if dateFilter != "" && len(reportResult.Instances) == 0 {
+				if (processingDateFilter != "" || legacyDateFilter != "") && len(reportResult.Instances) == 0 {
 					continue
 				}
 				result.Data = append(result.Data, reportResult)
@@ -513,11 +542,17 @@ Examples:
 			if strings.TrimSpace(*instanceID) != "" && !foundInstance {
 				return fmt.Errorf("analytics view: instance %q not found for request %q", strings.TrimSpace(*instanceID), strings.TrimSpace(*requestID))
 			}
-			if dateFilter != "" && len(result.Data) == 0 {
+			dateFilterValue := processingDateFilter
+			dateFilterLabel := "processing date"
+			if legacyDateFilter != "" {
+				dateFilterValue = legacyDateFilter
+				dateFilterLabel = "date"
+			}
+			if dateFilterValue != "" && len(result.Data) == 0 {
 				if strings.TrimSpace(*next) == "" && !*paginate {
-					return fmt.Errorf("analytics view: no instances found for date %q in the first page of reports (use --paginate or --next)", dateFilter)
+					return fmt.Errorf("analytics view: no instances found for %s %q in the first page of reports (use --paginate or --next)", dateFilterLabel, dateFilterValue)
 				}
-				return fmt.Errorf("analytics view: no instances found for date %q", dateFilter)
+				return fmt.Errorf("analytics view: no instances found for %s %q", dateFilterLabel, dateFilterValue)
 			}
 
 			return shared.PrintOutput(result, *output.Output, *output.Pretty)
