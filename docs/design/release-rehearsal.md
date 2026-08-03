@@ -29,6 +29,10 @@ the candidate. Only the configured release output directory is excluded from
 the cleanliness checks. Diagnostics and the tested SHA go to the job log and
 GitHub job summary.
 
+A custom release output directory is passed through to the build, but it must
+not contain tracked files, overlap Git metadata, or contain the repository. The
+rehearsal rejects those paths before Make can run its cleaning prerequisite.
+
 The workflow has read-only repository permissions and disables interactive Git
 and GitHub CLI prompts. It does not import signing certificates, sign binaries,
 create or push tags, create or update GitHub releases, upload artifacts, update
@@ -46,8 +50,8 @@ This adds an opt-in workflow and script without changing the publishing
 workflow or CLI surface. Missing inputs, an invalid version, a mismatched SHA,
 an existing candidate tag, no commits after the latest release, missing build
 artifacts, a dirty source tree before or after the build, or a failed release
-guardrail produce a nonzero exit. The preview and artifacts remain runner-local
-and expire with the job.
+guardrail produce a nonzero exit. Unsafe release output paths fail before Make.
+The preview and artifacts remain runner-local and expire with the job.
 
 ## Verification
 

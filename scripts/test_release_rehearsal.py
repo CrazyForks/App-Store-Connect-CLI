@@ -184,6 +184,45 @@ class ReleaseRehearsalTests(unittest.TestCase):
 
         run_command.assert_not_called()
 
+    def test_run_rejects_tracked_release_dir_before_make(self) -> None:
+        release_dir = self.root / "tracked-output"
+        release_dir.mkdir()
+        tracked_file = release_dir / "keep.txt"
+        tracked_file.write_text("keep me\n")
+        self.git("add", "tracked-output/keep.txt")
+        self.git("commit", "-m", "add tracked output")
+        head = self.git("rev-parse", "HEAD")
+
+        with mock.patch.object(release_rehearsal, "run_command") as run_command:
+            with self.assertRaisesRegex(release_rehearsal.RehearsalError, "contains tracked files"):
+                release_rehearsal.run_release_rehearsal(
+                    root=self.root,
+                    version="1.2.4",
+                    expected_sha=head,
+                    release_dir=release_dir,
+                )
+
+        run_command.assert_not_called()
+        self.assertTrue(tracked_file.is_file())
+
+    def test_run_rejects_git_metadata_release_dir_before_make(self) -> None:
+        self.commit("candidate change")
+        head = self.git("rev-parse", "HEAD")
+        git_dir = self.root / ".git"
+
+        with mock.patch.object(release_rehearsal, "run_command") as run_command:
+            with self.assertRaisesRegex(release_rehearsal.RehearsalError, "Git metadata"):
+                release_rehearsal.run_release_rehearsal(
+                    root=self.root,
+                    version="1.2.4",
+                    expected_sha=head,
+                    release_dir=git_dir,
+                )
+
+        run_command.assert_not_called()
+        self.assertTrue(git_dir.exists())
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+
     def test_run_rejects_modified_tracked_source_before_make(self) -> None:
         self.commit("candidate change")
         head = self.git("rev-parse", "HEAD")

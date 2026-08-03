@@ -113,6 +113,25 @@ func TestReleaseRehearsalWorkflowContractRejectsBrokenDataFlow(t *testing.T) {
 	}
 }
 
+func TestReleaseRehearsalWorkflowContractRejectsMisorderedAnonymousCheckout(t *testing.T) {
+	workflow := readReleaseRehearsalWorkflow(t)
+	workflow = replaceRehearsalFixture(
+		t,
+		workflow,
+		"      - name: Checkout requested source\n        uses: actions/checkout@v6",
+		"      - run: echo harmless\n\n      - name: Cache source\n        uses: actions/cache@v5",
+	)
+	fixture := replaceRehearsalFixture(
+		t,
+		workflow,
+		"      - name: Set up Go",
+		"      - uses: actions/checkout@v6\n        with:\n          ref: ${{ inputs.ref }}\n          fetch-depth: 0\n          persist-credentials: false\n\n      - name: Set up Go",
+	)
+	if err := validateReleaseRehearsalWorkflow([]byte(fixture)); err == nil {
+		t.Fatal("misordered anonymous checkout fixture passed the workflow contract")
+	}
+}
+
 func TestReleaseRehearsalWorkflowContractRejectsWritablePermissions(t *testing.T) {
 	workflow := readReleaseRehearsalWorkflow(t)
 	cases := map[string]string{
@@ -235,7 +254,7 @@ func validateReleaseRehearsalWorkflow(data []byte) error {
 		return fmt.Errorf("rehearse job must disable interactive Git and GitHub prompts")
 	}
 
-	checkout, err := findRehearsalStep(job.Steps, "", "actions/checkout@")
+	checkout, checkoutIndex, err := findRehearsalStep(job.Steps, "", "actions/checkout@")
 	if err != nil {
 		return err
 	}
@@ -245,7 +264,7 @@ func validateReleaseRehearsalWorkflow(data []byte) error {
 		return fmt.Errorf("checkout must use inputs.ref, full history, and no persisted credentials")
 	}
 
-	record, err := findRehearsalStep(job.Steps, "Record exact tested commit", "")
+	record, recordIndex, err := findRehearsalStep(job.Steps, "Record exact tested commit", "")
 	if err != nil {
 		return err
 	}
@@ -256,7 +275,11 @@ func validateReleaseRehearsalWorkflow(data []byte) error {
 		return fmt.Errorf("tested SHA must be derived from HEAD and explicitly persisted")
 	}
 
-	rehearse, err := findRehearsalStep(job.Steps, "Run non-publishing release rehearsal", "")
+	rehearse, rehearseIndex, err := findRehearsalStep(
+		job.Steps,
+		"Run non-publishing release rehearsal",
+		"",
+	)
 	if err != nil {
 		return err
 	}
@@ -266,14 +289,15 @@ func validateReleaseRehearsalWorkflow(data []byte) error {
 		!strings.Contains(rehearse.Run, `--expected-sha "${TESTED_SHA}"`) {
 		return fmt.Errorf("rehearsal step must bind the requested version and persisted tested SHA")
 	}
-	checkoutIndex := rehearsalStepIndex(job.Steps, checkout.Name)
-	recordIndex := rehearsalStepIndex(job.Steps, record.Name)
-	rehearseIndex := rehearsalStepIndex(job.Steps, rehearse.Name)
 	if checkoutIndex >= recordIndex || recordIndex >= rehearseIndex {
 		return fmt.Errorf("checkout, tested-SHA persistence, and rehearsal execution must stay ordered")
 	}
 
-	summary, err := findRehearsalStep(job.Steps, "Summarize local rehearsal outputs", "")
+	summary, summaryIndex, err := findRehearsalStep(
+		job.Steps,
+		"Summarize local rehearsal outputs",
+		"",
+	)
 	if err != nil {
 		return err
 	}
@@ -283,7 +307,7 @@ func validateReleaseRehearsalWorkflow(data []byte) error {
 		!strings.Contains(summary.Run, `} >> "${GITHUB_STEP_SUMMARY}"`) {
 		return fmt.Errorf("summary step must append release notes and checksums to GITHUB_STEP_SUMMARY")
 	}
-	if rehearseIndex >= rehearsalStepIndex(job.Steps, summary.Name) {
+	if rehearseIndex >= summaryIndex {
 		return fmt.Errorf("rehearsal outputs must be generated before they are summarized")
 	}
 
@@ -330,30 +354,32 @@ func findYAMLMappingValues(node *yaml.Node, key string) []*yaml.Node {
 	return values
 }
 
-func findRehearsalStep(steps []rehearsalStep, name string, usesPrefix string) (rehearsalStep, error) {
-	var matches []rehearsalStep
-	for _, step := range steps {
+func findRehearsalStep(
+	steps []rehearsalStep,
+	name string,
+	usesPrefix string,
+) (rehearsalStep, int, error) {
+	var match rehearsalStep
+	matchIndex := -1
+	matchCount := 0
+	for index, step := range steps {
 		if name != "" && step.Name != name {
 			continue
 		}
 		if usesPrefix != "" && !strings.HasPrefix(step.Uses, usesPrefix) {
 			continue
 		}
-		matches = append(matches, step)
+		match = step
+		matchIndex = index
+		matchCount++
 	}
-	if len(matches) != 1 {
-		return rehearsalStep{}, fmt.Errorf("expected one matching workflow step, found %d", len(matches))
+	if matchCount != 1 {
+		return rehearsalStep{}, -1, fmt.Errorf(
+			"expected one matching workflow step, found %d",
+			matchCount,
+		)
 	}
-	return matches[0], nil
-}
-
-func rehearsalStepIndex(steps []rehearsalStep, name string) int {
-	for index, step := range steps {
-		if step.Name == name {
-			return index
-		}
-	}
-	return -1
+	return match, matchIndex, nil
 }
 
 func readReleaseRehearsalWorkflow(t *testing.T) string {

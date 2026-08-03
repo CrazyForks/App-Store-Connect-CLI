@@ -145,15 +145,43 @@ def ensure_clean_source(*, root: Path, release_dir: Path) -> None:
     pathspecs = ["."]
 
     try:
+        root.relative_to(release_dir)
+    except ValueError:
+        pass
+    else:
+        raise RehearsalError(
+            "release output directory must not be the repository root or one of its ancestors"
+        )
+
+    try:
         relative_release_dir = release_dir.relative_to(root)
     except ValueError:
         relative_release_dir = None
 
     if relative_release_dir is not None:
-        if relative_release_dir == Path("."):
-            raise RehearsalError("release output directory must not be the repository root")
+        if ".git" in relative_release_dir.parts:
+            raise RehearsalError("release output directory must not contain Git metadata")
+        tracked_files = run_git(root, "ls-files", "--", relative_release_dir.as_posix())
+        if tracked_files:
+            raise RehearsalError(
+                "release output directory contains tracked files and cannot be cleaned safely:\n"
+                f"{tracked_files}"
+            )
         release_pathspec = relative_release_dir.as_posix()
         pathspecs.append(f":(exclude,top,literal){release_pathspec}")
+
+    git_dir = Path(run_git(root, "rev-parse", "--absolute-git-dir")).resolve()
+    try:
+        git_dir.relative_to(release_dir)
+    except ValueError:
+        try:
+            release_dir.relative_to(git_dir)
+        except ValueError:
+            pass
+        else:
+            raise RehearsalError("release output directory must not be inside Git metadata")
+    else:
+        raise RehearsalError("release output directory must not contain Git metadata")
 
     status = run_git(
         root,
