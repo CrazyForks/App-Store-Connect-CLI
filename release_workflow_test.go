@@ -82,6 +82,27 @@ func TestReleaseWorkflowKeepsHistoricalGuardrailsInline(t *testing.T) {
 	}
 }
 
+func TestReleaseRehearsalGuardrailsIncludeDocsValidatorSelfTest(t *testing.T) {
+	data, err := os.ReadFile("Makefile")
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+
+	makefile := string(data)
+	start := strings.Index(makefile, "release-guardrails:\n")
+	if start == -1 {
+		t.Fatal("Makefile missing release-guardrails target")
+	}
+	end := strings.Index(makefile[start:], "\n# Show help")
+	if end == -1 {
+		t.Fatal("could not find end of release-guardrails target")
+	}
+	guardrails := makefile[start : start+end]
+	if !strings.Contains(guardrails, "python3 scripts/test_check_docs.py") {
+		t.Fatal("release-guardrails must run the docs-validator self-test")
+	}
+}
+
 func TestReleaseWorkflowBuildsStrippedTrimmedBinaries(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {

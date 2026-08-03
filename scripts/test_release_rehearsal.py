@@ -44,8 +44,8 @@ class ReleaseRehearsalTests(unittest.TestCase):
         self.git("add", "history.txt")
         self.git("commit", "-m", message)
 
-    def create_artifacts(self, version: str) -> Path:
-        release_dir = self.root / "release"
+    def create_artifacts(self, version: str, release_dir: Path | None = None) -> Path:
+        release_dir = release_dir or self.root / "release"
         release_dir.mkdir()
         for name in release_rehearsal.expected_artifact_names(version):
             (release_dir / name).write_bytes(f"binary:{name}".encode())
@@ -257,7 +257,45 @@ class ReleaseRehearsalTests(unittest.TestCase):
             command.call_args_list,
             [
                 mock.call(self.root.resolve(), "make", "release-guardrails"),
-                mock.call(self.root.resolve(), "make", "build-all", "VERSION=1.2.4"),
+                mock.call(
+                    self.root.resolve(),
+                    "make",
+                    "build-all",
+                    "VERSION=1.2.4",
+                    f"RELEASE_DIR={(self.root / 'release').resolve()}",
+                ),
+            ],
+        )
+
+    def test_run_passes_custom_release_dir_to_build(self) -> None:
+        self.commit("candidate change")
+        head = self.git("rev-parse", "HEAD")
+        release_dir = self.root / "custom-output"
+
+        def run_command(root: Path, *args: str) -> None:
+            if args[:2] == ("make", "build-all"):
+                self.create_artifacts("1.2.4", release_dir)
+
+        with mock.patch.object(release_rehearsal, "run_command", side_effect=run_command) as command:
+            result = release_rehearsal.run_release_rehearsal(
+                root=self.root,
+                version="1.2.4",
+                expected_sha=head,
+                release_dir=release_dir,
+            )
+
+        self.assertEqual(result.notes_path.parent, release_dir.resolve())
+        self.assertEqual(
+            command.call_args_list,
+            [
+                mock.call(self.root.resolve(), "make", "release-guardrails"),
+                mock.call(
+                    self.root.resolve(),
+                    "make",
+                    "build-all",
+                    "VERSION=1.2.4",
+                    f"RELEASE_DIR={release_dir.resolve()}",
+                ),
             ],
         )
 

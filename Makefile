@@ -268,6 +268,7 @@ release: clean
 .PHONY: release-guardrails
 release-guardrails:
 	python3 scripts/test_release_rehearsal.py
+	python3 scripts/test_check_docs.py
 	$(MAKE) format-check
 	$(MAKE) check-docs
 	$(MAKE) check-wall-of-apps

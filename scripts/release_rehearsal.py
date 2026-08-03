@@ -220,7 +220,13 @@ def run_release_rehearsal(
     validate_source(root=root, version=version, expected_sha=expected_sha)
     ensure_clean_source(root=root, release_dir=release_dir)
     run_command(root, "make", "release-guardrails")
-    run_command(root, "make", "build-all", f"VERSION={version}")
+    run_command(
+        root,
+        "make",
+        "build-all",
+        f"VERSION={version}",
+        f"RELEASE_DIR={release_dir}",
+    )
     ensure_clean_source(root=root, release_dir=release_dir)
     source = validate_source(root=root, version=version, expected_sha=expected_sha)
     return write_outputs(source=source, version=version, release_dir=release_dir)
