@@ -131,6 +131,11 @@ func TestDownloadWebAPIKeyWithRetryRetriesPropagationErrors(t *testing.T) {
 func TestWebAPIKeysCreateDoesNotReplaceExistingP8(t *testing.T) {
 	restore := installWebAPIKeyCreateFakes(t)
 	t.Cleanup(restore)
+	downloadCalls := 0
+	downloadWebAPIKeyFn = func(ctx context.Context, client *webcore.Client, keyID string) ([]byte, error) {
+		downloadCalls++
+		return []byte(apiKeyFixtureP8), nil
+	}
 
 	outputDir := t.TempDir()
 	path := filepath.Join(outputDir, "AuthKey_ABC123XYZ.p8")
@@ -159,6 +164,34 @@ func TestWebAPIKeysCreateDoesNotReplaceExistingP8(t *testing.T) {
 	}
 	if string(contents) != "existing" {
 		t.Fatalf("existing file was replaced: %q", string(contents))
+	}
+	if downloadCalls != 0 {
+		t.Fatalf("expected destination collision before one-time download, got %d download calls", downloadCalls)
+	}
+}
+
+func TestWebAPIKeysCreateRemovesReservationWhenDownloadFails(t *testing.T) {
+	restore := installWebAPIKeyCreateFakes(t)
+	t.Cleanup(restore)
+
+	downloadErr := &webcore.APIError{Status: 403}
+	downloadWebAPIKeyFn = func(ctx context.Context, client *webcore.Client, keyID string) ([]byte, error) {
+		return nil, downloadErr
+	}
+
+	outputDir := t.TempDir()
+	cmd := WebAPIKeysCreateCommand()
+	if err := cmd.FlagSet.Parse([]string{"--name", "Release automation", "--output-dir", outputDir}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	err := cmd.Exec(context.Background(), nil)
+	if !errors.Is(err, downloadErr) {
+		t.Fatalf("expected download error, got %v", err)
+	}
+	path := filepath.Join(outputDir, "AuthKey_ABC123XYZ.p8")
+	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected failed-download reservation to be removed, stat error = %v", statErr)
 	}
 }
 

@@ -2,8 +2,10 @@ package web
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -151,6 +153,18 @@ Examples:
 				return fmt.Errorf("web api-keys create failed: create response did not include a key id")
 			}
 
+			fileName := fmt.Sprintf("AuthKey_%s.p8", strings.TrimSpace(created.KeyID))
+			p8Path := filepath.Join(outputRoot.Path(), fileName)
+			if err := outputRoot.CreateNewFile(fileName, nil, 0o600); err != nil {
+				return fmt.Errorf(
+					"API key %q (%s) was created, but destination %q could not be reserved before its one-time P8 download; the P8 was not downloaded: %w",
+					nameValue,
+					created.KeyID,
+					p8Path,
+					err,
+				)
+			}
+
 			var p8 []byte
 			err = withWebSpinner("Downloading one-time API key P8", func() error {
 				var downloadErr error
@@ -158,17 +172,22 @@ Examples:
 				return downloadErr
 			})
 			if err != nil {
-				return fmt.Errorf(
+				downloadFailure := fmt.Errorf(
 					"API key %q (%s) was created, but its one-time P8 could not be downloaded: %w",
 					nameValue,
 					created.KeyID,
 					withWebAuthHint(err, "web api-keys create"),
 				)
+				if removeErr := os.Remove(p8Path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+					return errors.Join(
+						downloadFailure,
+						fmt.Errorf("remove empty reserved P8 file %q: %w", p8Path, removeErr),
+					)
+				}
+				return downloadFailure
 			}
 
-			fileName := fmt.Sprintf("AuthKey_%s.p8", strings.TrimSpace(created.KeyID))
-			p8Path := filepath.Join(outputRoot.Path(), fileName)
-			if err := outputRoot.CreateNewFile(fileName, p8, 0o600); err != nil {
+			if err := outputRoot.WriteFile(fileName, p8, 0o600); err != nil {
 				return fmt.Errorf(
 					"API key %q (%s) was created and its one-time P8 was downloaded, but saving %q failed; the P8 cannot be downloaded again: %w",
 					nameValue,
