@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,6 +126,34 @@ func TestDownloadWebAPIKeyWithRetryRetriesPropagationErrors(t *testing.T) {
 	}
 	if len(waits) != 2 || waits[0] != time.Second || waits[1] != 2*time.Second {
 		t.Fatalf("unexpected waits: %#v", waits)
+	}
+}
+
+func TestDownloadWebAPIKeyWithRetryDoesNotRetryInvalidResponse(t *testing.T) {
+	originalDownload := downloadWebAPIKeyFn
+	originalWait := waitWebAPIKeyRetryFn
+	t.Cleanup(func() {
+		downloadWebAPIKeyFn = originalDownload
+		waitWebAPIKeyRetryFn = originalWait
+	})
+
+	attempts := 0
+	downloadWebAPIKeyFn = func(ctx context.Context, client *webcore.Client, keyID string) ([]byte, error) {
+		attempts++
+		return nil, fmt.Errorf("decode failed: %w", webcore.ErrAPIKeyResponseInvalid)
+	}
+	waits := 0
+	waitWebAPIKeyRetryFn = func(ctx context.Context, delay time.Duration) error {
+		waits++
+		return nil
+	}
+
+	_, err := downloadWebAPIKeyWithRetry(context.Background(), &webcore.Client{}, "ABC123XYZ")
+	if !errors.Is(err, webcore.ErrAPIKeyResponseInvalid) {
+		t.Fatalf("expected invalid response error, got %v", err)
+	}
+	if attempts != 1 || waits != 0 {
+		t.Fatalf("expected one attempt and no waits, got %d attempts and %d waits", attempts, waits)
 	}
 }
 

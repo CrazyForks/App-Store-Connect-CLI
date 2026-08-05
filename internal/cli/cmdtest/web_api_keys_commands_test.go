@@ -23,4 +23,7 @@ func TestWebAPIKeysCreateCommandRegistration(t *testing.T) {
 			t.Fatalf("expected --%s flag", flagName)
 		}
 	}
+	if got := cmd.FlagSet.Lookup("role").DefValue; got != "ADMIN" {
+		t.Fatalf("expected --role default ADMIN, got %q", got)
+	}
 }

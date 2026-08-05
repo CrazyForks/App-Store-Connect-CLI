@@ -307,7 +307,7 @@ func firstNonEmptyRoles(values ...[]string) []string {
 	return nil
 }
 
-func renderWebAPIKeyCreateTable(result *webAPIKeyCreateResult) error {
+func webAPIKeyCreateRows(result *webAPIKeyCreateResult) ([]string, [][]string) {
 	headers := []string{"Key ID", "Name", "Issuer ID", "Team ID", "Roles", "P8 Path"}
 	rows := [][]string{{
 		result.KeyID,
@@ -317,20 +317,17 @@ func renderWebAPIKeyCreateTable(result *webAPIKeyCreateResult) error {
 		strings.Join(result.Roles, ", "),
 		result.P8Path,
 	}}
+	return headers, rows
+}
+
+func renderWebAPIKeyCreateTable(result *webAPIKeyCreateResult) error {
+	headers, rows := webAPIKeyCreateRows(result)
 	asc.RenderTable(headers, rows)
 	return nil
 }
 
 func renderWebAPIKeyCreateMarkdown(result *webAPIKeyCreateResult) error {
-	headers := []string{"Key ID", "Name", "Issuer ID", "Team ID", "Roles", "P8 Path"}
-	rows := [][]string{{
-		result.KeyID,
-		result.Name,
-		result.IssuerID,
-		result.TeamID,
-		strings.Join(result.Roles, ", "),
-		result.P8Path,
-	}}
+	headers, rows := webAPIKeyCreateRows(result)
 	asc.RenderMarkdown(headers, rows)
 	return nil
 }

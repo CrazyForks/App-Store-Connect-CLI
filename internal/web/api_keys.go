@@ -14,6 +14,9 @@ import (
 
 const apiKeyTypePublic = "PUBLIC_API"
 
+// ErrAPIKeyResponseInvalid reports a malformed or incomplete one-time P8 response.
+var ErrAPIKeyResponseInvalid = errors.New("invalid api key download response")
+
 // APIKeyCreateAttributes describes a team API key created through a web session.
 type APIKeyCreateAttributes struct {
 	Nickname string
@@ -124,21 +127,21 @@ func (c *Client) DownloadAPIKey(ctx context.Context, keyID string) ([]byte, erro
 
 	var payload apiKeyPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("failed to parse api key download response: %w", err)
+		return nil, fmt.Errorf("%w: failed to parse JSON: %w", ErrAPIKeyResponseInvalid, err)
 	}
 	encoded := strings.TrimSpace(payload.Data.Attributes.PrivateKey)
 	if encoded == "" {
-		return nil, fmt.Errorf("api key download response did not include a P8")
+		return nil, fmt.Errorf("%w: response did not include a P8", ErrAPIKeyResponseInvalid)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		decoded, err = base64.RawStdEncoding.DecodeString(encoded)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode api key P8: %w", err)
+		return nil, fmt.Errorf("%w: failed to decode P8: %w", ErrAPIKeyResponseInvalid, err)
 	}
 	if !bytes.Contains(decoded, []byte("-----BEGIN PRIVATE KEY-----")) || !bytes.Contains(decoded, []byte("-----END PRIVATE KEY-----")) {
-		return nil, fmt.Errorf("api key download response contained an invalid P8")
+		return nil, fmt.Errorf("%w: response contained an invalid P8", ErrAPIKeyResponseInvalid)
 	}
 	return decoded, nil
 }
@@ -147,6 +150,9 @@ func (c *Client) DownloadAPIKey(ctx context.Context, keyID string) ([]byte, erro
 // succeed after Apple's API-key resource finishes propagating.
 func IsAPIKeyDownloadRetryable(err error) bool {
 	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrAPIKeyResponseInvalid) {
 		return false
 	}
 	var apiErr *APIError
