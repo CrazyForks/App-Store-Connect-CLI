@@ -25,8 +25,8 @@ Phase 1 scope:
 
 Keyword workflow:
   - ` + "`asc metadata keywords ...`" + ` manages the canonical version-localization ` + "`keywords`" + ` field
-  - raw App Store Connect ` + "`searchKeywords`" + ` relationship APIs remain under
-    ` + "`asc apps search-keywords ...`" + ` and ` + "`asc localizations search-keywords ...`" + `
+  - app-level ` + "`searchKeywords`" + ` are read-only under ` + "`asc apps search-keywords list`" + `
+  - version-localization linkage operations remain under ` + "`asc localizations search-keywords ...`" + `
 
 Not yet included in this group:
   - categories, review information, age ratings, screenshots

@@ -42,8 +42,8 @@ func TestMetadataHelpShowsKeywordsWorkflow(t *testing.T) {
 			t.Fatalf("expected metadata keywords help to list %s, got %q", subcommand, keywordsUsage)
 		}
 	}
-	if !strings.Contains(keywordsUsage, "asc apps search-keywords") {
-		t.Fatalf("expected metadata keywords help to point to raw relationship commands, got %q", keywordsUsage)
+	if !strings.Contains(keywordsUsage, "asc apps search-keywords list") {
+		t.Fatalf("expected metadata keywords help to point to the app keyword read command, got %q", keywordsUsage)
 	}
 }
 

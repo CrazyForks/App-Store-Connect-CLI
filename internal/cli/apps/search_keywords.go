@@ -20,24 +20,22 @@ func AppsSearchKeywordsCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "search-keywords",
 		ShortUsage: "asc apps search-keywords <subcommand> [flags]",
-		ShortHelp:  "Manage raw search-keyword relationships for an app.",
-		LongHelp: `Manage raw search-keyword relationships for an app.
+		ShortHelp:  "Read search keywords for an app.",
+		LongHelp: `Read search keywords for an app.
 
-This command wraps the low-level App Store Connect ` + "`searchKeywords`" + `
-relationship API for apps.
+Apple exposes the app-level App Store Connect ` + "`searchKeywords`" + `
+resource as read-only.
 
-For canonical version-localization keyword workflows, use
-` + "`asc metadata keywords ...`" + ` instead.
+To update keyword text, use the canonical version-localization workflow under
+` + "`asc metadata keywords ...`" + `.
 
 Examples:
   asc apps search-keywords list --app "APP_ID"
-  asc apps search-keywords list --app "APP_ID" --platform IOS --locale "en-US"
-  asc apps search-keywords set --app "APP_ID" --keywords "kw1,kw2" --confirm`,
+  asc apps search-keywords list --app "APP_ID" --platform IOS --locale "en-US"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			AppsSearchKeywordsListCommand(),
-			AppsSearchKeywordsSetCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
@@ -133,59 +131,6 @@ Examples:
 			}
 
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
-		},
-	}
-}
-
-// AppsSearchKeywordsSetCommand returns the search keywords set subcommand.
-func AppsSearchKeywordsSetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("apps search-keywords set", flag.ExitOnError)
-
-	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
-	keywords := fs.String("keywords", "", "Keywords (comma-separated)")
-	confirm := fs.Bool("confirm", false, "Confirm replacing all keywords")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "set",
-		ShortUsage: "asc apps search-keywords set --app \"APP_ID\" --keywords \"kw1,kw2\" --confirm",
-		ShortHelp:  "Replace search keywords for an app.",
-		LongHelp: `Replace search keywords for an app.
-
-Examples:
-  asc apps search-keywords set --app "APP_ID" --keywords "kw1,kw2" --confirm`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			resolvedAppID := shared.ResolveAppID(*appID)
-			if resolvedAppID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
-				return shared.MissingRequiredUsageError()
-			}
-			if !*confirm {
-				fmt.Fprintln(os.Stderr, "Error: --confirm is required")
-				return shared.MissingRequiredUsageError()
-			}
-
-			keywordValues := shared.SplitCSV(*keywords)
-			if len(keywordValues) == 0 {
-				fmt.Fprintln(os.Stderr, "Error: --keywords is required")
-				return shared.MissingRequiredUsageError()
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("apps search-keywords set: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			if err := client.SetAppSearchKeywords(requestCtx, resolvedAppID, keywordValues); err != nil {
-				return fmt.Errorf("apps search-keywords set: failed to update: %w", err)
-			}
-
-			return shared.PrintOutput(shared.BuildAppKeywordsResponse(keywordValues), *output.Output, *output.Pretty)
 		},
 	}
 }
