@@ -179,6 +179,75 @@ func TestFeedbackListIncludeBuildSendsBuildRelationship(t *testing.T) {
 	}
 }
 
+func TestFeedbackListIncludeScreenshotsPreservesAllFeedbackFields(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_APP_ID", "")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	var gotQuery url.Values
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/123/betaFeedbackScreenshotSubmissions" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+		gotQuery = req.URL.Query()
+		return okJSONResponse(`{"data":[{"type":"betaFeedbackScreenshotSubmissions","id":"fb-1","attributes":{"createdDate":"2026-01-20T00:00:00Z","comment":"Nice","email":"tester@example.com","deviceModel":"iPhone17,1","osVersion":"18.0","locale":"en-US","timeZone":"America/Los_Angeles","architecture":"arm64","connectionType":"WIFI","pairedAppleWatch":"Watch7,1","appUptimeInMilliseconds":1234,"diskBytesAvailable":2000,"diskBytesTotal":4000,"batteryPercentage":85,"screenWidthInPoints":430,"screenHeightInPoints":932,"appPlatform":"IOS","devicePlatform":"IOS","deviceFamily":"IPHONE","buildBundleId":"com.example.app","screenshots":[{"url":"https://example.com/shot.png","width":320,"height":640,"expirationDate":"2026-01-21T00:00:00Z"}]},"relationships":{"build":{"data":{"type":"builds","id":"build-1"}},"tester":{"data":{"type":"betaTesters","id":"tester-1"}}}}]}`), nil
+	})
+
+	var exitCode int
+	stdout, stderr := captureOutput(t, func() {
+		exitCode = rootcmd.Run([]string{"testflight", "feedback", "list", "--app", "123", "--include-screenshots", "--output", "json"}, "1.2.3")
+	})
+
+	if exitCode != rootcmd.ExitSuccess {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", exitCode, rootcmd.ExitSuccess, stderr)
+	}
+	if len(gotQuery) != 1 {
+		t.Fatalf("expected only the feedback sparse fieldset, got %q", gotQuery.Encode())
+	}
+	expectedFields := "createdDate,comment,email,deviceModel,osVersion,locale,timeZone,architecture,connectionType,pairedAppleWatch,appUptimeInMilliseconds,diskBytesAvailable,diskBytesTotal,batteryPercentage,screenWidthInPoints,screenHeightInPoints,appPlatform,devicePlatform,deviceFamily,buildBundleId,screenshots,build,tester"
+	if got := gotQuery.Get("fields[betaFeedbackScreenshotSubmissions]"); got != expectedFields {
+		t.Fatalf("feedback fieldset = %q, want %q", got, expectedFields)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	var output struct {
+		Data []struct {
+			Attributes    map[string]any `json:"attributes"`
+			Relationships map[string]struct {
+				Data struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			} `json:"relationships"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+		t.Fatalf("failed to parse JSON output: %v\noutput: %s", err, stdout)
+	}
+	if len(output.Data) != 1 {
+		t.Fatalf("feedback count = %d, want 1", len(output.Data))
+	}
+	expectedAttributeNames := []string{
+		"createdDate", "comment", "email", "deviceModel", "osVersion", "locale", "timeZone",
+		"architecture", "connectionType", "pairedAppleWatch", "appUptimeInMilliseconds",
+		"diskBytesAvailable", "diskBytesTotal", "batteryPercentage", "screenWidthInPoints",
+		"screenHeightInPoints", "appPlatform", "devicePlatform", "deviceFamily", "buildBundleId",
+		"screenshots",
+	}
+	for _, name := range expectedAttributeNames {
+		if _, ok := output.Data[0].Attributes[name]; !ok {
+			t.Errorf("JSON output omitted feedback attribute %q", name)
+		}
+	}
+	if output.Data[0].Relationships["build"].Data.ID != "build-1" || output.Data[0].Relationships["tester"].Data.ID != "tester-1" {
+		t.Fatalf("JSON output omitted feedback relationships: %+v", output.Data[0].Relationships)
+	}
+}
+
 func TestFeedbackListInvalidIncludeReturnsUsageError(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
