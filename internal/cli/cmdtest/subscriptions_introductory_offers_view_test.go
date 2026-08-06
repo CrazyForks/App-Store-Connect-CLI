@@ -137,14 +137,97 @@ func TestSubscriptionsIntroductoryOffersViewResolvesSubscriptionSelector(t *test
 	}
 }
 
+func TestSubscriptionsIntroductoryOffersViewResolvesExactSubscriptionName(t *testing.T) {
+	setupAuth(t)
+
+	groupRequestCount := 0
+	subscriptionRequestCount := 0
+	offerRequestCount := 0
+	useIntroductoryOffersViewServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/app-1/subscriptionGroups":
+			groupRequestCount++
+			writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptionGroups","id":"group-1","attributes":{"referenceName":"Premium"}}],"links":{"next":""}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/subscriptionGroups/group-1/subscriptions":
+			subscriptionRequestCount++
+			switch subscriptionRequestCount {
+			case 1:
+				if got := req.URL.Query().Get("filter[productId]"); got != "Monthly" {
+					t.Fatalf("expected product ID lookup before name lookup, got %q", got)
+				}
+				writeIntroductoryOffersViewJSON(w, `{"data":[],"links":{"next":""}}`)
+			case 2:
+				if got := req.URL.Query().Get("filter[name]"); got != "Monthly" {
+					t.Fatalf("expected exact name filter, got %q", got)
+				}
+				writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Monthly","productId":"com.example.monthly"}}],"links":{"next":""}}`)
+			default:
+				t.Fatalf("unexpected subscription lookup request %d: %s", subscriptionRequestCount, req.URL.String())
+			}
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/subscriptions/sub-1/introductoryOffers":
+			offerRequestCount++
+			writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-1"}],"links":{"next":""}}`)
+		default:
+			t.Fatalf("unexpected request: %s %s?%s", req.Method, req.URL.Path, req.URL.RawQuery)
+		}
+	}))
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"subscriptions", "offers", "introductory", "view",
+			"--app", "app-1",
+			"--subscription-id", "Monthly",
+			"--id", "offer-1",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if groupRequestCount != 2 || subscriptionRequestCount != 2 || offerRequestCount != 1 {
+		t.Fatalf(
+			"expected two group requests, two subscription requests, and one offer request; got groups=%d subscriptions=%d offers=%d",
+			groupRequestCount,
+			subscriptionRequestCount,
+			offerRequestCount,
+		)
+	}
+	if !strings.Contains(stdout, `"id":"offer-1"`) {
+		t.Fatalf("expected selected offer output, got %q", stdout)
+	}
+}
+
 func TestSubscriptionsIntroductoryOffersViewReturnsNotFoundAfterAllPages(t *testing.T) {
 	setupAuth(t)
 
+	const subscriptionID = "1234567890"
+	nextURL := "https://api.appstoreconnect.apple.com/v1/subscriptions/" + subscriptionID + "/introductoryOffers?cursor=next"
+	requestCount := 0
 	useIntroductoryOffersViewServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/1234567890/introductoryOffers" {
+		requestCount++
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/"+subscriptionID+"/introductoryOffers" {
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
 		}
-		writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-other"}],"links":{"next":""}}`)
+		switch requestCount {
+		case 1:
+			body := `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-other-1"}],"links":{"next":"` + nextURL + `"}}`
+			writeIntroductoryOffersViewJSON(w, body)
+		case 2:
+			if got := req.URL.Query().Get("cursor"); got != "next" {
+				t.Fatalf("expected server-provided next URL, got %q", req.URL.String())
+			}
+			writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-other-2"}],"links":{"next":""}}`)
+		default:
+			t.Fatalf("unexpected request %d: %s", requestCount, req.URL.String())
+		}
 	}))
 
 	root := RootCommand("1.2.3")
@@ -154,7 +237,7 @@ func TestSubscriptionsIntroductoryOffersViewReturnsNotFoundAfterAllPages(t *test
 	stdout, stderr := captureOutput(t, func() {
 		if err := root.Parse([]string{
 			"subscriptions", "offers", "introductory", "view",
-			"--subscription-id", "1234567890",
+			"--subscription-id", subscriptionID,
 			"--id", "offer-missing",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
@@ -172,6 +255,9 @@ func TestSubscriptionsIntroductoryOffersViewReturnsNotFoundAfterAllPages(t *test
 	}
 	if !strings.Contains(runErr.Error(), `introductory offer "offer-missing" not found for subscription "1234567890"`) {
 		t.Fatalf("expected contextual not-found error, got %v", runErr)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected two requests before not-found, got %d", requestCount)
 	}
 	if stdout != "" || stderr != "" {
 		t.Fatalf("expected no process output before error reporting, got stdout=%q stderr=%q", stdout, stderr)
