@@ -35,10 +35,8 @@ matches one included resource. A successful request returns status 201 with
 Apple's current official 4.4.1 OpenAPI download is byte-for-byte identical to
 `docs/openapi/latest.json`. It documents create, update, and delete operations
 for promotional offers but no standalone create operation for their prices.
-Current Fastlane and Expo/EAS sources do not implement an alternative workflow.
-Maintained App Store Connect tools that do support promotional-offer creation
-use this same atomic compound POST with temporary linkages and inline territory
-and price-point relationships.
+The generated Swift SDK and tddworks/asc-cli use this same atomic compound POST
+with temporary linkages and inline territory and price-point relationships.
 
 The command continues to write its response through the shared TTY-aware output
 path: explicit `--output` wins, data is written to stdout, and validation or API
