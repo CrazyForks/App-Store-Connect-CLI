@@ -7,6 +7,8 @@ import (
 	"flag"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -16,12 +18,7 @@ import (
 func TestAppEventsCreateAllowsOptionalEventTypeAndNormalizesPurchaseRequirement(t *testing.T) {
 	setupAuth(t)
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", req.Method)
 		}
@@ -53,13 +50,22 @@ func TestAppEventsCreateAllowsOptionalEventTypeAndNormalizesPurchaseRequirement(
 			t.Fatalf("expected optional badge to be omitted, got %v", attrs["badge"])
 		}
 
-		body := `{"data":{"type":"appEvents","id":"event-1","attributes":{"referenceName":"Launch"}}}`
-		return &http.Response{
-			StatusCode: http.StatusCreated,
-			Body:       io.NopCloser(strings.NewReader(body)),
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-		}, nil
-	})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"data":{"type":"appEvents","id":"event-1","attributes":{"referenceName":"Launch"}}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
