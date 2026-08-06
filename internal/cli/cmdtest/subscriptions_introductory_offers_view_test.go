@@ -6,25 +6,24 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 
 	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestSubscriptionsIntroductoryOffersViewFindsOfferAcrossPages(t *testing.T) {
 	setupAuth(t)
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
 	const subscriptionID = "1234567890"
 	nextURL := "https://api.appstoreconnect.apple.com/v1/subscriptions/" + subscriptionID + "/introductoryOffers?cursor=next"
 	requestCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	useIntroductoryOffersViewServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestCount++
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -39,18 +38,17 @@ func TestSubscriptionsIntroductoryOffersViewFindsOfferAcrossPages(t *testing.T) 
 				t.Fatalf("expected first-page limit 200, got %q", got)
 			}
 			body := `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-1"}],"links":{"next":"` + nextURL + `"}}`
-			return jsonHTTPResponse(http.StatusOK, body), nil
+			writeIntroductoryOffersViewJSON(w, body)
 		case 2:
 			if got := req.URL.Query().Get("cursor"); got != "next" {
 				t.Fatalf("expected server-provided next URL, got %q", req.URL.String())
 			}
 			body := `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-2","attributes":{"duration":"ONE_MONTH","offerMode":"FREE_TRIAL","numberOfPeriods":1}}],"links":{"next":""}}`
-			return jsonHTTPResponse(http.StatusOK, body), nil
+			writeIntroductoryOffersViewJSON(w, body)
 		default:
 			t.Fatalf("unexpected request %d: %s", requestCount, req.URL.String())
-			return nil, nil
 		}
-	})
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
@@ -93,29 +91,23 @@ func TestSubscriptionsIntroductoryOffersViewFindsOfferAcrossPages(t *testing.T) 
 func TestSubscriptionsIntroductoryOffersViewResolvesSubscriptionSelector(t *testing.T) {
 	setupAuth(t)
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
 	requestCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	useIntroductoryOffersViewServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestCount++
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/app-1/subscriptionGroups":
-			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionGroups","id":"group-1","attributes":{"referenceName":"Premium"}}],"links":{"next":""}}`), nil
+			writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptionGroups","id":"group-1","attributes":{"referenceName":"Premium"}}],"links":{"next":""}}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/subscriptionGroups/group-1/subscriptions":
 			if got := req.URL.Query().Get("filter[productId]"); got != "com.example.monthly" {
 				t.Fatalf("expected product ID filter, got %q", got)
 			}
-			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Monthly","productId":"com.example.monthly"}}],"links":{"next":""}}`), nil
+			writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptions","id":"sub-1","attributes":{"name":"Monthly","productId":"com.example.monthly"}}],"links":{"next":""}}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/subscriptions/sub-1/introductoryOffers":
-			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-1"}],"links":{"next":""}}`), nil
+			writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-1"}],"links":{"next":""}}`)
 		default:
 			t.Fatalf("unexpected request: %s %s?%s", req.Method, req.URL.Path, req.URL.RawQuery)
-			return nil, nil
 		}
-	})
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
@@ -148,17 +140,12 @@ func TestSubscriptionsIntroductoryOffersViewResolvesSubscriptionSelector(t *test
 func TestSubscriptionsIntroductoryOffersViewReturnsNotFoundAfterAllPages(t *testing.T) {
 	setupAuth(t)
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	useIntroductoryOffersViewServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet || req.URL.Path != "/v1/subscriptions/1234567890/introductoryOffers" {
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
 		}
-		return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-other"}],"links":{"next":""}}`), nil
-	})
+		writeIntroductoryOffersViewJSON(w, `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-other"}],"links":{"next":""}}`)
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
@@ -194,22 +181,17 @@ func TestSubscriptionsIntroductoryOffersViewReturnsNotFoundAfterAllPages(t *test
 func TestSubscriptionsIntroductoryOffersViewRejectsRepeatedPaginationURL(t *testing.T) {
 	setupAuth(t)
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
 	const subscriptionID = "1234567890"
 	nextURL := "https://api.appstoreconnect.apple.com/v1/subscriptions/" + subscriptionID + "/introductoryOffers?cursor=repeated"
 	requestCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	useIntroductoryOffersViewServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestCount++
 		if requestCount > 2 {
-			return nil, errors.New("unexpected third request")
+			t.Fatal("unexpected third request")
 		}
 		body := `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-other"}],"links":{"next":"` + nextURL + `"}}`
-		return jsonHTTPResponse(http.StatusOK, body), nil
-	})
+		writeIntroductoryOffersViewJSON(w, body)
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
@@ -228,4 +210,40 @@ func TestSubscriptionsIntroductoryOffersViewRejectsRepeatedPaginationURL(t *test
 	if requestCount != 2 {
 		t.Fatalf("expected two requests before repeated URL detection, got %d", requestCount)
 	}
+}
+
+func useIntroductoryOffersViewServer(t *testing.T, handler http.Handler) {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	})
+	client, err := asc.NewClientWithHTTPClient(
+		os.Getenv("ASC_KEY_ID"),
+		os.Getenv("ASC_ISSUER_ID"),
+		os.Getenv("ASC_PRIVATE_KEY_PATH"),
+		&http.Client{Transport: transport},
+	)
+	if err != nil {
+		t.Fatalf("create introductory offers view test client: %v", err)
+	}
+	restore := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return client, nil
+	})
+	t.Cleanup(restore)
+}
+
+func writeIntroductoryOffersViewJSON(w http.ResponseWriter, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, body)
 }
