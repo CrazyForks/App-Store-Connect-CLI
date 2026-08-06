@@ -1042,7 +1042,6 @@ Examples:
 			})
 			if outputFlagUsed {
 				const outputGuidance = "the deprecated command produces no data output; omit --output and --pretty"
-				fmt.Fprintf(os.Stderr, "Error: %s\n", outputGuidance)
 				return fmt.Errorf("game-center groups challenges set: %w", shared.UsageError(outputGuidance))
 			}
 

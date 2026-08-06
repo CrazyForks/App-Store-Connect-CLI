@@ -175,6 +175,9 @@ func TestGameCenterGroupChallengesSetDeprecatedStubRejectsBeforeHTTP(t *testing.
 					t.Fatalf("stderr = %q, want %q", stderr, want)
 				}
 			}
+			if len(test.extraArgs) > 0 && strings.Count(stderr, "omit --output and --pretty") != 1 {
+				t.Fatalf("stderr = %q, want output guidance exactly once", stderr)
+			}
 		})
 	}
 }
