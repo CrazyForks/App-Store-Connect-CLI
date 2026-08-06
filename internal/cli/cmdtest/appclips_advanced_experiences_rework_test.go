@@ -91,9 +91,12 @@ func TestAppClipsAdvancedExperienceImagesCreateSupportsUnattachedAndAttachedUplo
 		experienceID     string
 		wantExperienceID string
 		wantAttach       bool
+		attachStatus     int
+		wantError        string
 	}{
 		{name: "unattached"},
 		{name: "attached", experienceID: "adv-1", wantExperienceID: "adv-1", wantAttach: true},
+		{name: "attachment failure preserves image id", experienceID: "adv-1", wantAttach: true, attachStatus: http.StatusUnprocessableEntity, wantError: `failed to attach uploaded image "img-1"`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			imageData := []byte("advanced-image")
@@ -122,7 +125,21 @@ func TestAppClipsAdvancedExperienceImagesCreateSupportsUnattachedAndAttachedUplo
 					w.Header().Set("Content-Type", "application/json")
 					_, _ = w.Write([]byte(`{"data":{"type":"appClipAdvancedExperienceImages","id":"img-1","attributes":{"fileName":"advanced.png","fileSize":14,"assetDeliveryState":{"state":"COMPLETE"}}},"links":{}}`))
 				case r.Method == http.MethodPatch && r.URL.Path == "/v1/appClipAdvancedExperiences/adv-1":
+					var payload asc.AppClipAdvancedExperienceUpdateRequest
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Fatalf("decode attachment payload: %v", err)
+					}
+					if payload.Data.Relationships == nil || payload.Data.Relationships.HeaderImage == nil ||
+						payload.Data.Relationships.HeaderImage.Data.Type != asc.ResourceTypeAppClipAdvancedExperienceImages ||
+						payload.Data.Relationships.HeaderImage.Data.ID != "img-1" {
+						t.Fatalf("unexpected header image relationship: %#v", payload.Data.Relationships)
+					}
 					w.Header().Set("Content-Type", "application/json")
+					if test.attachStatus != 0 {
+						w.WriteHeader(test.attachStatus)
+						_, _ = w.Write([]byte(`{"errors":[{"status":"422","title":"Invalid relationship"}]}`))
+						return
+					}
 					_, _ = w.Write([]byte(`{"data":{"type":"appClipAdvancedExperiences","id":"adv-1"},"links":{}}`))
 				default:
 					t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -136,16 +153,27 @@ func TestAppClipsAdvancedExperienceImagesCreateSupportsUnattachedAndAttachedUplo
 				args = append(args, "--experience-id", test.experienceID)
 			}
 			root := RootCommand("1.2.3")
+			var runErr error
 			stdout, stderr := captureOutput(t, func() {
 				if err := root.Parse(args); err != nil {
 					t.Fatalf("parse error: %v", err)
 				}
-				if err := root.Run(context.Background()); err != nil {
-					t.Fatalf("run error: %v", err)
-				}
+				runErr = root.Run(context.Background())
 			})
 			if stderr != "" {
 				t.Fatalf("expected empty stderr, got %q", stderr)
+			}
+			if test.wantError != "" {
+				if runErr == nil || !strings.Contains(runErr.Error(), test.wantError) {
+					t.Fatalf("run error = %v, want %q", runErr, test.wantError)
+				}
+				if stdout != "" {
+					t.Fatalf("expected no success output, got %q", stdout)
+				}
+				return
+			}
+			if runErr != nil {
+				t.Fatalf("run error: %v", runErr)
 			}
 
 			var result asc.AppClipAdvancedExperienceImageUploadResult
@@ -207,5 +235,9 @@ func TestAppClipsAdvancedExperienceImagesDeleteIsDeprecatedUnsupportedShim(t *te
 	}
 	if !strings.Contains(cmd.LongHelp, "images create --file") || !strings.Contains(cmd.LongHelp, "--header-image-id") {
 		t.Fatalf("LongHelp lacks migration guidance: %q", cmd.LongHelp)
+	}
+	parent := appclipscli.AppClipAdvancedExperienceImagesCommand()
+	if strings.Contains(parent.LongHelp, "images delete") {
+		t.Fatalf("parent LongHelp advertises unsupported delete invocation: %q", parent.LongHelp)
 	}
 }

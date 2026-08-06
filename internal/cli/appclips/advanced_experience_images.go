@@ -25,8 +25,7 @@ func AppClipAdvancedExperienceImagesCommand() *ffcli.Command {
 Examples:
   asc app-clips advanced-experiences images view --id "IMAGE_ID"
   asc app-clips advanced-experiences images create --file path/to/image.png
-  asc app-clips advanced-experiences images create --file path/to/image.png --experience-id "EXP_ID"
-  asc app-clips advanced-experiences images delete --id "IMAGE_ID" --confirm`,
+  asc app-clips advanced-experiences images create --file path/to/image.png --experience-id "EXP_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -129,7 +128,7 @@ Examples:
 			experienceValue := strings.TrimSpace(*experienceID)
 			if experienceValue != "" {
 				if _, err := client.UpdateAppClipAdvancedExperience(requestCtx, experienceValue, nil, "", result.ID, nil); err != nil {
-					return fmt.Errorf("app-clips advanced-experiences images create: failed to attach image: %w", err)
+					return fmt.Errorf("app-clips advanced-experiences images create: failed to attach uploaded image %q: %w", result.ID, err)
 				}
 				result.ExperienceID = experienceValue
 			}
