@@ -1728,6 +1728,16 @@ func TestSubscriptionsValidationErrors(t *testing.T) {
 			wantErr: "--subscription-id is required",
 		},
 		{
+			name:    "subscriptions introductory-offers view missing subscription-id",
+			args:    []string{"subscriptions", "offers", "introductory", "view", "--id", "OFFER_ID"},
+			wantErr: "--subscription-id is required",
+		},
+		{
+			name:    "subscriptions introductory-offers view missing offer id",
+			args:    []string{"subscriptions", "offers", "introductory", "view", "--subscription-id", "SUB_ID"},
+			wantErr: "--id is required",
+		},
+		{
 			name:    "subscriptions introductory-offers create missing offer-duration",
 			args:    []string{"subscriptions", "offers", "introductory", "create", "--subscription-id", "SUB_ID", "--offer-mode", "FREE_TRIAL", "--number-of-periods", "1"},
 			wantErr: "--offer-duration is required",
