@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
-func TestAppEventsCreateNormalizesPurchaseRequirement(t *testing.T) {
+func TestAppEventsCreateAllowsOptionalEventTypeAndNormalizesPurchaseRequirement(t *testing.T) {
 	setupAuth(t)
 
 	originalTransport := http.DefaultTransport
@@ -36,6 +38,9 @@ func TestAppEventsCreateNormalizesPurchaseRequirement(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected data object, got %T", payload["data"])
 		}
+		if data["type"] != "appEvents" {
+			t.Fatalf("expected data type appEvents, got %v", data["type"])
+		}
 		attrs, ok := data["attributes"].(map[string]any)
 		if !ok {
 			t.Fatalf("expected attributes object, got %T", data["attributes"])
@@ -44,8 +49,11 @@ func TestAppEventsCreateNormalizesPurchaseRequirement(t *testing.T) {
 		if attrs["purchaseRequirement"] != "NO_COST_ASSOCIATED" {
 			t.Fatalf("expected purchaseRequirement NO_COST_ASSOCIATED, got %v", attrs["purchaseRequirement"])
 		}
+		if _, ok := attrs["badge"]; ok {
+			t.Fatalf("expected optional badge to be omitted, got %v", attrs["badge"])
+		}
 
-		body := `{"data":{"type":"appEvents","id":"event-1","attributes":{"referenceName":"Launch","badge":"CHALLENGE"}}}`
+		body := `{"data":{"type":"appEvents","id":"event-1","attributes":{"referenceName":"Launch"}}}`
 		return &http.Response{
 			StatusCode: http.StatusCreated,
 			Body:       io.NopCloser(strings.NewReader(body)),
@@ -61,7 +69,6 @@ func TestAppEventsCreateNormalizesPurchaseRequirement(t *testing.T) {
 			"app-events", "create",
 			"--app", "APP_ID",
 			"--name", "Launch",
-			"--event-type", "CHALLENGE",
 			"--purchase-requirement", "noCostAssociated",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
@@ -74,8 +81,12 @@ func TestAppEventsCreateNormalizesPurchaseRequirement(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, `"id":"event-1"`) {
-		t.Fatalf("expected created event output, got %q", stdout)
+	var response asc.AppEventResponse
+	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if response.Data.ID != "event-1" {
+		t.Fatalf("expected created event id event-1, got %q", response.Data.ID)
 	}
 }
 
