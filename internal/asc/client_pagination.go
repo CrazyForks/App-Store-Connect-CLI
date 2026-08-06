@@ -43,6 +43,11 @@ func PaginateAll(ctx context.Context, firstPage PaginatedResponse, fetchNext Pag
 		if err := aggregatePageData(result, firstPage); err != nil {
 			return nil, fmt.Errorf("page %d: %w", page, err)
 		}
+		if page > 1 {
+			if err := clearPageLocalContext(result); err != nil {
+				return nil, fmt.Errorf("page %d: %w", page, err)
+			}
+		}
 
 		// Check for next page
 		links := firstPage.GetLinks()
@@ -164,6 +169,24 @@ func initializeAggregatedResponse(result, firstPage PaginatedResponse) error {
 		pageField := pageElem.FieldByName(fieldName)
 		if resultField.IsValid() && pageField.IsValid() && resultField.CanSet() && resultField.Type() == pageField.Type() {
 			resultField.Set(pageField)
+		}
+	}
+	return nil
+}
+
+// clearPageLocalContext removes links and metadata that describe an individual
+// API page once the result contains data aggregated from multiple pages.
+func clearPageLocalContext(response PaginatedResponse) error {
+	responseValue := reflect.ValueOf(response)
+	if responseValue.Kind() != reflect.Pointer || responseValue.IsNil() {
+		return fmt.Errorf("pagination context clearing expects a non-nil pointer (got %T)", response)
+	}
+
+	responseElem := responseValue.Elem()
+	for _, fieldName := range []string{"Links", "Meta"} {
+		field := responseElem.FieldByName(fieldName)
+		if field.IsValid() && field.CanSet() {
+			field.Set(reflect.Zero(field.Type()))
 		}
 	}
 	return nil
