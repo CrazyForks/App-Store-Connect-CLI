@@ -15,7 +15,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
-func TestPricingPricePointViewPreservesSingleResponse(t *testing.T) {
+func TestPricingPricePointViewPreservesStableCollectionResponse(t *testing.T) {
 	setupAuth(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet || req.URL.Path != "/v3/appPricePoints/price-point-1" {
@@ -77,12 +77,12 @@ func TestPricingPricePointViewPreservesSingleResponse(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
 		t.Fatalf("decode stdout: %v (stdout=%q)", err, stdout)
 	}
-	var data map[string]any
+	var data []map[string]any
 	if err := json.Unmarshal(envelope["data"], &data); err != nil {
-		t.Fatalf("expected data object, got %s: %v", envelope["data"], err)
+		t.Fatalf("expected one-element data array, got %s: %v", envelope["data"], err)
 	}
-	if data["id"] != "price-point-1" {
-		t.Fatalf("expected price-point-1, got %v", data["id"])
+	if len(data) != 1 || data[0]["id"] != "price-point-1" {
+		t.Fatalf("expected price-point-1, got %#v", data)
 	}
 	var included []map[string]any
 	if err := json.Unmarshal(envelope["included"], &included); err != nil {
@@ -90,5 +90,12 @@ func TestPricingPricePointViewPreservesSingleResponse(t *testing.T) {
 	}
 	if len(included) != 1 || included[0]["id"] != "USA" {
 		t.Fatalf("unexpected included resources: %#v", included)
+	}
+	var links map[string]any
+	if err := json.Unmarshal(envelope["links"], &links); err != nil {
+		t.Fatalf("decode links: %v", err)
+	}
+	if links["self"] != "https://api.appstoreconnect.apple.com/v3/appPricePoints/price-point-1" {
+		t.Fatalf("unexpected self link: %v", links["self"])
 	}
 }

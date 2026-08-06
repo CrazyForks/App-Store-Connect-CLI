@@ -104,12 +104,12 @@ func TestGetAppPricePoint(t *testing.T) {
 	if err := json.Unmarshal(encoded, &envelope); err != nil {
 		t.Fatalf("unmarshal app price point envelope: %v", err)
 	}
-	var data map[string]any
+	var data []map[string]any
 	if err := json.Unmarshal(envelope["data"], &data); err != nil {
-		t.Fatalf("expected single resource object in data, got %s: %v", envelope["data"], err)
+		t.Fatalf("expected one-element data array, got %s: %v", envelope["data"], err)
 	}
-	if data["id"] != "pp-1" {
-		t.Fatalf("expected price point pp-1, got %v", data["id"])
+	if len(data) != 1 || data[0]["id"] != "pp-1" {
+		t.Fatalf("expected price point pp-1, got %#v", data)
 	}
 	if len(envelope["included"]) == 0 {
 		t.Fatal("expected included resources to be preserved")

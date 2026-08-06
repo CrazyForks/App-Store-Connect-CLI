@@ -41,7 +41,6 @@ type (
 	TerritoriesResponse             = Response[TerritoryAttributes]
 	TerritoryResponse               = SingleResponse[TerritoryAttributes]
 	AppPricePointsV3Response        = Response[AppPricePointV3Attributes]
-	AppPricePointV3Response         = SingleResponse[AppPricePointV3Attributes]
 	AppPriceScheduleResponse        = SingleResponse[AppPriceScheduleAttributes]
 	AppPricesResponse               = Response[AppPriceAttributes]
 	AppAvailabilityV2Response       = SingleResponse[AppAvailabilityV2Attributes]

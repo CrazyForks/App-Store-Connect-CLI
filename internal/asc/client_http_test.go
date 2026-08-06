@@ -1592,7 +1592,7 @@ func TestGetAppStoreVersions_WithFilters(t *testing.T) {
 }
 
 func TestGetPreReleaseVersions_WithFilters(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":[{"type":"preReleaseVersions","id":"1","attributes":{"version":"1.0.0","platform":"IOS"}}],"included":[{"type":"apps","id":"app-1"}],"links":{"self":"https://api.appstoreconnect.apple.com/v1/preReleaseVersions"},"meta":{"paging":{"total":1,"limit":5}}}`)
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"preReleaseVersions","id":"1","attributes":{"version":"1.0.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"app-1"}}},"links":{"self":"https://api.appstoreconnect.apple.com/v1/preReleaseVersions/1"}}],"included":[{"type":"apps","id":"app-1"}],"links":{"self":"https://api.appstoreconnect.apple.com/v1/preReleaseVersions"},"meta":{"paging":{"total":1,"limit":5}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -1640,10 +1640,16 @@ func TestGetPreReleaseVersions_WithFilters(t *testing.T) {
 	if total := ParsePagingTotal(envelope["meta"]); total != 1 {
 		t.Fatalf("expected paging total 1, got %d", total)
 	}
+	if len(result.Data) != 1 || len(result.Data[0].Relationships) == 0 {
+		t.Fatalf("expected resource relationships to be preserved: %#v", result.Data)
+	}
+	if len(result.Data[0].Links) == 0 {
+		t.Fatalf("expected resource links to be preserved: %#v", result.Data[0])
+	}
 }
 
 func TestGetPreReleaseVersion(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"preReleaseVersions","id":"pr-1","attributes":{"version":"1.0.0","platform":"IOS"}}}`)
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"preReleaseVersions","id":"pr-1","attributes":{"version":"1.0.0","platform":"IOS"},"relationships":{"builds":{"data":[{"type":"builds","id":"build-1"}]}},"links":{"self":"https://api.appstoreconnect.apple.com/v1/preReleaseVersions/pr-1"}},"included":[{"type":"builds","id":"build-1"}],"links":{"self":"https://api.appstoreconnect.apple.com/v1/preReleaseVersions/pr-1"}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -1654,8 +1660,15 @@ func TestGetPreReleaseVersion(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetPreReleaseVersion(context.Background(), "pr-1"); err != nil {
+	result, err := client.GetPreReleaseVersion(context.Background(), "pr-1")
+	if err != nil {
 		t.Fatalf("GetPreReleaseVersion() error: %v", err)
+	}
+	if len(result.Data.Relationships) == 0 || len(result.Data.Links) == 0 {
+		t.Fatalf("expected resource relationships and links to be preserved: %#v", result.Data)
+	}
+	if len(result.Included) == 0 {
+		t.Fatal("expected top-level included resources to be preserved")
 	}
 }
 
@@ -2356,6 +2369,38 @@ func TestGetBuild_ByID(t *testing.T) {
 	}
 	if result.Data.Attributes.BuildAudienceType != BuildAudienceTypeAppStoreEligible {
 		t.Fatalf("unexpected build audience type: %q", result.Data.Attributes.BuildAudienceType)
+	}
+	if !strings.Contains(string(encoded), `"expired":false`) {
+		t.Fatalf("expected explicit expired=false to survive decode and encode: %s", encoded)
+	}
+}
+
+func TestBuildAttributesPreservesExpiredPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		input    string
+		contains string
+		excludes string
+	}{
+		{name: "explicit false", input: `{"version":"1","uploadedDate":"2026-01-20T00:00:00Z","expired":false}`, contains: `"expired":false`},
+		{name: "absent", input: `{"version":"1","uploadedDate":"2026-01-20T00:00:00Z"}`, excludes: `"expired"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attrs BuildAttributes
+			if err := json.Unmarshal([]byte(tc.input), &attrs); err != nil {
+				t.Fatalf("unmarshal build attributes: %v", err)
+			}
+			encoded, err := json.Marshal(attrs)
+			if err != nil {
+				t.Fatalf("marshal build attributes: %v", err)
+			}
+			if tc.contains != "" && !strings.Contains(string(encoded), tc.contains) {
+				t.Fatalf("expected %q in %s", tc.contains, encoded)
+			}
+			if tc.excludes != "" && strings.Contains(string(encoded), tc.excludes) {
+				t.Fatalf("did not expect %q in %s", tc.excludes, encoded)
+			}
+		})
 	}
 }
 
