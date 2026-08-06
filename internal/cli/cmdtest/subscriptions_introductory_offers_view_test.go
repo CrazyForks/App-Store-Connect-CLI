@@ -190,3 +190,42 @@ func TestSubscriptionsIntroductoryOffersViewReturnsNotFoundAfterAllPages(t *test
 		t.Fatalf("expected no process output before error reporting, got stdout=%q stderr=%q", stdout, stderr)
 	}
 }
+
+func TestSubscriptionsIntroductoryOffersViewRejectsRepeatedPaginationURL(t *testing.T) {
+	setupAuth(t)
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	const subscriptionID = "1234567890"
+	nextURL := "https://api.appstoreconnect.apple.com/v1/subscriptions/" + subscriptionID + "/introductoryOffers?cursor=repeated"
+	requestCount := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		if requestCount > 2 {
+			return nil, errors.New("unexpected third request")
+		}
+		body := `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-other"}],"links":{"next":"` + nextURL + `"}}`
+		return jsonHTTPResponse(http.StatusOK, body), nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	if err := root.Parse([]string{
+		"subscriptions", "offers", "introductory", "view",
+		"--subscription-id", subscriptionID,
+		"--id", "offer-missing",
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	runErr := root.Run(context.Background())
+	if !errors.Is(runErr, asc.ErrRepeatedPaginationURL) {
+		t.Fatalf("expected ErrRepeatedPaginationURL, got %v", runErr)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected two requests before repeated URL detection, got %d", requestCount)
+	}
+}

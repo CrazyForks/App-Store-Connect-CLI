@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -213,27 +214,33 @@ Examples:
 }
 
 func findSubscriptionIntroductoryOffer(ctx context.Context, client *asc.Client, subscriptionID, offerID string) (*asc.SubscriptionIntroductoryOfferResponse, error) {
-	page, err := client.GetSubscriptionIntroductoryOffers(ctx, subscriptionID, asc.WithSubscriptionIntroductoryOffersLimit(200))
+	firstPage, err := client.GetSubscriptionIntroductoryOffers(ctx, subscriptionID, asc.WithSubscriptionIntroductoryOffersLimit(200))
 	if err != nil {
 		return nil, err
 	}
 
-	for {
-		for _, offer := range page.Data {
+	errOfferFound := errors.New("introductory offer found")
+	var found *asc.SubscriptionIntroductoryOfferResponse
+	err = asc.PaginateEach(ctx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		return client.GetSubscriptionIntroductoryOffers(ctx, subscriptionID, asc.WithSubscriptionIntroductoryOffersNextURL(nextURL))
+	}, func(page asc.PaginatedResponse) error {
+		resp, ok := page.(*asc.SubscriptionIntroductoryOffersResponse)
+		if !ok {
+			return fmt.Errorf("unexpected page type %T", page)
+		}
+		for _, offer := range resp.Data {
 			if offer.ID == offerID {
-				return &asc.SubscriptionIntroductoryOfferResponse{Data: offer}, nil
+				found = &asc.SubscriptionIntroductoryOfferResponse{Data: offer}
+				return errOfferFound
 			}
 		}
-
-		nextURL := strings.TrimSpace(page.Links.Next)
-		if nextURL == "" {
-			break
-		}
-
-		page, err = client.GetSubscriptionIntroductoryOffers(ctx, subscriptionID, asc.WithSubscriptionIntroductoryOffersNextURL(nextURL))
-		if err != nil {
-			return nil, err
-		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errOfferFound) {
+		return nil, err
+	}
+	if found != nil {
+		return found, nil
 	}
 
 	return nil, fmt.Errorf("introductory offer %q not found for subscription %q: %w", offerID, subscriptionID, asc.ErrNotFound)
