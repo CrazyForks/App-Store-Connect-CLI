@@ -2706,14 +2706,16 @@ func TestGetBetaGroup_SendsRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetBetaGroup() error: %v", err)
 	}
-	encoded, err := json.Marshal(result.Data.Attributes)
-	if err != nil {
-		t.Fatalf("marshal beta group attributes: %v", err)
+	if result.Data.Attributes.PublicLinkID != "public-1" {
+		t.Fatalf("expected public link ID public-1, got %q", result.Data.Attributes.PublicLinkID)
 	}
-	for _, field := range []string{"publicLinkId", "iosBuildsAvailableForAppleSiliconMac", "iosBuildsAvailableForAppleVision"} {
-		if !strings.Contains(string(encoded), `"`+field+`"`) {
-			t.Errorf("expected decoded beta group attributes to preserve %s: %s", field, encoded)
-		}
+	if result.Data.Attributes.IOSBuildsAvailableForAppleSiliconMac == nil ||
+		!*result.Data.Attributes.IOSBuildsAvailableForAppleSiliconMac {
+		t.Fatal("expected Apple Silicon Mac availability to be true")
+	}
+	if result.Data.Attributes.IOSBuildsAvailableForAppleVision == nil ||
+		*result.Data.Attributes.IOSBuildsAvailableForAppleVision {
+		t.Fatal("expected Apple Vision availability to be false")
 	}
 }
 

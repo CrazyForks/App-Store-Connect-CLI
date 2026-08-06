@@ -394,6 +394,15 @@ func TestPaginateAll_PreReleaseVersionsResponse(t *testing.T) {
 	if len(included) != 2 {
 		t.Fatalf("expected 2 included resources, got %d", len(included))
 	}
+	gotIDs := make(map[string]bool, len(included))
+	for _, resource := range included {
+		gotIDs[resource.ID] = true
+	}
+	for _, id := range []string{"app-1", "build-1"} {
+		if !gotIDs[id] {
+			t.Fatalf("missing included resource %q: %#v", id, included)
+		}
+	}
 }
 
 func TestPaginateAll_ManyPages_BetaTesters(t *testing.T) {

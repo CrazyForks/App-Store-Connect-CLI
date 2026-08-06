@@ -5,18 +5,50 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestPricingPricePointViewPreservesSingleResponse(t *testing.T) {
 	setupAuth(t)
-	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet || req.URL.Path != "/v3/appPricePoints/price-point-1" {
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
 		}
-		return jsonHTTPResponse(http.StatusOK, `{"data":{"type":"appPricePoints","id":"price-point-1","attributes":{"customerPrice":"0.99","proceeds":"0.70"}},"included":[{"type":"territories","id":"USA","attributes":{"currency":"USD"}}],"links":{"self":"https://api.appstoreconnect.apple.com/v3/appPricePoints/price-point-1"}}`), nil
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":{"type":"appPricePoints","id":"price-point-1","attributes":{"customerPrice":"0.99","proceeds":"0.70"}},"included":[{"type":"territories","id":"USA","attributes":{"currency":"USD"}}],"links":{"self":"https://api.appstoreconnect.apple.com/v3/appPricePoints/price-point-1"}}`))
 	}))
+	t.Cleanup(server.Close)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	})
+	client, err := asc.NewClientWithHTTPClient(
+		os.Getenv("ASC_KEY_ID"),
+		os.Getenv("ASC_ISSUER_ID"),
+		os.Getenv("ASC_PRIVATE_KEY_PATH"),
+		&http.Client{Transport: transport},
+	)
+	if err != nil {
+		t.Fatalf("create pricing test client: %v", err)
+	}
+	restoreClient := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return client, nil
+	})
+	t.Cleanup(restoreClient)
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)

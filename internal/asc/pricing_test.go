@@ -114,6 +114,13 @@ func TestGetAppPricePoint(t *testing.T) {
 	if len(envelope["included"]) == 0 {
 		t.Fatal("expected included resources to be preserved")
 	}
+	var links Links
+	if err := json.Unmarshal(envelope["links"], &links); err != nil {
+		t.Fatalf("decode links: %v", err)
+	}
+	if links.Self != "https://api.appstoreconnect.apple.com/v3/appPricePoints/pp-1" {
+		t.Fatalf("unexpected self link: %q", links.Self)
+	}
 }
 
 func TestGetAppPricePointEqualizations(t *testing.T) {
