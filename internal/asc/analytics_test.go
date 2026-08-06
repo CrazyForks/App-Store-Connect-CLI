@@ -198,7 +198,9 @@ func TestGetAnalyticsReportRequests_DeprecatedStateFailsBeforeHTTP(t *testing.T)
 		"app-1",
 		WithAnalyticsReportRequestsState("COMPLETED"),
 	)
-	if err == nil || !strings.Contains(err.Error(), "state filtering is unsupported") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "state filtering is unsupported") ||
+		!strings.Contains(err.Error(), "use WithAnalyticsReportRequestsAccessType") {
 		t.Fatalf("expected migration error, got %v", err)
 	}
 	if requestCount != 0 {
@@ -217,7 +219,9 @@ func TestGetAnalyticsReportRequests_EmptyDeprecatedStateFailsBeforeHTTP(t *testi
 		"app-1",
 		WithAnalyticsReportRequestsState(""),
 	)
-	if err == nil || !strings.Contains(err.Error(), "state filtering is unsupported") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "state filtering is unsupported") ||
+		!strings.Contains(err.Error(), "use WithAnalyticsReportRequestsAccessType") {
 		t.Fatalf("expected migration error, got %v", err)
 	}
 	if requestCount != 0 {
