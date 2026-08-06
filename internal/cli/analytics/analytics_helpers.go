@@ -30,8 +30,18 @@ func normalizeSalesReportType(value string) (asc.SalesReportType, error) {
 		return asc.SalesReportTypeSubscription, nil
 	case string(asc.SalesReportTypeSubscriptionEvent):
 		return asc.SalesReportTypeSubscriptionEvent, nil
+	case string(asc.SalesReportTypeSubscriber):
+		return asc.SalesReportTypeSubscriber, nil
+	case string(asc.SalesReportTypeSubscriptionOfferCodeRedemption):
+		return asc.SalesReportTypeSubscriptionOfferCodeRedemption, nil
+	case string(asc.SalesReportTypeInstalls):
+		return asc.SalesReportTypeInstalls, nil
+	case string(asc.SalesReportTypeFirstAnnual):
+		return asc.SalesReportTypeFirstAnnual, nil
+	case string(asc.SalesReportTypeWinBackEligibility):
+		return asc.SalesReportTypeWinBackEligibility, nil
 	default:
-		return "", fmt.Errorf("--type must be SALES, PRE_ORDER, NEWSSTAND, SUBSCRIPTION, or SUBSCRIPTION_EVENT")
+		return "", fmt.Errorf("--type must be SALES, PRE_ORDER, NEWSSTAND, SUBSCRIPTION, SUBSCRIPTION_EVENT, SUBSCRIBER, SUBSCRIPTION_OFFER_CODE_REDEMPTION, INSTALLS, FIRST_ANNUAL, or WIN_BACK_ELIGIBILITY")
 	}
 }
 
@@ -42,8 +52,14 @@ func normalizeSalesReportSubType(value string) (asc.SalesReportSubType, error) {
 		return asc.SalesReportSubTypeSummary, nil
 	case string(asc.SalesReportSubTypeDetailed):
 		return asc.SalesReportSubTypeDetailed, nil
+	case string(asc.SalesReportSubTypeSummaryInstallType):
+		return asc.SalesReportSubTypeSummaryInstallType, nil
+	case string(asc.SalesReportSubTypeSummaryTerritory):
+		return asc.SalesReportSubTypeSummaryTerritory, nil
+	case string(asc.SalesReportSubTypeSummaryChannel):
+		return asc.SalesReportSubTypeSummaryChannel, nil
 	default:
-		return "", fmt.Errorf("--subtype must be SUMMARY or DETAILED")
+		return "", fmt.Errorf("--subtype must be SUMMARY, DETAILED, SUMMARY_INSTALL_TYPE, SUMMARY_TERRITORY, or SUMMARY_CHANNEL")
 	}
 }
 
@@ -63,10 +79,10 @@ func normalizeSalesReportFrequency(value string) (asc.SalesReportFrequency, erro
 	}
 }
 
-func normalizeSalesReportVersion(value string, reportType asc.SalesReportType) (asc.SalesReportVersion, error) {
+func normalizeSalesReportVersion(value string, reportType asc.SalesReportType, frequency asc.SalesReportFrequency) (asc.SalesReportVersion, error) {
 	normalized := strings.TrimSpace(value)
 	if normalized == "" {
-		return defaultSalesReportVersion(reportType), nil
+		return defaultSalesReportVersion(reportType, frequency), nil
 	}
 	if !salesReportVersionPattern.MatchString(normalized) {
 		return "", fmt.Errorf("--version must use major_minor format (for example, 1_4)")
@@ -74,9 +90,15 @@ func normalizeSalesReportVersion(value string, reportType asc.SalesReportType) (
 	return asc.SalesReportVersion(normalized), nil
 }
 
-func defaultSalesReportVersion(reportType asc.SalesReportType) asc.SalesReportVersion {
+func defaultSalesReportVersion(reportType asc.SalesReportType, frequency asc.SalesReportFrequency) asc.SalesReportVersion {
 	if reportType == asc.SalesReportTypeSubscription {
 		return asc.SalesReportVersion1_4
+	}
+	if reportType == asc.SalesReportTypeSubscriber {
+		return asc.SalesReportVersion1_3
+	}
+	if reportType == asc.SalesReportTypeInstalls && frequency == asc.SalesReportFrequencyMonthly {
+		return asc.SalesReportVersion1_2
 	}
 	return asc.SalesReportVersion1_0
 }
@@ -93,20 +115,6 @@ func normalizeAnalyticsAccessType(value string) (asc.AnalyticsAccessType, error)
 	}
 }
 
-func normalizeAnalyticsRequestState(value string) (asc.AnalyticsReportRequestState, error) {
-	normalized := strings.ToUpper(strings.TrimSpace(value))
-	switch normalized {
-	case string(asc.AnalyticsReportRequestStateProcessing):
-		return asc.AnalyticsReportRequestStateProcessing, nil
-	case string(asc.AnalyticsReportRequestStateCompleted):
-		return asc.AnalyticsReportRequestStateCompleted, nil
-	case string(asc.AnalyticsReportRequestStateFailed):
-		return asc.AnalyticsReportRequestStateFailed, nil
-	default:
-		return "", fmt.Errorf("--state must be PROCESSING, COMPLETED, or FAILED")
-	}
-}
-
 func validateUUIDFlag(flagName, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s is required", flagName)
@@ -120,7 +128,10 @@ func validateUUIDFlag(flagName, value string) error {
 func normalizeReportDate(value string, frequency asc.SalesReportFrequency) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return "", fmt.Errorf("--date is required")
+		if frequency == asc.SalesReportFrequencyDaily {
+			return "", nil
+		}
+		return "", fmt.Errorf("--date is required for %s reports", frequency)
 	}
 	switch frequency {
 	case asc.SalesReportFrequencyMonthly:

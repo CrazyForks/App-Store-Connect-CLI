@@ -44,6 +44,54 @@ func TestNormalizeReportDate_MonthlyValidation(t *testing.T) {
 	}
 }
 
+func TestNormalizeReportDate_AllowsOmission(t *testing.T) {
+	date, err := normalizeReportDate("", asc.SalesReportFrequencyDaily)
+	if err != nil {
+		t.Fatalf("expected omitted date to be valid, got %v", err)
+	}
+	if date != "" {
+		t.Fatalf("expected empty normalized date, got %q", date)
+	}
+}
+
+func TestNormalizeSalesReportTypeSupportsDocumentedValues(t *testing.T) {
+	for _, value := range []string{
+		"SUBSCRIBER",
+		"SUBSCRIPTION_OFFER_CODE_REDEMPTION",
+		"INSTALLS",
+		"FIRST_ANNUAL",
+		"WIN_BACK_ELIGIBILITY",
+	} {
+		t.Run(value, func(t *testing.T) {
+			got, err := normalizeSalesReportType(value)
+			if err != nil {
+				t.Fatalf("expected %s to be accepted, got %v", value, err)
+			}
+			if string(got) != value {
+				t.Fatalf("expected %s, got %q", value, got)
+			}
+		})
+	}
+}
+
+func TestNormalizeSalesReportSubTypeSupportsDocumentedValues(t *testing.T) {
+	for _, value := range []string{
+		"SUMMARY_INSTALL_TYPE",
+		"SUMMARY_TERRITORY",
+		"SUMMARY_CHANNEL",
+	} {
+		t.Run(value, func(t *testing.T) {
+			got, err := normalizeSalesReportSubType(value)
+			if err != nil {
+				t.Fatalf("expected %s to be accepted, got %v", value, err)
+			}
+			if string(got) != value {
+				t.Fatalf("expected %s, got %q", value, got)
+			}
+		})
+	}
+}
+
 func TestNormalizeReportDate_MonthlyFormat(t *testing.T) {
 	date, err := normalizeReportDate("2024-01", asc.SalesReportFrequencyMonthly)
 	if err != nil {
@@ -92,7 +140,7 @@ func TestNormalizeReportDate_WeeklyRejectsNonBoundaryDate(t *testing.T) {
 }
 
 func TestNormalizeSalesReportVersionSupportsCurrentVersion(t *testing.T) {
-	version, err := normalizeSalesReportVersion("1_4", asc.SalesReportTypeSales)
+	version, err := normalizeSalesReportVersion("1_4", asc.SalesReportTypeSales, asc.SalesReportFrequencyDaily)
 	if err != nil {
 		t.Fatalf("expected version 1_4 to parse, got %v", err)
 	}
@@ -102,7 +150,7 @@ func TestNormalizeSalesReportVersionSupportsCurrentVersion(t *testing.T) {
 }
 
 func TestNormalizeSalesReportVersionDefaultsSubscriptionTo1_4(t *testing.T) {
-	version, err := normalizeSalesReportVersion("  ", asc.SalesReportTypeSubscription)
+	version, err := normalizeSalesReportVersion("  ", asc.SalesReportTypeSubscription, asc.SalesReportFrequencyDaily)
 	if err != nil {
 		t.Fatalf("expected empty version to use the default, got %v", err)
 	}
@@ -112,7 +160,7 @@ func TestNormalizeSalesReportVersionDefaultsSubscriptionTo1_4(t *testing.T) {
 }
 
 func TestNormalizeSalesReportVersionPreservesOtherDefaults(t *testing.T) {
-	version, err := normalizeSalesReportVersion("  ", asc.SalesReportTypeSales)
+	version, err := normalizeSalesReportVersion("  ", asc.SalesReportTypeSales, asc.SalesReportFrequencyDaily)
 	if err != nil {
 		t.Fatalf("expected empty version to use the default, got %v", err)
 	}
@@ -121,15 +169,35 @@ func TestNormalizeSalesReportVersionPreservesOtherDefaults(t *testing.T) {
 	}
 }
 
+func TestNormalizeSalesReportVersionDefaultsSubscriberTo1_3(t *testing.T) {
+	version, err := normalizeSalesReportVersion("", asc.SalesReportTypeSubscriber, asc.SalesReportFrequencyDaily)
+	if err != nil {
+		t.Fatalf("expected empty version to use the default, got %v", err)
+	}
+	if version != asc.SalesReportVersion1_3 {
+		t.Fatalf("expected subscriber default version 1_3, got %q", version)
+	}
+}
+
+func TestNormalizeSalesReportVersionDefaultsMonthlyInstallsTo1_2(t *testing.T) {
+	version, err := normalizeSalesReportVersion("", asc.SalesReportTypeInstalls, asc.SalesReportFrequencyMonthly)
+	if err != nil {
+		t.Fatalf("expected empty version to use the default, got %v", err)
+	}
+	if version != asc.SalesReportVersion1_2 {
+		t.Fatalf("expected monthly installs default version 1_2, got %q", version)
+	}
+}
+
 func TestNormalizeSalesReportVersionRejectsInvalidValue(t *testing.T) {
-	_, err := normalizeSalesReportVersion("1.4", asc.SalesReportTypeSubscription)
+	_, err := normalizeSalesReportVersion("1.4", asc.SalesReportTypeSubscription, asc.SalesReportFrequencyDaily)
 	if err == nil {
 		t.Fatal("expected invalid version error")
 	}
 }
 
 func TestNormalizeSalesReportVersionAllowsFutureVersion(t *testing.T) {
-	version, err := normalizeSalesReportVersion(" 1_5 ", asc.SalesReportTypeSubscription)
+	version, err := normalizeSalesReportVersion(" 1_5 ", asc.SalesReportTypeSubscription, asc.SalesReportFrequencyDaily)
 	if err != nil {
 		t.Fatalf("expected future version to parse, got %v", err)
 	}

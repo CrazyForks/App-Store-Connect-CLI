@@ -48,6 +48,41 @@ func TestAnalyticsViewProcessingDateFlagLifecycle(t *testing.T) {
 	}
 }
 
+func TestAnalyticsRequestsAccessTypeFlagLifecycle(t *testing.T) {
+	cmd := AnalyticsRequestsCommand()
+	if cmd.FlagSet.Lookup("access-type") == nil {
+		t.Fatal("canonical --access-type flag is not registered")
+	}
+	visible := make(map[string]bool)
+	for _, item := range shared.VisibleHelpFlags(cmd.FlagSet) {
+		visible[item.Name] = true
+	}
+	if !visible["access-type"] {
+		t.Fatal("canonical --access-type flag is hidden from help")
+	}
+	usage := cmd.UsageFunc(cmd)
+	if !strings.Contains(usage, `--access-type ONGOING`) {
+		t.Fatalf("analytics requests help does not teach --access-type:\n%s", usage)
+	}
+}
+
+func TestAnalyticsRequestsRejectsInvalidAccessType(t *testing.T) {
+	stdout, stderr, err := runAnalyticsCommand(t, []string{
+		"analytics", "requests",
+		"--app", "app-1",
+		"--access-type", "COMPLETED",
+	})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "--access-type must be ONGOING or ONE_TIME_SNAPSHOT") {
+		t.Fatalf("expected access type validation error, got %q", stderr)
+	}
+}
+
 func parseAnalyticsArgs(args []string) []string {
 	if len(args) > 0 && args[0] == "analytics" {
 		return args[1:]
@@ -157,11 +192,6 @@ func TestAnalyticsSalesValidationErrors(t *testing.T) {
 			args:    []string{"analytics", "sales", "--vendor", "12345678", "--type", "SALES", "--subtype", "SUMMARY", "--date", "2024-01-20"},
 			wantErr: "--frequency is required",
 		},
-		{
-			name:    "missing date",
-			args:    []string{"analytics", "sales", "--vendor", "12345678", "--type", "SALES", "--subtype", "SUMMARY", "--frequency", "DAILY"},
-			wantErr: "--date is required",
-		},
 	}
 
 	for _, test := range tests {
@@ -178,6 +208,25 @@ func TestAnalyticsSalesValidationErrors(t *testing.T) {
 				t.Fatalf("expected error %q, got %q", test.wantErr, stderr)
 			}
 		})
+	}
+}
+
+func TestAnalyticsSalesRequiresDateForNonDailyFrequency(t *testing.T) {
+	stdout, stderr, err := runAnalyticsCommand(t, []string{
+		"analytics", "sales",
+		"--vendor", "12345678",
+		"--type", "SALES",
+		"--subtype", "SUMMARY",
+		"--frequency", "WEEKLY",
+	})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "--date is required for WEEKLY reports") {
+		t.Fatalf("expected conditional date error, got %q", stderr)
 	}
 }
 

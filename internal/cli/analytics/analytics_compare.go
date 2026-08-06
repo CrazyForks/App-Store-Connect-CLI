@@ -122,11 +122,11 @@ Examples:
 				return shared.UsageError(err.Error())
 			}
 
-			salesType, err := normalizeSalesReportType(*reportType)
+			salesType, err := normalizeAnalyticsCompareReportType(*reportType)
 			if err != nil {
 				return shared.UsageError(err.Error())
 			}
-			subType, err := normalizeSalesReportSubType(*reportSubType)
+			subType, err := normalizeAnalyticsCompareReportSubType(*reportSubType)
 			if err != nil {
 				return shared.UsageError(err.Error())
 			}
@@ -200,6 +200,36 @@ Examples:
 	}
 }
 
+func normalizeAnalyticsCompareReportType(value string) (asc.SalesReportType, error) {
+	reportType, err := normalizeSalesReportType(value)
+	if err != nil {
+		return "", err
+	}
+	switch reportType {
+	case asc.SalesReportTypeSales,
+		asc.SalesReportTypePreOrder,
+		asc.SalesReportTypeNewsstand,
+		asc.SalesReportTypeSubscription,
+		asc.SalesReportTypeSubscriptionEvent:
+		return reportType, nil
+	default:
+		return "", fmt.Errorf("--type for analytics compare must be SALES, PRE_ORDER, NEWSSTAND, SUBSCRIPTION, or SUBSCRIPTION_EVENT")
+	}
+}
+
+func normalizeAnalyticsCompareReportSubType(value string) (asc.SalesReportSubType, error) {
+	reportSubType, err := normalizeSalesReportSubType(value)
+	if err != nil {
+		return "", err
+	}
+	switch reportSubType {
+	case asc.SalesReportSubTypeSummary, asc.SalesReportSubTypeDetailed:
+		return reportSubType, nil
+	default:
+		return "", fmt.Errorf("--subtype for analytics compare must be SUMMARY or DETAILED")
+	}
+}
+
 func fetchAndAggregate(ctx context.Context, client *asc.Client, vendor string, scope insights.SalesScope, dates []string, salesType asc.SalesReportType, subType asc.SalesReportSubType, freq asc.SalesReportFrequency) (insights.SalesMetrics, int, error) {
 	var aggregate insights.SalesMetrics
 	found := 0
@@ -212,7 +242,7 @@ func fetchAndAggregate(ctx context.Context, client *asc.Client, vendor string, s
 			ReportSubType: subType,
 			Frequency:     freq,
 			ReportDate:    date,
-			Version:       defaultSalesReportVersion(salesType),
+			Version:       defaultSalesReportVersion(salesType, freq),
 		})
 		if err != nil {
 			if asc.IsNotFound(err) {

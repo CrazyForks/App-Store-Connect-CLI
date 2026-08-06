@@ -13,19 +13,27 @@ import (
 type SalesReportType string
 
 const (
-	SalesReportTypeSales             SalesReportType = "SALES"
-	SalesReportTypePreOrder          SalesReportType = "PRE_ORDER"
-	SalesReportTypeNewsstand         SalesReportType = "NEWSSTAND"
-	SalesReportTypeSubscription      SalesReportType = "SUBSCRIPTION"
-	SalesReportTypeSubscriptionEvent SalesReportType = "SUBSCRIPTION_EVENT"
+	SalesReportTypeSales                           SalesReportType = "SALES"
+	SalesReportTypePreOrder                        SalesReportType = "PRE_ORDER"
+	SalesReportTypeNewsstand                       SalesReportType = "NEWSSTAND"
+	SalesReportTypeSubscription                    SalesReportType = "SUBSCRIPTION"
+	SalesReportTypeSubscriptionEvent               SalesReportType = "SUBSCRIPTION_EVENT"
+	SalesReportTypeSubscriber                      SalesReportType = "SUBSCRIBER"
+	SalesReportTypeSubscriptionOfferCodeRedemption SalesReportType = "SUBSCRIPTION_OFFER_CODE_REDEMPTION"
+	SalesReportTypeInstalls                        SalesReportType = "INSTALLS"
+	SalesReportTypeFirstAnnual                     SalesReportType = "FIRST_ANNUAL"
+	SalesReportTypeWinBackEligibility              SalesReportType = "WIN_BACK_ELIGIBILITY"
 )
 
 // SalesReportSubType represents the report detail level.
 type SalesReportSubType string
 
 const (
-	SalesReportSubTypeSummary  SalesReportSubType = "SUMMARY"
-	SalesReportSubTypeDetailed SalesReportSubType = "DETAILED"
+	SalesReportSubTypeSummary            SalesReportSubType = "SUMMARY"
+	SalesReportSubTypeDetailed           SalesReportSubType = "DETAILED"
+	SalesReportSubTypeSummaryInstallType SalesReportSubType = "SUMMARY_INSTALL_TYPE"
+	SalesReportSubTypeSummaryTerritory   SalesReportSubType = "SUMMARY_TERRITORY"
+	SalesReportSubTypeSummaryChannel     SalesReportSubType = "SUMMARY_CHANNEL"
 )
 
 // SalesReportFrequency represents the reporting frequency.
@@ -44,6 +52,7 @@ type SalesReportVersion string
 const (
 	SalesReportVersion1_0 SalesReportVersion = "1_0"
 	SalesReportVersion1_1 SalesReportVersion = "1_1"
+	SalesReportVersion1_2 SalesReportVersion = "1_2"
 	SalesReportVersion1_3 SalesReportVersion = "1_3"
 	SalesReportVersion1_4 SalesReportVersion = "1_4"
 )
@@ -201,7 +210,7 @@ type AnalyticsReportRequestReportsLinkagesResponse = LinkagesResponse
 
 type analyticsReportRequestsQuery struct {
 	listQuery
-	state string
+	accessType AnalyticsAccessType
 }
 
 type analyticsReportsQuery struct {
@@ -249,10 +258,10 @@ func WithAnalyticsReportRequestsNextURL(next string) AnalyticsReportRequestsOpti
 	}
 }
 
-// WithAnalyticsReportRequestsState filters requests by state.
-func WithAnalyticsReportRequestsState(state string) AnalyticsReportRequestsOption {
+// WithAnalyticsReportRequestsAccessType filters requests by access type.
+func WithAnalyticsReportRequestsAccessType(accessType AnalyticsAccessType) AnalyticsReportRequestsOption {
 	return func(q *analyticsReportRequestsQuery) {
-		q.state = strings.TrimSpace(state)
+		q.accessType = AnalyticsAccessType(strings.TrimSpace(string(accessType)))
 	}
 }
 
@@ -349,8 +358,8 @@ func buildSalesReportQuery(params SalesReportParams) string {
 
 func buildAnalyticsReportRequestsQuery(query *analyticsReportRequestsQuery) string {
 	values := url.Values{}
-	if strings.TrimSpace(query.state) != "" {
-		values.Set("filter[state]", strings.TrimSpace(query.state))
+	if strings.TrimSpace(string(query.accessType)) != "" {
+		values.Set("filter[accessType]", strings.TrimSpace(string(query.accessType)))
 	}
 	addLimit(values, query.limit)
 	return values.Encode()

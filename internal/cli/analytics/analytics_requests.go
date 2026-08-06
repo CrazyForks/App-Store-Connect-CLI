@@ -92,7 +92,7 @@ func AnalyticsRequestsCommand() *ffcli.Command {
 
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
 	requestID := fs.String("request-id", "", "Filter by request ID")
-	state := fs.String("state", "", "Filter by state: PROCESSING, COMPLETED, FAILED")
+	accessType := fs.String("access-type", "", "Filter by access type: ONGOING, ONE_TIME_SNAPSHOT")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
@@ -106,7 +106,7 @@ func AnalyticsRequestsCommand() *ffcli.Command {
 
 Examples:
   asc analytics requests --app "123456789"
-  asc analytics requests --app "123456789" --state COMPLETED
+  asc analytics requests --app "123456789" --access-type ONGOING
   asc analytics requests --app "123456789" --request-id "REQUEST_ID"
   asc analytics requests --next "<links.next>"
   asc analytics requests --app "123456789" --paginate
@@ -132,13 +132,19 @@ Examples:
 				}
 			}
 
-			var normalizedState asc.AnalyticsReportRequestState
-			if strings.TrimSpace(*state) != "" {
-				stateValue, err := normalizeAnalyticsRequestState(*state)
+			var normalizedAccessType asc.AnalyticsAccessType
+			if strings.TrimSpace(*accessType) != "" {
+				accessTypeValue, err := normalizeAnalyticsAccessType(*accessType)
 				if err != nil {
-					return fmt.Errorf("analytics requests: %w", err)
+					return shared.UsageError(err.Error())
 				}
-				normalizedState = stateValue
+				normalizedAccessType = accessTypeValue
+			}
+			if normalizedAccessType != "" && strings.TrimSpace(*requestID) != "" {
+				return shared.UsageError("--access-type cannot be used with --request-id")
+			}
+			if normalizedAccessType != "" && strings.TrimSpace(*next) != "" {
+				return shared.UsageError("--access-type cannot be used with --next")
 			}
 
 			resolvedAppID := shared.ResolveAppID(*appID)
@@ -170,8 +176,8 @@ Examples:
 					asc.WithAnalyticsReportRequestsLimit(*limit),
 					asc.WithAnalyticsReportRequestsNextURL(*next),
 				}
-				if normalizedState != "" {
-					opts = append(opts, asc.WithAnalyticsReportRequestsState(string(normalizedState)))
+				if normalizedAccessType != "" {
+					opts = append(opts, asc.WithAnalyticsReportRequestsAccessType(normalizedAccessType))
 				}
 
 				if *paginate {

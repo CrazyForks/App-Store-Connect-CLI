@@ -2,7 +2,7 @@
 
 > Request and download analytics and sales reports from App Store Connect
 
-The `analytics` command group provides access to App Store analytics data and sales reports. You can request analytics reports, check their status, and download the generated data.
+The `analytics` command group provides access to App Store analytics data and sales reports. You can request analytics reports, list requests and available reports, and download the generated data.
 
 ## Overview
 
@@ -30,10 +30,9 @@ asc analytics sales \
 **Required Flags:**
 
 * `--vendor` - Vendor number (or `ASC_VENDOR_NUMBER` env)
-* `--type` - Report type: `SALES`, `PRE_ORDER`, `NEWSSTAND`, `SUBSCRIPTION`, `SUBSCRIPTION_EVENT`
-* `--subtype` - Report subtype: `SUMMARY`, `DETAILED`
+* `--type` - Report type: `SALES`, `PRE_ORDER`, `NEWSSTAND`, `SUBSCRIPTION`, `SUBSCRIPTION_EVENT`, `SUBSCRIBER`, `SUBSCRIPTION_OFFER_CODE_REDEMPTION`, `INSTALLS`, `FIRST_ANNUAL`, `WIN_BACK_ELIGIBILITY`
+* `--subtype` - Report subtype: `SUMMARY`, `DETAILED`, `SUMMARY_INSTALL_TYPE`, `SUMMARY_TERRITORY`, `SUMMARY_CHANNEL`
 * `--frequency` - Frequency: `DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY`
-* `--date` - Report date (format depends on frequency)
 
 **Date Formats:**
 
@@ -42,10 +41,13 @@ asc analytics sales \
 * **Monthly**: `YYYY-MM`
 * **Yearly**: `YYYY`
 
+For `DAILY` reports, omit `--date` to download the latest available report. `--date` is required for `WEEKLY`, `MONTHLY`, and `YEARLY` reports.
+
 **Optional Flags:**
 
-* `--version` - Report format version (for example, `1_0` or `1_4`). Defaults to `1_4` for `SUBSCRIPTION` reports and `1_0` for other report types
-* `--output` - Custom output path (default: `sales_report_{date}_{type}.tsv.gz`)
+* `--date` - Report date (format depends on frequency; optional for `DAILY`)
+* `--version` - Report format version (for example, `1_0`, `1_2`, `1_3`, or `1_4`). Defaults to `1_4` for `SUBSCRIPTION`, `1_3` for `SUBSCRIBER`, `1_2` for monthly `INSTALLS`, and `1_0` otherwise
+* `--output` - Custom output path (default: `sales_report_{date|latest}_{type}.tsv.gz`)
 * `--decompress` - Decompress to `.tsv` format
 
 **Examples:**
@@ -59,13 +61,12 @@ asc analytics sales \
   --frequency DAILY \
   --date "2024-01-20"
 
-# Weekly subscription report with decompression
+# Latest subscriber report with decompression
 asc analytics sales \
   --vendor "12345678" \
-  --type SUBSCRIPTION \
+  --type SUBSCRIBER \
   --subtype DETAILED \
-  --frequency WEEKLY \
-  --date "2024-01-15" \
+  --frequency DAILY \
   --decompress
 
 # Monthly report with custom output path
@@ -111,7 +112,7 @@ asc analytics requests --app "123456789"
 **Optional Flags:**
 
 * `--request-id` - Filter by specific request ID
-* `--state` - Filter by state: `PROCESSING`, `COMPLETED`, `FAILED`
+* `--access-type` - Filter by access type: `ONGOING`, `ONE_TIME_SNAPSHOT`
 * `--limit` - Results per page (1-200)
 * `--paginate` - Fetch all pages automatically
 * `--next` - Pagination URL from previous response
@@ -122,8 +123,8 @@ asc analytics requests --app "123456789"
 # List all requests
 asc analytics requests --app "123456789"
 
-# Filter by completed requests
-asc analytics requests --app "123456789" --state COMPLETED
+# Filter by ongoing requests
+asc analytics requests --app "123456789" --access-type ONGOING
 
 # Get specific request
 asc analytics requests --request-id "abc-123-def"
@@ -336,10 +337,10 @@ asc analytics request \
   --app "$ASC_APP_ID" \
   --access-type ONGOING
 
-# 2. Check for new reports
+# 2. List the ongoing request and its available reports
 asc analytics requests \
   --app "$ASC_APP_ID" \
-  --state COMPLETED
+  --access-type ONGOING
 
 # 3. Download latest data
 asc analytics download \

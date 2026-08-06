@@ -55,6 +55,27 @@ func TestBuildSalesReportQuery(t *testing.T) {
 	}
 }
 
+func TestBuildSalesReportQuerySupportsDocumentedInstallsSubtype(t *testing.T) {
+	query := buildSalesReportQuery(SalesReportParams{
+		VendorNumber:  "12345678",
+		ReportType:    SalesReportTypeInstalls,
+		ReportSubType: SalesReportSubTypeSummaryChannel,
+		Frequency:     SalesReportFrequencyYearly,
+		ReportDate:    "2024-12-31",
+		Version:       SalesReportVersion1_0,
+	})
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		t.Fatalf("failed to parse query: %v", err)
+	}
+	if got := values.Get("filter[reportType]"); got != "INSTALLS" {
+		t.Fatalf("expected reportType INSTALLS, got %q", got)
+	}
+	if got := values.Get("filter[reportSubType]"); got != "SUMMARY_CHANNEL" {
+		t.Fatalf("expected reportSubType SUMMARY_CHANNEL, got %q", got)
+	}
+}
+
 func TestGetSalesReport_SendsRequest(t *testing.T) {
 	response := rawResponse("gzdata")
 	client := newTestClient(t, func(req *http.Request) {
@@ -137,7 +158,7 @@ func TestCreateAnalyticsReportRequest_SendsRequest(t *testing.T) {
 	}
 }
 
-func TestGetAnalyticsReportRequests_WithFilters(t *testing.T) {
+func TestGetAnalyticsReportRequests_WithAccessTypeFilter(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":[]}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
@@ -147,8 +168,8 @@ func TestGetAnalyticsReportRequests_WithFilters(t *testing.T) {
 			t.Fatalf("expected path /v1/apps/app-1/analyticsReportRequests, got %s", req.URL.Path)
 		}
 		values := req.URL.Query()
-		if values.Get("filter[state]") != "COMPLETED" {
-			t.Fatalf("expected filter[state]=COMPLETED, got %q", values.Get("filter[state]"))
+		if values.Get("filter[accessType]") != "ONGOING" {
+			t.Fatalf("expected filter[accessType]=ONGOING, got %q", values.Get("filter[accessType]"))
 		}
 		if values.Get("limit") != "10" {
 			t.Fatalf("expected limit=10, got %q", values.Get("limit"))
@@ -160,7 +181,7 @@ func TestGetAnalyticsReportRequests_WithFilters(t *testing.T) {
 		context.Background(),
 		"app-1",
 		WithAnalyticsReportRequestsLimit(10),
-		WithAnalyticsReportRequestsState("COMPLETED"),
+		WithAnalyticsReportRequestsAccessType(AnalyticsAccessTypeOngoing),
 	); err != nil {
 		t.Fatalf("GetAnalyticsReportRequests() error: %v", err)
 	}
