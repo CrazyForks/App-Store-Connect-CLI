@@ -5,23 +5,26 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
 func TestPreOrdersEndWithConfirmPostsExpectedPayload(t *testing.T) {
 	setupAuth(t)
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-
 	requestCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestCount++
 		if req.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", req.Method)
+			t.Errorf("expected POST, got %s", req.Method)
+			http.Error(w, "unexpected method", http.StatusBadRequest)
+			return
 		}
 		if req.URL.Path != "/v1/endAppAvailabilityPreOrders" {
-			t.Fatalf("expected /v1/endAppAvailabilityPreOrders, got %s", req.URL.Path)
+			t.Errorf("expected /v1/endAppAvailabilityPreOrders, got %s", req.URL.Path)
+			http.Error(w, "unexpected path", http.StatusBadRequest)
+			return
 		}
 
 		var payload struct {
@@ -38,18 +41,38 @@ func TestPreOrdersEndWithConfirmPostsExpectedPayload(t *testing.T) {
 			} `json:"data"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request: %v", err)
+			t.Errorf("decode request: %v", err)
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
 		}
 		if payload.Data.Type != "endAppAvailabilityPreOrders" {
-			t.Fatalf("unexpected data type %q", payload.Data.Type)
+			t.Errorf("unexpected data type %q", payload.Data.Type)
+			http.Error(w, "unexpected data type", http.StatusBadRequest)
+			return
 		}
 		linkages := payload.Data.Relationships.TerritoryAvailabilities.Data
-		if len(linkages) != 2 || linkages[0].Type != "territoryAvailabilities" || linkages[0].ID != "ta-1" || linkages[1].ID != "ta-2" {
-			t.Fatalf("unexpected territory availability linkages: %+v", linkages)
+		if len(linkages) != 2 || linkages[0].Type != "territoryAvailabilities" || linkages[0].ID != "ta-1" || linkages[1].Type != "territoryAvailabilities" || linkages[1].ID != "ta-2" {
+			t.Errorf("unexpected territory availability linkages: %+v", linkages)
+			http.Error(w, "unexpected linkages", http.StatusBadRequest)
+			return
 		}
 
-		return jsonHTTPResponse(http.StatusCreated, `{"data":{"type":"endAppAvailabilityPreOrders","id":"end-1"},"links":{"self":"https://api.appstoreconnect.apple.com/v1/endAppAvailabilityPreOrders/end-1"}}`), nil
-	})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"data":{"type":"endAppAvailabilityPreOrders","id":"end-1"},"links":{"self":"https://api.appstoreconnect.apple.com/v1/endAppAvailabilityPreOrders/end-1"}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)

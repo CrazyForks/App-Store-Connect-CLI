@@ -6,6 +6,8 @@ import (
 	"flag"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -78,14 +80,29 @@ func TestReviewsSummarizationsNextDoesNotRequirePlatform(t *testing.T) {
 	setupAuth(t)
 
 	const nextURL = "https://api.appstoreconnect.apple.com/v1/apps/app-1/customerReviewSummarizations?cursor=abc"
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.Method != http.MethodGet || req.URL.String() != nextURL {
-			t.Fatalf("expected GET %s, got %s %s", nextURL, req.Method, req.URL.String())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		actualURL := "https://" + req.Host + req.URL.RequestURI()
+		if req.Method != http.MethodGet || actualURL != nextURL {
+			t.Errorf("expected GET %s, got %s %s", nextURL, req.Method, actualURL)
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
 		}
-		return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{"self":"`+nextURL+`"}}`), nil
-	})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[],"links":{"self":"`+nextURL+`"}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		cloned.Host = req.URL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
