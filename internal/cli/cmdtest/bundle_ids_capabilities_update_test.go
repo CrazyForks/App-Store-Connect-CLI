@@ -144,6 +144,16 @@ func TestBundleIDCapabilitiesSettingsValidationStopsBeforeHTTP(t *testing.T) {
 			wantErr: `allowedInstances at setting index 0 must not be empty`,
 		},
 		{
+			name:    "update rejects whitespace allowed instances",
+			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","allowedInstances":" \t"}]`},
+			wantErr: `allowedInstances at setting index 0 must not be blank`,
+		},
+		{
+			name:    "add rejects empty description",
+			args:    []string{"bundle-ids", "capabilities", "add", "--bundle", "bundle1", "--capability", "ICLOUD", "--settings", `[{"key":"ICLOUD_VERSION","description":""}]`},
+			wantErr: `description at setting index 0 must not be empty`,
+		},
+		{
 			name:    "update rejects missing setting key",
 			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"options":[]}]`},
 			wantErr: `capability setting key at index 0 must not be empty`,

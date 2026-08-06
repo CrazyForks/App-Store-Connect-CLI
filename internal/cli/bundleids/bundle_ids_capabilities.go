@@ -364,9 +364,10 @@ func validateCapabilitySettingsJSON(value any) error {
 				return fmt.Errorf("unknown field %q at setting index %d", field, settingIndex)
 			}
 		}
-		if allowedInstances, present := setting["allowedInstances"]; present {
-			if value, ok := allowedInstances.(string); ok && value == "" {
-				return fmt.Errorf("allowedInstances at setting index %d must not be empty", settingIndex)
+		settingLocation := fmt.Sprintf("setting index %d", settingIndex)
+		for _, field := range []string{"allowedInstances", "description", "name"} {
+			if err := validateCapabilityOptionalString(setting, field, settingLocation); err != nil {
+				return err
 			}
 		}
 		options, ok := setting["options"].([]any)
@@ -383,7 +384,31 @@ func validateCapabilitySettingsJSON(value any) error {
 					return fmt.Errorf("unknown field %q at setting index %d, option index %d", field, settingIndex, optionIndex)
 				}
 			}
+			optionLocation := fmt.Sprintf("setting index %d, option index %d", settingIndex, optionIndex)
+			for _, field := range []string{"description", "name"} {
+				if err := validateCapabilityOptionalString(option, field, optionLocation); err != nil {
+					return err
+				}
+			}
 		}
+	}
+	return nil
+}
+
+func validateCapabilityOptionalString(object map[string]any, field, location string) error {
+	raw, present := object[field]
+	if !present {
+		return nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return nil
+	}
+	if value == "" {
+		return fmt.Errorf("%s at %s must not be empty", field, location)
+	}
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s at %s must not be blank", field, location)
 	}
 	return nil
 }

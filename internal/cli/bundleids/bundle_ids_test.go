@@ -150,6 +150,21 @@ func TestParseCapabilitySettingsRejectsInvalidStructure(t *testing.T) {
 			wantErr: `allowedInstances at setting index 0 must not be empty`,
 		},
 		{
+			name:    "whitespace allowed instances",
+			value:   `[{"key":"ICLOUD_VERSION","allowedInstances":" \t"}]`,
+			wantErr: `allowedInstances at setting index 0 must not be blank`,
+		},
+		{
+			name:    "empty setting description",
+			value:   `[{"key":"ICLOUD_VERSION","description":""}]`,
+			wantErr: `description at setting index 0 must not be empty`,
+		},
+		{
+			name:    "whitespace option name",
+			value:   `[{"key":"FUTURE_SETTING","options":[{"key":"FUTURE_OPTION","name":"  "}]}]`,
+			wantErr: `name at setting index 0, option index 0 must not be blank`,
+		},
+		{
 			name:    "missing setting key",
 			value:   `[{"options":[]}]`,
 			wantErr: `capability setting key at index 0 must not be empty`,
