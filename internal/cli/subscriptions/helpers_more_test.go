@@ -151,8 +151,29 @@ func TestParseSubscriptionPromotionalOfferPricesAutoDetectsLegacyAndInlineInputs
 			},
 		},
 		{
+			name:  "compound and territory-only inline prices",
+			value: "US:pp-1, France",
+			want: []asc.SubscriptionPromotionalOfferPrice{
+				{TerritoryID: "USA", PricePointID: "pp-1"},
+				{TerritoryID: "FRA"},
+			},
+		},
+		{
+			name:  "territory-only before comma-containing compound inline price",
+			value: "France, Moldova, Republic of:pp-1",
+			want: []asc.SubscriptionPromotionalOfferPrice{
+				{TerritoryID: "FRA"},
+				{TerritoryID: "MDA", PricePointID: "pp-1"},
+			},
+		},
+		{
 			name:    "mixed compound and legacy prices",
 			value:   "US:pp-1,price-2",
+			wantErr: "must not mix",
+		},
+		{
+			name:    "mixed legacy and compound prices",
+			value:   "price-2,US:pp-1",
 			wantErr: "must not mix",
 		},
 	}

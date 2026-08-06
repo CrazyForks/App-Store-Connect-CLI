@@ -16,7 +16,8 @@ normalized to App Store Connect alpha-3 IDs. Inline inputs become temporary
 local linkages in `data.relationships.prices` and matching
 `subscriptionPromotionalOfferPrices` resources in top-level `included`.
 Existing price IDs remain ordinary linkage references and do not emit
-`included`. One request cannot mix linkage references with inline entries.
+`included`. One request may combine territory-only and territory/price-point
+inline entries, but it cannot mix linkage references with inline entries.
 
 ## API contract
 

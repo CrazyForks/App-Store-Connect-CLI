@@ -28,8 +28,10 @@ func TestSubscriptionsPromotionalOffersCreateBuildsInlinePrices(t *testing.T) {
 		wantTerritory        string
 		wantPricePoint       string
 		wantPricePointLinked bool
+		wantSecondTerritory  string
 	}{
 		{name: "paid compound", mode: "pay_as_you_go", prices: "United States:pp-us", wantInline: true, wantTerritory: "USA", wantPricePoint: "pp-us", wantPricePointLinked: true},
+		{name: "compound and territory-only inline", mode: "pay_as_you_go", prices: "US:pp-us,France", wantInline: true, wantTerritory: "USA", wantPricePoint: "pp-us", wantPricePointLinked: true, wantSecondTerritory: "FRA"},
 		{name: "free trial territory only", mode: "free_trial", prices: "Germany", wantInline: true, wantTerritory: "DEU"},
 		{name: "paid territory only", mode: "pay_up_front", prices: "France", wantInline: true, wantTerritory: "FRA"},
 		{name: "free trial compound", mode: "free_trial", prices: "US:pp-us", wantInline: true, wantTerritory: "USA", wantPricePoint: "pp-us", wantPricePointLinked: true},
@@ -51,8 +53,12 @@ func TestSubscriptionsPromotionalOffersCreateBuildsInlinePrices(t *testing.T) {
 				}
 				data := payload["data"].(map[string]any)
 				priceRefs := data["relationships"].(map[string]any)["prices"].(map[string]any)["data"].([]any)
-				if len(priceRefs) != 1 {
-					t.Fatalf("expected one price linkage, got refs=%#v", priceRefs)
+				wantPriceCount := 1
+				if test.wantSecondTerritory != "" {
+					wantPriceCount = 2
+				}
+				if len(priceRefs) != wantPriceCount {
+					t.Fatalf("expected %d price linkage(s), got refs=%#v", wantPriceCount, priceRefs)
 				}
 				priceRef := priceRefs[0].(map[string]any)
 				if !test.wantInline {
@@ -67,8 +73,8 @@ func TestSubscriptionsPromotionalOffersCreateBuildsInlinePrices(t *testing.T) {
 				}
 
 				included, ok := payload["included"].([]any)
-				if !ok || len(included) != 1 {
-					t.Fatalf("expected one included resource, got %#v", payload["included"])
+				if !ok || len(included) != wantPriceCount {
+					t.Fatalf("expected %d included resource(s), got %#v", wantPriceCount, payload["included"])
 				}
 				includedPrice := included[0].(map[string]any)
 				if priceRef["id"] != includedPrice["id"] || priceRef["type"] != "subscriptionPromotionalOfferPrices" {
@@ -87,6 +93,21 @@ func TestSubscriptionsPromotionalOffersCreateBuildsInlinePrices(t *testing.T) {
 					pricePointID := pricePoint.(map[string]any)["data"].(map[string]any)["id"]
 					if pricePointID != test.wantPricePoint {
 						t.Fatalf("expected price point %s, got %#v", test.wantPricePoint, pricePointID)
+					}
+				}
+				if test.wantSecondTerritory != "" {
+					secondRef := priceRefs[1].(map[string]any)
+					secondIncluded := included[1].(map[string]any)
+					if secondRef["id"] != secondIncluded["id"] {
+						t.Fatalf("second price linkage does not match included resource: ref=%#v included=%#v", secondRef, secondIncluded)
+					}
+					secondRelationships := secondIncluded["relationships"].(map[string]any)
+					secondTerritory := secondRelationships["territory"].(map[string]any)["data"].(map[string]any)
+					if secondTerritory["id"] != test.wantSecondTerritory {
+						t.Fatalf("expected second territory %s, got %#v", test.wantSecondTerritory, secondTerritory)
+					}
+					if _, ok := secondRelationships["subscriptionPricePoint"]; ok {
+						t.Fatalf("second territory-only price must not include a price point: %#v", secondRelationships)
 					}
 				}
 				writePromotionalOfferCreateResponse(t, w)

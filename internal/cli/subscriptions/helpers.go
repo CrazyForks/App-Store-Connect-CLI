@@ -240,32 +240,7 @@ func parseSubscriptionOfferCodePrices(value string, mode asc.SubscriptionOfferMo
 
 func parseSubscriptionPromotionalOfferPrices(value string) ([]asc.SubscriptionPromotionalOfferPrice, error) {
 	if strings.Contains(value, ":") {
-		parsed, err := shared.ParseASCTerritoryValueCSV(value)
-		if err != nil {
-			parts := shared.SplitCSV(value)
-			hasCompound := false
-			hasBare := false
-			for _, part := range parts {
-				if strings.Contains(part, ":") {
-					hasCompound = true
-				} else {
-					hasBare = true
-				}
-			}
-			if hasCompound && hasBare {
-				return nil, fmt.Errorf("--prices must not mix existing price IDs with TERRITORY:PRICE_POINT_ID entries")
-			}
-			return nil, err
-		}
-
-		prices := make([]asc.SubscriptionPromotionalOfferPrice, 0, len(parsed))
-		for _, price := range parsed {
-			prices = append(prices, asc.SubscriptionPromotionalOfferPrice{
-				TerritoryID:  price.TerritoryID,
-				PricePointID: price.Value,
-			})
-		}
-		return prices, nil
+		return parseSubscriptionPromotionalOfferInlinePrices(value)
 	}
 
 	territoryIDs, territoryErr := shared.NormalizeASCTerritoryCSV(value)
@@ -282,6 +257,78 @@ func parseSubscriptionPromotionalOfferPrices(value string) ([]asc.SubscriptionPr
 	for _, priceID := range priceIDs {
 		prices = append(prices, asc.SubscriptionPromotionalOfferPrice{ID: priceID})
 	}
+	return prices, nil
+}
+
+func parseSubscriptionPromotionalOfferInlinePrices(value string) ([]asc.SubscriptionPromotionalOfferPrice, error) {
+	parts := shared.SplitCSV(value)
+	prices := make([]asc.SubscriptionPromotionalOfferPrice, 0, len(parts))
+
+	for start := 0; start < len(parts); {
+		compoundEnd := start
+		for compoundEnd < len(parts) && !strings.Contains(parts[compoundEnd], ":") {
+			compoundEnd++
+		}
+
+		if compoundEnd == len(parts) {
+			territoryIDs, err := shared.NormalizeASCTerritoryCSV(strings.Join(parts[start:], ","))
+			if err != nil {
+				return nil, fmt.Errorf("--prices must not mix existing price IDs with TERRITORY:PRICE_POINT_ID entries")
+			}
+			for _, territoryID := range territoryIDs {
+				prices = append(prices, asc.SubscriptionPromotionalOfferPrice{TerritoryID: territoryID})
+			}
+			break
+		}
+
+		var candidateErr error
+		mixedReferences := false
+		matched := false
+		for compoundStart := start; compoundStart <= compoundEnd; compoundStart++ {
+			var territoryIDs []string
+			if compoundStart > start {
+				var err error
+				territoryIDs, err = shared.NormalizeASCTerritoryCSV(strings.Join(parts[start:compoundStart], ","))
+				if err != nil {
+					if parsed, parseErr := shared.ParseASCTerritoryValueCSV(strings.Join(parts[compoundStart:compoundEnd+1], ",")); parseErr == nil && len(parsed) == 1 {
+						mixedReferences = true
+					}
+					continue
+				}
+			}
+
+			parsed, err := shared.ParseASCTerritoryValueCSV(strings.Join(parts[compoundStart:compoundEnd+1], ","))
+			if err != nil {
+				candidateErr = err
+				continue
+			}
+			if len(parsed) != 1 {
+				continue
+			}
+
+			for _, territoryID := range territoryIDs {
+				prices = append(prices, asc.SubscriptionPromotionalOfferPrice{TerritoryID: territoryID})
+			}
+			prices = append(prices, asc.SubscriptionPromotionalOfferPrice{
+				TerritoryID:  parsed[0].TerritoryID,
+				PricePointID: parsed[0].Value,
+			})
+			matched = true
+			break
+		}
+
+		if !matched {
+			if mixedReferences {
+				return nil, fmt.Errorf("--prices must not mix existing price IDs with TERRITORY:PRICE_POINT_ID entries")
+			}
+			if candidateErr == nil {
+				candidateErr = fmt.Errorf("--prices must use TERRITORY or TERRITORY:PRICE_POINT_ID entries")
+			}
+			return nil, candidateErr
+		}
+		start = compoundEnd + 1
+	}
+
 	return prices, nil
 }
 
