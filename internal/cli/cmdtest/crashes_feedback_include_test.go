@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,8 @@ import (
 
 	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 )
+
+const feedbackScreenshotFields = "createdDate,comment,email,deviceModel,osVersion,locale,timeZone,architecture,connectionType,pairedAppleWatch,appUptimeInMilliseconds,diskBytesAvailable,diskBytesTotal,batteryPercentage,screenWidthInPoints,screenHeightInPoints,appPlatform,devicePlatform,deviceFamily,buildBundleId,screenshots,build,tester"
 
 type betaSubmissionListOutput struct {
 	Data []struct {
@@ -36,6 +40,21 @@ func decodeBetaSubmissionListOutput(t *testing.T, stdout string) betaSubmissionL
 		t.Fatalf("failed to parse JSON output: %v\noutput: %s", err, stdout)
 	}
 	return output
+}
+
+func installDefaultTransportForServer(t *testing.T, server *httptest.Server) {
+	t.Helper()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	}))
 }
 
 // okJSONResponse builds a 200 JSON response for the mock transport.
@@ -184,14 +203,30 @@ func TestFeedbackListIncludeScreenshotsPreservesAllFeedbackFields(t *testing.T) 
 	t.Setenv("ASC_APP_ID", "")
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
-	var gotQuery url.Values
-	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	requestErr := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/123/betaFeedbackScreenshotSubmissions" {
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			requestErr <- fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
 		}
-		gotQuery = req.URL.Query()
-		return okJSONResponse(`{"data":[{"type":"betaFeedbackScreenshotSubmissions","id":"fb-1","attributes":{"createdDate":"2026-01-20T00:00:00Z","comment":"Nice","email":"tester@example.com","deviceModel":"iPhone17,1","osVersion":"18.0","locale":"en-US","timeZone":"America/Los_Angeles","architecture":"arm64","connectionType":"WIFI","pairedAppleWatch":"Watch7,1","appUptimeInMilliseconds":1234,"diskBytesAvailable":2000,"diskBytesTotal":4000,"batteryPercentage":85,"screenWidthInPoints":430,"screenHeightInPoints":932,"appPlatform":"IOS","devicePlatform":"IOS","deviceFamily":"IPHONE","buildBundleId":"com.example.app","screenshots":[{"url":"https://example.com/shot.png","width":320,"height":640,"expirationDate":"2026-01-21T00:00:00Z"}]},"relationships":{"build":{"data":{"type":"builds","id":"build-1"}},"tester":{"data":{"type":"betaTesters","id":"tester-1"}}}}]}`), nil
+		query := req.URL.Query()
+		if len(query) != 1 {
+			requestErr <- fmt.Errorf("expected only the feedback sparse fieldset, got %q", query.Encode())
+			http.Error(w, "unexpected query", http.StatusBadRequest)
+			return
+		}
+		if got := query.Get("fields[betaFeedbackScreenshotSubmissions]"); got != feedbackScreenshotFields {
+			requestErr <- fmt.Errorf("feedback fieldset = %q, want %q", got, feedbackScreenshotFields)
+			http.Error(w, "unexpected fieldset", http.StatusBadRequest)
+			return
+		}
+		requestErr <- nil
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"type":"betaFeedbackScreenshotSubmissions","id":"fb-1","attributes":{"createdDate":"2026-01-20T00:00:00Z","comment":"Nice","email":"tester@example.com","deviceModel":"iPhone17,1","osVersion":"18.0","locale":"en-US","timeZone":"America/Los_Angeles","architecture":"arm64","connectionType":"WIFI","pairedAppleWatch":"Watch7,1","appUptimeInMilliseconds":1234,"diskBytesAvailable":2000,"diskBytesTotal":4000,"batteryPercentage":85,"screenWidthInPoints":430,"screenHeightInPoints":932,"appPlatform":"IOS","devicePlatform":"IOS","deviceFamily":"IPHONE","buildBundleId":"com.example.app","screenshots":[{"url":"https://example.com/shot.png","width":320,"height":640,"expirationDate":"2026-01-21T00:00:00Z"}]},"relationships":{"build":{"data":{"type":"builds","id":"build-1"}},"tester":{"data":{"type":"betaTesters","id":"tester-1"}}}}]}`)
 	}))
+	t.Cleanup(server.Close)
+	installDefaultTransportForServer(t, server)
 
 	var exitCode int
 	stdout, stderr := captureOutput(t, func() {
@@ -201,12 +236,8 @@ func TestFeedbackListIncludeScreenshotsPreservesAllFeedbackFields(t *testing.T) 
 	if exitCode != rootcmd.ExitSuccess {
 		t.Fatalf("exit code = %d, want %d; stderr: %s", exitCode, rootcmd.ExitSuccess, stderr)
 	}
-	if len(gotQuery) != 1 {
-		t.Fatalf("expected only the feedback sparse fieldset, got %q", gotQuery.Encode())
-	}
-	expectedFields := "createdDate,comment,email,deviceModel,osVersion,locale,timeZone,architecture,connectionType,pairedAppleWatch,appUptimeInMilliseconds,diskBytesAvailable,diskBytesTotal,batteryPercentage,screenWidthInPoints,screenHeightInPoints,appPlatform,devicePlatform,deviceFamily,buildBundleId,screenshots,build,tester"
-	if got := gotQuery.Get("fields[betaFeedbackScreenshotSubmissions]"); got != expectedFields {
-		t.Fatalf("feedback fieldset = %q, want %q", got, expectedFields)
+	if err := <-requestErr; err != nil {
+		t.Fatal(err)
 	}
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
@@ -242,6 +273,65 @@ func TestFeedbackListIncludeScreenshotsPreservesAllFeedbackFields(t *testing.T) 
 	}
 	if output.Data[0].Relationships["build"].Data.ID != "build-1" || output.Data[0].Relationships["tester"].Data.ID != "tester-1" {
 		t.Fatalf("JSON output omitted feedback relationships: %+v", output.Data[0].Relationships)
+	}
+}
+
+func TestFeedbackListIncludeScreenshotsWithIncludedRelationships(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_APP_ID", "")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	requestErr := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/123/betaFeedbackScreenshotSubmissions" {
+			requestErr <- fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		query := req.URL.Query()
+		if got := query.Get("include"); got != "build,tester" {
+			requestErr <- fmt.Errorf("include query = %q, want %q", got, "build,tester")
+			http.Error(w, "unexpected include", http.StatusBadRequest)
+			return
+		}
+		if got := query.Get("fields[betaFeedbackScreenshotSubmissions]"); got != feedbackScreenshotFields {
+			requestErr <- fmt.Errorf("feedback fieldset = %q, want %q", got, feedbackScreenshotFields)
+			http.Error(w, "unexpected fieldset", http.StatusBadRequest)
+			return
+		}
+		requestErr <- nil
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"type":"betaFeedbackScreenshotSubmissions","id":"fb-1","attributes":{"screenshots":[{"url":"https://example.com/shot.png","width":320,"height":640,"expirationDate":"2026-01-21T00:00:00Z"}]}}],"included":[{"type":"builds","id":"build-1","attributes":{"version":"1.0"}},{"type":"betaTesters","id":"tester-1","attributes":{"email":"tester@example.com"}}]}`)
+	}))
+	t.Cleanup(server.Close)
+	installDefaultTransportForServer(t, server)
+
+	var exitCode int
+	stdout, stderr := captureOutput(t, func() {
+		exitCode = rootcmd.Run([]string{"testflight", "feedback", "list", "--app", "123", "--include-screenshots", "--include", "build,tester", "--output", "json"}, "1.2.3")
+	})
+
+	if exitCode != rootcmd.ExitSuccess {
+		t.Fatalf("exit code = %d, want %d; stderr: %s", exitCode, rootcmd.ExitSuccess, stderr)
+	}
+	if err := <-requestErr; err != nil {
+		t.Fatal(err)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	output := decodeBetaSubmissionListOutput(t, stdout)
+	if len(output.Data) != 1 || output.Data[0].ID != "fb-1" {
+		t.Fatalf("unexpected feedback data: %+v", output.Data)
+	}
+	gotIncluded := make(map[string]bool, len(output.Included))
+	for _, resource := range output.Included {
+		gotIncluded[resource.Type+"/"+resource.ID] = true
+	}
+	for _, identity := range []string{"builds/build-1", "betaTesters/tester-1"} {
+		if !gotIncluded[identity] {
+			t.Fatalf("missing included resource %q: %+v", identity, output.Included)
+		}
 	}
 }
 
