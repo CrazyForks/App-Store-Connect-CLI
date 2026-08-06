@@ -4709,6 +4709,21 @@ func TestAppClipsValidationErrors(t *testing.T) {
 			wantErr: "Error: --is-powered-by is required",
 		},
 		{
+			name:    "advanced experiences create missing header image",
+			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--localization-id", "LOC_ID"},
+			wantErr: "Error: --header-image-id is required",
+		},
+		{
+			name:    "advanced experiences create missing localizations",
+			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--header-image-id", "IMAGE_ID", "--localization-id", " , "},
+			wantErr: "Error: --localization-id is required",
+		},
+		{
+			name:    "advanced experiences remove missing confirm",
+			args:    []string{"app-clips", "advanced-experiences", "delete", "--experience-id", "EXP_ID"},
+			wantErr: "Error: --confirm is required to remove",
+		},
+		{
 			name:    "advanced experience images create missing file",
 			args:    []string{"app-clips", "advanced-experiences", "images", "create", "--experience-id", "EXP_ID"},
 			wantErr: "Error: --file is required",

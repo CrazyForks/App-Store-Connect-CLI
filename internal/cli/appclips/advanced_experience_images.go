@@ -9,7 +9,6 @@ import (
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
-	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
@@ -25,14 +24,12 @@ func AppClipAdvancedExperienceImagesCommand() *ffcli.Command {
 
 Examples:
   asc app-clips advanced-experiences images view --id "IMAGE_ID"
-  asc app-clips advanced-experiences images create --experience-id "EXP_ID" --file path/to/image.png
-  asc app-clips advanced-experiences images delete --id "IMAGE_ID" --confirm`,
+  asc app-clips advanced-experiences images create --experience-id "EXP_ID" --file path/to/image.png`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			AppClipAdvancedExperienceImagesGetCommand(),
 			AppClipAdvancedExperienceImagesCreateCommand(),
-			AppClipAdvancedExperienceImagesDeleteCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
@@ -134,57 +131,6 @@ Examples:
 			}
 
 			result.ExperienceID = experienceValue
-			return shared.PrintOutput(result, *output.Output, *output.Pretty)
-		},
-	}
-}
-
-// AppClipAdvancedExperienceImagesDeleteCommand deletes an image.
-func AppClipAdvancedExperienceImagesDeleteCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("delete", flag.ExitOnError)
-
-	imageID := fs.String("id", "", "Image ID")
-	confirm := fs.Bool("confirm", false, "Confirm deletion")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "delete",
-		ShortUsage: "asc app-clips advanced-experiences images delete --id \"IMAGE_ID\" --confirm",
-		ShortHelp:  "Delete an advanced experience image.",
-		LongHelp: `Delete an advanced experience image.
-
-Examples:
-  asc app-clips advanced-experiences images delete --id "IMAGE_ID" --confirm`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			idValue := strings.TrimSpace(*imageID)
-			if idValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return shared.MissingRequiredUsageError()
-			}
-			if !*confirm {
-				fmt.Fprintln(os.Stderr, "Error: --confirm is required to delete")
-				return shared.MissingRequiredUsageError()
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("app-clips advanced-experiences images delete: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			if err := client.DeleteAppClipAdvancedExperienceImage(requestCtx, idValue); err != nil {
-				return fmt.Errorf("app-clips advanced-experiences images delete: failed to delete: %w", err)
-			}
-
-			result := &asc.AppClipAdvancedExperienceImageDeleteResult{
-				ID:      idValue,
-				Deleted: true,
-			}
-
 			return shared.PrintOutput(result, *output.Output, *output.Pretty)
 		},
 	}

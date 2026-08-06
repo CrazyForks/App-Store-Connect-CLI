@@ -25,7 +25,7 @@ func AppClipAdvancedExperiencesCommand() *ffcli.Command {
 
 Examples:
   asc app-clips advanced-experiences list --app-clip-id "CLIP_ID"
-  asc app-clips advanced-experiences create --app-clip-id "CLIP_ID" --link "https://example.com" --default-language EN --is-powered-by`,
+  asc app-clips advanced-experiences create --app-clip-id "CLIP_ID" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --localization-id "LOCALIZATION_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -196,13 +196,13 @@ func AppClipAdvancedExperiencesCreateCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "create",
-		ShortUsage: "asc app-clips advanced-experiences create --app-clip-id \"CLIP_ID\" --link \"https://example.com\" --default-language EN --is-powered-by [flags]",
+		ShortUsage: "asc app-clips advanced-experiences create --app-clip-id \"CLIP_ID\" --link \"https://example.com\" --default-language EN --is-powered-by --header-image-id \"IMAGE_ID\" --localization-id \"LOCALIZATION_ID\" [flags]",
 		ShortHelp:  "Create an advanced experience.",
 		LongHelp: `Create an advanced experience.
 
 Examples:
-  asc app-clips advanced-experiences create --app-clip-id "CLIP_ID" --link "https://example.com" --default-language EN --is-powered-by
-  asc app-clips advanced-experiences create --app "APP_ID" --bundle-id "com.example.clip" --link "https://example.com" --default-language EN --is-powered-by`,
+  asc app-clips advanced-experiences create --app-clip-id "CLIP_ID" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --localization-id "LOCALIZATION_ID"
+  asc app-clips advanced-experiences create --app "APP_ID" --bundle-id "com.example.clip" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --localization-id "LOCALIZATION_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -228,6 +228,18 @@ Examples:
 			})
 			if !visited["is-powered-by"] {
 				fmt.Fprintln(os.Stderr, "Error: --is-powered-by is required")
+				return shared.MissingRequiredUsageError()
+			}
+
+			headerImageValue := strings.TrimSpace(*headerImageID)
+			if headerImageValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --header-image-id is required")
+				return shared.MissingRequiredUsageError()
+			}
+
+			localizationValues := shared.SplitCSV(*localizationIDs)
+			if len(localizationValues) == 0 {
+				fmt.Fprintln(os.Stderr, "Error: --localization-id is required")
 				return shared.MissingRequiredUsageError()
 			}
 
@@ -282,7 +294,7 @@ Examples:
 				BusinessCategory: categoryValue,
 			}
 
-			resp, err := client.CreateAppClipAdvancedExperience(requestCtx, appClipValue, attrs, *headerImageID, shared.SplitCSV(*localizationIDs))
+			resp, err := client.CreateAppClipAdvancedExperience(requestCtx, appClipValue, attrs, headerImageValue, localizationValues)
 			if err != nil {
 				return fmt.Errorf("app-clips advanced-experiences create: failed to create: %w", err)
 			}
@@ -394,14 +406,14 @@ func AppClipAdvancedExperiencesDeleteCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
 
 	experienceID := fs.String("experience-id", "", "Advanced experience ID")
-	confirm := fs.Bool("confirm", false, "Confirm deletion")
+	confirm := fs.Bool("confirm", false, "Confirm removal")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
 		Name:       "delete",
 		ShortUsage: "asc app-clips advanced-experiences delete --experience-id \"EXP_ID\" --confirm",
-		ShortHelp:  "Delete an advanced experience.",
-		LongHelp: `Delete an advanced experience.
+		ShortHelp:  "Remove an advanced experience.",
+		LongHelp: `Remove an advanced experience by setting its removed attribute to true.
 
 Examples:
   asc app-clips advanced-experiences delete --experience-id "EXP_ID" --confirm`,
@@ -414,7 +426,7 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 			if !*confirm {
-				fmt.Fprintln(os.Stderr, "Error: --confirm is required to delete")
+				fmt.Fprintln(os.Stderr, "Error: --confirm is required to remove")
 				return shared.MissingRequiredUsageError()
 			}
 
@@ -427,12 +439,12 @@ Examples:
 			defer cancel()
 
 			if err := client.DeleteAppClipAdvancedExperience(requestCtx, experienceValue); err != nil {
-				return fmt.Errorf("app-clips advanced-experiences delete: failed to delete: %w", err)
+				return fmt.Errorf("app-clips advanced-experiences delete: failed to remove: %w", err)
 			}
 
-			result := &asc.AppClipAdvancedExperienceDeleteResult{
+			result := &asc.AppClipAdvancedExperienceRemoveResult{
 				ID:      experienceValue,
-				Deleted: true,
+				Removed: true,
 			}
 
 			return shared.PrintOutput(result, *output.Output, *output.Pretty)
