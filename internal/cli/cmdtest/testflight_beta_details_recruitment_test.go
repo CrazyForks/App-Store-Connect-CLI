@@ -2,6 +2,7 @@ package cmdtest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -122,12 +123,21 @@ func TestTestFlightDistributionEditOutput(t *testing.T) {
 		if req.URL.Path != "/v1/buildBetaDetails/detail-1" {
 			t.Fatalf("expected path /v1/buildBetaDetails/detail-1, got %s", req.URL.Path)
 		}
-		payload, err := io.ReadAll(req.Body)
-		if err != nil {
-			t.Fatalf("read body error: %v", err)
+		var payload struct {
+			Data struct {
+				Type       string         `json:"type"`
+				ID         string         `json:"id"`
+				Attributes map[string]any `json:"attributes"`
+			} `json:"data"`
 		}
-		if !strings.Contains(string(payload), `"autoNotifyEnabled":true`) {
-			t.Fatalf("expected autoNotifyEnabled in body, got %s", string(payload))
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode body error: %v", err)
+		}
+		if payload.Data.Type != "buildBetaDetails" || payload.Data.ID != "detail-1" {
+			t.Fatalf("unexpected resource linkage: %#v", payload.Data)
+		}
+		if len(payload.Data.Attributes) != 1 || payload.Data.Attributes["autoNotifyEnabled"] != true {
+			t.Fatalf("expected only autoNotifyEnabled=true, got %#v", payload.Data.Attributes)
 		}
 		body := `{"data":{"type":"buildBetaDetails","id":"detail-1","attributes":{"autoNotifyEnabled":true}}}`
 		return &http.Response{

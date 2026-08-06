@@ -675,14 +675,8 @@ Examples:
 func TestFlightBetaDetailsUpdateCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 
-	const (
-		externalStateEnabled  = "READY_FOR_TESTING"
-		externalStateDisabled = "NOT_READY_FOR_TESTING"
-	)
-
 	id := fs.String("id", "", "Build beta detail ID")
 	autoNotify := fs.Bool("auto-notify", false, "Enable auto-notify for external testers")
-	externalTesting := fs.Bool("external-testing", false, "Enable external testing (maps to externalBuildState)")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -692,8 +686,7 @@ func TestFlightBetaDetailsUpdateCommand() *ffcli.Command {
 		LongHelp: `Update build beta details.
 
 Examples:
-  asc testflight beta-details update --id "DETAIL_ID" --auto-notify
-  asc testflight beta-details update --id "DETAIL_ID" --external-testing true`,
+  asc testflight beta-details update --id "DETAIL_ID" --auto-notify`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -708,7 +701,7 @@ Examples:
 				visited[f.Name] = true
 			})
 
-			hasUpdates := visited["auto-notify"] || visited["external-testing"]
+			hasUpdates := visited["auto-notify"]
 			if !hasUpdates {
 				fmt.Fprintln(os.Stderr, "Error: at least one update flag is required")
 				return shared.MissingRequiredUsageError()
@@ -719,14 +712,6 @@ Examples:
 				value := *autoNotify
 				attrs.AutoNotifyEnabled = &value
 			}
-			if visited["external-testing"] {
-				state := externalStateDisabled
-				if *externalTesting {
-					state = externalStateEnabled
-				}
-				attrs.ExternalBuildState = &state
-			}
-
 			client, err := shared.GetASCClient()
 			if err != nil {
 				return fmt.Errorf("testflight beta-details update: %w", err)
