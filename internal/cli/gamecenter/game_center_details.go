@@ -61,6 +61,9 @@ func GameCenterDetailsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
+	fs.Int("limit", 0, "Deprecated: unsupported for the single Game Center detail; omit --limit")
+	fs.String("next", "", "Deprecated: unsupported for the single Game Center detail; omit --next")
+	fs.Bool("paginate", false, "Deprecated: unsupported for the single Game Center detail; omit --paginate")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -69,11 +72,29 @@ func GameCenterDetailsListCommand() *ffcli.Command {
 		ShortHelp:  "List Game Center details.",
 		LongHelp: `List Game Center details.
 
+Each app has at most one Game Center detail. The legacy --limit, --next, and
+--paginate flags remain registered during their deprecation window, but using
+one returns migration guidance because the underlying lookup is not paginated.
+
 Examples:
   asc game-center details list --app "APP_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			deprecatedFlag := ""
+			fs.Visit(func(parsed *flag.Flag) {
+				switch parsed.Name {
+				case "limit", "next", "paginate":
+					if deprecatedFlag == "" {
+						deprecatedFlag = "--" + parsed.Name
+					}
+				}
+			})
+			if deprecatedFlag != "" {
+				message := fmt.Sprintf("%s is deprecated and unsupported because each app has a single Game Center detail; omit %s", deprecatedFlag, deprecatedFlag)
+				return fmt.Errorf("game-center details list: %w", shared.UsageError(message))
+			}
+
 			resolvedAppID := shared.ResolveAppID(*appID)
 			if resolvedAppID == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")

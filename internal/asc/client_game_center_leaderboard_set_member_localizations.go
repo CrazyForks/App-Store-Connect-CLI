@@ -3,6 +3,7 @@ package asc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -36,6 +37,70 @@ func (c *Client) GetGameCenterLeaderboardSetMemberLocalizations(ctx context.Cont
 	}
 
 	return &response, nil
+}
+
+// GetGameCenterLeaderboardSetMemberLocalization retrieves a leaderboard set member localization by ID.
+// App Store Connect does not expose a direct instance GET, so this resolves the
+// localization's two parents and searches the required doubly filtered collection.
+func (c *Client) GetGameCenterLeaderboardSetMemberLocalization(ctx context.Context, localizationID string) (*GameCenterLeaderboardSetMemberLocalizationResponse, error) {
+	localizationID = strings.TrimSpace(localizationID)
+	if localizationID == "" {
+		return nil, fmt.Errorf("localizationID is required")
+	}
+
+	leaderboard, err := c.GetGameCenterLeaderboardSetMemberLocalizationLeaderboard(ctx, localizationID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve game center leaderboard: %w", err)
+	}
+	leaderboardID := strings.TrimSpace(leaderboard.Data.ID)
+	if leaderboardID == "" {
+		return nil, fmt.Errorf("resolve game center leaderboard: response ID is empty")
+	}
+
+	leaderboardSet, err := c.GetGameCenterLeaderboardSetMemberLocalizationLeaderboardSet(ctx, localizationID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve game center leaderboard set: %w", err)
+	}
+	leaderboardSetID := strings.TrimSpace(leaderboardSet.Data.ID)
+	if leaderboardSetID == "" {
+		return nil, fmt.Errorf("resolve game center leaderboard set: response ID is empty")
+	}
+
+	firstPage, err := c.GetGameCenterLeaderboardSetMemberLocalizations(
+		ctx,
+		WithGCLeaderboardSetMemberLocalizationsLeaderboardIDs([]string{leaderboardID}),
+		WithGCLeaderboardSetMemberLocalizationsLeaderboardSetIDs([]string{leaderboardSetID}),
+		WithGCLeaderboardSetMemberLocalizationsLimit(200),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list member localizations: %w", err)
+	}
+
+	var match *GameCenterLeaderboardSetMemberLocalizationResponse
+	errFound := errors.New("member localization found")
+	err = PaginateEach(ctx, firstPage, func(ctx context.Context, nextURL string) (PaginatedResponse, error) {
+		return c.GetGameCenterLeaderboardSetMemberLocalizations(ctx, WithGCLeaderboardSetMemberLocalizationsNextURL(nextURL))
+	}, func(page PaginatedResponse) error {
+		localizations, ok := page.(*GameCenterLeaderboardSetMemberLocalizationsResponse)
+		if !ok {
+			return fmt.Errorf("unexpected response type %T", page)
+		}
+		for _, localization := range localizations.Data {
+			if localization.ID == localizationID {
+				match = &GameCenterLeaderboardSetMemberLocalizationResponse{Data: localization}
+				return errFound
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, errFound) {
+		return match, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list member localizations: %w", err)
+	}
+
+	return nil, fmt.Errorf("game center leaderboard set member localization %q: %w", localizationID, ErrNotFound)
 }
 
 // CreateGameCenterLeaderboardSetMemberLocalization creates a new leaderboard set member localization.

@@ -1044,6 +1044,7 @@ func GameCenterLeaderboardSetMemberLocalizationsCommand() *ffcli.Command {
 
 Examples:
   asc game-center leaderboard-sets member-localizations list --set-id "SET_ID" --leaderboard-id "LEADERBOARD_ID"
+  asc game-center leaderboard-sets member-localizations view --id "LOCALIZATION_ID"
   asc game-center leaderboard-sets member-localizations create --leaderboard-set-id "SET_ID" --leaderboard-id "LEADERBOARD_ID" --locale "en-US" --name "Top Score"
   asc game-center leaderboard-sets member-localizations update --id "LOCALIZATION_ID" --name "New Name"
   asc game-center leaderboard-sets member-localizations delete --id "LOCALIZATION_ID" --confirm
@@ -1053,6 +1054,7 @@ Examples:
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			GameCenterLeaderboardSetMemberLocalizationsListCommand(),
+			GameCenterLeaderboardSetMemberLocalizationsGetCommand(),
 			GameCenterLeaderboardSetMemberLocalizationsCreateCommand(),
 			GameCenterLeaderboardSetMemberLocalizationsUpdateCommand(),
 			GameCenterLeaderboardSetMemberLocalizationsDeleteCommand(),
@@ -1148,6 +1150,52 @@ Examples:
 			resp, err := client.GetGameCenterLeaderboardSetMemberLocalizations(requestCtx, opts...)
 			if err != nil {
 				return fmt.Errorf("game-center leaderboard-sets member-localizations list: failed to fetch: %w", err)
+			}
+
+			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+		},
+	}
+}
+
+// GameCenterLeaderboardSetMemberLocalizationsGetCommand returns the member localization view subcommand.
+func GameCenterLeaderboardSetMemberLocalizationsGetCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("view", flag.ExitOnError)
+
+	localizationID := fs.String("id", "", "Leaderboard set member localization ID")
+	output := shared.BindOutputFlags(fs)
+
+	return &ffcli.Command{
+		Name:       "view",
+		ShortUsage: "asc game-center leaderboard-sets member-localizations view --id \"LOCALIZATION_ID\"",
+		ShortHelp:  "View a leaderboard set member localization by ID.",
+		LongHelp: `View a leaderboard set member localization by ID.
+
+App Store Connect does not expose a direct instance GET. This command resolves
+the localization's leaderboard and leaderboard set, then searches their member
+localizations for the exact ID.
+
+Examples:
+  asc game-center leaderboard-sets member-localizations view --id "LOCALIZATION_ID"`,
+		FlagSet:   fs,
+		UsageFunc: shared.DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			id := strings.TrimSpace(*localizationID)
+			if id == "" {
+				fmt.Fprintln(os.Stderr, "Error: --id is required")
+				return shared.MissingRequiredUsageError()
+			}
+
+			client, err := shared.GetASCClient()
+			if err != nil {
+				return fmt.Errorf("game-center leaderboard-sets member-localizations view: %w", err)
+			}
+
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
+
+			resp, err := client.GetGameCenterLeaderboardSetMemberLocalization(requestCtx, id)
+			if err != nil {
+				return fmt.Errorf("game-center leaderboard-sets member-localizations view: failed to fetch: %w", err)
 			}
 
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
