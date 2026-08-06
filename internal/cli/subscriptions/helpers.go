@@ -238,15 +238,49 @@ func parseSubscriptionOfferCodePrices(value string, mode asc.SubscriptionOfferMo
 	return prices, nil
 }
 
-func parseSubscriptionPromotionalOfferPrices(value string, mode asc.SubscriptionOfferMode) ([]asc.SubscriptionPromotionalOfferPrice, error) {
-	parsed, err := parseSubscriptionOfferCodePrices(value, mode)
-	if err != nil {
-		return nil, err
+func parseSubscriptionPromotionalOfferPrices(value string) ([]asc.SubscriptionPromotionalOfferPrice, error) {
+	if strings.Contains(value, ":") {
+		parsed, err := shared.ParseASCTerritoryValueCSV(value)
+		if err != nil {
+			parts := shared.SplitCSV(value)
+			hasCompound := false
+			hasBare := false
+			for _, part := range parts {
+				if strings.Contains(part, ":") {
+					hasCompound = true
+				} else {
+					hasBare = true
+				}
+			}
+			if hasCompound && hasBare {
+				return nil, fmt.Errorf("--prices must not mix existing price IDs with TERRITORY:PRICE_POINT_ID entries")
+			}
+			return nil, err
+		}
+
+		prices := make([]asc.SubscriptionPromotionalOfferPrice, 0, len(parsed))
+		for _, price := range parsed {
+			prices = append(prices, asc.SubscriptionPromotionalOfferPrice{
+				TerritoryID:  price.TerritoryID,
+				PricePointID: price.Value,
+			})
+		}
+		return prices, nil
 	}
 
-	prices := make([]asc.SubscriptionPromotionalOfferPrice, 0, len(parsed))
-	for _, price := range parsed {
-		prices = append(prices, asc.SubscriptionPromotionalOfferPrice(price))
+	territoryIDs, territoryErr := shared.NormalizeASCTerritoryCSV(value)
+	if territoryErr == nil && len(territoryIDs) > 0 {
+		prices := make([]asc.SubscriptionPromotionalOfferPrice, 0, len(territoryIDs))
+		for _, territoryID := range territoryIDs {
+			prices = append(prices, asc.SubscriptionPromotionalOfferPrice{TerritoryID: territoryID})
+		}
+		return prices, nil
+	}
+
+	priceIDs := shared.SplitCSV(value)
+	prices := make([]asc.SubscriptionPromotionalOfferPrice, 0, len(priceIDs))
+	for _, priceID := range priceIDs {
+		prices = append(prices, asc.SubscriptionPromotionalOfferPrice{ID: priceID})
 	}
 	return prices, nil
 }

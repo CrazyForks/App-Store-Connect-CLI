@@ -3,20 +3,20 @@
 ## Decision
 
 `asc subscriptions offers promotional create` remains in the existing
-subscription-offers taxonomy. Its required `--prices` flag now describes the
-prices Apple can create with the offer instead of IDs for promotional-offer
-price resources that do not have a standalone create endpoint:
+subscription-offers taxonomy. Its required `--prices` flag supports both the
+released linkage form and compound inline creation:
 
-- `FREE_TRIAL`: comma-separated `TERRITORY` entries, for example `US,France`
-- paid modes: comma-separated `TERRITORY:PRICE_POINT_ID` entries, for example
+- existing promotional-offer price IDs, for example `PRICE_ID,PRICE_ID`
+- inline territory-only entries, for example `US,France`
+- inline territory and price-point entries, for example
   `US:PRICE_POINT_ID,France:PRICE_POINT_ID`
 
 Territories accept alpha-2, alpha-3, or exact English country names and are
-normalized to App Store Connect alpha-3 IDs. Each input becomes a temporary
-local linkage in `data.relationships.prices` and a matching
-`subscriptionPromotionalOfferPrices` resource in top-level `included`. The
-included resource links its territory and, for paid modes, its
-`subscriptionPricePoint`.
+normalized to App Store Connect alpha-3 IDs. Inline inputs become temporary
+local linkages in `data.relationships.prices` and matching
+`subscriptionPromotionalOfferPrices` resources in top-level `included`.
+Existing price IDs remain ordinary linkage references and do not emit
+`included`. One request cannot mix linkage references with inline entries.
 
 ## API contract
 
@@ -25,9 +25,12 @@ parameters. Its request is `SubscriptionPromotionalOfferCreateRequest`; the
 required primary resource has type `subscriptionPromotionalOffers`, the five
 existing required attributes, and required `subscription` and `prices`
 relationships. The request schema permits top-level
-`SubscriptionPromotionalOfferPriceInlineCreate` resources. Each local ID used
-by a price relationship exactly matches one included resource. A successful
-request returns status 201 with `SubscriptionPromotionalOfferResponse`.
+`SubscriptionPromotionalOfferPriceInlineCreate` resources. The inline schema
+requires only `type`; both `territory` and `subscriptionPricePoint`
+relationships are optional, and it defines no conditional relationship rule
+for any `offerMode`. Each local ID used by an inline price relationship exactly
+matches one included resource. A successful request returns status 201 with
+`SubscriptionPromotionalOfferResponse`.
 
 Apple's current official 4.4.1 OpenAPI download is byte-for-byte identical to
 `docs/openapi/latest.json`. It documents create, update, and delete operations
@@ -44,15 +47,19 @@ exit with status 2 before authentication or HTTP.
 
 ## Compatibility and migration
 
-The flag name is unchanged, but its former value shape was unusable against the
-documented create contract because promotional-offer prices cannot be created
-independently. A bare opaque value in a paid mode is now rejected with guidance
-to use `TERRITORY:PRICE_POINT_ID`. For `FREE_TRIAL`, a bare value is interpreted
-as a territory and therefore must resolve as a supported territory. Help,
-examples, and generated command documentation describe the corrected shape.
-Apple's schema leaves `subscriptionPricePoint` optional without a conditional
-mode rule; the territory-only FREE_TRIAL shape also matches the adjacent
-offer-code compound-create contract. Paid modes always require a price point.
+The flag name and released bare-ID behavior remain supported. Inputs containing
+a colon are parsed as compound `TERRITORY:PRICE_POINT_ID` entries. If every bare
+entry resolves as a territory, the command creates territory-only inline
+resources. Otherwise, bare entries are preserved as existing promotional-offer
+price IDs and sent with the original linkage-only payload. This auto-detection
+keeps existing scripts working while allowing the new atomic create form.
+
+Mode does not change parsing or payload validation because the exact OpenAPI
+schema defines no relationship constraint based on `offerMode`. In particular,
+territory-only inline resources are accepted for paid modes, and a price-point
+relationship is not rejected for `FREE_TRIAL`. These are schema-supported
+request shapes, not claims that every combination will pass Apple's
+account-specific business validation.
 
 The separate promotional-offer `update --prices` behavior is outside this
 change: that endpoint updates relationships to prices belonging to an existing
@@ -60,28 +67,27 @@ offer and is not a substitute for creating the initial inline resources.
 
 ## RED-GREEN and verification
 
-The client regression first replaces the old linkage-only mock with an exact
-JSON body assertion covering temporary local IDs, normalized territory
-relationships, paid price-point relationships, and top-level included
-resources. CLI coverage asserts valid FREE_TRIAL and paid inputs plus malformed
-mode-specific values and unknown territories before auth. The focused tests run
-RED against the current linkage-only client, then GREEN after the narrow client
-and parser changes.
+The client regression preserves the old linkage-only payload assertion and adds
+exact bodies for temporary local IDs, optional territory and price-point
+relationships, and top-level included resources. CLI coverage asserts legacy
+bare IDs, territory-only and compound inline inputs across offer modes, mixed
+shape rejection, JSON stdout, empty stderr, and usage exit status. The focused
+tests run RED against the strict mode-specific parser, then GREEN after the
+backward-compatible parser and client changes.
 
 Black-box verification uses a freshly built binary to check help, stdout,
-stderr, and exit status. Live verification uses the explicitly selected auth
-profile and `ASC_BYPASS_KEYCHAIN=1`: read-only calls use explicit resource IDs,
-while the create-shaped probe targets a deliberately nonexistent subscription
-ID so Apple rejects the request without creating a resource. The probe records
-method, path, status, and error, then repeats the read-only observation needed
-to show no resource appeared.
+stderr, and exit status. Live verification on disposable app `6759231657`
+created a territory-only `FREE_TRIAL` offer on subscription `6759789022`, read
+the created offer and its single price, then deleted the exact returned offer
+ID. A final list was empty and a read of the deleted ID returned not found. This
+proves the territory-only compound path and cleanup boundary; the other
+mode/relationship combinations remain schema-backed rather than live-proven.
 
 ## Alternatives
 
-Keeping pre-existing promotional-offer price IDs was rejected because there is
-no supported operation that can produce those resources before the parent
-offer exists. Adding separate territory and price-point flags was also rejected:
-it would make multi-territory pairing ambiguous and diverge from the established
-offer-code price syntax. Reusing the offer-code input grammar and inline-create
-pattern gives both offer families the same mode-specific validation and request
-shape.
+Unconditionally replacing existing price IDs was rejected because it breaks a
+released CLI contract even if many callers prefer inline creation. Adding a
+separate mode flag was also rejected because the shapes are distinguishable
+without another public option. Separate territory and price-point flags would
+make multi-territory pairing ambiguous. Auto-detection retains the legacy
+payload while keeping the compact inline grammar.

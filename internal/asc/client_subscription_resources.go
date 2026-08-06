@@ -495,29 +495,38 @@ func (c *Client) CreateSubscriptionPromotionalOffer(ctx context.Context, subscri
 		return nil, fmt.Errorf("at least one price is required")
 	}
 
-	isFreeTrial := attrs.OfferMode == SubscriptionOfferModeFreeTrial
 	priceData := make([]ResourceData, 0, len(prices))
 	included := make([]SubscriptionPromotionalOfferPriceInlineCreate, 0, len(prices))
+	usesReferences := false
+	usesInlinePrices := false
 	for idx, price := range prices {
+		priceID := strings.TrimSpace(price.ID)
 		territoryID := strings.ToUpper(strings.TrimSpace(price.TerritoryID))
 		pricePointID := strings.TrimSpace(price.PricePointID)
-		if territoryID == "" {
-			return nil, fmt.Errorf("territory ID is required")
+		if priceID != "" {
+			if territoryID != "" || pricePointID != "" {
+				return nil, fmt.Errorf("price reference ID must not be combined with inline relationships")
+			}
+			usesReferences = true
+			priceData = append(priceData, ResourceData{
+				Type: ResourceTypeSubscriptionPromotionalOfferPrices,
+				ID:   priceID,
+			})
+			continue
 		}
-		if isFreeTrial && pricePointID != "" {
-			return nil, fmt.Errorf("price point must not be set for FREE_TRIAL offer mode")
+		if territoryID == "" && pricePointID == "" {
+			return nil, fmt.Errorf("price reference ID or inline relationship is required")
 		}
-		if !isFreeTrial && pricePointID == "" {
-			return nil, fmt.Errorf("price point ID is required")
-		}
+		usesInlinePrices = true
 
-		priceRelationships := SubscriptionPromotionalOfferPriceRelationships{
-			Territory: Relationship{
+		priceRelationships := SubscriptionPromotionalOfferPriceRelationships{}
+		if territoryID != "" {
+			priceRelationships.Territory = &Relationship{
 				Data: ResourceData{
 					Type: ResourceTypeTerritories,
 					ID:   territoryID,
 				},
-			},
+			}
 		}
 		if pricePointID != "" {
 			priceRelationships.SubscriptionPricePoint = &Relationship{
@@ -538,6 +547,9 @@ func (c *Client) CreateSubscriptionPromotionalOffer(ctx context.Context, subscri
 			ID:            resourceID,
 			Relationships: priceRelationships,
 		})
+	}
+	if usesReferences && usesInlinePrices {
+		return nil, fmt.Errorf("price inputs must not mix existing IDs with inline relationships")
 	}
 
 	payload := SubscriptionPromotionalOfferCreateRequest{

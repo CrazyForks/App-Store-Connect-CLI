@@ -1,6 +1,8 @@
 package subscriptions
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
@@ -120,5 +122,56 @@ func TestParseSubscriptionOfferCodePrices(t *testing.T) {
 	}
 	if _, err := parseSubscriptionOfferCodePrices("USA:pp-1", asc.SubscriptionOfferModeFreeTrial); err == nil {
 		t.Fatal("expected FREE_TRIAL price point rejection")
+	}
+}
+
+func TestParseSubscriptionPromotionalOfferPricesAutoDetectsLegacyAndInlineInputs(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    []asc.SubscriptionPromotionalOfferPrice
+		wantErr string
+	}{
+		{
+			name:  "legacy price IDs",
+			value: "price-1, price-2",
+			want:  []asc.SubscriptionPromotionalOfferPrice{{ID: "price-1"}, {ID: "price-2"}},
+		},
+		{
+			name:  "territory only inline prices",
+			value: "US, France",
+			want:  []asc.SubscriptionPromotionalOfferPrice{{TerritoryID: "USA"}, {TerritoryID: "FRA"}},
+		},
+		{
+			name:  "compound inline prices",
+			value: "US:pp-1, France:pp-2",
+			want: []asc.SubscriptionPromotionalOfferPrice{
+				{TerritoryID: "USA", PricePointID: "pp-1"},
+				{TerritoryID: "FRA", PricePointID: "pp-2"},
+			},
+		},
+		{
+			name:    "mixed compound and legacy prices",
+			value:   "US:pp-1,price-2",
+			wantErr: "must not mix",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseSubscriptionPromotionalOfferPrices(test.value)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("error = %v, want containing %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parse prices: %v", err)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("prices = %#v, want %#v", got, test.want)
+			}
+		})
 	}
 }

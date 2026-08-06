@@ -197,13 +197,14 @@ type SubscriptionPromotionalOfferCreateRequest struct {
 
 // SubscriptionPromotionalOfferPrice describes a promotional offer price input.
 type SubscriptionPromotionalOfferPrice struct {
+	ID           string
 	TerritoryID  string
 	PricePointID string
 }
 
 // SubscriptionPromotionalOfferPriceRelationships describes inline promotional offer price relationships.
 type SubscriptionPromotionalOfferPriceRelationships struct {
-	Territory              Relationship  `json:"territory"`
+	Territory              *Relationship `json:"territory,omitempty"`
 	SubscriptionPricePoint *Relationship `json:"subscriptionPricePoint,omitempty"`
 }
 

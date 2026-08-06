@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
@@ -22,12 +23,17 @@ func TestSubscriptionsPromotionalOffersCreateBuildsInlinePrices(t *testing.T) {
 		name                 string
 		mode                 string
 		prices               string
+		wantReferenceID      string
+		wantInline           bool
 		wantTerritory        string
 		wantPricePoint       string
 		wantPricePointLinked bool
 	}{
-		{name: "paid", mode: "pay_as_you_go", prices: "United States:pp-us", wantTerritory: "USA", wantPricePoint: "pp-us", wantPricePointLinked: true},
-		{name: "free trial", mode: "free_trial", prices: "Germany", wantTerritory: "DEU"},
+		{name: "paid compound", mode: "pay_as_you_go", prices: "United States:pp-us", wantInline: true, wantTerritory: "USA", wantPricePoint: "pp-us", wantPricePointLinked: true},
+		{name: "free trial territory only", mode: "free_trial", prices: "Germany", wantInline: true, wantTerritory: "DEU"},
+		{name: "paid territory only", mode: "pay_up_front", prices: "France", wantInline: true, wantTerritory: "FRA"},
+		{name: "free trial compound", mode: "free_trial", prices: "US:pp-us", wantInline: true, wantTerritory: "USA", wantPricePoint: "pp-us", wantPricePointLinked: true},
+		{name: "legacy bare price ID", mode: "pay_up_front", prices: "price-legacy", wantReferenceID: "price-legacy"},
 	}
 
 	for _, test := range tests {
@@ -45,11 +51,25 @@ func TestSubscriptionsPromotionalOffersCreateBuildsInlinePrices(t *testing.T) {
 				}
 				data := payload["data"].(map[string]any)
 				priceRefs := data["relationships"].(map[string]any)["prices"].(map[string]any)["data"].([]any)
-				included := payload["included"].([]any)
-				if len(priceRefs) != 1 || len(included) != 1 {
-					t.Fatalf("expected one price linkage and included resource, got refs=%#v included=%#v", priceRefs, included)
+				if len(priceRefs) != 1 {
+					t.Fatalf("expected one price linkage, got refs=%#v", priceRefs)
 				}
 				priceRef := priceRefs[0].(map[string]any)
+				if !test.wantInline {
+					if priceRef["id"] != test.wantReferenceID || priceRef["type"] != "subscriptionPromotionalOfferPrices" {
+						t.Fatalf("unexpected legacy price linkage: %#v", priceRef)
+					}
+					if _, ok := payload["included"]; ok {
+						t.Fatalf("legacy price linkage must not emit included resources: %#v", payload)
+					}
+					writePromotionalOfferCreateResponse(t, w)
+					return
+				}
+
+				included, ok := payload["included"].([]any)
+				if !ok || len(included) != 1 {
+					t.Fatalf("expected one included resource, got %#v", payload["included"])
+				}
 				includedPrice := included[0].(map[string]any)
 				if priceRef["id"] != includedPrice["id"] || priceRef["type"] != "subscriptionPromotionalOfferPrices" {
 					t.Fatalf("price linkage does not match included resource: ref=%#v included=%#v", priceRef, includedPrice)
@@ -69,9 +89,7 @@ func TestSubscriptionsPromotionalOffersCreateBuildsInlinePrices(t *testing.T) {
 						t.Fatalf("expected price point %s, got %#v", test.wantPricePoint, pricePointID)
 					}
 				}
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusCreated)
-				_, _ = io.WriteString(w, `{"data":{"type":"subscriptionPromotionalOffers","id":"promo-1"}}`)
+				writePromotionalOfferCreateResponse(t, w)
 			}))
 			t.Cleanup(server.Close)
 
@@ -129,6 +147,15 @@ func TestSubscriptionsPromotionalOffersCreateBuildsInlinePrices(t *testing.T) {
 	}
 }
 
+func writePromotionalOfferCreateResponse(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if _, err := io.WriteString(w, `{"data":{"type":"subscriptionPromotionalOffers","id":"promo-1"}}`); err != nil {
+		t.Fatalf("write response: %v", err)
+	}
+}
+
 func TestSubscriptionsPromotionalOffersCreateRejectsInvalidPriceShapeBeforeAuth(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -136,9 +163,8 @@ func TestSubscriptionsPromotionalOffersCreateRejectsInvalidPriceShapeBeforeAuth(
 		prices  string
 		wantErr string
 	}{
-		{name: "paid legacy price ID", mode: "PAY_UP_FRONT", prices: "price-1", wantErr: "TERRITORY:PRICE_POINT_ID"},
-		{name: "free trial has price point", mode: "FREE_TRIAL", prices: "US:price-1", wantErr: "FREE_TRIAL"},
-		{name: "unknown territory", mode: "FREE_TRIAL", prices: "NOT_A_TERRITORY", wantErr: "could not be mapped"},
+		{name: "mixed inline and legacy", mode: "PAY_UP_FRONT", prices: "US:price-point-1,price-legacy", wantErr: "must not mix"},
+		{name: "inline missing price point", mode: "FREE_TRIAL", prices: "US:", wantErr: "TERRITORY:PRICE_POINT_ID"},
 	}
 
 	for _, test := range tests {
@@ -159,6 +185,9 @@ func TestSubscriptionsPromotionalOffersCreateRejectsInvalidPriceShapeBeforeAuth(
 			})
 			if !errors.Is(runErr, flag.ErrHelp) {
 				t.Fatalf("expected usage error, got %v", runErr)
+			}
+			if got := rootcmd.ExitCodeFromError(runErr); got != rootcmd.ExitUsage {
+				t.Fatalf("exit code = %d, want %d", got, rootcmd.ExitUsage)
 			}
 			if !strings.Contains(stderr, test.wantErr) || stdout != "" {
 				t.Fatalf("stdout=%q stderr=%q, want stderr containing %q", stdout, stderr, test.wantErr)

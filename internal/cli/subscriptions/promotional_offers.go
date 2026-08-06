@@ -200,7 +200,7 @@ func SubscriptionsPromotionalOffersCreateCommand() *ffcli.Command {
 	offerDuration := fs.String("offer-duration", "", "Offer duration: "+strings.Join(subscriptionOfferDurationValues, ", "))
 	offerMode := fs.String("offer-mode", "", "Offer mode: "+strings.Join(subscriptionOfferModeValues, ", "))
 	numberOfPeriods := fs.Int("number-of-periods", 0, "Number of periods (required)")
-	prices := fs.String("prices", "", "Promotional offer prices (required): TERRITORY entries for FREE_TRIAL or TERRITORY:PRICE_POINT_ID entries for paid modes; territory accepts alpha-2, alpha-3, or exact English country name")
+	prices := fs.String("prices", "", "Promotional offer prices (required): existing PRICE_ID entries, inline TERRITORY entries, or inline TERRITORY:PRICE_POINT_ID entries; territory accepts alpha-2, alpha-3, or exact English country name")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -211,7 +211,8 @@ func SubscriptionsPromotionalOffersCreateCommand() *ffcli.Command {
 
 Examples:
   asc subscriptions promotional-offers create --subscription-id "SUB_ID" --offer-code "SPRING" --name "Spring" --offer-duration ONE_MONTH --offer-mode FREE_TRIAL --number-of-periods 1 --prices "US"
-  asc subscriptions promotional-offers create --subscription-id "SUB_ID" --offer-code "SPRING" --name "Spring" --offer-duration ONE_MONTH --offer-mode PAY_AS_YOU_GO --number-of-periods 1 --prices "US:PRICE_POINT_ID"`,
+  asc subscriptions promotional-offers create --subscription-id "SUB_ID" --offer-code "SPRING" --name "Spring" --offer-duration ONE_MONTH --offer-mode PAY_AS_YOU_GO --number-of-periods 1 --prices "US:PRICE_POINT_ID"
+  asc subscriptions promotional-offers create --subscription-id "SUB_ID" --offer-code "SPRING" --name "Spring" --offer-duration ONE_MONTH --offer-mode PAY_UP_FRONT --number-of-periods 1 --prices "EXISTING_PROMOTIONAL_OFFER_PRICE_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -250,7 +251,7 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
-			priceEntries, err := parseSubscriptionPromotionalOfferPrices(*prices, mode)
+			priceEntries, err := parseSubscriptionPromotionalOfferPrices(*prices)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err.Error())
 				return flag.ErrHelp
