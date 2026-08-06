@@ -13,14 +13,27 @@ import (
 
 // BuildAttributes describes a build resource.
 type BuildAttributes struct {
-	Version                 string `json:"version"`
-	UploadedDate            string `json:"uploadedDate"`
-	ExpirationDate          string `json:"expirationDate,omitempty"`
-	ProcessingState         string `json:"processingState,omitempty"`
-	MinOSVersion            string `json:"minOsVersion,omitempty"`
-	UsesNonExemptEncryption *bool  `json:"usesNonExemptEncryption,omitempty"`
-	Expired                 bool   `json:"expired,omitempty"`
+	Version                    string            `json:"version"`
+	UploadedDate               string            `json:"uploadedDate"`
+	ExpirationDate             string            `json:"expirationDate,omitempty"`
+	ProcessingState            string            `json:"processingState,omitempty"`
+	MinOSVersion               string            `json:"minOsVersion,omitempty"`
+	LSMinimumSystemVersion     string            `json:"lsMinimumSystemVersion,omitempty"`
+	ComputedMinMacOSVersion    string            `json:"computedMinMacOsVersion,omitempty"`
+	ComputedMinVisionOSVersion string            `json:"computedMinVisionOsVersion,omitempty"`
+	IconAssetToken             *ImageAsset       `json:"iconAssetToken,omitempty"`
+	BuildAudienceType          BuildAudienceType `json:"buildAudienceType,omitempty"`
+	UsesNonExemptEncryption    *bool             `json:"usesNonExemptEncryption,omitempty"`
+	Expired                    bool              `json:"expired,omitempty"`
 }
+
+// BuildAudienceType represents who can receive a build.
+type BuildAudienceType string
+
+const (
+	BuildAudienceTypeInternalOnly     BuildAudienceType = "INTERNAL_ONLY"
+	BuildAudienceTypeAppStoreEligible BuildAudienceType = "APP_STORE_ELIGIBLE"
+)
 
 // IconAssetType represents the icon type for build icons.
 type IconAssetType string

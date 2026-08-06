@@ -85,8 +85,10 @@ type PreReleaseVersion struct {
 
 // PreReleaseVersionsResponse is the response from pre-release versions endpoints.
 type PreReleaseVersionsResponse struct {
-	Data  []PreReleaseVersion `json:"data"`
-	Links Links               `json:"links"`
+	Data     []PreReleaseVersion `json:"data"`
+	Links    Links               `json:"links"`
+	Included json.RawMessage     `json:"included,omitempty"`
+	Meta     json.RawMessage     `json:"meta,omitempty"`
 }
 
 // PreReleaseVersionResponse is the response from pre-release version detail.

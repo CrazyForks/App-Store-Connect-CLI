@@ -361,7 +361,8 @@ func TestPaginateAll_PreReleaseVersionsResponse(t *testing.T) {
 			{Type: ResourceTypePreReleaseVersions, ID: "prv-1-0"},
 			{Type: ResourceTypePreReleaseVersions, ID: "prv-1-1"},
 		},
-		Links: Links{Next: "page=2"},
+		Links:    Links{Next: "page=2"},
+		Included: json.RawMessage(`[{"type":"apps","id":"app-1"}]`),
 	}
 
 	result, err := PaginateAll(context.Background(), firstPage, func(ctx context.Context, nextURL string) (PaginatedResponse, error) {
@@ -370,7 +371,8 @@ func TestPaginateAll_PreReleaseVersionsResponse(t *testing.T) {
 				{Type: ResourceTypePreReleaseVersions, ID: "prv-2-0"},
 				{Type: ResourceTypePreReleaseVersions, ID: "prv-2-1"},
 			},
-			Links: Links{},
+			Links:    Links{},
+			Included: json.RawMessage(`[{"type":"builds","id":"build-1"}]`),
 		}, nil
 	})
 	if err != nil {
@@ -384,6 +386,13 @@ func TestPaginateAll_PreReleaseVersionsResponse(t *testing.T) {
 	expected := totalPages * perPage
 	if len(versions.Data) != expected {
 		t.Fatalf("expected %d versions, got %d", expected, len(versions.Data))
+	}
+	var included []Resource[json.RawMessage]
+	if err := json.Unmarshal(versions.Included, &included); err != nil {
+		t.Fatalf("decode included resources: %v", err)
+	}
+	if len(included) != 2 {
+		t.Fatalf("expected 2 included resources, got %d", len(included))
 	}
 }
 

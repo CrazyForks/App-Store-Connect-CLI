@@ -123,6 +123,19 @@ func TestPrintTableAndMarkdown_RepresentativeResponses(t *testing.T) {
 			want: []string{"ID", "Processing", "1.2.3", "PROCESSING"},
 		},
 		{
+			name: "single app price point",
+			data: &AppPricePointV3Response{
+				Data: Resource[AppPricePointV3Attributes]{
+					ID: "price-point-1",
+					Attributes: AppPricePointV3Attributes{
+						CustomerPrice: "0.99",
+						Proceeds:      "0.70",
+					},
+				},
+			},
+			want: []string{"ID", "Customer Price", "Proceeds", "price-point-1", "0.99", "0.70"},
+		},
+		{
 			name: "app events",
 			data: &AppEventsResponse{
 				Data: []Resource[AppEventAttributes]{

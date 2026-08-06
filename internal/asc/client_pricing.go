@@ -74,7 +74,7 @@ func (c *Client) GetAppPricePoints(ctx context.Context, appID string, opts ...Pr
 }
 
 // GetAppPricePoint retrieves a single app price point by ID.
-func (c *Client) GetAppPricePoint(ctx context.Context, pricePointID string) (*AppPricePointsV3Response, error) {
+func (c *Client) GetAppPricePoint(ctx context.Context, pricePointID string) (*AppPricePointV3Response, error) {
 	pricePointID = strings.TrimSpace(pricePointID)
 	path := fmt.Sprintf("/v3/appPricePoints/%s", pricePointID)
 
@@ -83,14 +83,9 @@ func (c *Client) GetAppPricePoint(ctx context.Context, pricePointID string) (*Ap
 		return nil, err
 	}
 
-	var single SingleResponse[AppPricePointV3Attributes]
-	if err := json.Unmarshal(data, &single); err != nil {
+	var response AppPricePointV3Response
+	if err := json.Unmarshal(data, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse app price point response: %w", err)
-	}
-
-	response := AppPricePointsV3Response{
-		Data:  []Resource[AppPricePointV3Attributes]{single.Data},
-		Links: single.Links,
 	}
 
 	return &response, nil

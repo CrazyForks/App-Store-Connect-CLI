@@ -1592,7 +1592,7 @@ func TestGetAppStoreVersions_WithFilters(t *testing.T) {
 }
 
 func TestGetPreReleaseVersions_WithFilters(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":[{"type":"preReleaseVersions","id":"1","attributes":{"version":"1.0.0","platform":"IOS"}}]}`)
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"preReleaseVersions","id":"1","attributes":{"version":"1.0.0","platform":"IOS"}}],"included":[{"type":"apps","id":"app-1"}],"links":{"self":"https://api.appstoreconnect.apple.com/v1/preReleaseVersions"},"meta":{"paging":{"total":1,"limit":5}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -1616,14 +1616,29 @@ func TestGetPreReleaseVersions_WithFilters(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetPreReleaseVersions(
+	result, err := client.GetPreReleaseVersions(
 		context.Background(),
 		"123",
 		WithPreReleaseVersionsLimit(5),
 		WithPreReleaseVersionsPlatform("ios"),
 		WithPreReleaseVersionsVersion("1.0.0"),
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("GetPreReleaseVersions() error: %v", err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal pre-release versions response: %v", err)
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
+		t.Fatalf("unmarshal pre-release versions envelope: %v", err)
+	}
+	if len(envelope["included"]) == 0 {
+		t.Fatal("expected included resources to be preserved")
+	}
+	if total := ParsePagingTotal(envelope["meta"]); total != 1 {
+		t.Fatalf("expected paging total 1, got %d", total)
 	}
 }
 
@@ -2309,7 +2324,7 @@ func TestGetBetaTesters_RejectsGroupAndBuildConflict(t *testing.T) {
 }
 
 func TestGetBuild_ByID(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"builds","id":"123","attributes":{"version":"1.0","uploadedDate":"2026-01-20T00:00:00Z","expired":false}}}`)
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"builds","id":"123","attributes":{"version":"1.0","uploadedDate":"2026-01-20T00:00:00Z","expired":false,"lsMinimumSystemVersion":"13.0","computedMinMacOsVersion":"13.0","computedMinVisionOsVersion":"1.0","iconAssetToken":{"templateUrl":"https://example.com/{w}x{h}.png","width":1024,"height":1024},"buildAudienceType":"APP_STORE_ELIGIBLE"}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -2320,8 +2335,27 @@ func TestGetBuild_ByID(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetBuild(context.Background(), "123"); err != nil {
+	result, err := client.GetBuild(context.Background(), "123")
+	if err != nil {
 		t.Fatalf("GetBuild() error: %v", err)
+	}
+	encoded, err := json.Marshal(result.Data.Attributes)
+	if err != nil {
+		t.Fatalf("marshal build attributes: %v", err)
+	}
+	for _, field := range []string{"lsMinimumSystemVersion", "computedMinMacOsVersion", "computedMinVisionOsVersion", "iconAssetToken", "buildAudienceType"} {
+		if !strings.Contains(string(encoded), `"`+field+`"`) {
+			t.Errorf("expected decoded build attributes to preserve %s: %s", field, encoded)
+		}
+	}
+	if result.Data.Attributes.LSMinimumSystemVersion != "13.0" || result.Data.Attributes.ComputedMinMacOSVersion != "13.0" || result.Data.Attributes.ComputedMinVisionOSVersion != "1.0" {
+		t.Fatalf("unexpected decoded minimum OS versions: %#v", result.Data.Attributes)
+	}
+	if result.Data.Attributes.IconAssetToken == nil || result.Data.Attributes.IconAssetToken.Width != 1024 {
+		t.Fatalf("unexpected decoded icon asset token: %#v", result.Data.Attributes.IconAssetToken)
+	}
+	if result.Data.Attributes.BuildAudienceType != BuildAudienceTypeAppStoreEligible {
+		t.Fatalf("unexpected build audience type: %q", result.Data.Attributes.BuildAudienceType)
 	}
 }
 
@@ -2627,16 +2661,37 @@ func TestCreateBetaGroup_SendsRequest(t *testing.T) {
 		if payload.Data.Relationships.App.Data.ID != "app-1" {
 			t.Fatalf("expected app id app-1, got %q", payload.Data.Relationships.App.Data.ID)
 		}
+		var rawPayload struct {
+			Data struct {
+				Attributes map[string]any `json:"attributes"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &rawPayload); err != nil {
+			t.Fatalf("decode raw body error: %v", err)
+		}
+		for _, field := range []string{"createdDate", "publicLinkId", "publicLink", "iosBuildsAvailableForAppleSiliconMac", "iosBuildsAvailableForAppleVision"} {
+			if _, ok := rawPayload.Data.Attributes[field]; ok {
+				t.Errorf("response-only field %s leaked into create payload: %s", field, body)
+			}
+		}
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.CreateBetaGroup(context.Background(), "app-1", "Beta"); err != nil {
+	available := true
+	if _, err := client.CreateBetaGroupWithAttributes(context.Background(), "app-1", BetaGroupAttributes{
+		Name:                                 "Beta",
+		CreatedDate:                          "2026-08-06T00:00:00Z",
+		PublicLinkID:                         "public-1",
+		PublicLink:                           "https://testflight.apple.com/join/example",
+		IOSBuildsAvailableForAppleSiliconMac: &available,
+		IOSBuildsAvailableForAppleVision:     &available,
+	}); err != nil {
 		t.Fatalf("CreateBetaGroup() error: %v", err)
 	}
 }
 
 func TestGetBetaGroup_SendsRequest(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaGroups","id":"bg1","attributes":{"name":"Beta Testers","isInternalGroup":true}}}`)
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaGroups","id":"bg1","attributes":{"name":"Beta Testers","isInternalGroup":true,"publicLinkId":"public-1","iosBuildsAvailableForAppleSiliconMac":true,"iosBuildsAvailableForAppleVision":false}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -2647,13 +2702,23 @@ func TestGetBetaGroup_SendsRequest(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetBetaGroup(context.Background(), "bg1"); err != nil {
+	result, err := client.GetBetaGroup(context.Background(), "bg1")
+	if err != nil {
 		t.Fatalf("GetBetaGroup() error: %v", err)
+	}
+	encoded, err := json.Marshal(result.Data.Attributes)
+	if err != nil {
+		t.Fatalf("marshal beta group attributes: %v", err)
+	}
+	for _, field := range []string{"publicLinkId", "iosBuildsAvailableForAppleSiliconMac", "iosBuildsAvailableForAppleVision"} {
+		if !strings.Contains(string(encoded), `"`+field+`"`) {
+			t.Errorf("expected decoded beta group attributes to preserve %s: %s", field, encoded)
+		}
 	}
 }
 
 func TestGetBetaTester_SendsRequest(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaTesters","id":"bt1","attributes":{"email":"tester@example.com","firstName":"Test","lastName":"User","state":"INVITED","inviteType":"EMAIL"}}}`)
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaTesters","id":"bt1","attributes":{"email":"tester@example.com","firstName":"Test","lastName":"User","state":"INVITED","inviteType":"EMAIL","appDevices":[{"model":"iPhone17,1","platform":"IOS","osVersion":"18.0","appBuildVersion":"42"}]}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -2679,6 +2744,16 @@ func TestGetBetaTester_SendsRequest(t *testing.T) {
 	}
 	if tester.Data.Attributes.InviteType != BetaInviteTypeEmail {
 		t.Fatalf("expected invite type %q, got %q", BetaInviteTypeEmail, tester.Data.Attributes.InviteType)
+	}
+	encoded, err := json.Marshal(tester.Data.Attributes)
+	if err != nil {
+		t.Fatalf("marshal beta tester attributes: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"appDevices"`) {
+		t.Fatalf("expected decoded beta tester attributes to preserve appDevices: %s", encoded)
+	}
+	if len(tester.Data.Attributes.AppDevices) != 1 || tester.Data.Attributes.AppDevices[0].AppBuildVersion != "42" {
+		t.Fatalf("unexpected decoded app devices: %#v", tester.Data.Attributes.AppDevices)
 	}
 }
 

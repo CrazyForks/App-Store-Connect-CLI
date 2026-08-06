@@ -117,7 +117,7 @@ func registerAllOutputRenderers() {
 	registerRowsWithSingleResourceAdapter(territoriesRows)
 	registerRowsErr(territoryAgeRatingsRows)
 	registerRows(offerCodeValuesRows)
-	registerRows(appPricePointsRows)
+	registerRowsWithSingleResourceAdapter(appPricePointsRows)
 	registerRows(appPriceScheduleRows)
 	registerRows(appPricesRows)
 	registerRowsWithSingleResourceAdapter(buildsRows)
