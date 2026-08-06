@@ -92,7 +92,6 @@ func (c *Client) GetAppPricePoint(ctx context.Context, pricePointID string) (*Ap
 		Data:     []Resource[AppPricePointV3Attributes]{single.Data},
 		Links:    single.Links,
 		Included: single.Included,
-		Meta:     single.Meta,
 	}
 
 	return &response, nil
