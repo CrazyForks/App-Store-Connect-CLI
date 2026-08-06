@@ -162,7 +162,7 @@ func TestPrintTable_AppClipAdvancedExperienceRemoveResult(t *testing.T) {
 		return PrintTable(result)
 	})
 
-	if !strings.Contains(output, "Removed") || !strings.Contains(output, "true") {
+	if !strings.Contains(output, "adv-1") || !strings.Contains(output, "Removed") || !strings.Contains(output, "true") {
 		t.Fatalf("expected truthful removal output, got %q", output)
 	}
 }

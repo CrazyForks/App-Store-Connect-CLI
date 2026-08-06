@@ -24,12 +24,15 @@ func AppClipAdvancedExperienceImagesCommand() *ffcli.Command {
 
 Examples:
   asc app-clips advanced-experiences images view --id "IMAGE_ID"
-  asc app-clips advanced-experiences images create --experience-id "EXP_ID" --file path/to/image.png`,
+  asc app-clips advanced-experiences images create --file path/to/image.png
+  asc app-clips advanced-experiences images create --file path/to/image.png --experience-id "EXP_ID"
+  asc app-clips advanced-experiences images delete --id "IMAGE_ID" --confirm`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			AppClipAdvancedExperienceImagesGetCommand(),
 			AppClipAdvancedExperienceImagesCreateCommand(),
+			AppClipAdvancedExperienceImagesDeleteCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
@@ -83,37 +86,34 @@ Examples:
 func AppClipAdvancedExperienceImagesCreateCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 
-	experienceID := fs.String("experience-id", "", "Advanced experience ID")
+	experienceID := fs.String("experience-id", "", "Advanced experience ID to attach after upload (optional)")
 	filePath := fs.String("file", "", "Path to image file (PNG)")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
 		Name:       "create",
-		ShortUsage: "asc app-clips advanced-experiences images create --experience-id \"EXP_ID\" --file path/to/image.png",
+		ShortUsage: "asc app-clips advanced-experiences images create --file path/to/image.png [--experience-id \"EXP_ID\"]",
 		ShortHelp:  "Upload an image for an advanced experience.",
 		LongHelp: `Upload an image for an advanced experience.
 
-The upload process reserves an upload slot, uploads the image, commits the upload,
-and associates the image with the experience.
+The upload process reserves an upload slot, uploads the image, and commits the upload.
+The returned image ID can be passed to advanced-experiences create with --header-image-id.
+When --experience-id is provided, the command also attaches the uploaded image to
+that existing experience.
 
 Examples:
-  asc app-clips advanced-experiences images create --experience-id "EXP_ID" --file path/to/image.png`,
+  asc app-clips advanced-experiences images create --file path/to/image.png
+  asc app-clips advanced-experiences images create --file path/to/image.png --experience-id "EXP_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			experienceValue := strings.TrimSpace(*experienceID)
-			if experienceValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --experience-id is required")
-				return shared.MissingRequiredUsageError()
-			}
-
 			fileValue := strings.TrimSpace(*filePath)
 			if fileValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --file is required")
 				return shared.MissingRequiredUsageError()
 			}
 
-			client, err := shared.GetASCClient()
+			client, err := appClipsClientFactory()
 			if err != nil {
 				return fmt.Errorf("app-clips advanced-experiences images create: %w", err)
 			}
@@ -126,12 +126,41 @@ Examples:
 				return fmt.Errorf("app-clips advanced-experiences images create: %w", err)
 			}
 
-			if _, err := client.UpdateAppClipAdvancedExperience(requestCtx, experienceValue, nil, "", result.ID, nil); err != nil {
-				return fmt.Errorf("app-clips advanced-experiences images create: failed to attach image: %w", err)
+			experienceValue := strings.TrimSpace(*experienceID)
+			if experienceValue != "" {
+				if _, err := client.UpdateAppClipAdvancedExperience(requestCtx, experienceValue, nil, "", result.ID, nil); err != nil {
+					return fmt.Errorf("app-clips advanced-experiences images create: failed to attach image: %w", err)
+				}
+				result.ExperienceID = experienceValue
 			}
 
-			result.ExperienceID = experienceValue
 			return shared.PrintOutput(result, *output.Output, *output.Pretty)
+		},
+	}
+}
+
+// AppClipAdvancedExperienceImagesDeleteCommand preserves the released delete surface as an unsupported migration shim.
+func AppClipAdvancedExperienceImagesDeleteCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("delete", flag.ExitOnError)
+
+	_ = fs.String("id", "", "Image ID")
+	_ = fs.Bool("confirm", false, "Confirm deletion")
+	shared.BindOutputFlags(fs)
+
+	return &ffcli.Command{
+		Name:       "delete",
+		ShortUsage: "asc app-clips advanced-experiences images delete --id \"IMAGE_ID\" --confirm",
+		ShortHelp:  "DEPRECATED: App Store Connect does not support deleting advanced experience images.",
+		LongHelp: `DEPRECATED: App Store Connect does not support deleting advanced experience images.
+
+Upload a replacement and attach it to the experience instead:
+  asc app-clips advanced-experiences images create --file path/to/image.png
+  asc app-clips advanced-experiences update --experience-id "EXP_ID" --header-image-id "NEW_IMAGE_ID"`,
+		FlagSet:   fs,
+		UsageFunc: shared.DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			fmt.Fprintln(os.Stderr, "DEPRECATED: App Store Connect does not support deleting advanced experience images. Upload a replacement with `asc app-clips advanced-experiences images create --file path/to/image.png`, then attach it with `asc app-clips advanced-experiences update --experience-id \"EXP_ID\" --header-image-id \"NEW_IMAGE_ID\"`.")
+			return flag.ErrHelp
 		},
 	}
 }

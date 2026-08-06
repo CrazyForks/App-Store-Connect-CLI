@@ -4716,7 +4716,17 @@ func TestAppClipsValidationErrors(t *testing.T) {
 		{
 			name:    "advanced experiences create missing localizations",
 			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--header-image-id", "IMAGE_ID", "--localization-id", " , "},
-			wantErr: "Error: --localization-id is required",
+			wantErr: "Error: provide --localization-id or both --language and --title",
+		},
+		{
+			name:    "advanced experiences create missing inline language",
+			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--header-image-id", "IMAGE_ID", "--title", "Order ahead"},
+			wantErr: "Error: --language is required when --title is set",
+		},
+		{
+			name:    "advanced experiences create missing inline title",
+			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--header-image-id", "IMAGE_ID", "--language", "EN"},
+			wantErr: "Error: --title is required when --language is set",
 		},
 		{
 			name:    "advanced experiences remove missing confirm",

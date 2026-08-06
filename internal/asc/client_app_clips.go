@@ -190,6 +190,13 @@ type AppClipAdvancedExperienceImageCreateAttributes struct {
 	FileName string `json:"fileName"`
 }
 
+// AppClipAdvancedExperienceLocalizationCreateAttributes describes inline localization attributes.
+type AppClipAdvancedExperienceLocalizationCreateAttributes struct {
+	Language AppClipAdvancedExperienceLanguage `json:"language"`
+	Title    string                            `json:"title"`
+	Subtitle string                            `json:"subtitle,omitempty"`
+}
+
 // AppClipAdvancedExperienceImageUpdateAttributes describes image update attributes.
 type AppClipAdvancedExperienceImageUpdateAttributes struct {
 	SourceFileChecksum *string `json:"sourceFileChecksum,omitempty"`
@@ -318,7 +325,15 @@ type AppClipAdvancedExperienceCreateData struct {
 
 // AppClipAdvancedExperienceCreateRequest is the create request payload.
 type AppClipAdvancedExperienceCreateRequest struct {
-	Data AppClipAdvancedExperienceCreateData `json:"data"`
+	Data     AppClipAdvancedExperienceCreateData                 `json:"data"`
+	Included []AppClipAdvancedExperienceLocalizationInlineCreate `json:"included,omitempty"`
+}
+
+// AppClipAdvancedExperienceLocalizationInlineCreate describes an inline localization resource.
+type AppClipAdvancedExperienceLocalizationInlineCreate struct {
+	Type       ResourceType                                          `json:"type"`
+	ID         string                                                `json:"id,omitempty"`
+	Attributes AppClipAdvancedExperienceLocalizationCreateAttributes `json:"attributes"`
 }
 
 // AppClipAdvancedExperienceUpdateData is the payload for updating an advanced experience.
@@ -1275,7 +1290,7 @@ func (c *Client) GetAppClipAdvancedExperience(ctx context.Context, experienceID 
 }
 
 // CreateAppClipAdvancedExperience creates an advanced experience.
-func (c *Client) CreateAppClipAdvancedExperience(ctx context.Context, appClipID string, attrs AppClipAdvancedExperienceCreateAttributes, headerImageID string, localizationIDs []string) (*AppClipAdvancedExperienceResponse, error) {
+func (c *Client) CreateAppClipAdvancedExperience(ctx context.Context, appClipID string, attrs AppClipAdvancedExperienceCreateAttributes, headerImageID string, localizationIDs []string, inlineLocalizations []AppClipAdvancedExperienceLocalizationCreateAttributes) (*AppClipAdvancedExperienceResponse, error) {
 	appClipID = strings.TrimSpace(appClipID)
 	if appClipID == "" {
 		return nil, fmt.Errorf("appClipID is required")
@@ -1286,7 +1301,7 @@ func (c *Client) CreateAppClipAdvancedExperience(ctx context.Context, appClipID 
 		return nil, fmt.Errorf("headerImageID is required")
 	}
 
-	localizations := make([]ResourceData, 0, len(localizationIDs))
+	localizations := make([]ResourceData, 0, len(localizationIDs)+len(inlineLocalizations))
 	for _, id := range localizationIDs {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -1297,8 +1312,35 @@ func (c *Client) CreateAppClipAdvancedExperience(ctx context.Context, appClipID 
 			ID:   id,
 		})
 	}
+
+	included := make([]AppClipAdvancedExperienceLocalizationInlineCreate, 0, len(inlineLocalizations))
+	for i, localization := range inlineLocalizations {
+		language := AppClipAdvancedExperienceLanguage(strings.TrimSpace(string(localization.Language)))
+		if language == "" {
+			return nil, fmt.Errorf("inline localization %d: language is required", i+1)
+		}
+		title := strings.TrimSpace(localization.Title)
+		if title == "" {
+			return nil, fmt.Errorf("inline localization %d: title is required", i+1)
+		}
+
+		localID := fmt.Sprintf("${localization-%d}", i+1)
+		localizations = append(localizations, ResourceData{
+			Type: ResourceTypeAppClipAdvancedExperienceLocalizations,
+			ID:   localID,
+		})
+		included = append(included, AppClipAdvancedExperienceLocalizationInlineCreate{
+			Type: ResourceTypeAppClipAdvancedExperienceLocalizations,
+			ID:   localID,
+			Attributes: AppClipAdvancedExperienceLocalizationCreateAttributes{
+				Language: language,
+				Title:    title,
+				Subtitle: strings.TrimSpace(localization.Subtitle),
+			},
+		})
+	}
 	if len(localizations) == 0 {
-		return nil, fmt.Errorf("localizationIDs is required")
+		return nil, fmt.Errorf("at least one localization is required")
 	}
 
 	payload := AppClipAdvancedExperienceCreateRequest{
@@ -1317,6 +1359,7 @@ func (c *Client) CreateAppClipAdvancedExperience(ctx context.Context, appClipID 
 				Localizations: RelationshipList{Data: localizations},
 			},
 		},
+		Included: included,
 	}
 
 	body, err := BuildRequestBody(payload)

@@ -191,18 +191,24 @@ func AppClipAdvancedExperiencesCreateCommand() *ffcli.Command {
 	action := fs.String("action", "", "Action (OPEN, VIEW, PLAY)")
 	category := fs.String("category", "", "Business category")
 	headerImageID := fs.String("header-image-id", "", "Header image ID")
-	localizationIDs := fs.String("localization-id", "", "Localization ID(s), comma-separated")
+	localizationIDs := fs.String("localization-id", "", "Existing localization ID(s), comma-separated")
+	language := fs.String("language", "", "Inline localization language (use with --title)")
+	title := fs.String("title", "", "Inline localization title (use with --language)")
+	subtitle := fs.String("subtitle", "", "Inline localization subtitle (optional; requires --language and --title)")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
 		Name:       "create",
-		ShortUsage: "asc app-clips advanced-experiences create --app-clip-id \"CLIP_ID\" --link \"https://example.com\" --default-language EN --is-powered-by --header-image-id \"IMAGE_ID\" --localization-id \"LOCALIZATION_ID\" [flags]",
+		ShortUsage: "asc app-clips advanced-experiences create --app-clip-id \"CLIP_ID\" --link \"https://example.com\" --default-language EN --is-powered-by --header-image-id \"IMAGE_ID\" (--localization-id \"LOCALIZATION_ID\" | --language EN --title \"TITLE\") [flags]",
 		ShortHelp:  "Create an advanced experience.",
 		LongHelp: `Create an advanced experience.
 
+Upload the header image first with ` + "`asc app-clips advanced-experiences images create --file path/to/image.png`" + `.
+Provide either existing localization IDs with ` + "`--localization-id`" + ` or an inline localization with ` + "`--language`" + ` and ` + "`--title`" + `.
+
 Examples:
   asc app-clips advanced-experiences create --app-clip-id "CLIP_ID" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --localization-id "LOCALIZATION_ID"
-  asc app-clips advanced-experiences create --app "APP_ID" --bundle-id "com.example.clip" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --localization-id "LOCALIZATION_ID"`,
+  asc app-clips advanced-experiences create --app "APP_ID" --bundle-id "com.example.clip" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --language EN --title "Order ahead" --subtitle "Ready when you arrive"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -238,8 +244,36 @@ Examples:
 			}
 
 			localizationValues := shared.SplitCSV(*localizationIDs)
-			if len(localizationValues) == 0 {
-				fmt.Fprintln(os.Stderr, "Error: --localization-id is required")
+			languageValue := strings.TrimSpace(*language)
+			titleValue := strings.TrimSpace(*title)
+			subtitleValue := strings.TrimSpace(*subtitle)
+			if titleValue != "" && languageValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --language is required when --title is set")
+				return shared.MissingRequiredUsageError()
+			}
+			if languageValue != "" && titleValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --title is required when --language is set")
+				return shared.MissingRequiredUsageError()
+			}
+			if subtitleValue != "" && (languageValue == "" || titleValue == "") {
+				fmt.Fprintln(os.Stderr, "Error: --language and --title are required when --subtitle is set")
+				return shared.MissingRequiredUsageError()
+			}
+
+			inlineLocalizations := make([]asc.AppClipAdvancedExperienceLocalizationCreateAttributes, 0, 1)
+			if languageValue != "" && titleValue != "" {
+				parsedLanguage, err := normalizeAppClipLanguage(languageValue)
+				if err != nil {
+					return fmt.Errorf("app-clips advanced-experiences create: %w", err)
+				}
+				inlineLocalizations = append(inlineLocalizations, asc.AppClipAdvancedExperienceLocalizationCreateAttributes{
+					Language: parsedLanguage,
+					Title:    titleValue,
+					Subtitle: subtitleValue,
+				})
+			}
+			if len(localizationValues) == 0 && len(inlineLocalizations) == 0 {
+				fmt.Fprintln(os.Stderr, "Error: provide --localization-id or both --language and --title")
 				return shared.MissingRequiredUsageError()
 			}
 
@@ -261,7 +295,7 @@ Examples:
 				categoryValue = &parsed
 			}
 
-			client, err := shared.GetASCClient()
+			client, err := appClipsClientFactory()
 			if err != nil {
 				return fmt.Errorf("app-clips advanced-experiences create: %w", err)
 			}
@@ -294,7 +328,7 @@ Examples:
 				BusinessCategory: categoryValue,
 			}
 
-			resp, err := client.CreateAppClipAdvancedExperience(requestCtx, appClipValue, attrs, headerImageValue, localizationValues)
+			resp, err := client.CreateAppClipAdvancedExperience(requestCtx, appClipValue, attrs, headerImageValue, localizationValues, inlineLocalizations)
 			if err != nil {
 				return fmt.Errorf("app-clips advanced-experiences create: failed to create: %w", err)
 			}
