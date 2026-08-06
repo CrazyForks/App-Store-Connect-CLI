@@ -149,6 +149,35 @@ func TestGameCenterLeaderboardsCreateValidationErrors(t *testing.T) {
 	}
 }
 
+func TestGameCenterLeaderboardsCreateRejectsInvalidFormatter(t *testing.T) {
+	t.Setenv("ASC_APP_ID", "")
+
+	for _, formatter := range []string{"ELAPSED_TIME_MILLISECOND", "MONEY_WHOLE", "MONEY_POINT_2_PLACE"} {
+		t.Run(formatter, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			stdout, stderr := captureOutput(t, func() {
+				args := []string{"game-center", "leaderboards", "create", "--app", "APP_ID", "--reference-name", "Test", "--vendor-id", "com.test", "--formatter", formatter, "--sort", "DESC", "--submission-type", "BEST_SCORE"}
+				if err := root.Parse(args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				err := root.Run(context.Background())
+				if !errors.Is(err, flag.ErrHelp) {
+					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, "Error: --formatter must be one of:") {
+				t.Fatalf("expected formatter validation error, got %q", stderr)
+			}
+		})
+	}
+}
+
 func TestGameCenterLeaderboardsSubmitValidationErrors(t *testing.T) {
 	tests := []struct {
 		name string
