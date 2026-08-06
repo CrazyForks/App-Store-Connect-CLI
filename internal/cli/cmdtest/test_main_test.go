@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	webcli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/web"
 )
 
 var testConfigPath string
@@ -20,6 +22,7 @@ func TestMain(m *testing.M) {
 	}
 	originalStdin := os.Stdin
 	os.Stdin = testStdin
+	restoreControllingTTY := webcli.DisableControllingTTYForTesting()
 
 	_ = os.Setenv("ASC_CONFIG_PATH", testConfigPath)
 	_ = os.Setenv("ASC_BYPASS_KEYCHAIN", "1")
@@ -29,6 +32,7 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	restoreControllingTTY()
 	os.Stdin = originalStdin
 	_ = testStdin.Close()
 	_ = os.RemoveAll(tempDir)

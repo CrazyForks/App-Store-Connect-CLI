@@ -59,7 +59,11 @@ func callResolveAppCreateSessionFn(ctx context.Context, appleID, password, twoFa
 }
 
 func appCreateCanPromptInteractively() bool {
-	return stdinIsInteractive()
+	if tty, err := openTTYFn(); err == nil {
+		_ = tty.Close()
+		return true
+	}
+	return termIsTerminalFn(int(os.Stdin.Fd()))
 }
 
 func trimAppsCreateRunOptions(opts AppsCreateRunOptions) AppsCreateRunOptions {
