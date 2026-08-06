@@ -14,6 +14,12 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	testConfigPath = filepath.Join(tempDir, "config.json")
+	testStdin, err := os.Open(os.DevNull)
+	if err != nil {
+		panic(err)
+	}
+	originalStdin := os.Stdin
+	os.Stdin = testStdin
 
 	_ = os.Setenv("ASC_CONFIG_PATH", testConfigPath)
 	_ = os.Setenv("ASC_BYPASS_KEYCHAIN", "1")
@@ -23,6 +29,8 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	os.Stdin = originalStdin
+	_ = testStdin.Close()
 	_ = os.RemoveAll(tempDir)
 	os.Exit(code)
 }

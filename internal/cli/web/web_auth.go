@@ -158,6 +158,10 @@ func openTTY() (*os.File, error) {
 	return os.OpenFile("/dev/tty", os.O_RDWR, 0)
 }
 
+func stdinIsInteractive() bool {
+	return termIsTerminalFn(int(os.Stdin.Fd()))
+}
+
 type webAuthStatus struct {
 	Authenticated    bool   `json:"authenticated"`
 	PasswordStored   bool   `json:"passwordStored"`
@@ -291,13 +295,13 @@ func readPasswordFromTerminal(ctx context.Context, terminal *os.File, writer io.
 }
 
 func promptPasswordInteractive(ctx context.Context) (string, error) {
+	if !stdinIsInteractive() {
+		return "", nil
+	}
 	if tty, err := openTTYFn(); err == nil {
 		return readPasswordFromTerminal(ctx, tty, tty, true)
 	}
-	if termIsTerminalFn(int(os.Stdin.Fd())) {
-		return readPasswordFromTerminal(ctx, os.Stdin, os.Stderr, false)
-	}
-	return "", nil
+	return readPasswordFromTerminal(ctx, os.Stdin, os.Stderr, false)
 }
 
 func readTwoFactorCodeFrom(reader io.Reader, writer io.Writer) (string, error) {
@@ -338,14 +342,14 @@ func readTwoFactorCodeFromTerminalFD(fd int, writer io.Writer) (string, error) {
 }
 
 func promptTwoFactorCodeInteractive() (string, error) {
+	if !stdinIsInteractive() {
+		return "", fmt.Errorf("2fa required: run in a terminal for an interactive prompt, pass --two-factor-code-command, set %s, or re-run with deprecated --%s", webTwoFactorCodeCommandEnv, deprecatedTwoFactorCodeFlagName)
+	}
 	if tty, err := openTTYFn(); err == nil {
 		defer func() { _ = tty.Close() }()
 		return readTwoFactorCodeFromTerminalFD(int(tty.Fd()), tty)
 	}
-	if termIsTerminalFn(int(os.Stdin.Fd())) {
-		return readTwoFactorCodeFromTerminalFD(int(os.Stdin.Fd()), os.Stderr)
-	}
-	return "", fmt.Errorf("2fa required: run in a terminal for an interactive prompt, pass --two-factor-code-command, set %s, or re-run with deprecated --%s", webTwoFactorCodeCommandEnv, deprecatedTwoFactorCodeFlagName)
+	return readTwoFactorCodeFromTerminalFD(int(os.Stdin.Fd()), os.Stderr)
 }
 
 func twoFactorCodeCommandShellArgs(command string) []string {
