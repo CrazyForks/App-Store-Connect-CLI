@@ -9459,7 +9459,7 @@ func TestGetBuildBetaDetails_WithBuildFilter(t *testing.T) {
 }
 
 func TestGetBuildBetaDetail(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"buildBetaDetails","id":"detail-1","attributes":{"autoNotifyEnabled":true}}}`)
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"buildBetaDetails","id":"detail-1","attributes":{"autoNotifyEnabled":true,"internalBuildState":"PROCESSING","externalBuildState":"READY_FOR_TESTING"}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -9470,8 +9470,15 @@ func TestGetBuildBetaDetail(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetBuildBetaDetail(context.Background(), "detail-1"); err != nil {
+	detail, err := client.GetBuildBetaDetail(context.Background(), "detail-1")
+	if err != nil {
 		t.Fatalf("GetBuildBetaDetail() error: %v", err)
+	}
+	if detail.Data.Attributes.InternalBuildState != "PROCESSING" {
+		t.Fatalf("expected internalBuildState to remain available in responses, got %q", detail.Data.Attributes.InternalBuildState)
+	}
+	if detail.Data.Attributes.ExternalBuildState != "READY_FOR_TESTING" {
+		t.Fatalf("expected externalBuildState to remain available in responses, got %q", detail.Data.Attributes.ExternalBuildState)
 	}
 }
 
