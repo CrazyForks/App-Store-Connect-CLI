@@ -271,6 +271,35 @@ func TestFeedbackListIncludeScreenshotsPreservesAllFeedbackFields(t *testing.T) 
 			t.Errorf("JSON output omitted feedback attribute %q", name)
 		}
 	}
+	for name, want := range map[string]any{
+		"createdDate":             "2026-01-20T00:00:00Z",
+		"comment":                 "Nice",
+		"appUptimeInMilliseconds": float64(1234),
+		"batteryPercentage":       float64(85),
+		"buildBundleId":           "com.example.app",
+	} {
+		if got := output.Data[0].Attributes[name]; got != want {
+			t.Errorf("feedback attribute %q = %#v, want %#v", name, got, want)
+		}
+	}
+	screenshots, ok := output.Data[0].Attributes["screenshots"].([]any)
+	if !ok || len(screenshots) != 1 {
+		t.Fatalf("feedback screenshots = %#v, want one screenshot", output.Data[0].Attributes["screenshots"])
+	}
+	screenshot, ok := screenshots[0].(map[string]any)
+	if !ok {
+		t.Fatalf("feedback screenshot = %#v, want an object", screenshots[0])
+	}
+	for name, want := range map[string]any{
+		"url":            "https://example.com/shot.png",
+		"width":          float64(320),
+		"height":         float64(640),
+		"expirationDate": "2026-01-21T00:00:00Z",
+	} {
+		if got := screenshot[name]; got != want {
+			t.Errorf("feedback screenshot %q = %#v, want %#v", name, got, want)
+		}
+	}
 	if output.Data[0].Relationships["build"].Data.ID != "build-1" || output.Data[0].Relationships["tester"].Data.ID != "tester-1" {
 		t.Fatalf("JSON output omitted feedback relationships: %+v", output.Data[0].Relationships)
 	}
