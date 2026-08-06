@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 )
 
 func TestBundleIDCapabilitiesUpdateMissingID(t *testing.T) {
@@ -17,7 +19,7 @@ func TestBundleIDCapabilitiesUpdateMissingID(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"bundle-ids", "capabilities", "update", "--settings", `[{"key":"K"}]`}); err != nil {
+		if err := root.Parse([]string{"bundle-ids", "capabilities", "update", "--settings", `[{"key":"ICLOUD_VERSION"}]`}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		err := root.Run(context.Background())
@@ -100,6 +102,152 @@ func TestBundleIDCapabilitiesUpdateInvalidSettingsJSON(t *testing.T) {
 	}
 }
 
+func TestBundleIDCapabilitiesSettingsValidationStopsBeforeHTTP(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+	requestCount := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		status := http.StatusOK
+		if req.Method == http.MethodPost {
+			status = http.StatusCreated
+		}
+		return &http.Response{
+			StatusCode: status,
+			Body:       io.NopCloser(strings.NewReader(`{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"ICLOUD"}}}`)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, nil
+	})
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "add rejects unknown field",
+			args:    []string{"bundle-ids", "capabilities", "add", "--bundle", "bundle1", "--capability", "ICLOUD", "--settings", `[{"key":"ICLOUD_VERSION","typo":true}]`},
+			wantErr: `unknown field "typo"`,
+		},
+		{
+			name:    "update rejects unsupported option",
+			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]`},
+			wantErr: `unsupported capability option key "XCODE_13"`,
+		},
+		{
+			name:    "add rejects null schema field",
+			args:    []string{"bundle-ids", "capabilities", "add", "--bundle", "bundle1", "--capability", "ICLOUD", "--settings", `[{"key":"ICLOUD_VERSION","options":null}]`},
+			wantErr: `settings[0].options must not be null`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			requestCount = 0
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+
+			var runErr error
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(tc.args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				runErr = root.Run(context.Background())
+			})
+
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, tc.wantErr) {
+				t.Fatalf("expected stderr to contain %q, got %q", tc.wantErr, stderr)
+			}
+			if got := rootcmd.ExitCodeFromError(runErr); got != rootcmd.ExitUsage {
+				t.Fatalf("exit code = %d, want %d (err=%v)", got, rootcmd.ExitUsage, runErr)
+			}
+			if requestCount != 0 {
+				t.Fatalf("HTTP request count = %d, want 0", requestCount)
+			}
+		})
+	}
+}
+
+func TestBundleIDCapabilitiesAddWithSettings(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/v1/bundleIdCapabilities" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+		payload, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var body struct {
+			Data struct {
+				Attributes struct {
+					Settings []struct {
+						Key     string `json:"key"`
+						Options []struct {
+							Key     string `json:"key"`
+							Enabled *bool  `json:"enabled"`
+						} `json:"options"`
+					} `json:"settings"`
+				} `json:"attributes"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(payload, &body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		settings := body.Data.Attributes.Settings
+		if len(settings) != 1 || settings[0].Key != "ICLOUD_VERSION" || len(settings[0].Options) != 1 {
+			t.Fatalf("unexpected settings payload: %+v", settings)
+		}
+		option := settings[0].Options[0]
+		if option.Key != "XCODE_6" || option.Enabled == nil || !*option.Enabled {
+			t.Fatalf("unexpected option payload: %+v", option)
+		}
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Body: io.NopCloser(strings.NewReader(
+				`{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"ICLOUD","settings":[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]}}}`,
+			)),
+			Header: http.Header{"Content-Type": []string{"application/json"}},
+		}, nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"bundle-ids", "capabilities", "add",
+			"--bundle", "bundle1", "--capability", "ICLOUD",
+			"--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]`,
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, `"id":"cap1"`) {
+		t.Fatalf("unexpected stdout: %q", stdout)
+	}
+}
+
 func TestBundleIDCapabilitiesUpdateSuccessOutput(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
@@ -143,7 +291,7 @@ func TestBundleIDCapabilitiesUpdateSuccessOutput(t *testing.T) {
 			t.Fatalf("expected 1 setting, got %v", attrs["settings"])
 		}
 
-		respBody := `{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"ICLOUD","settings":[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]}}}`
+		respBody := `{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"ICLOUD","settings":[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]}}}`
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(respBody)),
@@ -155,7 +303,7 @@ func TestBundleIDCapabilitiesUpdateSuccessOutput(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]`}); err != nil {
+		if err := root.Parse([]string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]`}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {

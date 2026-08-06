@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"strings"
 	"testing"
+
+	"github.com/peterbourgon/ff/v3/ffcli"
 )
 
 func TestBundleIDsGetCommand_MissingID(t *testing.T) {
@@ -112,6 +115,104 @@ func TestBundleIDsCapabilitiesAddCommand_MissingCapability(t *testing.T) {
 
 	if err := cmd.Exec(context.Background(), []string{}); !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected flag.ErrHelp when --capability is missing, got %v", err)
+	}
+}
+
+func TestParseCapabilitySettingsRejectsUnsupportedInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr string
+	}{
+		{
+			name:    "unknown setting field",
+			value:   `[{"key":"ICLOUD_VERSION","unexpected":true}]`,
+			wantErr: `unknown field "unexpected"`,
+		},
+		{
+			name:    "unknown option field",
+			value:   `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","unexpected":true}]}]`,
+			wantErr: `unknown field "unexpected"`,
+		},
+		{
+			name:    "unsupported setting key",
+			value:   `[{"key":"APP_GROUP_IDS"}]`,
+			wantErr: `unsupported capability setting key "APP_GROUP_IDS"`,
+		},
+		{
+			name:    "unsupported option key",
+			value:   `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]`,
+			wantErr: `unsupported capability option key "XCODE_13"`,
+		},
+		{
+			name:    "unsupported allowed instances",
+			value:   `[{"key":"ICLOUD_VERSION","allowedInstances":"MANY"}]`,
+			wantErr: `unsupported allowedInstances "MANY"`,
+		},
+		{
+			name:    "null is not an array",
+			value:   `null`,
+			wantErr: `must be a JSON array, got null`,
+		},
+		{
+			name:    "null nested field",
+			value:   `[{"key":"ICLOUD_VERSION","options":null}]`,
+			wantErr: `settings[0].options must not be null`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseCapabilitySettings(tc.value)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestParseCapabilitySettingsAcceptsExactOpenAPIEnumsAndFields(t *testing.T) {
+	settings, err := parseCapabilitySettings(`[
+		{"key":"ICLOUD_VERSION","name":"iCloud","description":"version","enabledByDefault":true,"visible":true,"allowedInstances":"SINGLE","minInstances":1,"options":[
+			{"key":"XCODE_5","name":"Xcode 5","description":"legacy","enabledByDefault":false,"enabled":false,"supportsWildcard":true},
+			{"key":"XCODE_6","enabled":true}
+		]},
+		{"key":"DATA_PROTECTION_PERMISSION_LEVEL","allowedInstances":"ENTRY","options":[
+			{"key":"COMPLETE_PROTECTION"},
+			{"key":"PROTECTED_UNLESS_OPEN"},
+			{"key":"PROTECTED_UNTIL_FIRST_USER_AUTH"}
+		]},
+		{"key":"APPLE_ID_AUTH_APP_CONSENT","allowedInstances":"MULTIPLE","options":[{"key":"PRIMARY_APP_CONSENT"}]}
+	]`)
+	if err != nil {
+		t.Fatalf("parse settings: %v", err)
+	}
+	if len(settings) != 3 {
+		t.Fatalf("settings count = %d, want 3", len(settings))
+	}
+	if settings[0].MinInstances == nil || *settings[0].MinInstances != 1 {
+		t.Fatalf("minInstances = %v, want 1", settings[0].MinInstances)
+	}
+	if settings[0].Options[0].Enabled == nil || *settings[0].Options[0].Enabled {
+		t.Fatalf("explicit enabled=false was not preserved: %+v", settings[0].Options[0].Enabled)
+	}
+	if settings[0].Options[0].SupportsWildcard == nil || !*settings[0].Options[0].SupportsWildcard {
+		t.Fatalf("supportsWildcard=true was not preserved: %+v", settings[0].Options[0].SupportsWildcard)
+	}
+}
+
+func TestBundleIDsCapabilitiesHelpUsesSupportedSettings(t *testing.T) {
+	for _, cmd := range []*ffcli.Command{
+		BundleIDsCapabilitiesCommand(),
+		BundleIDsCapabilitiesAddCommand(),
+		BundleIDsCapabilitiesUpdateCommand(),
+	} {
+		if strings.Contains(cmd.LongHelp, "XCODE_9") || strings.Contains(cmd.LongHelp, "XCODE_13") {
+			t.Fatalf("%s help advertises an unsupported Xcode capability option: %q", cmd.Name, cmd.LongHelp)
+		}
+		if !strings.Contains(cmd.LongHelp, "XCODE_6") {
+			t.Fatalf("%s help does not include supported XCODE_6 option: %q", cmd.Name, cmd.LongHelp)
+		}
 	}
 }
 
