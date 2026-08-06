@@ -61,9 +61,6 @@ func GameCenterDetailsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
-	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
-	next := fs.String("next", "", "Fetch next page using a links.next URL")
-	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -73,24 +70,12 @@ func GameCenterDetailsListCommand() *ffcli.Command {
 		LongHelp: `List Game Center details.
 
 Examples:
-  asc game-center details list --app "APP_ID"
-  asc game-center details list --app "APP_ID" --paginate`,
+  asc game-center details list --app "APP_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			nextURL := strings.TrimSpace(*next)
-			if nextURL != "" {
-				return fmt.Errorf("game-center details list: --next is not supported")
-			}
-			if *paginate {
-				return fmt.Errorf("game-center details list: --paginate is not supported")
-			}
-			if *limit != 0 {
-				return fmt.Errorf("game-center details list: --limit is not supported")
-			}
-
 			resolvedAppID := shared.ResolveAppID(*appID)
-			if resolvedAppID == "" && nextURL == "" {
+			if resolvedAppID == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
 				return shared.MissingRequiredUsageError()
 			}

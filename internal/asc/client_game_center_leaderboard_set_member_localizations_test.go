@@ -59,23 +59,6 @@ func TestGetGameCenterLeaderboardSetMemberLocalizations_UsesNextURL(t *testing.T
 	}
 }
 
-func TestGetGameCenterLeaderboardSetMemberLocalization(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"gameCenterLeaderboardSetMemberLocalizations","id":"loc-1","attributes":{"name":"Seasonal","locale":"en-US"}}}`)
-	client := newTestClient(t, func(req *http.Request) {
-		if req.Method != http.MethodGet {
-			t.Fatalf("expected GET, got %s", req.Method)
-		}
-		if req.URL.Path != "/v1/gameCenterLeaderboardSetMemberLocalizations/loc-1" {
-			t.Fatalf("expected path /v1/gameCenterLeaderboardSetMemberLocalizations/loc-1, got %s", req.URL.Path)
-		}
-		assertAuthorized(t, req)
-	}, response)
-
-	if _, err := client.GetGameCenterLeaderboardSetMemberLocalization(context.Background(), "loc-1"); err != nil {
-		t.Fatalf("GetGameCenterLeaderboardSetMemberLocalization() error: %v", err)
-	}
-}
-
 func TestGetGameCenterLeaderboardSetMemberLocalizationLeaderboard(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"gameCenterLeaderboards","id":"lb-1","attributes":{"referenceName":"Leaderboard"}}}`)
 	client := newTestClient(t, func(req *http.Request) {

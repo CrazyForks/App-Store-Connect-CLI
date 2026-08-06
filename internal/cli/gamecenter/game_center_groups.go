@@ -35,8 +35,7 @@ Examples:
   asc game-center groups leaderboards set --group-id "GROUP_ID" --ids "LB_1,LB_2"
   asc game-center groups leaderboard-sets list --group-id "GROUP_ID"
   asc game-center groups activities list --group-id "GROUP_ID"
-  asc game-center groups challenges list --group-id "GROUP_ID"
-  asc game-center groups challenges set --group-id "GROUP_ID" --ids "CH_1,CH_2"`,
+  asc game-center groups challenges list --group-id "GROUP_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
@@ -900,18 +899,16 @@ func GameCenterGroupChallengesCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "challenges",
-		ShortUsage: "asc game-center groups challenges set --group-id \"GROUP_ID\" --ids \"CH_1,CH_2\"",
+		ShortUsage: "asc game-center groups challenges list --group-id \"GROUP_ID\" [flags]",
 		ShortHelp:  "Manage group challenges relationships.",
 		LongHelp: `Manage group challenges relationships.
 
 Examples:
-  asc game-center groups challenges list --group-id "GROUP_ID"
-  asc game-center groups challenges set --group-id "GROUP_ID" --ids "CH_1,CH_2"`,
+  asc game-center groups challenges list --group-id "GROUP_ID"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			GameCenterGroupChallengesListCommand(),
-			GameCenterGroupChallengesSetCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
@@ -991,54 +988,6 @@ Examples:
 			}
 
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
-		},
-	}
-}
-
-// GameCenterGroupChallengesSetCommand returns the group challenges set subcommand.
-func GameCenterGroupChallengesSetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("set", flag.ExitOnError)
-
-	groupID := fs.String("group-id", "", "Game Center group ID")
-	ids := fs.String("ids", "", "Comma-separated challenge IDs")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "set",
-		ShortUsage: "asc game-center groups challenges set --group-id \"GROUP_ID\" --ids \"CH_1,CH_2\"",
-		ShortHelp:  "Replace group challenges relationships.",
-		LongHelp: `Replace group challenges relationships.
-
-Examples:
-  asc game-center groups challenges set --group-id "GROUP_ID" --ids "CH_1,CH_2"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			id := strings.TrimSpace(*groupID)
-			if id == "" {
-				fmt.Fprintln(os.Stderr, "Error: --group-id is required")
-				return shared.MissingRequiredUsageError()
-			}
-			idsValue := shared.SplitCSV(*ids)
-			if len(idsValue) == 0 {
-				fmt.Fprintln(os.Stderr, "Error: --ids is required")
-				return shared.MissingRequiredUsageError()
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("game-center groups challenges set: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			if err := client.UpdateGameCenterGroupChallenges(requestCtx, id, idsValue); err != nil {
-				return fmt.Errorf("game-center groups challenges set: failed to update: %w", err)
-			}
-
-			result := &asc.LinkagesResponse{Data: resourceDataList(asc.ResourceTypeGameCenterChallenges, idsValue)}
-			return shared.PrintOutput(result, *output.Output, *output.Pretty)
 		},
 	}
 }

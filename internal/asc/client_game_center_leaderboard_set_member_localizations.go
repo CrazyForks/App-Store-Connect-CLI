@@ -38,22 +38,6 @@ func (c *Client) GetGameCenterLeaderboardSetMemberLocalizations(ctx context.Cont
 	return &response, nil
 }
 
-// GetGameCenterLeaderboardSetMemberLocalization retrieves a leaderboard set member localization by ID.
-func (c *Client) GetGameCenterLeaderboardSetMemberLocalization(ctx context.Context, localizationID string) (*GameCenterLeaderboardSetMemberLocalizationResponse, error) {
-	path := fmt.Sprintf("/v1/gameCenterLeaderboardSetMemberLocalizations/%s", strings.TrimSpace(localizationID))
-	data, err := c.do(ctx, http.MethodGet, path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var response GameCenterLeaderboardSetMemberLocalizationResponse
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &response, nil
-}
-
 // CreateGameCenterLeaderboardSetMemberLocalization creates a new leaderboard set member localization.
 func (c *Client) CreateGameCenterLeaderboardSetMemberLocalization(ctx context.Context, leaderboardSetID, leaderboardID string, attrs GameCenterLeaderboardSetMemberLocalizationCreateAttributes) (*GameCenterLeaderboardSetMemberLocalizationResponse, error) {
 	leaderboardSetID = strings.TrimSpace(leaderboardSetID)
