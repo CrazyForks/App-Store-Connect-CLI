@@ -94,7 +94,7 @@ func AnalyticsRequestsCommand() *ffcli.Command {
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
 	requestID := fs.String("request-id", "", "Filter by request ID")
 	accessType := fs.String("access-type", "", "Filter by access type: ONGOING, ONE_TIME_SNAPSHOT")
-	state := fs.String("state", "", "Deprecated analytics request state filter")
+	fs.String("state", "", "Deprecated analytics request state filter")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
@@ -123,7 +123,13 @@ Examples:
 			if len(args) > 0 {
 				return flag.ErrHelp
 			}
-			if strings.TrimSpace(*state) != "" {
+			stateFlagUsed := false
+			fs.Visit(func(parsed *flag.Flag) {
+				if parsed.Name == "state" {
+					stateFlagUsed = true
+				}
+			})
+			if stateFlagUsed {
 				return shared.UsageError("analytics requests: --state is deprecated and unsupported by App Store Connect; use --access-type ONGOING or --access-type ONE_TIME_SNAPSHOT")
 			}
 			if *limit != 0 && (*limit < 1 || *limit > analyticsMaxLimit) {

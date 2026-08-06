@@ -213,8 +213,8 @@ type AnalyticsReportRequestReportsLinkagesResponse = LinkagesResponse
 
 type analyticsReportRequestsQuery struct {
 	listQuery
-	accessType      AnalyticsAccessType
-	deprecatedState string
+	accessType         AnalyticsAccessType
+	deprecatedStateSet bool
 }
 
 type analyticsReportsQuery struct {
@@ -272,9 +272,9 @@ func WithAnalyticsReportRequestsAccessType(accessType AnalyticsAccessType) Analy
 // WithAnalyticsReportRequestsState is retained for source compatibility.
 // Deprecated: App Store Connect does not support state filtering. Use
 // WithAnalyticsReportRequestsAccessType instead.
-func WithAnalyticsReportRequestsState(state string) AnalyticsReportRequestsOption {
+func WithAnalyticsReportRequestsState(_ string) AnalyticsReportRequestsOption {
 	return func(q *analyticsReportRequestsQuery) {
-		q.deprecatedState = strings.TrimSpace(state)
+		q.deprecatedStateSet = true
 	}
 }
 
@@ -454,7 +454,7 @@ func (c *Client) GetAnalyticsReportRequests(ctx context.Context, appID string, o
 	for _, opt := range opts {
 		opt(query)
 	}
-	if query.deprecatedState != "" {
+	if query.deprecatedStateSet {
 		return nil, fmt.Errorf("analyticsReportRequests: state filtering is unsupported by App Store Connect; use WithAnalyticsReportRequestsAccessType")
 	}
 

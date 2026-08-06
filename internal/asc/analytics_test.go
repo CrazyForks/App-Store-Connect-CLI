@@ -206,6 +206,25 @@ func TestGetAnalyticsReportRequests_DeprecatedStateFailsBeforeHTTP(t *testing.T)
 	}
 }
 
+func TestGetAnalyticsReportRequests_EmptyDeprecatedStateFailsBeforeHTTP(t *testing.T) {
+	requestCount := 0
+	client := newTestClient(t, func(_ *http.Request) {
+		requestCount++
+	}, jsonResponse(http.StatusOK, `{"data":[]}`))
+
+	_, err := client.GetAnalyticsReportRequests(
+		context.Background(),
+		"app-1",
+		WithAnalyticsReportRequestsState(""),
+	)
+	if err == nil || !strings.Contains(err.Error(), "state filtering is unsupported") {
+		t.Fatalf("expected migration error, got %v", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
+	}
+}
+
 func TestGetAnalyticsReportRequest_ByID(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"analyticsReportRequests","id":"req-1"}}`)
 	client := newTestClient(t, func(req *http.Request) {

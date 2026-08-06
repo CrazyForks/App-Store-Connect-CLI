@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
@@ -92,25 +93,42 @@ func TestAnalyticsRequestsRejectsInvalidAccessType(t *testing.T) {
 }
 
 func TestAnalyticsRequestsDeprecatedStateFailsBeforeAuth(t *testing.T) {
-	t.Setenv("ASC_KEY_ID", "")
-	t.Setenv("ASC_ISSUER_ID", "")
-	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
-	t.Setenv("ASC_PRIVATE_KEY", "")
+	tests := []struct {
+		name      string
+		stateArgs []string
+	}{
+		{name: "legacy value", stateArgs: []string{"--state", "COMPLETED"}},
+		{name: "equals empty", stateArgs: []string{"--state="}},
+		{name: "separate empty", stateArgs: []string{"--state", ""}},
+		{name: "whitespace", stateArgs: []string{"--state", " \t "}},
+	}
 
-	stdout, stderr, err := runAnalyticsCommand(t, []string{
-		"analytics", "requests",
-		"--app", "app-1",
-		"--state", "COMPLETED",
-	})
-	if !errors.Is(err, flag.ErrHelp) {
-		t.Fatalf("expected usage error, got %v", err)
-	}
-	if stdout != "" {
-		t.Fatalf("expected empty stdout, got %q", stdout)
-	}
-	if !strings.Contains(stderr, "--state is deprecated and unsupported by App Store Connect") ||
-		!strings.Contains(stderr, "use --access-type ONGOING or --access-type ONE_TIME_SNAPSHOT") {
-		t.Fatalf("expected migration guidance, got %q", stderr)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clientFactoryCalls := 0
+			restoreClient := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+				clientFactoryCalls++
+				return nil, errors.New("client construction should not be attempted")
+			})
+			t.Cleanup(restoreClient)
+
+			args := []string{"analytics", "requests", "--app", "app-1"}
+			args = append(args, tt.stateArgs...)
+			stdout, stderr, err := runAnalyticsCommand(t, args)
+			if !errors.Is(err, flag.ErrHelp) {
+				t.Fatalf("expected usage error, got %v", err)
+			}
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, "--state is deprecated and unsupported by App Store Connect") ||
+				!strings.Contains(stderr, "use --access-type ONGOING or --access-type ONE_TIME_SNAPSHOT") {
+				t.Fatalf("expected migration guidance, got %q", stderr)
+			}
+			if clientFactoryCalls != 0 {
+				t.Fatalf("client factory calls = %d, want 0", clientFactoryCalls)
+			}
+		})
 	}
 }
 
