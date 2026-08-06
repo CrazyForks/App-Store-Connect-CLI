@@ -35,11 +35,6 @@ paginated `MarketplaceWebhooksResponse`. Marketplace `view` therefore requests
 the collection at that maximum page size, follows every `links.next` URL until
 it finds the exact requested ID or exhausts the collection, and rejects a
 repeated next URL rather than silently truncating or looping.
-Current generated clients in App Store Connect Swift SDK and Bagbutik likewise
-offer collection `GET` plus create, update, and delete, but no instance `GET`.
-Fastlane and Expo/EAS do not provide an alternate App Store Connect marketplace
-webhook detail workflow.
-
 ## CLI behavior and compatibility
 
 Successful commands keep their existing TTY-aware output behavior and write
