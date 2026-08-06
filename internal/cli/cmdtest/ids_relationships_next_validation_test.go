@@ -2,8 +2,11 @@ package cmdtest
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -102,32 +105,30 @@ func TestPassTypeIDCertificatesListPaginateFromNextWithoutPassTypeID(t *testing.
 	const secondURL = "https://api.appstoreconnect.apple.com/v1/passTypeIds/pass-1/certificates?cursor=BQ&limit=200"
 
 	requestCount := 0
-	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	installAppStoreConnectTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestCount++
 		switch requestCount {
 		case 1:
-			if req.Method != http.MethodGet || req.URL.String() != firstURL {
-				t.Fatalf("unexpected first request: %s %s", req.Method, req.URL.String())
+			if req.Method != http.MethodGet || req.URL.RequestURI() != "/v1/passTypeIds/pass-1/certificates?cursor=AQ&limit=200" {
+				t.Errorf("unexpected first request: %s %s", req.Method, req.URL.String())
+				http.Error(w, "unexpected request", http.StatusBadRequest)
+				return
 			}
 			body := `{"data":[{"type":"certificates","id":"pass-cert-next-1"}],"links":{"next":"` + secondURL + `"}}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-			}, nil
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
 		case 2:
-			if req.Method != http.MethodGet || req.URL.String() != secondURL {
-				t.Fatalf("unexpected second request: %s %s", req.Method, req.URL.String())
+			if req.Method != http.MethodGet || req.URL.RequestURI() != "/v1/passTypeIds/pass-1/certificates?cursor=BQ&limit=200" {
+				t.Errorf("unexpected second request: %s %s", req.Method, req.URL.String())
+				http.Error(w, "unexpected request", http.StatusBadRequest)
+				return
 			}
 			body := `{"data":[{"type":"certificates","id":"pass-cert-next-2"}],"links":{"next":""}}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-			}, nil
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
 		default:
-			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
-			return nil, nil
+			t.Errorf("unexpected extra request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusBadRequest)
 		}
 	}))
 
@@ -210,32 +211,30 @@ func TestPassTypeIDCertificatesGetPaginateFromNextWithoutPassTypeID(t *testing.T
 	const secondURL = "https://api.appstoreconnect.apple.com/v1/passTypeIds/pass-1/relationships/certificates?cursor=BQ&limit=200"
 
 	requestCount := 0
-	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	installAppStoreConnectTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestCount++
 		switch requestCount {
 		case 1:
-			if req.Method != http.MethodGet || req.URL.String() != firstURL {
-				t.Fatalf("unexpected first request: %s %s", req.Method, req.URL.String())
+			if req.Method != http.MethodGet || req.URL.RequestURI() != "/v1/passTypeIds/pass-1/relationships/certificates?cursor=AQ&limit=200" {
+				t.Errorf("unexpected first request: %s %s", req.Method, req.URL.String())
+				http.Error(w, "unexpected request", http.StatusBadRequest)
+				return
 			}
 			body := `{"data":[{"type":"certificates","id":"pass-rel-next-1"}],"links":{"next":"` + secondURL + `"}}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-			}, nil
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
 		case 2:
-			if req.Method != http.MethodGet || req.URL.String() != secondURL {
-				t.Fatalf("unexpected second request: %s %s", req.Method, req.URL.String())
+			if req.Method != http.MethodGet || req.URL.RequestURI() != "/v1/passTypeIds/pass-1/relationships/certificates?cursor=BQ&limit=200" {
+				t.Errorf("unexpected second request: %s %s", req.Method, req.URL.String())
+				http.Error(w, "unexpected request", http.StatusBadRequest)
+				return
 			}
 			body := `{"data":[{"type":"certificates","id":"pass-rel-next-2"}],"links":{"next":""}}`
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(body)),
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-			}, nil
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
 		default:
-			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
-			return nil, nil
+			t.Errorf("unexpected extra request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusBadRequest)
 		}
 	}))
 
@@ -257,6 +256,30 @@ func TestPassTypeIDCertificatesGetPaginateFromNextWithoutPassTypeID(t *testing.T
 	if !strings.Contains(stdout, `"id":"pass-rel-next-1"`) || !strings.Contains(stdout, `"id":"pass-rel-next-2"`) {
 		t.Fatalf("expected paginated pass type certificate relationships in output, got %q", stdout)
 	}
+}
+
+func installAppStoreConnectTestServer(t *testing.T, handler http.Handler) {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme != "https" || req.URL.Host != "api.appstoreconnect.apple.com" {
+			return nil, fmt.Errorf("unexpected App Store Connect URL: %s", req.URL.String())
+		}
+
+		rewritten := req.Clone(req.Context())
+		rewritten.URL.Scheme = serverURL.Scheme
+		rewritten.URL.Host = serverURL.Host
+		rewritten.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(rewritten)
+	}))
 }
 
 func TestMerchantIDCertificatesListRejectsInvalidNextURL(t *testing.T) {
