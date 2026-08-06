@@ -1,18 +1,27 @@
 package asc
 
+// BundleIDPlatform represents the platform of a bundle ID or registered device.
+type BundleIDPlatform string
+
+const (
+	BundleIDPlatformIOS       BundleIDPlatform = "IOS"
+	BundleIDPlatformMacOS     BundleIDPlatform = "MAC_OS"
+	BundleIDPlatformUniversal BundleIDPlatform = "UNIVERSAL"
+)
+
 // BundleIDAttributes describes a bundle ID resource.
 type BundleIDAttributes struct {
-	Name       string   `json:"name"`
-	Identifier string   `json:"identifier"`
-	Platform   Platform `json:"platform"`
-	SeedID     string   `json:"seedId,omitempty"`
+	Name       string           `json:"name"`
+	Identifier string           `json:"identifier"`
+	Platform   BundleIDPlatform `json:"platform"`
+	SeedID     string           `json:"seedId,omitempty"`
 }
 
 // BundleIDCreateAttributes describes attributes for creating a bundle ID.
 type BundleIDCreateAttributes struct {
-	Name       string   `json:"name"`
-	Identifier string   `json:"identifier"`
-	Platform   Platform `json:"platform"`
+	Name       string           `json:"name"`
+	Identifier string           `json:"identifier"`
+	Platform   BundleIDPlatform `json:"platform"`
 }
 
 // BundleIDUpdateAttributes describes attributes for updating a bundle ID.

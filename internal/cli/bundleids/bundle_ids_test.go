@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,33 @@ func TestBundleIDsCreateCommand_MissingName(t *testing.T) {
 
 	if err := cmd.Exec(context.Background(), []string{}); !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected flag.ErrHelp when --name is missing, got %v", err)
+	}
+}
+
+func TestBundleIDsCreateCommand_UsesBundleIDPlatformContract(t *testing.T) {
+	cmd := BundleIDsCreateCommand()
+	platformFlag := cmd.FlagSet.Lookup("platform")
+	if platformFlag == nil {
+		t.Fatal("expected --platform flag")
+	}
+	if !strings.Contains(platformFlag.Usage, "IOS, MAC_OS, UNIVERSAL") {
+		t.Fatalf("--platform usage = %q, want BundleIdPlatform values", platformFlag.Usage)
+	}
+	if strings.Contains(platformFlag.Usage, "TV_OS") || strings.Contains(platformFlag.Usage, "VISION_OS") {
+		t.Fatalf("--platform usage advertises general app platforms: %q", platformFlag.Usage)
+	}
+
+	if err := cmd.FlagSet.Parse([]string{
+		"--identifier", "com.example.invalid",
+		"--name", "Invalid",
+		"--platform", "TV_OS",
+	}); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	err := cmd.Exec(context.Background(), nil)
+	if err == nil || err.Error() != "bundle-ids create: --platform must be one of: IOS, MAC_OS, UNIVERSAL" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
