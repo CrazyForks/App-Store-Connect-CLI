@@ -80,6 +80,9 @@ Examples:
 				if err != nil {
 					return shared.UsageErrorf("pass-type-ids certificates list: %v", err)
 				}
+				if passTypeIDValue != "" && passTypeIDValue != derivedID {
+					return shared.UsageError("pass-type-ids certificates list: --pass-type-id must match the pass type ID in --next")
+				}
 				if passTypeIDValue == "" {
 					passTypeIDValue = derivedID
 				}
@@ -193,6 +196,9 @@ Examples:
 				derivedID, err := passTypeIDFromCertificatesNextURL(*next, true)
 				if err != nil {
 					return shared.UsageErrorf("pass-type-ids certificates view: %v", err)
+				}
+				if passTypeIDValue != "" && passTypeIDValue != derivedID {
+					return shared.UsageError("pass-type-ids certificates view: --pass-type-id must match the pass type ID in --next")
 				}
 				if passTypeIDValue == "" {
 					passTypeIDValue = derivedID

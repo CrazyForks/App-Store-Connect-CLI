@@ -62,6 +62,38 @@ func TestPassTypeIDCertificatesListRejectsWrongNextEndpoint(t *testing.T) {
 	}
 }
 
+func TestPassTypeIDCertificatesRejectsConflictingPassTypeIDAndNext(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "list",
+			args: []string{"pass-type-ids", "certificates", "list", "--pass-type-id", "pass-2", "--next", "https://api.appstoreconnect.apple.com/v1/passTypeIds/pass-1/certificates?cursor=AQ"},
+		},
+		{
+			name: "view",
+			args: []string{"pass-type-ids", "certificates", "view", "--pass-type-id", "pass-2", "--next", "https://api.appstoreconnect.apple.com/v1/passTypeIds/pass-1/relationships/certificates?cursor=AQ"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr := captureOutput(t, func() {
+				if code := rootcmd.Run(test.args, "1.2.3"); code != rootcmd.ExitUsage {
+					t.Fatalf("exit code = %d, want %d", code, rootcmd.ExitUsage)
+				}
+			})
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, "--pass-type-id must match the pass type ID in --next") {
+				t.Fatalf("unexpected stderr: %q", stderr)
+			}
+		})
+	}
+}
+
 func TestPassTypeIDCertificatesListPaginateFromNextWithoutPassTypeID(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
@@ -69,13 +101,8 @@ func TestPassTypeIDCertificatesListPaginateFromNextWithoutPassTypeID(t *testing.
 	const firstURL = "https://api.appstoreconnect.apple.com/v1/passTypeIds/pass-1/certificates?cursor=AQ&limit=200"
 	const secondURL = "https://api.appstoreconnect.apple.com/v1/passTypeIds/pass-1/certificates?cursor=BQ&limit=200"
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
 	requestCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requestCount++
 		switch requestCount {
 		case 1:
@@ -102,7 +129,7 @@ func TestPassTypeIDCertificatesListPaginateFromNextWithoutPassTypeID(t *testing.
 			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
 			return nil, nil
 		}
-	})
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
@@ -182,13 +209,8 @@ func TestPassTypeIDCertificatesGetPaginateFromNextWithoutPassTypeID(t *testing.T
 	const firstURL = "https://api.appstoreconnect.apple.com/v1/passTypeIds/pass-1/relationships/certificates?cursor=AQ&limit=200"
 	const secondURL = "https://api.appstoreconnect.apple.com/v1/passTypeIds/pass-1/relationships/certificates?cursor=BQ&limit=200"
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
 	requestCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requestCount++
 		switch requestCount {
 		case 1:
@@ -215,7 +237,7 @@ func TestPassTypeIDCertificatesGetPaginateFromNextWithoutPassTypeID(t *testing.T
 			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
 			return nil, nil
 		}
-	})
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
