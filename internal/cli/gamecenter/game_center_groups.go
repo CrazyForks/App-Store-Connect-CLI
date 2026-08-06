@@ -1013,7 +1013,9 @@ func GameCenterGroupChallengesSetCommand() *ffcli.Command {
 
 The --group-id and --ids flags remain available during the deprecation window,
 but the operation always exits with migration guidance before authentication or
-an HTTP request. To add a challenge to a group, create it with --group-id.
+an HTTP request. The prior output flags remain registered for parser compatibility
+but are rejected because this command produces no result. To add a challenge to
+a group, create it with --group-id.
 
 Examples:
   asc game-center groups challenges set --group-id "GROUP_ID" --ids "CH_1,CH_2"
@@ -1030,6 +1032,18 @@ Examples:
 			if len(shared.SplitCSV(*ids)) == 0 {
 				fmt.Fprintln(os.Stderr, "Error: --ids is required")
 				return shared.MissingRequiredUsageError()
+			}
+
+			outputFlagUsed := false
+			fs.Visit(func(f *flag.Flag) {
+				if f.Name == "output" || f.Name == "pretty" {
+					outputFlagUsed = true
+				}
+			})
+			if outputFlagUsed {
+				const outputGuidance = "the deprecated command produces no data output; omit --output and --pretty"
+				fmt.Fprintf(os.Stderr, "Error: %s\n", outputGuidance)
+				return fmt.Errorf("game-center groups challenges set: %w", shared.UsageError(outputGuidance))
 			}
 
 			return fmt.Errorf("game-center groups challenges set: %w", shared.UsageError(guidance))
