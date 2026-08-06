@@ -57,17 +57,7 @@ this setter.
 
 ## Maintained implementation evidence
 
-Fastlane Deliver selects an App Store version, enumerates its
-`appStoreVersionLocalizations`, and updates localization attributes including
-`keywords`. Its current Spaceship model calls the version-localization PATCH;
-it does not replace the app `searchKeywords` relationship.
-
-Relevant current sources:
-
-- [`deliver/lib/deliver/upload_metadata.rb`](https://github.com/fastlane/fastlane/blob/1f64c1f8e24dbc7b2e64317cc4fae563d1c2e3c6/deliver/lib/deliver/upload_metadata.rb)
-- [`spaceship/lib/spaceship/connect_api/models/app_store_version_localization.rb`](https://github.com/fastlane/fastlane/blob/1f64c1f8e24dbc7b2e64317cc4fae563d1c2e3c6/spaceship/lib/spaceship/connect_api/models/app_store_version_localization.rb)
-
-Codemagic CLI Tools likewise exposes `keywords` on App Store version
+Codemagic CLI Tools exposes `keywords` on App Store version
 localization create and modify actions. Its maintained client sends keyword
 text as a localization attribute, not as app-keyword relationship linkage.
 
