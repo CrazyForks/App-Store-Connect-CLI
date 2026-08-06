@@ -42,11 +42,18 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
-			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("review attachments-list: --limit must be between 1 and 200")
-			}
+			nextValue := strings.TrimSpace(*next)
 			if err := shared.ValidateNextURL(*next); err != nil {
 				return fmt.Errorf("review attachments-list: %w", err)
+			}
+			if err := rejectReviewNextFlagConflicts(
+				fs, *next, "review attachments-list",
+				"review-detail", "fields", "detail-fields", "include", "limit",
+			); err != nil {
+				return err
+			}
+			if *limit != 0 && (*limit < 1 || *limit > 200) {
+				return fmt.Errorf("review attachments-list: --limit must be between 1 and 200")
 			}
 
 			fieldsValue, err := normalizeReviewAttachmentFields(*fields)
@@ -63,7 +70,7 @@ Examples:
 			}
 
 			reviewDetailValue := strings.TrimSpace(*reviewDetailID)
-			if reviewDetailValue == "" && strings.TrimSpace(*next) == "" {
+			if reviewDetailValue == "" && nextValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --review-detail is required")
 				return shared.MissingRequiredUsageError()
 			}
@@ -85,7 +92,10 @@ Examples:
 			}
 
 			if *paginate {
-				paginateOpts := append(opts, asc.WithAppStoreReviewAttachmentsLimit(200))
+				paginateOpts := opts
+				if nextValue == "" {
+					paginateOpts = append(paginateOpts, asc.WithAppStoreReviewAttachmentsLimit(200))
+				}
 				pages, err := shared.PaginateWithSpinner(
 					requestCtx,
 					func(ctx context.Context) (asc.PaginatedResponse, error) {
@@ -96,7 +106,7 @@ Examples:
 						return asc.RedactAppStoreReviewDetailIncludesInListResponse(resp)
 					},
 					func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-						resp, err := client.GetAppStoreReviewAttachmentsForReviewDetail(ctx, reviewDetailValue, asc.WithAppStoreReviewAttachmentsNextURL(nextURL))
+						resp, err := client.GetAppStoreReviewAttachmentsForReviewDetail(ctx, "", asc.WithAppStoreReviewAttachmentsNextURL(nextURL))
 						if err != nil || *includeSensitive {
 							return resp, err
 						}

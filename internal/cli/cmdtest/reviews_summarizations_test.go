@@ -78,6 +78,7 @@ func TestReviewsSummarizationsRequiresPlatformWithoutNext(t *testing.T) {
 
 func TestReviewsSummarizationsNextDoesNotRequirePlatform(t *testing.T) {
 	setupAuth(t)
+	t.Setenv("ASC_APP_ID", "ambient-app-must-not-affect-continuation")
 
 	const nextURL = "https://api.appstoreconnect.apple.com/v1/apps/app-1/customerReviewSummarizations?cursor=abc"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

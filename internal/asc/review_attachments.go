@@ -83,6 +83,9 @@ func (c *Client) GetAppStoreReviewAttachmentsForReviewDetail(ctx context.Context
 		if err := validateNextURL(query.nextURL); err != nil {
 			return nil, fmt.Errorf("app-store-review-attachments: %w", err)
 		}
+		if reviewDetailID != "" || buildAppStoreReviewAttachmentsQuery(query) != "" {
+			return nil, fmt.Errorf("app-store-review-attachments: next URL cannot be combined with reviewDetailID or query options")
+		}
 		path = query.nextURL
 	} else {
 		if reviewDetailID == "" {

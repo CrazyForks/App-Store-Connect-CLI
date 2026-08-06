@@ -43,17 +43,26 @@ Examples:
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
 			nextValue := strings.TrimSpace(*next)
-			if *limit != 0 && (*limit < 1 || *limit > 200) {
-				return fmt.Errorf("reviews summarizations: --limit must be between 1 and 200")
-			}
 			if err := shared.ValidateNextURL(*next); err != nil {
 				return fmt.Errorf("reviews summarizations: %w", err)
+			}
+			if err := rejectReviewNextFlagConflicts(
+				fs, *next, "reviews summarizations",
+				"app", "platform", "territory", "fields", "territory-fields", "include", "limit",
+			); err != nil {
+				return err
+			}
+			if *limit != 0 && (*limit < 1 || *limit > 200) {
+				return fmt.Errorf("reviews summarizations: --limit must be between 1 and 200")
 			}
 
 			resolvedAppID := shared.ResolveAppID(*appID)
 			if resolvedAppID == "" && nextValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
 				return shared.MissingRequiredUsageError()
+			}
+			if nextValue != "" {
+				resolvedAppID = ""
 			}
 
 			fieldsValue, err := normalizeReviewSummarizationFields(*fields)
@@ -89,14 +98,17 @@ Examples:
 			}
 
 			if *paginate {
-				paginateOpts := append(opts, asc.WithCustomerReviewSummarizationsLimit(200))
+				paginateOpts := opts
+				if nextValue == "" {
+					paginateOpts = append(paginateOpts, asc.WithCustomerReviewSummarizationsLimit(200))
+				}
 				summaries, err := shared.PaginateWithSpinner(
 					requestCtx,
 					func(ctx context.Context) (asc.PaginatedResponse, error) {
 						return client.GetCustomerReviewSummarizations(ctx, resolvedAppID, paginateOpts...)
 					},
 					func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-						return client.GetCustomerReviewSummarizations(ctx, resolvedAppID, asc.WithCustomerReviewSummarizationsNextURL(nextURL))
+						return client.GetCustomerReviewSummarizations(ctx, "", asc.WithCustomerReviewSummarizationsNextURL(nextURL))
 					},
 				)
 				if err != nil {
