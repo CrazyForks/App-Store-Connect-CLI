@@ -135,6 +135,16 @@ func TestParseCapabilitySettingsRejectsUnsupportedInput(t *testing.T) {
 			wantErr: `unknown field "unexpected"`,
 		},
 		{
+			name:    "incorrect setting field casing",
+			value:   `[{"KEY":"ICLOUD_VERSION"}]`,
+			wantErr: `unknown field "KEY"`,
+		},
+		{
+			name:    "incorrect option field casing",
+			value:   `[{"key":"ICLOUD_VERSION","Options":[{"key":"XCODE_6"}]}]`,
+			wantErr: `unknown field "Options"`,
+		},
+		{
 			name:    "unsupported setting key",
 			value:   `[{"key":"APP_GROUP_IDS"}]`,
 			wantErr: `unsupported capability setting key "APP_GROUP_IDS"`,
@@ -145,9 +155,19 @@ func TestParseCapabilitySettingsRejectsUnsupportedInput(t *testing.T) {
 			wantErr: `unsupported capability option key "XCODE_13"`,
 		},
 		{
+			name:    "option key for different setting",
+			value:   `[{"key":"ICLOUD_VERSION","options":[{"key":"COMPLETE_PROTECTION"}]}]`,
+			wantErr: `unsupported capability option key "COMPLETE_PROTECTION" for setting "ICLOUD_VERSION"`,
+		},
+		{
 			name:    "unsupported allowed instances",
 			value:   `[{"key":"ICLOUD_VERSION","allowedInstances":"MANY"}]`,
 			wantErr: `unsupported allowedInstances "MANY"`,
+		},
+		{
+			name:    "empty allowed instances",
+			value:   `[{"key":"ICLOUD_VERSION","allowedInstances":""}]`,
+			wantErr: `unsupported allowedInstances ""`,
 		},
 		{
 			name:    "null is not an array",

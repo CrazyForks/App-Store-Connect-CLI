@@ -320,6 +320,9 @@ func parseCapabilitySettings(value string) ([]asc.CapabilitySetting, error) {
 	if err := rejectCapabilitySettingsNulls(rawSettings, "settings"); err != nil {
 		return nil, fmt.Errorf("--settings: %w", err)
 	}
+	if err := validateCapabilitySettingsJSON(rawSettings); err != nil {
+		return nil, fmt.Errorf("--settings: %w", err)
+	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return nil, fmt.Errorf("--settings must contain one JSON array")
@@ -328,6 +331,65 @@ func parseCapabilitySettings(value string) ([]asc.CapabilitySetting, error) {
 		return nil, fmt.Errorf("--settings: %w", err)
 	}
 	return settings, nil
+}
+
+var capabilitySettingFields = []string{
+	"allowedInstances",
+	"description",
+	"enabledByDefault",
+	"key",
+	"minInstances",
+	"name",
+	"options",
+	"visible",
+}
+
+var capabilityOptionFields = []string{
+	"description",
+	"enabled",
+	"enabledByDefault",
+	"key",
+	"name",
+	"supportsWildcard",
+}
+
+func validateCapabilitySettingsJSON(value any) error {
+	settings, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	for settingIndex, item := range settings {
+		setting, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		for field := range setting {
+			if !slices.Contains(capabilitySettingFields, field) {
+				return fmt.Errorf("unknown field %q at setting index %d", field, settingIndex)
+			}
+		}
+		if allowedInstances, present := setting["allowedInstances"]; present {
+			if value, ok := allowedInstances.(string); ok && !slices.Contains(capabilityAllowedInstances, value) {
+				return fmt.Errorf("unsupported allowedInstances %q at setting index %d (must be one of: %s)", value, settingIndex, strings.Join(capabilityAllowedInstances, ", "))
+			}
+		}
+		options, ok := setting["options"].([]any)
+		if !ok {
+			continue
+		}
+		for optionIndex, item := range options {
+			option, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			for field := range option {
+				if !slices.Contains(capabilityOptionFields, field) {
+					return fmt.Errorf("unknown field %q at setting index %d, option index %d", field, settingIndex, optionIndex)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func rejectCapabilitySettingsNulls(value any, path string) error {
@@ -356,13 +418,19 @@ var capabilitySettingKeys = []string{
 	"ICLOUD_VERSION",
 }
 
-var capabilityOptionKeys = []string{
-	"COMPLETE_PROTECTION",
-	"PRIMARY_APP_CONSENT",
-	"PROTECTED_UNLESS_OPEN",
-	"PROTECTED_UNTIL_FIRST_USER_AUTH",
-	"XCODE_5",
-	"XCODE_6",
+var capabilityOptionKeysBySetting = map[string][]string{
+	"APPLE_ID_AUTH_APP_CONSENT": {
+		"PRIMARY_APP_CONSENT",
+	},
+	"DATA_PROTECTION_PERMISSION_LEVEL": {
+		"COMPLETE_PROTECTION",
+		"PROTECTED_UNLESS_OPEN",
+		"PROTECTED_UNTIL_FIRST_USER_AUTH",
+	},
+	"ICLOUD_VERSION": {
+		"XCODE_5",
+		"XCODE_6",
+	},
 }
 
 var capabilityAllowedInstances = []string{"ENTRY", "MULTIPLE", "SINGLE"}
@@ -372,12 +440,10 @@ func validateCapabilitySettings(settings []asc.CapabilitySetting) error {
 		if !slices.Contains(capabilitySettingKeys, setting.Key) {
 			return fmt.Errorf("unsupported capability setting key %q at index %d (must be one of: %s)", setting.Key, settingIndex, strings.Join(capabilitySettingKeys, ", "))
 		}
-		if setting.AllowedInstances != "" && !slices.Contains(capabilityAllowedInstances, setting.AllowedInstances) {
-			return fmt.Errorf("unsupported allowedInstances %q at setting index %d (must be one of: %s)", setting.AllowedInstances, settingIndex, strings.Join(capabilityAllowedInstances, ", "))
-		}
+		allowedOptionKeys := capabilityOptionKeysBySetting[setting.Key]
 		for optionIndex, option := range setting.Options {
-			if !slices.Contains(capabilityOptionKeys, option.Key) {
-				return fmt.Errorf("unsupported capability option key %q at setting index %d, option index %d (must be one of: %s)", option.Key, settingIndex, optionIndex, strings.Join(capabilityOptionKeys, ", "))
+			if !slices.Contains(allowedOptionKeys, option.Key) {
+				return fmt.Errorf("unsupported capability option key %q for setting %q at setting index %d, option index %d (must be one of: %s)", option.Key, setting.Key, settingIndex, optionIndex, strings.Join(allowedOptionKeys, ", "))
 			}
 		}
 	}

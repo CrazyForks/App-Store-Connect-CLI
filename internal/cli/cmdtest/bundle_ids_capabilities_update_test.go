@@ -140,6 +140,21 @@ func TestBundleIDCapabilitiesSettingsValidationStopsBeforeHTTP(t *testing.T) {
 			wantErr: `unsupported capability option key "XCODE_13"`,
 		},
 		{
+			name:    "update rejects option for different setting",
+			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"COMPLETE_PROTECTION"}]}]`},
+			wantErr: `unsupported capability option key "COMPLETE_PROTECTION" for setting "ICLOUD_VERSION"`,
+		},
+		{
+			name:    "add rejects incorrectly cased field",
+			args:    []string{"bundle-ids", "capabilities", "add", "--bundle", "bundle1", "--capability", "ICLOUD", "--settings", `[{"KEY":"ICLOUD_VERSION"}]`},
+			wantErr: `unknown field "KEY"`,
+		},
+		{
+			name:    "update rejects empty allowed instances",
+			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","allowedInstances":""}]`},
+			wantErr: `unsupported allowedInstances ""`,
+		},
+		{
 			name:    "add rejects null schema field",
 			args:    []string{"bundle-ids", "capabilities", "add", "--bundle", "bundle1", "--capability", "ICLOUD", "--settings", `[{"key":"ICLOUD_VERSION","options":null}]`},
 			wantErr: `settings[0].options must not be null`,
