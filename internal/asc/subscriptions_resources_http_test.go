@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -700,21 +701,17 @@ func TestCreateSubscriptionPromotionalOffer(t *testing.T) {
 		if req.URL.Path != "/v1/subscriptionPromotionalOffers" {
 			t.Fatalf("expected path /v1/subscriptionPromotionalOffers, got %s", req.URL.Path)
 		}
-		var payload SubscriptionPromotionalOfferCreateRequest
-		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+		var got map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&got); err != nil {
 			t.Fatalf("failed to decode request: %v", err)
 		}
-		if payload.Data.Type != ResourceTypeSubscriptionPromotionalOffers {
-			t.Fatalf("expected type subscriptionPromotionalOffers, got %q", payload.Data.Type)
+		var want map[string]any
+		const expectedBody = `{"data":{"type":"subscriptionPromotionalOffers","attributes":{"duration":"ONE_MONTH","name":"Spring","numberOfPeriods":1,"offerCode":"SPRING","offerMode":"PAY_AS_YOU_GO"},"relationships":{"subscription":{"data":{"type":"subscriptions","id":"sub-1"}},"prices":{"data":[{"type":"subscriptionPromotionalOfferPrices","id":"${local-price-1}"}]}}},"included":[{"type":"subscriptionPromotionalOfferPrices","id":"${local-price-1}","relationships":{"territory":{"data":{"type":"territories","id":"USA"}},"subscriptionPricePoint":{"data":{"type":"subscriptionPricePoints","id":"price-1"}}}}]}`
+		if err := json.Unmarshal([]byte(expectedBody), &want); err != nil {
+			t.Fatalf("failed to decode expected body: %v", err)
 		}
-		if payload.Data.Attributes.Name != "Spring" || payload.Data.Attributes.OfferCode != "SPRING" {
-			t.Fatalf("unexpected attributes: %+v", payload.Data.Attributes)
-		}
-		if payload.Data.Relationships.Subscription.Data.ID != "sub-1" {
-			t.Fatalf("unexpected subscription relationship: %+v", payload.Data.Relationships.Subscription.Data)
-		}
-		if len(payload.Data.Relationships.Prices.Data) != 1 || payload.Data.Relationships.Prices.Data[0].ID != "price-1" {
-			t.Fatalf("unexpected price relationships: %+v", payload.Data.Relationships.Prices.Data)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected request body:\n got: %#v\nwant: %#v", got, want)
 		}
 		assertAuthorized(t, req)
 	}, response)
@@ -723,11 +720,41 @@ func TestCreateSubscriptionPromotionalOffer(t *testing.T) {
 		Name:            "Spring",
 		OfferCode:       "SPRING",
 		Duration:        SubscriptionOfferDurationOneMonth,
-		OfferMode:       SubscriptionOfferModeFreeTrial,
+		OfferMode:       SubscriptionOfferModePayAsYouGo,
 		NumberOfPeriods: 1,
 	}
-	if _, err := client.CreateSubscriptionPromotionalOffer(context.Background(), "sub-1", attrs, []string{"price-1"}); err != nil {
+	prices := []SubscriptionPromotionalOfferPrice{{TerritoryID: "USA", PricePointID: "price-1"}}
+	if _, err := client.CreateSubscriptionPromotionalOffer(context.Background(), "sub-1", attrs, prices); err != nil {
 		t.Fatalf("CreateSubscriptionPromotionalOffer() error: %v", err)
+	}
+}
+
+func TestCreateSubscriptionPromotionalOfferValidatesInlinePricesBeforeHTTP(t *testing.T) {
+	tests := []struct {
+		name   string
+		mode   SubscriptionOfferMode
+		prices []SubscriptionPromotionalOfferPrice
+		want   string
+	}{
+		{name: "missing prices", mode: SubscriptionOfferModePayAsYouGo, want: "at least one price is required"},
+		{name: "missing territory", mode: SubscriptionOfferModePayAsYouGo, prices: []SubscriptionPromotionalOfferPrice{{PricePointID: "price-1"}}, want: "territory ID is required"},
+		{name: "paid missing price point", mode: SubscriptionOfferModePayUpFront, prices: []SubscriptionPromotionalOfferPrice{{TerritoryID: "USA"}}, want: "price point ID is required"},
+		{name: "free trial has price point", mode: SubscriptionOfferModeFreeTrial, prices: []SubscriptionPromotionalOfferPrice{{TerritoryID: "USA", PricePointID: "price-1"}}, want: "price point must not be set for FREE_TRIAL offer mode"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &Client{}
+			_, err := client.CreateSubscriptionPromotionalOffer(
+				context.Background(),
+				"sub-1",
+				SubscriptionPromotionalOfferCreateAttributes{OfferMode: test.mode},
+				test.prices,
+			)
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("expected %q, got %v", test.want, err)
+			}
+		})
 	}
 }
 

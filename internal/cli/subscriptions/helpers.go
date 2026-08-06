@@ -238,6 +238,19 @@ func parseSubscriptionOfferCodePrices(value string, mode asc.SubscriptionOfferMo
 	return prices, nil
 }
 
+func parseSubscriptionPromotionalOfferPrices(value string, mode asc.SubscriptionOfferMode) ([]asc.SubscriptionPromotionalOfferPrice, error) {
+	parsed, err := parseSubscriptionOfferCodePrices(value, mode)
+	if err != nil {
+		return nil, err
+	}
+
+	prices := make([]asc.SubscriptionPromotionalOfferPrice, 0, len(parsed))
+	for _, price := range parsed {
+		prices = append(prices, asc.SubscriptionPromotionalOfferPrice(price))
+	}
+	return prices, nil
+}
+
 func openSubscriptionImageFile(path string) (*os.File, os.FileInfo, error) {
 	if err := asc.ValidateImageFile(path); err != nil {
 		return nil, nil, err
