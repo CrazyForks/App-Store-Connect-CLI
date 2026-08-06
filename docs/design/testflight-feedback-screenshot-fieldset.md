@@ -48,15 +48,9 @@ notes](https://developer.apple.com/documentation/appstoreconnectapi/app-store-co
 The current official OpenAPI download is byte-for-byte identical to the
 repository snapshot.
 
-Actively maintained tooling corroborates the workflow. Expo's current
-[`eas-cli` TestFlight
-implementation](https://github.com/expo/eas-cli/blob/42cf2cb997f2ba0d754044ebd0ea2a916a3688b6/packages/eas-cli/src/testflight/fetch.ts)
-fetches beta feedback screenshot submissions and maps each screenshot's URL,
-dimensions, and expiration date. The maintained [AppStoreConnect Swift
+The maintained [AppStoreConnect Swift
 SDK](https://github.com/AvdLee/appstoreconnect-swift-sdk/blob/651b56950c917d30d7aaa863baadd290f2e28cb7/Sources/OpenAPI/Generated/Paths/PathsV1AppsWithIDBetaFeedbackScreenshotSubmissions.swift)
-exposes this exact GET operation and the complete documented field enum.
-Fastlane's current source does not implement this resource, but it provides no
-contrary contract evidence.
+defines this exact GET operation and the complete documented field enum.
 
 The flag originated in PR #20, which used all seven feedback attributes modeled
 at that time plus `screenshots`. A later model expansion added 13 documented
