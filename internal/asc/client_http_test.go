@@ -9044,13 +9044,21 @@ func TestGetUsers_WithFiltersAndLimit(t *testing.T) {
 		if values.Get("filter[username]") != "user@example.com" {
 			t.Fatalf("expected filter[username]=user@example.com, got %q", values.Get("filter[username]"))
 		}
+		if values.Get("filter[roles]") != "DEVELOPER,APP_MANAGER" {
+			t.Fatalf("expected filter[roles]=DEVELOPER,APP_MANAGER, got %q", values.Get("filter[roles]"))
+		}
 		if values.Get("limit") != "5" {
 			t.Fatalf("expected limit=5, got %q", values.Get("limit"))
 		}
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetUsers(context.Background(), WithUsersEmail("user@example.com"), WithUsersLimit(5)); err != nil {
+	if _, err := client.GetUsers(
+		context.Background(),
+		WithUsersEmail("user@example.com"),
+		WithUsersRoles([]string{"developer", " app_manager "}),
+		WithUsersLimit(5),
+	); err != nil {
 		t.Fatalf("GetUsers() error: %v", err)
 	}
 }

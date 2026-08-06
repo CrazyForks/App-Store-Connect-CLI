@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 )
 
 func TestPassTypeIDCertificatesListRejectsInvalidNextURL(t *testing.T) {
@@ -29,34 +31,38 @@ func TestPassTypeIDCertificatesListRejectsInvalidNextURL(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			root := RootCommand("1.2.3")
-			root.FlagSet.SetOutput(io.Discard)
-
-			var runErr error
 			stdout, stderr := captureOutput(t, func() {
-				if err := root.Parse([]string{"pass-type-ids", "certificates", "list", "--pass-type-id", "pass-1", "--next", test.next}); err != nil {
-					t.Fatalf("parse error: %v", err)
+				if code := rootcmd.Run([]string{"pass-type-ids", "certificates", "list", "--next", test.next}, "1.2.3"); code != rootcmd.ExitUsage {
+					t.Fatalf("exit code = %d, want %d", code, rootcmd.ExitUsage)
 				}
-				runErr = root.Run(context.Background())
 			})
-
-			if runErr == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !strings.Contains(runErr.Error(), test.wantErr) {
-				t.Fatalf("expected error %q, got %v", test.wantErr, runErr)
-			}
 			if stdout != "" {
 				t.Fatalf("expected empty stdout, got %q", stdout)
 			}
-			if stderr != "" {
-				t.Fatalf("expected empty stderr, got %q", stderr)
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected stderr %q, got %q", test.wantErr, stderr)
 			}
 		})
 	}
 }
 
-func TestPassTypeIDCertificatesListPaginateFromNext(t *testing.T) {
+func TestPassTypeIDCertificatesListRejectsWrongNextEndpoint(t *testing.T) {
+	stdout, stderr := captureOutput(t, func() {
+		args := []string{"pass-type-ids", "certificates", "list", "--next", "https://api.appstoreconnect.apple.com/v1/users?cursor=AQ"}
+		if code := rootcmd.Run(args, "1.2.3"); code != rootcmd.ExitUsage {
+			t.Fatalf("exit code = %d, want %d", code, rootcmd.ExitUsage)
+		}
+	})
+
+	if !strings.Contains(stderr, "--next must target the pass type ID certificates endpoint") {
+		t.Fatalf("unexpected stderr: %q", stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+}
+
+func TestPassTypeIDCertificatesListPaginateFromNextWithoutPassTypeID(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
@@ -102,7 +108,7 @@ func TestPassTypeIDCertificatesListPaginateFromNext(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"pass-type-ids", "certificates", "list", "--pass-type-id", "pass-1", "--paginate", "--next", firstURL}); err != nil {
+		if err := root.Parse([]string{"pass-type-ids", "certificates", "list", "--paginate", "--next", firstURL}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -138,34 +144,38 @@ func TestPassTypeIDCertificatesGetRejectsInvalidNextURL(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			root := RootCommand("1.2.3")
-			root.FlagSet.SetOutput(io.Discard)
-
-			var runErr error
 			stdout, stderr := captureOutput(t, func() {
-				if err := root.Parse([]string{"pass-type-ids", "certificates", "view", "--pass-type-id", "pass-1", "--next", test.next}); err != nil {
-					t.Fatalf("parse error: %v", err)
+				if code := rootcmd.Run([]string{"pass-type-ids", "certificates", "view", "--next", test.next}, "1.2.3"); code != rootcmd.ExitUsage {
+					t.Fatalf("exit code = %d, want %d", code, rootcmd.ExitUsage)
 				}
-				runErr = root.Run(context.Background())
 			})
-
-			if runErr == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !strings.Contains(runErr.Error(), test.wantErr) {
-				t.Fatalf("expected error %q, got %v", test.wantErr, runErr)
-			}
 			if stdout != "" {
 				t.Fatalf("expected empty stdout, got %q", stdout)
 			}
-			if stderr != "" {
-				t.Fatalf("expected empty stderr, got %q", stderr)
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected stderr %q, got %q", test.wantErr, stderr)
 			}
 		})
 	}
 }
 
-func TestPassTypeIDCertificatesGetPaginateFromNext(t *testing.T) {
+func TestPassTypeIDCertificatesGetRejectsWrongNextEndpoint(t *testing.T) {
+	stdout, stderr := captureOutput(t, func() {
+		args := []string{"pass-type-ids", "certificates", "view", "--next", "https://api.appstoreconnect.apple.com/v1/users?cursor=AQ"}
+		if code := rootcmd.Run(args, "1.2.3"); code != rootcmd.ExitUsage {
+			t.Fatalf("exit code = %d, want %d", code, rootcmd.ExitUsage)
+		}
+	})
+
+	if !strings.Contains(stderr, "--next must target the pass type ID certificates endpoint") {
+		t.Fatalf("unexpected stderr: %q", stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+}
+
+func TestPassTypeIDCertificatesGetPaginateFromNextWithoutPassTypeID(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
@@ -211,7 +221,7 @@ func TestPassTypeIDCertificatesGetPaginateFromNext(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"pass-type-ids", "certificates", "view", "--pass-type-id", "pass-1", "--paginate", "--next", firstURL}); err != nil {
+		if err := root.Parse([]string{"pass-type-ids", "certificates", "view", "--paginate", "--next", firstURL}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
