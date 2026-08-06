@@ -30,18 +30,19 @@ func ReviewsSummarizationsCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "summarizations",
-		ShortUsage: "asc reviews summarizations [flags]",
+		ShortUsage: "asc reviews summarizations (--app APP_ID --platform PLATFORM[,PLATFORM...] | --next URL) [flags]",
 		ShortHelp:  "List App Store review summarizations.",
 		LongHelp: `List App Store review summarizations for an app.
 
 Examples:
-  asc reviews summarizations --app "APP_ID"
+  asc reviews summarizations --app "APP_ID" --platform IOS
   asc reviews summarizations --app "APP_ID" --platform IOS --territory USA
-  asc reviews summarizations --app "APP_ID" --limit 50
+  asc reviews summarizations --app "APP_ID" --platform IOS --limit 50
   asc reviews summarizations --next "<links.next>"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
+			nextValue := strings.TrimSpace(*next)
 			if *limit != 0 && (*limit < 1 || *limit > 200) {
 				return fmt.Errorf("reviews summarizations: --limit must be between 1 and 200")
 			}
@@ -50,7 +51,7 @@ Examples:
 			}
 
 			resolvedAppID := shared.ResolveAppID(*appID)
-			if resolvedAppID == "" && strings.TrimSpace(*next) == "" {
+			if resolvedAppID == "" && nextValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
 				return shared.MissingRequiredUsageError()
 			}
@@ -63,6 +64,10 @@ Examples:
 			platformValues, err := shared.NormalizeAppStoreVersionPlatforms(shared.SplitCSVUpper(*platforms))
 			if err != nil {
 				return fmt.Errorf("reviews summarizations: %w", err)
+			}
+			if len(platformValues) == 0 && nextValue == "" {
+				fmt.Fprintln(os.Stderr, "Error: --platform is required")
+				return shared.MissingRequiredUsageError()
 			}
 
 			client, err := shared.GetASCClient()

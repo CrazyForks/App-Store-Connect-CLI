@@ -30,14 +30,15 @@ func ReviewDetailsAttachmentsListCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "attachments-list",
-		ShortUsage: "asc review attachments-list --review-detail \"REVIEW_DETAIL_ID\"",
+		ShortUsage: "asc review attachments-list (--review-detail REVIEW_DETAIL_ID | --next URL) [flags]",
 		ShortHelp:  "List review attachments for a review detail.",
 		LongHelp: `List review attachments for a review detail.
 
 Examples:
   asc review attachments-list --review-detail "REVIEW_DETAIL_ID"
   asc review attachments-list --review-detail "REVIEW_DETAIL_ID" --fields "fileName,fileSize" --limit 50
-  asc review attachments-list --review-detail "REVIEW_DETAIL_ID" --paginate`,
+  asc review attachments-list --review-detail "REVIEW_DETAIL_ID" --paginate
+  asc review attachments-list --next "<links.next>"`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
