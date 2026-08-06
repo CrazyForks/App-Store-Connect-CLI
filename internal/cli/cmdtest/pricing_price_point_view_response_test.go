@@ -19,7 +19,9 @@ func TestPricingPricePointViewPreservesSingleResponse(t *testing.T) {
 	setupAuth(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet || req.URL.Path != "/v3/appPricePoints/price-point-1" {
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
