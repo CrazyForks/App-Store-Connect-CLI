@@ -253,11 +253,26 @@ func parseSubscriptionPromotionalOfferPrices(value string) ([]asc.SubscriptionPr
 	}
 
 	priceIDs := shared.SplitCSV(value)
+	if containsSubscriptionPromotionalOfferTerritory(priceIDs) {
+		return nil, fmt.Errorf("--prices must not mix existing price IDs with inline TERRITORY or TERRITORY:PRICE_POINT_ID entries")
+	}
 	prices := make([]asc.SubscriptionPromotionalOfferPrice, 0, len(priceIDs))
 	for _, priceID := range priceIDs {
 		prices = append(prices, asc.SubscriptionPromotionalOfferPrice{ID: priceID})
 	}
 	return prices, nil
+}
+
+func containsSubscriptionPromotionalOfferTerritory(parts []string) bool {
+	for start := range parts {
+		for end := start + 1; end <= len(parts); end++ {
+			territoryIDs, err := shared.NormalizeASCTerritoryCSV(strings.Join(parts[start:end], ","))
+			if err == nil && len(territoryIDs) == 1 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func parseSubscriptionPromotionalOfferInlinePrices(value string) ([]asc.SubscriptionPromotionalOfferPrice, error) {
@@ -319,7 +334,7 @@ func parseSubscriptionPromotionalOfferInlinePrices(value string) ([]asc.Subscrip
 
 		if !matched {
 			if mixedReferences {
-				return nil, fmt.Errorf("--prices must not mix existing price IDs with TERRITORY:PRICE_POINT_ID entries")
+				return nil, fmt.Errorf("--prices must not mix existing price IDs with inline TERRITORY or TERRITORY:PRICE_POINT_ID entries")
 			}
 			if candidateErr == nil {
 				candidateErr = fmt.Errorf("--prices must use TERRITORY or TERRITORY:PRICE_POINT_ID entries")

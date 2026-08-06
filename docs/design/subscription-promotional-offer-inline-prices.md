@@ -49,9 +49,11 @@ exit with status 2 before authentication or HTTP.
 The flag name and released bare-ID behavior remain supported. Inputs containing
 a colon are parsed as compound `TERRITORY:PRICE_POINT_ID` entries. If every bare
 entry resolves as a territory, the command creates territory-only inline
-resources. Otherwise, bare entries are preserved as existing promotional-offer
-price IDs and sent with the original linkage-only payload. This auto-detection
-keeps existing scripts working while allowing the new atomic create form.
+resources. If no entry resolves as a territory, bare entries are preserved as
+existing promotional-offer price IDs and sent with the original linkage-only
+payload. A list containing both shapes is rejected before authentication rather
+than sending a territory as a price ID. This auto-detection keeps existing
+scripts working while allowing the new atomic create form.
 
 Mode does not change parsing or payload validation because the exact OpenAPI
 schema defines no relationship constraint based on `offerMode`. In particular,

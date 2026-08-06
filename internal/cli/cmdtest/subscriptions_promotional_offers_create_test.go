@@ -185,6 +185,8 @@ func TestSubscriptionsPromotionalOffersCreateRejectsInvalidPriceShapeBeforeAuth(
 		wantErr string
 	}{
 		{name: "mixed inline and legacy", mode: "PAY_UP_FRONT", prices: "US:price-point-1,price-legacy", wantErr: "must not mix"},
+		{name: "mixed territory-only and legacy", mode: "PAY_UP_FRONT", prices: "US,price-legacy", wantErr: "must not mix"},
+		{name: "mixed legacy and territory-only", mode: "PAY_UP_FRONT", prices: "price-legacy,US", wantErr: "must not mix"},
 		{name: "inline missing price point", mode: "FREE_TRIAL", prices: "US:", wantErr: "TERRITORY:PRICE_POINT_ID"},
 	}
 

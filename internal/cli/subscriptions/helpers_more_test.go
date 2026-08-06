@@ -176,6 +176,16 @@ func TestParseSubscriptionPromotionalOfferPricesAutoDetectsLegacyAndInlineInputs
 			value:   "price-2,US:pp-1",
 			wantErr: "must not mix",
 		},
+		{
+			name:    "mixed territory-only and legacy prices",
+			value:   "US,price-2",
+			wantErr: "must not mix",
+		},
+		{
+			name:    "mixed legacy and territory-only prices",
+			value:   "price-2,US",
+			wantErr: "must not mix",
+		},
 	}
 
 	for _, test := range tests {
