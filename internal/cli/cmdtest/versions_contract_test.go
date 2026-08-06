@@ -3,6 +3,7 @@ package cmdtest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -146,9 +147,12 @@ func TestVersionsReleaseTypePayloads(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			setupAuth(t)
 			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+			requestErr := make(chan error, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				if req.Method != test.method || req.URL.Path != test.path {
-					t.Fatalf("request = %s %s, want %s %s", req.Method, req.URL.Path, test.method, test.path)
+					requestErr <- fmt.Errorf("request = %s %s, want %s %s", req.Method, req.URL.Path, test.method, test.path)
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
 				}
 				var request struct {
 					Data struct {
@@ -156,11 +160,16 @@ func TestVersionsReleaseTypePayloads(t *testing.T) {
 					} `json:"data"`
 				}
 				if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
-					t.Fatalf("decode request: %v", err)
+					requestErr <- fmt.Errorf("decode request: %w", err)
+					http.Error(w, "invalid request", http.StatusBadRequest)
+					return
 				}
 				if got := request.Data.Attributes["releaseType"]; got != "SCHEDULED" {
-					t.Fatalf("releaseType = %#v, want SCHEDULED", got)
+					requestErr <- fmt.Errorf("releaseType = %#v, want SCHEDULED", got)
+					http.Error(w, "invalid release type", http.StatusBadRequest)
+					return
 				}
+				requestErr <- nil
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(w, `{"data":{"type":"appStoreVersions","id":"`+test.responseID+`","attributes":{"versionString":"2.0","platform":"IOS"}}}`)
 			}))
@@ -199,6 +208,9 @@ func TestVersionsReleaseTypePayloads(t *testing.T) {
 			}
 			if stderr != "" {
 				t.Fatalf("stderr = %q, want empty", stderr)
+			}
+			if err := <-requestErr; err != nil {
+				t.Fatal(err)
 			}
 		})
 	}

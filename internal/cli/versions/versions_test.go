@@ -158,9 +158,13 @@ func TestNormalizeAppStoreVersionReleaseType(t *testing.T) {
 }
 
 func TestNormalizeAppStoreVersionReleaseTypeRejectsUnknown(t *testing.T) {
-	_, err := normalizeAppStoreVersionReleaseType("IMMEDIATE")
-	if err == nil || !strings.Contains(err.Error(), "--release-type must be one of: MANUAL, AFTER_APPROVAL, SCHEDULED") {
-		t.Fatalf("expected release type error, got %v", err)
+	for _, input := range []string{"IMMEDIATE", "   "} {
+		t.Run(input, func(t *testing.T) {
+			_, err := normalizeAppStoreVersionReleaseType(input)
+			if err == nil || !strings.Contains(err.Error(), "--release-type must be one of: MANUAL, AFTER_APPROVAL, SCHEDULED") {
+				t.Fatalf("expected release type error, got %v", err)
+			}
+		})
 	}
 }
 

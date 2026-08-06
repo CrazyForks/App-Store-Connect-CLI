@@ -589,7 +589,12 @@ func fetchOptionalBuild(ctx context.Context, versionID string, fetch func(contex
 }
 
 func normalizeAppStoreVersionReleaseType(value string) (string, error) {
-	normalized := strings.ToUpper(strings.TrimSpace(value))
+	trimmed := strings.TrimSpace(value)
+	if value != "" && trimmed == "" {
+		return "", fmt.Errorf("--release-type must be one of: MANUAL, AFTER_APPROVAL, SCHEDULED")
+	}
+
+	normalized := strings.ToUpper(trimmed)
 	switch normalized {
 	case "", "MANUAL", "AFTER_APPROVAL", "SCHEDULED":
 		return normalized, nil
