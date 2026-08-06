@@ -74,6 +74,9 @@ The supported low-level read and linkage surfaces remain available under:
   - ` + "`asc apps search-keywords list`" + ` for app-level reads
   - ` + "`asc localizations search-keywords ...`" + ` for version-localization linkages
 
+The compatibility command ` + "`asc apps search-keywords set`" + ` resolves a version
+and locale before updating this same version-localization ` + "`keywords`" + ` attribute.
+
 Examples:
   asc metadata keywords import --dir "./metadata" --version "1.2.3" --locale "en-US" --input "./keywords.csv"
   asc metadata keywords audit --app "APP_ID" --version "1.2.3"

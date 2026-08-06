@@ -25,7 +25,8 @@ Phase 1 scope:
 
 Keyword workflow:
   - ` + "`asc metadata keywords ...`" + ` manages the canonical version-localization ` + "`keywords`" + ` field
-  - app-level ` + "`searchKeywords`" + ` are read-only under ` + "`asc apps search-keywords list`" + `
+  - ` + "`asc apps search-keywords list`" + ` reads app-level ` + "`searchKeywords`" + `
+  - ` + "`asc apps search-keywords set`" + ` updates the supported version-localization ` + "`keywords`" + ` attribute
   - version-localization linkage operations remain under ` + "`asc localizations search-keywords ...`" + `
 
 Not yet included in this group:
