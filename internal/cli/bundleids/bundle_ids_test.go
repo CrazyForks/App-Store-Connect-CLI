@@ -118,7 +118,7 @@ func TestBundleIDsCapabilitiesAddCommand_MissingCapability(t *testing.T) {
 	}
 }
 
-func TestParseCapabilitySettingsRejectsUnsupportedInput(t *testing.T) {
+func TestParseCapabilitySettingsRejectsInvalidStructure(t *testing.T) {
 	tests := []struct {
 		name    string
 		value   string
@@ -145,29 +145,34 @@ func TestParseCapabilitySettingsRejectsUnsupportedInput(t *testing.T) {
 			wantErr: `unknown field "Options"`,
 		},
 		{
-			name:    "unsupported setting key",
-			value:   `[{"key":"APP_GROUP_IDS"}]`,
-			wantErr: `unsupported capability setting key "APP_GROUP_IDS"`,
-		},
-		{
-			name:    "unsupported option key",
-			value:   `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]`,
-			wantErr: `unsupported capability option key "XCODE_13"`,
-		},
-		{
-			name:    "option key for different setting",
-			value:   `[{"key":"ICLOUD_VERSION","options":[{"key":"COMPLETE_PROTECTION"}]}]`,
-			wantErr: `unsupported capability option key "COMPLETE_PROTECTION" for setting "ICLOUD_VERSION"`,
-		},
-		{
-			name:    "unsupported allowed instances",
-			value:   `[{"key":"ICLOUD_VERSION","allowedInstances":"MANY"}]`,
-			wantErr: `unsupported allowedInstances "MANY"`,
-		},
-		{
 			name:    "empty allowed instances",
 			value:   `[{"key":"ICLOUD_VERSION","allowedInstances":""}]`,
-			wantErr: `unsupported allowedInstances ""`,
+			wantErr: `allowedInstances at setting index 0 must not be empty`,
+		},
+		{
+			name:    "missing setting key",
+			value:   `[{"options":[]}]`,
+			wantErr: `capability setting key at index 0 must not be empty`,
+		},
+		{
+			name:    "missing option key",
+			value:   `[{"key":"FUTURE_SETTING","options":[{"enabled":true}]}]`,
+			wantErr: `capability option key at setting index 0, option index 0 must not be empty`,
+		},
+		{
+			name:    "setting key has wrong type",
+			value:   `[{"key":42}]`,
+			wantErr: `cannot unmarshal number into Go struct field CapabilitySetting.key of type string`,
+		},
+		{
+			name:    "options has wrong shape",
+			value:   `[{"key":"FUTURE_SETTING","options":{}}]`,
+			wantErr: `cannot unmarshal object into Go struct field CapabilitySetting.options of type []asc.CapabilityOption`,
+		},
+		{
+			name:    "option has wrong shape",
+			value:   `[{"key":"FUTURE_SETTING","options":[true]}]`,
+			wantErr: `cannot unmarshal bool into Go struct field CapabilitySetting.options of type asc.CapabilityOption`,
 		},
 		{
 			name:    "null is not an array",
@@ -191,24 +196,21 @@ func TestParseCapabilitySettingsRejectsUnsupportedInput(t *testing.T) {
 	}
 }
 
-func TestParseCapabilitySettingsAcceptsExactOpenAPIEnumsAndFields(t *testing.T) {
+func TestParseCapabilitySettingsAcceptsForwardCompatibleKeysAndExactFields(t *testing.T) {
 	settings, err := parseCapabilitySettings(`[
 		{"key":"ICLOUD_VERSION","name":"iCloud","description":"version","enabledByDefault":true,"visible":true,"allowedInstances":"SINGLE","minInstances":1,"options":[
 			{"key":"XCODE_5","name":"Xcode 5","description":"legacy","enabledByDefault":false,"enabled":false,"supportsWildcard":true},
 			{"key":"XCODE_6","enabled":true}
 		]},
-		{"key":"DATA_PROTECTION_PERMISSION_LEVEL","allowedInstances":"ENTRY","options":[
-			{"key":"COMPLETE_PROTECTION"},
-			{"key":"PROTECTED_UNLESS_OPEN"},
-			{"key":"PROTECTED_UNTIL_FIRST_USER_AUTH"}
-		]},
-		{"key":"APPLE_ID_AUTH_APP_CONSENT","allowedInstances":"MULTIPLE","options":[{"key":"PRIMARY_APP_CONSENT"}]}
+		{"key":"ENABLED_FOR_MAC_APP_SETUP","options":[{"key":"USE_IOS_APPID","enabled":true}]},
+		{"key":"APP_GROUP_IDENTIFIERS","options":[{"key":"group.com.example.shared","enabled":true}]},
+		{"key":"FUTURE_SETTING","allowedInstances":"FUTURE_INSTANCE_MODE","options":[{"key":"FUTURE_OPTION"}]}
 	]`)
 	if err != nil {
 		t.Fatalf("parse settings: %v", err)
 	}
-	if len(settings) != 3 {
-		t.Fatalf("settings count = %d, want 3", len(settings))
+	if len(settings) != 4 {
+		t.Fatalf("settings count = %d, want 4", len(settings))
 	}
 	if settings[0].MinInstances == nil || *settings[0].MinInstances != 1 {
 		t.Fatalf("minInstances = %v, want 1", settings[0].MinInstances)
@@ -218,6 +220,15 @@ func TestParseCapabilitySettingsAcceptsExactOpenAPIEnumsAndFields(t *testing.T) 
 	}
 	if settings[0].Options[0].SupportsWildcard == nil || !*settings[0].Options[0].SupportsWildcard {
 		t.Fatalf("supportsWildcard=true was not preserved: %+v", settings[0].Options[0].SupportsWildcard)
+	}
+	if settings[1].Key != "ENABLED_FOR_MAC_APP_SETUP" || settings[1].Options[0].Key != "USE_IOS_APPID" {
+		t.Fatalf("live Apple setting/option pair was not preserved: %+v", settings[1])
+	}
+	if settings[2].Key != "APP_GROUP_IDENTIFIERS" || settings[2].Options[0].Key != "group.com.example.shared" {
+		t.Fatalf("app group setting/option pair was not preserved: %+v", settings[2])
+	}
+	if settings[3].Key != "FUTURE_SETTING" || settings[3].AllowedInstances != "FUTURE_INSTANCE_MODE" || settings[3].Options[0].Key != "FUTURE_OPTION" {
+		t.Fatalf("future setting values were not preserved: %+v", settings[3])
 	}
 }
 

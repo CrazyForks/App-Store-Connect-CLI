@@ -123,7 +123,7 @@ func BundleIDsCapabilitiesAddCommand() *ffcli.Command {
 
 	bundleID := fs.String("bundle", "", "Bundle ID")
 	capability := fs.String("capability", "", "Capability type (e.g., ICLOUD, IN_APP_PURCHASE)")
-	settings := fs.String("settings", "", "Capability settings as a schema-validated JSON array (optional)")
+	settings := fs.String("settings", "", "Capability settings as a structure-validated JSON array (optional)")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -132,10 +132,8 @@ func BundleIDsCapabilitiesAddCommand() *ffcli.Command {
 		ShortHelp:  "Add a capability to a bundle ID.",
 		LongHelp: `Add a capability to a bundle ID.
 
-Setting keys must be ICLOUD_VERSION, DATA_PROTECTION_PERMISSION_LEVEL, or
-APPLE_ID_AUTH_APP_CONSENT. Option keys must be XCODE_5, XCODE_6,
-COMPLETE_PROTECTION, PROTECTED_UNLESS_OPEN, PROTECTED_UNTIL_FIRST_USER_AUTH,
-or PRIMARY_APP_CONSENT.
+Settings require exact JSON field names and value types. Setting and option key
+strings are sent unchanged so values newer than Apple's published schema work.
 
 Examples:
   asc bundle-ids capabilities add --bundle "BUNDLE_ID" --capability ICLOUD
@@ -187,7 +185,7 @@ func BundleIDsCapabilitiesUpdateCommand() *ffcli.Command {
 
 	id := fs.String("id", "", "Capability ID")
 	capabilityType := fs.String("capability", "", "Capability type (e.g., ICLOUD, IN_APP_PURCHASE)")
-	settings := fs.String("settings", "", "Capability settings as a schema-validated JSON array")
+	settings := fs.String("settings", "", "Capability settings as a structure-validated JSON array")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -196,10 +194,8 @@ func BundleIDsCapabilitiesUpdateCommand() *ffcli.Command {
 		ShortHelp:  "Update a bundle ID capability.",
 		LongHelp: `Update a bundle ID capability.
 
-Setting keys must be ICLOUD_VERSION, DATA_PROTECTION_PERMISSION_LEVEL, or
-APPLE_ID_AUTH_APP_CONSENT. Option keys must be XCODE_5, XCODE_6,
-COMPLETE_PROTECTION, PROTECTED_UNLESS_OPEN, PROTECTED_UNTIL_FIRST_USER_AUTH,
-or PRIMARY_APP_CONSENT.
+Settings require exact JSON field names and value types. Setting and option key
+strings are sent unchanged so values newer than Apple's published schema work.
 
 Examples:
   asc bundle-ids capabilities update --id "CAPABILITY_ID" --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]'
@@ -369,8 +365,8 @@ func validateCapabilitySettingsJSON(value any) error {
 			}
 		}
 		if allowedInstances, present := setting["allowedInstances"]; present {
-			if value, ok := allowedInstances.(string); ok && !slices.Contains(capabilityAllowedInstances, value) {
-				return fmt.Errorf("unsupported allowedInstances %q at setting index %d (must be one of: %s)", value, settingIndex, strings.Join(capabilityAllowedInstances, ", "))
+			if value, ok := allowedInstances.(string); ok && value == "" {
+				return fmt.Errorf("allowedInstances at setting index %d must not be empty", settingIndex)
 			}
 		}
 		options, ok := setting["options"].([]any)
@@ -412,38 +408,14 @@ func rejectCapabilitySettingsNulls(value any, path string) error {
 	return nil
 }
 
-var capabilitySettingKeys = []string{
-	"APPLE_ID_AUTH_APP_CONSENT",
-	"DATA_PROTECTION_PERMISSION_LEVEL",
-	"ICLOUD_VERSION",
-}
-
-var capabilityOptionKeysBySetting = map[string][]string{
-	"APPLE_ID_AUTH_APP_CONSENT": {
-		"PRIMARY_APP_CONSENT",
-	},
-	"DATA_PROTECTION_PERMISSION_LEVEL": {
-		"COMPLETE_PROTECTION",
-		"PROTECTED_UNLESS_OPEN",
-		"PROTECTED_UNTIL_FIRST_USER_AUTH",
-	},
-	"ICLOUD_VERSION": {
-		"XCODE_5",
-		"XCODE_6",
-	},
-}
-
-var capabilityAllowedInstances = []string{"ENTRY", "MULTIPLE", "SINGLE"}
-
 func validateCapabilitySettings(settings []asc.CapabilitySetting) error {
 	for settingIndex, setting := range settings {
-		if !slices.Contains(capabilitySettingKeys, setting.Key) {
-			return fmt.Errorf("unsupported capability setting key %q at index %d (must be one of: %s)", setting.Key, settingIndex, strings.Join(capabilitySettingKeys, ", "))
+		if strings.TrimSpace(setting.Key) == "" {
+			return fmt.Errorf("capability setting key at index %d must not be empty", settingIndex)
 		}
-		allowedOptionKeys := capabilityOptionKeysBySetting[setting.Key]
 		for optionIndex, option := range setting.Options {
-			if !slices.Contains(allowedOptionKeys, option.Key) {
-				return fmt.Errorf("unsupported capability option key %q for setting %q at setting index %d, option index %d (must be one of: %s)", option.Key, setting.Key, settingIndex, optionIndex, strings.Join(allowedOptionKeys, ", "))
+			if strings.TrimSpace(option.Key) == "" {
+				return fmt.Errorf("capability option key at setting index %d, option index %d must not be empty", settingIndex, optionIndex)
 			}
 		}
 	}

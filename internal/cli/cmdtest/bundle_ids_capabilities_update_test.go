@@ -2,7 +2,6 @@ package cmdtest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -135,16 +134,6 @@ func TestBundleIDCapabilitiesSettingsValidationStopsBeforeHTTP(t *testing.T) {
 			wantErr: `unknown field "typo"`,
 		},
 		{
-			name:    "update rejects unsupported option",
-			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]`},
-			wantErr: `unsupported capability option key "XCODE_13"`,
-		},
-		{
-			name:    "update rejects option for different setting",
-			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"COMPLETE_PROTECTION"}]}]`},
-			wantErr: `unsupported capability option key "COMPLETE_PROTECTION" for setting "ICLOUD_VERSION"`,
-		},
-		{
 			name:    "add rejects incorrectly cased field",
 			args:    []string{"bundle-ids", "capabilities", "add", "--bundle", "bundle1", "--capability", "ICLOUD", "--settings", `[{"KEY":"ICLOUD_VERSION"}]`},
 			wantErr: `unknown field "KEY"`,
@@ -152,7 +141,17 @@ func TestBundleIDCapabilitiesSettingsValidationStopsBeforeHTTP(t *testing.T) {
 		{
 			name:    "update rejects empty allowed instances",
 			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","allowedInstances":""}]`},
-			wantErr: `unsupported allowedInstances ""`,
+			wantErr: `allowedInstances at setting index 0 must not be empty`,
+		},
+		{
+			name:    "update rejects missing setting key",
+			args:    []string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"options":[]}]`},
+			wantErr: `capability setting key at index 0 must not be empty`,
+		},
+		{
+			name:    "add rejects malformed options",
+			args:    []string{"bundle-ids", "capabilities", "add", "--bundle", "bundle1", "--capability", "ICLOUD", "--settings", `[{"key":"FUTURE_SETTING","options":{}}]`},
+			wantErr: `cannot unmarshal object into Go struct field CapabilitySetting.options`,
 		},
 		{
 			name:    "add rejects null schema field",
@@ -207,34 +206,14 @@ func TestBundleIDCapabilitiesAddWithSettings(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read body: %v", err)
 		}
-		var body struct {
-			Data struct {
-				Attributes struct {
-					Settings []struct {
-						Key     string `json:"key"`
-						Options []struct {
-							Key     string `json:"key"`
-							Enabled *bool  `json:"enabled"`
-						} `json:"options"`
-					} `json:"settings"`
-				} `json:"attributes"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(payload, &body); err != nil {
-			t.Fatalf("decode body: %v", err)
-		}
-		settings := body.Data.Attributes.Settings
-		if len(settings) != 1 || settings[0].Key != "ICLOUD_VERSION" || len(settings[0].Options) != 1 {
-			t.Fatalf("unexpected settings payload: %+v", settings)
-		}
-		option := settings[0].Options[0]
-		if option.Key != "XCODE_6" || option.Enabled == nil || !*option.Enabled {
-			t.Fatalf("unexpected option payload: %+v", option)
+		wantPayload := `{"data":{"type":"bundleIdCapabilities","attributes":{"capabilityType":"MARZIPAN","settings":[{"key":"ENABLED_FOR_MAC_APP_SETUP","options":[{"key":"USE_IOS_APPID","enabled":true}]}]},"relationships":{"bundleId":{"data":{"type":"bundleIds","id":"bundle1"}}}}}` + "\n"
+		if string(payload) != wantPayload {
+			t.Fatalf("request body = %q, want %q", payload, wantPayload)
 		}
 		return &http.Response{
 			StatusCode: http.StatusCreated,
 			Body: io.NopCloser(strings.NewReader(
-				`{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"ICLOUD","settings":[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]}}}`,
+				`{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"MARZIPAN","settings":[{"key":"ENABLED_FOR_MAC_APP_SETUP","options":[{"key":"USE_IOS_APPID","enabled":true}]}]}}}`,
 			)),
 			Header: http.Header{"Content-Type": []string{"application/json"}},
 		}, nil
@@ -245,8 +224,8 @@ func TestBundleIDCapabilitiesAddWithSettings(t *testing.T) {
 	stdout, stderr := captureOutput(t, func() {
 		if err := root.Parse([]string{
 			"bundle-ids", "capabilities", "add",
-			"--bundle", "bundle1", "--capability", "ICLOUD",
-			"--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]`,
+			"--bundle", "bundle1", "--capability", "MARZIPAN",
+			"--settings", `[{"key":"ENABLED_FOR_MAC_APP_SETUP","options":[{"key":"USE_IOS_APPID","enabled":true}]}]`,
 			"--output", "json",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
@@ -260,6 +239,11 @@ func TestBundleIDCapabilitiesAddWithSettings(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"id":"cap1"`) {
 		t.Fatalf("unexpected stdout: %q", stdout)
+	}
+	if !strings.Contains(stdout, `"capabilityType":"MARZIPAN"`) ||
+		!strings.Contains(stdout, `"key":"ENABLED_FOR_MAC_APP_SETUP"`) ||
+		!strings.Contains(stdout, `"key":"USE_IOS_APPID"`) {
+		t.Fatalf("forward-compatible response fields were not preserved: %q", stdout)
 	}
 }
 
@@ -283,30 +267,12 @@ func TestBundleIDCapabilitiesUpdateSuccessOutput(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read body error: %v", err)
 		}
-		var body map[string]any
-		if err := json.Unmarshal(payload, &body); err != nil {
-			t.Fatalf("decode body error: %v", err)
-		}
-		data, ok := body["data"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected data object in body")
-		}
-		if data["type"] != "bundleIdCapabilities" {
-			t.Fatalf("expected type bundleIdCapabilities, got %v", data["type"])
-		}
-		if data["id"] != "cap1" {
-			t.Fatalf("expected id cap1, got %v", data["id"])
-		}
-		attrs, ok := data["attributes"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected attributes object in body")
-		}
-		settings, ok := attrs["settings"].([]any)
-		if !ok || len(settings) != 1 {
-			t.Fatalf("expected 1 setting, got %v", attrs["settings"])
+		wantPayload := `{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"settings":[{"key":"APP_GROUP_IDENTIFIERS","allowedInstances":"FUTURE_INSTANCE_MODE","options":[{"key":"group.com.example.shared","enabled":true}]}]}}}` + "\n"
+		if string(payload) != wantPayload {
+			t.Fatalf("request body = %q, want %q", payload, wantPayload)
 		}
 
-		respBody := `{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"ICLOUD","settings":[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]}}}`
+		respBody := `{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"APP_GROUPS","settings":[{"key":"APP_GROUP_IDENTIFIERS","allowedInstances":"FUTURE_INSTANCE_MODE","options":[{"key":"group.com.example.shared","enabled":true}]}]}}}`
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(respBody)),
@@ -318,7 +284,7 @@ func TestBundleIDCapabilitiesUpdateSuccessOutput(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]`}); err != nil {
+		if err := root.Parse([]string{"bundle-ids", "capabilities", "update", "--id", "cap1", "--settings", `[{"key":"APP_GROUP_IDENTIFIERS","allowedInstances":"FUTURE_INSTANCE_MODE","options":[{"key":"group.com.example.shared","enabled":true}]}]`}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -332,8 +298,13 @@ func TestBundleIDCapabilitiesUpdateSuccessOutput(t *testing.T) {
 	if !strings.Contains(stdout, `"id":"cap1"`) {
 		t.Fatalf("expected capability id in output, got %q", stdout)
 	}
-	if !strings.Contains(stdout, `"capabilityType":"ICLOUD"`) {
+	if !strings.Contains(stdout, `"capabilityType":"APP_GROUPS"`) {
 		t.Fatalf("expected capabilityType in output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, `"key":"APP_GROUP_IDENTIFIERS"`) ||
+		!strings.Contains(stdout, `"allowedInstances":"FUTURE_INSTANCE_MODE"`) ||
+		!strings.Contains(stdout, `"key":"group.com.example.shared"`) {
+		t.Fatalf("forward-compatible response fields were not preserved: %q", stdout)
 	}
 }
 

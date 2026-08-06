@@ -186,18 +186,20 @@ asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
 * `MULTIPATH` - Multipath networking
 * `NFC_TAG_READING` - NFC tag reading
 
-**Capabilities with schema-defined settings:**
+**Capabilities with settings documented in Apple's current schema:**
 
 * `ICLOUD` - iCloud (CloudKit/Documents)
 * `DATA_PROTECTION` - Data Protection
 * `APPLE_ID_AUTH` - Sign in with Apple consent
 
-The public API accepts only `ICLOUD_VERSION`,
-`DATA_PROTECTION_PERMISSION_LEVEL`, and `APPLE_ID_AUTH_APP_CONSENT` setting
-keys. Allowed option keys are `XCODE_5`, `XCODE_6`, `COMPLETE_PROTECTION`,
+The published schema lists `ICLOUD_VERSION`,
+`DATA_PROTECTION_PERMISSION_LEVEL`, and `APPLE_ID_AUTH_APP_CONSENT`, but Apple
+can return newer setting and option keys before they appear in that schema.
+`--settings` requires exact JSON field names and value types, then sends key
+strings and nonempty `allowedInstances` values unchanged. Current documented
+examples include `XCODE_5`, `XCODE_6`, `COMPLETE_PROTECTION`,
 `PROTECTED_UNLESS_OPEN`, `PROTECTED_UNTIL_FIRST_USER_AUTH`, and
-`PRIMARY_APP_CONSENT`. If supplied, `allowedInstances` must be `ENTRY`,
-`SINGLE`, or `MULTIPLE`. Other capabilities are enabled without `--settings`.
+`PRIMARY_APP_CONSENT`.
 
 ### iCloud Capability
 
