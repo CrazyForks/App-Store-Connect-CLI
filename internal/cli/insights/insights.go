@@ -758,37 +758,26 @@ func collectAnalyticsMetrics(ctx context.Context, client *asc.Client, appID stri
 		return nil, 0, err
 	}
 
-	completedRequests := make([]asc.AnalyticsReportRequestResource, 0, len(requestsResp.Data))
+	activeRequests := make([]asc.AnalyticsReportRequestResource, 0, len(requestsResp.Data))
 	for _, request := range requestsResp.Data {
-		if request.Attributes.State == asc.AnalyticsReportRequestStateCompleted {
-			completedRequests = append(completedRequests, request)
+		if analyticsReportRequestIsActive(request.Attributes) {
+			activeRequests = append(activeRequests, request)
 		}
 	}
 
-	requestCount := len(completedRequests)
+	requestCount := len(activeRequests)
 	if requestCount == 0 {
-		return analyticsUnavailableMetrics("no completed analytics report requests found"), 0, nil
+		return analyticsUnavailableMetrics("no active analytics report requests found"), 0, nil
 	}
 
 	var (
-		thisCompletedRequests int
-		lastCompletedRequests int
-		thisInstances         int
-		lastInstances         int
+		thisInstances int
+		lastInstances int
 	)
 	thisReportIDs := make(map[string]struct{})
 	lastReportIDs := make(map[string]struct{})
 
-	for _, request := range completedRequests {
-		if createdAt, ok := parseDateValue(request.Attributes.CreatedDate); ok {
-			if containsDate(thisWeek, createdAt) {
-				thisCompletedRequests++
-			}
-			if containsDate(previousWeek, createdAt) {
-				lastCompletedRequests++
-			}
-		}
-
+	for _, request := range activeRequests {
 		reportsResp, reportsErr := client.GetAnalyticsReports(
 			ctx,
 			request.ID,
@@ -838,12 +827,16 @@ func collectAnalyticsMetrics(ctx context.Context, client *asc.Client, appID stri
 	}
 
 	metrics := []weeklyMetric{
-		comparableMetric("completed_requests", "count", float64(thisCompletedRequests), float64(lastCompletedRequests)),
+		unavailableMetric("completed_requests", "count", "request state and creation date are not exposed by the current API"),
 		comparableMetric("reports_available", "count", float64(len(thisReportIDs)), float64(len(lastReportIDs))),
 		comparableMetric("instances_available", "count", float64(thisInstances), float64(lastInstances)),
 		unavailableMetric("business_conversion_rate", "percent", "not derivable from analytics metadata alone"),
 	}
 	return metrics, requestCount, nil
+}
+
+func analyticsReportRequestIsActive(attributes asc.AnalyticsReportRequestAttributes) bool {
+	return attributes.StoppedDueToInactivity == nil || !*attributes.StoppedDueToInactivity
 }
 
 func analyticsUnavailableMetrics(reason string) []weeklyMetric {

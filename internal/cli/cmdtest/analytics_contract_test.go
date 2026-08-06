@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestAnalyticsRequestsUsesAccessTypeFilter(t *testing.T) {
@@ -18,7 +21,7 @@ func TestAnalyticsRequestsUsesAccessTypeFilter(t *testing.T) {
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
 	requestCount := 0
-	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestCount++
 		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-1/analyticsReportRequests" {
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
@@ -26,13 +29,13 @@ func TestAnalyticsRequestsUsesAccessTypeFilter(t *testing.T) {
 		if got := req.URL.Query().Get("filter[accessType]"); got != "ONGOING" {
 			t.Fatalf("filter[accessType] = %q, want ONGOING", got)
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"data":[{"type":"analyticsReportRequests","id":"request-1","attributes":{"accessType":"ONGOING","stoppedDueToInactivity":false}}],"links":{"self":"https://api.appstoreconnect.apple.com/v1/apps/app-1/analyticsReportRequests"}}`)),
-			Request:    req,
-		}, nil
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"type":"analyticsReportRequests","id":"request-1","attributes":{"accessType":"ONGOING","stoppedDueToInactivity":false}}],"links":{"self":"https://api.appstoreconnect.apple.com/v1/apps/app-1/analyticsReportRequests"}}`)
 	}))
+	t.Cleanup(server.Close)
+	client := newReviewTestServerClient(t, server)
+	restoreClient := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) { return client, nil })
+	t.Cleanup(restoreClient)
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
@@ -60,7 +63,8 @@ func TestAnalyticsRequestsUsesAccessTypeFilter(t *testing.T) {
 	var response struct {
 		Data []struct {
 			Attributes struct {
-				AccessType string `json:"accessType"`
+				AccessType             string `json:"accessType"`
+				StoppedDueToInactivity *bool  `json:"stoppedDueToInactivity"`
 			} `json:"attributes"`
 		} `json:"data"`
 	}
@@ -69,6 +73,9 @@ func TestAnalyticsRequestsUsesAccessTypeFilter(t *testing.T) {
 	}
 	if len(response.Data) != 1 || response.Data[0].Attributes.AccessType != "ONGOING" {
 		t.Fatalf("unexpected output: %s", stdout)
+	}
+	if response.Data[0].Attributes.StoppedDueToInactivity == nil || *response.Data[0].Attributes.StoppedDueToInactivity {
+		t.Fatalf("expected explicit stoppedDueToInactivity=false, got: %s", stdout)
 	}
 }
 
@@ -86,7 +93,7 @@ func TestAnalyticsSalesSupportsNewTypeWithoutDailyDate(t *testing.T) {
 	}
 
 	requestCount := 0
-	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestCount++
 		if req.Method != http.MethodGet || req.URL.Path != "/v1/salesReports" {
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
@@ -101,13 +108,13 @@ func TestAnalyticsSalesSupportsNewTypeWithoutDailyDate(t *testing.T) {
 		if query.Has("filter[reportDate]") {
 			t.Fatalf("unexpected filter[reportDate]: %s", req.URL.RawQuery)
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/a-gzip"}},
-			Body:       io.NopCloser(bytes.NewReader(payload.Bytes())),
-			Request:    req,
-		}, nil
+		w.Header().Set("Content-Type", "application/a-gzip")
+		_, _ = w.Write(payload.Bytes())
 	}))
+	t.Cleanup(server.Close)
+	client := newReviewTestServerClient(t, server)
+	restoreClient := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) { return client, nil })
+	t.Cleanup(restoreClient)
 
 	outputPath := filepath.Join(t.TempDir(), "report.tsv.gz")
 	root := RootCommand("1.2.3")

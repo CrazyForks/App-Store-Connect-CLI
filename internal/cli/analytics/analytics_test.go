@@ -64,6 +64,14 @@ func TestAnalyticsRequestsAccessTypeFlagLifecycle(t *testing.T) {
 	if !strings.Contains(usage, `--access-type ONGOING`) {
 		t.Fatalf("analytics requests help does not teach --access-type:\n%s", usage)
 	}
+	if cmd.FlagSet.Lookup("state") == nil {
+		t.Fatal("deprecated --state compatibility flag is not registered")
+	}
+	for _, item := range shared.VisibleHelpFlags(cmd.FlagSet) {
+		if item.Name == "state" {
+			t.Fatal("deprecated --state flag should be hidden from canonical help")
+		}
+	}
 }
 
 func TestAnalyticsRequestsRejectsInvalidAccessType(t *testing.T) {
@@ -80,6 +88,74 @@ func TestAnalyticsRequestsRejectsInvalidAccessType(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "--access-type must be ONGOING or ONE_TIME_SNAPSHOT") {
 		t.Fatalf("expected access type validation error, got %q", stderr)
+	}
+}
+
+func TestAnalyticsRequestsDeprecatedStateFailsBeforeAuth(t *testing.T) {
+	t.Setenv("ASC_KEY_ID", "")
+	t.Setenv("ASC_ISSUER_ID", "")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	stdout, stderr, err := runAnalyticsCommand(t, []string{
+		"analytics", "requests",
+		"--app", "app-1",
+		"--state", "COMPLETED",
+	})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected usage error, got %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "--state is deprecated and unsupported by App Store Connect") ||
+		!strings.Contains(stderr, "use --access-type ONGOING or --access-type ONE_TIME_SNAPSHOT") {
+		t.Fatalf("expected migration guidance, got %q", stderr)
+	}
+}
+
+func TestAnalyticsSalesRejectsUnsupportedContractBeforeAuth(t *testing.T) {
+	t.Setenv("ASC_KEY_ID", "")
+	t.Setenv("ASC_ISSUER_ID", "")
+	t.Setenv("ASC_PRIVATE_KEY_PATH", "")
+	t.Setenv("ASC_PRIVATE_KEY", "")
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name: "invalid tuple",
+			args: []string{
+				"analytics", "sales", "--vendor", "12345678",
+				"--type", "WIN_BACK_ELIGIBILITY", "--subtype", "DETAILED", "--frequency", "WEEKLY", "--date", "2026-08-02",
+			},
+			wantErr: "unsupported sales report combination",
+		},
+		{
+			name: "version outside tuple",
+			args: []string{
+				"analytics", "sales", "--vendor", "12345678",
+				"--type", "SALES", "--subtype", "SUMMARY", "--frequency", "DAILY", "--version", "1_5",
+			},
+			wantErr: "--version 1_5 is not supported",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr, err := runAnalyticsCommand(t, test.args)
+			if !errors.Is(err, flag.ErrHelp) {
+				t.Fatalf("expected usage error, got %v", err)
+			}
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected %q, got %q", test.wantErr, stderr)
+			}
+		})
 	}
 }
 

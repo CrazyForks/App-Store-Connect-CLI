@@ -21,8 +21,8 @@ func AnalyticsSalesCommand() *ffcli.Command {
 	reportType := fs.String("type", "", "Report type: SALES, PRE_ORDER, NEWSSTAND, SUBSCRIPTION, SUBSCRIPTION_EVENT, SUBSCRIBER, SUBSCRIPTION_OFFER_CODE_REDEMPTION, INSTALLS, FIRST_ANNUAL, WIN_BACK_ELIGIBILITY")
 	reportSubType := fs.String("subtype", "", "Report subtype: SUMMARY, DETAILED, SUMMARY_INSTALL_TYPE, SUMMARY_TERRITORY, SUMMARY_CHANNEL")
 	frequency := fs.String("frequency", "", "Frequency: DAILY, WEEKLY, MONTHLY, YEARLY")
-	date := fs.String("date", "", "Report date (optional for DAILY): daily YYYY-MM-DD, weekly Monday(start) or Sunday(end) YYYY-MM-DD, monthly YYYY-MM, yearly YYYY")
-	version := fs.String("version", "", "Report format version in major_minor format (defaults to 1_4 for SUBSCRIPTION, 1_3 for SUBSCRIBER, 1_2 for monthly INSTALLS, and 1_0 otherwise)")
+	date := fs.String("date", "", "Report date in YYYY-MM-DD (optional for DAILY; legacy monthly YYYY-MM and yearly YYYY are normalized to period end)")
+	version := fs.String("version", "", "Report format version allowed for the selected type, subtype, and frequency")
 	output := fs.String("output", "", "Output file path (default: sales_report_{date|latest}_{type}.tsv.gz)")
 	decompress := fs.Bool("decompress", false, "Decompress gzip output to .tsv")
 	outputFlags := shared.BindMetadataOutputFlags(fs)
@@ -76,7 +76,7 @@ Examples:
 			if err != nil {
 				return shared.UsageError(fmt.Sprintf("analytics sales: %v", err))
 			}
-			reportVersion, err := normalizeSalesReportVersion(*version, salesType, freq)
+			reportVersion, err := normalizeSalesReportVersion(*version, salesType, subType, freq)
 			if err != nil {
 				return shared.UsageError(fmt.Sprintf("analytics sales: %v", err))
 			}

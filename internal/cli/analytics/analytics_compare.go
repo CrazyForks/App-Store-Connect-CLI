@@ -130,6 +130,9 @@ Examples:
 			if err != nil {
 				return shared.UsageError(err.Error())
 			}
+			if err := validateSalesReportTuple(salesType, subType, freq); err != nil {
+				return shared.UsageError(err.Error())
+			}
 
 			baselineStart, baselineEnd, err := normalizeCompareDateRange(*from, *fromEnd, freq, "--from", "--from-end")
 			if err != nil {
@@ -242,7 +245,7 @@ func fetchAndAggregate(ctx context.Context, client *asc.Client, vendor string, s
 			ReportSubType: subType,
 			Frequency:     freq,
 			ReportDate:    date,
-			Version:       defaultSalesReportVersion(salesType, freq),
+			Version:       defaultSalesReportVersion(salesType, subType, freq),
 		})
 		if err != nil {
 			if asc.IsNotFound(err) {

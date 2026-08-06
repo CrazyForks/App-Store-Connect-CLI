@@ -142,7 +142,7 @@ func TestGenerateReportDates_Monthly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := []string{"2026-01", "2026-02", "2026-03"}
+	want := []string{"2026-01-31", "2026-02-28", "2026-03-31"}
 	if len(dates) != len(want) {
 		t.Fatalf("expected %d dates, got %d: %v", len(want), len(dates), dates)
 	}
@@ -158,7 +158,7 @@ func TestGenerateReportDates_Yearly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := []string{"2024", "2025", "2026"}
+	want := []string{"2024-12-31", "2025-12-31", "2026-12-31"}
 	if len(dates) != len(want) {
 		t.Fatalf("expected %d dates, got %d: %v", len(want), len(dates), dates)
 	}

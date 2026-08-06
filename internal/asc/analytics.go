@@ -65,7 +65,8 @@ const (
 	AnalyticsAccessTypeOneTimeSnapshot AnalyticsAccessType = "ONE_TIME_SNAPSHOT"
 )
 
-// AnalyticsReportRequestState represents analytics request states.
+// AnalyticsReportRequestState is retained for source compatibility with older
+// responses; current App Store Connect responses do not expose this attribute.
 type AnalyticsReportRequestState string
 
 const (
@@ -92,10 +93,12 @@ type ReportDownload struct {
 
 // AnalyticsReportRequestAttributes describes analytics report request data.
 type AnalyticsReportRequestAttributes struct {
-	AccessType             AnalyticsAccessType         `json:"accessType,omitempty"`
-	State                  AnalyticsReportRequestState `json:"state,omitempty"`
-	CreatedDate            string                      `json:"createdDate,omitempty"`
-	StoppedDueToInactivity *bool                       `json:"stoppedDueToInactivity,omitempty"`
+	AccessType AnalyticsAccessType `json:"accessType,omitempty"`
+	// Legacy compatibility: current App Store Connect responses omit this field.
+	State AnalyticsReportRequestState `json:"state,omitempty"`
+	// Legacy compatibility: current App Store Connect responses omit this field.
+	CreatedDate            string `json:"createdDate,omitempty"`
+	StoppedDueToInactivity *bool  `json:"stoppedDueToInactivity,omitempty"`
 }
 
 // AnalyticsReportRequestRelationships describes request relationships.
@@ -210,7 +213,8 @@ type AnalyticsReportRequestReportsLinkagesResponse = LinkagesResponse
 
 type analyticsReportRequestsQuery struct {
 	listQuery
-	accessType AnalyticsAccessType
+	accessType      AnalyticsAccessType
+	deprecatedState string
 }
 
 type analyticsReportsQuery struct {
@@ -262,6 +266,15 @@ func WithAnalyticsReportRequestsNextURL(next string) AnalyticsReportRequestsOpti
 func WithAnalyticsReportRequestsAccessType(accessType AnalyticsAccessType) AnalyticsReportRequestsOption {
 	return func(q *analyticsReportRequestsQuery) {
 		q.accessType = AnalyticsAccessType(strings.TrimSpace(string(accessType)))
+	}
+}
+
+// WithAnalyticsReportRequestsState is retained for source compatibility.
+// Deprecated: App Store Connect does not support state filtering. Use
+// WithAnalyticsReportRequestsAccessType instead.
+func WithAnalyticsReportRequestsState(state string) AnalyticsReportRequestsOption {
+	return func(q *analyticsReportRequestsQuery) {
+		q.deprecatedState = strings.TrimSpace(state)
 	}
 }
 
@@ -440,6 +453,9 @@ func (c *Client) GetAnalyticsReportRequests(ctx context.Context, appID string, o
 	query := &analyticsReportRequestsQuery{}
 	for _, opt := range opts {
 		opt(query)
+	}
+	if query.deprecatedState != "" {
+		return nil, fmt.Errorf("analyticsReportRequests: state filtering is unsupported by App Store Connect; use WithAnalyticsReportRequestsAccessType")
 	}
 
 	path := "/v1/analyticsReportRequests"

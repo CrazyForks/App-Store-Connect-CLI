@@ -38,9 +38,9 @@ func TestResolveReportOutputPaths_Decompress(t *testing.T) {
 }
 
 func TestNormalizeReportDate_MonthlyValidation(t *testing.T) {
-	_, err := normalizeReportDate("2024-01-02", asc.SalesReportFrequencyMonthly)
+	_, err := normalizeReportDate("2024/01/02", asc.SalesReportFrequencyMonthly)
 	if err == nil {
-		t.Fatal("expected error for non-first day monthly date")
+		t.Fatal("expected error for malformed monthly date")
 	}
 }
 
@@ -97,8 +97,18 @@ func TestNormalizeReportDate_MonthlyFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected monthly date to parse, got %v", err)
 	}
-	if date != "2024-01" {
-		t.Fatalf("expected date to be 2024-01, got %q", date)
+	if date != "2024-01-31" {
+		t.Fatalf("expected legacy month to normalize to 2024-01-31, got %q", date)
+	}
+}
+
+func TestNormalizeReportDate_MonthlyCanonicalFormat(t *testing.T) {
+	date, err := normalizeReportDate("2024-01-31", asc.SalesReportFrequencyMonthly)
+	if err != nil {
+		t.Fatalf("expected monthly date to parse, got %v", err)
+	}
+	if date != "2024-01-31" {
+		t.Fatalf("expected date to remain 2024-01-31, got %q", date)
 	}
 }
 
@@ -107,8 +117,18 @@ func TestNormalizeReportDate_YearlyFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected yearly date to parse, got %v", err)
 	}
-	if date != "2024" {
-		t.Fatalf("expected date to be 2024, got %q", date)
+	if date != "2024-12-31" {
+		t.Fatalf("expected legacy year to normalize to 2024-12-31, got %q", date)
+	}
+}
+
+func TestNormalizeReportDate_YearlyCanonicalFormat(t *testing.T) {
+	date, err := normalizeReportDate("2024-12-31", asc.SalesReportFrequencyYearly)
+	if err != nil {
+		t.Fatalf("expected yearly date to parse, got %v", err)
+	}
+	if date != "2024-12-31" {
+		t.Fatalf("expected date to remain 2024-12-31, got %q", date)
 	}
 }
 
@@ -139,18 +159,15 @@ func TestNormalizeReportDate_WeeklyRejectsNonBoundaryDate(t *testing.T) {
 	}
 }
 
-func TestNormalizeSalesReportVersionSupportsCurrentVersion(t *testing.T) {
-	version, err := normalizeSalesReportVersion("1_4", asc.SalesReportTypeSales, asc.SalesReportFrequencyDaily)
-	if err != nil {
-		t.Fatalf("expected version 1_4 to parse, got %v", err)
-	}
-	if version != asc.SalesReportVersion1_4 {
-		t.Fatalf("expected version 1_4, got %q", version)
+func TestNormalizeSalesReportVersionRejectsVersionOutsideTuple(t *testing.T) {
+	_, err := normalizeSalesReportVersion("1_4", asc.SalesReportTypeSales, asc.SalesReportSubTypeSummary, asc.SalesReportFrequencyDaily)
+	if err == nil {
+		t.Fatal("expected SALES/SUMMARY/DAILY version 1_4 to be rejected")
 	}
 }
 
 func TestNormalizeSalesReportVersionDefaultsSubscriptionTo1_4(t *testing.T) {
-	version, err := normalizeSalesReportVersion("  ", asc.SalesReportTypeSubscription, asc.SalesReportFrequencyDaily)
+	version, err := normalizeSalesReportVersion("  ", asc.SalesReportTypeSubscription, asc.SalesReportSubTypeSummary, asc.SalesReportFrequencyDaily)
 	if err != nil {
 		t.Fatalf("expected empty version to use the default, got %v", err)
 	}
@@ -160,7 +177,7 @@ func TestNormalizeSalesReportVersionDefaultsSubscriptionTo1_4(t *testing.T) {
 }
 
 func TestNormalizeSalesReportVersionPreservesOtherDefaults(t *testing.T) {
-	version, err := normalizeSalesReportVersion("  ", asc.SalesReportTypeSales, asc.SalesReportFrequencyDaily)
+	version, err := normalizeSalesReportVersion("  ", asc.SalesReportTypeSales, asc.SalesReportSubTypeSummary, asc.SalesReportFrequencyDaily)
 	if err != nil {
 		t.Fatalf("expected empty version to use the default, got %v", err)
 	}
@@ -170,7 +187,7 @@ func TestNormalizeSalesReportVersionPreservesOtherDefaults(t *testing.T) {
 }
 
 func TestNormalizeSalesReportVersionDefaultsSubscriberTo1_3(t *testing.T) {
-	version, err := normalizeSalesReportVersion("", asc.SalesReportTypeSubscriber, asc.SalesReportFrequencyDaily)
+	version, err := normalizeSalesReportVersion("", asc.SalesReportTypeSubscriber, asc.SalesReportSubTypeDetailed, asc.SalesReportFrequencyDaily)
 	if err != nil {
 		t.Fatalf("expected empty version to use the default, got %v", err)
 	}
@@ -180,7 +197,7 @@ func TestNormalizeSalesReportVersionDefaultsSubscriberTo1_3(t *testing.T) {
 }
 
 func TestNormalizeSalesReportVersionDefaultsMonthlyInstallsTo1_2(t *testing.T) {
-	version, err := normalizeSalesReportVersion("", asc.SalesReportTypeInstalls, asc.SalesReportFrequencyMonthly)
+	version, err := normalizeSalesReportVersion("", asc.SalesReportTypeInstalls, asc.SalesReportSubTypeSummary, asc.SalesReportFrequencyMonthly)
 	if err != nil {
 		t.Fatalf("expected empty version to use the default, got %v", err)
 	}
@@ -190,19 +207,27 @@ func TestNormalizeSalesReportVersionDefaultsMonthlyInstallsTo1_2(t *testing.T) {
 }
 
 func TestNormalizeSalesReportVersionRejectsInvalidValue(t *testing.T) {
-	_, err := normalizeSalesReportVersion("1.4", asc.SalesReportTypeSubscription, asc.SalesReportFrequencyDaily)
+	_, err := normalizeSalesReportVersion("1.4", asc.SalesReportTypeSubscription, asc.SalesReportSubTypeSummary, asc.SalesReportFrequencyDaily)
 	if err == nil {
 		t.Fatal("expected invalid version error")
 	}
 }
 
-func TestNormalizeSalesReportVersionAllowsFutureVersion(t *testing.T) {
-	version, err := normalizeSalesReportVersion(" 1_5 ", asc.SalesReportTypeSubscription, asc.SalesReportFrequencyDaily)
-	if err != nil {
-		t.Fatalf("expected future version to parse, got %v", err)
+func TestNormalizeSalesReportVersionRejectsUndocumentedFutureVersion(t *testing.T) {
+	_, err := normalizeSalesReportVersion(" 1_5 ", asc.SalesReportTypeSubscription, asc.SalesReportSubTypeSummary, asc.SalesReportFrequencyDaily)
+	if err == nil {
+		t.Fatal("expected undocumented version 1_5 to be rejected")
 	}
-	if version != asc.SalesReportVersion("1_5") {
-		t.Fatalf("expected version 1_5, got %q", version)
+}
+
+func TestValidateSalesReportTupleRejectsUnsupportedCombination(t *testing.T) {
+	err := validateSalesReportTuple(
+		asc.SalesReportTypeWinBackEligibility,
+		asc.SalesReportSubTypeDetailed,
+		asc.SalesReportFrequencyWeekly,
+	)
+	if err == nil {
+		t.Fatal("expected unsupported WIN_BACK_ELIGIBILITY/DETAILED/WEEKLY tuple to be rejected")
 	}
 }
 

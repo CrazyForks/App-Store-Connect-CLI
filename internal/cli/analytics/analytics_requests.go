@@ -74,11 +74,12 @@ Examples:
 			}
 
 			result := &asc.AnalyticsReportRequestResult{
-				RequestID:   response.Data.ID,
-				AppID:       resolvedAppID,
-				AccessType:  string(normalizedAccessType),
-				State:       string(response.Data.Attributes.State),
-				CreatedDate: response.Data.Attributes.CreatedDate,
+				RequestID:              response.Data.ID,
+				AppID:                  resolvedAppID,
+				AccessType:             string(normalizedAccessType),
+				State:                  string(response.Data.Attributes.State),
+				CreatedDate:            response.Data.Attributes.CreatedDate,
+				StoppedDueToInactivity: response.Data.Attributes.StoppedDueToInactivity,
 			}
 
 			return shared.PrintOutput(result, *output.Output, *output.Pretty)
@@ -93,10 +94,12 @@ func AnalyticsRequestsCommand() *ffcli.Command {
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
 	requestID := fs.String("request-id", "", "Filter by request ID")
 	accessType := fs.String("access-type", "", "Filter by access type: ONGOING, ONE_TIME_SNAPSHOT")
+	state := fs.String("state", "", "Deprecated analytics request state filter")
 	limit := fs.Int("limit", 0, "Maximum results per page (1-200)")
 	next := fs.String("next", "", "Fetch next page using a links.next URL")
 	paginate := fs.Bool("paginate", false, "Automatically fetch all pages (aggregate results)")
 	output := shared.BindOutputFlags(fs)
+	shared.HideFlagFromHelp(fs.Lookup("state"))
 
 	return &ffcli.Command{
 		Name:       "requests",
@@ -119,6 +122,9 @@ Examples:
 		Exec: func(ctx context.Context, args []string) error {
 			if len(args) > 0 {
 				return flag.ErrHelp
+			}
+			if strings.TrimSpace(*state) != "" {
+				return shared.UsageError("analytics requests: --state is deprecated and unsupported by App Store Connect; use --access-type ONGOING or --access-type ONE_TIME_SNAPSHOT")
 			}
 			if *limit != 0 && (*limit < 1 || *limit > analyticsMaxLimit) {
 				return fmt.Errorf("analytics requests: --limit must be between 1 and 200")
@@ -285,20 +291,18 @@ func analyticsReportRequestMatches(request asc.AnalyticsReportRequestResource, a
 	if request.Attributes.AccessType != accessType {
 		return false
 	}
-	if request.Attributes.State == asc.AnalyticsReportRequestStateFailed {
-		return false
-	}
 	return request.Attributes.StoppedDueToInactivity == nil || !*request.Attributes.StoppedDueToInactivity
 }
 
 func analyticsReportRequestReuseResult(appID string, request asc.AnalyticsReportRequestResource, created bool) *asc.AnalyticsReportRequestReuseResult {
 	return &asc.AnalyticsReportRequestReuseResult{
-		RequestID:   request.ID,
-		AppID:       appID,
-		AccessType:  string(request.Attributes.AccessType),
-		State:       string(request.Attributes.State),
-		CreatedDate: request.Attributes.CreatedDate,
-		Created:     created,
+		RequestID:              request.ID,
+		AppID:                  appID,
+		AccessType:             string(request.Attributes.AccessType),
+		State:                  string(request.Attributes.State),
+		CreatedDate:            request.Attributes.CreatedDate,
+		StoppedDueToInactivity: request.Attributes.StoppedDueToInactivity,
+		Created:                created,
 	}
 }
 
