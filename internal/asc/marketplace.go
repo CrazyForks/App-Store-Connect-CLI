@@ -259,27 +259,6 @@ func (c *Client) GetMarketplaceWebhooks(ctx context.Context, opts ...Marketplace
 	return &response, nil
 }
 
-// GetMarketplaceWebhook retrieves a marketplace webhook by ID.
-func (c *Client) GetMarketplaceWebhook(ctx context.Context, webhookID string) (*MarketplaceWebhookResponse, error) {
-	webhookID = strings.TrimSpace(webhookID)
-	if webhookID == "" {
-		return nil, fmt.Errorf("webhookID is required")
-	}
-
-	path := fmt.Sprintf("/v1/marketplaceWebhooks/%s", webhookID)
-	data, err := c.do(ctx, "GET", path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var response MarketplaceWebhookResponse
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse marketplace webhook response: %w", err)
-	}
-
-	return &response, nil
-}
-
 // CreateMarketplaceWebhook creates a marketplace webhook.
 func (c *Client) CreateMarketplaceWebhook(ctx context.Context, endpointURL, secret string) (*MarketplaceWebhookResponse, error) {
 	endpointURL = strings.TrimSpace(endpointURL)

@@ -24,13 +24,11 @@ func MarketplaceWebhooksCommand() *ffcli.Command {
 		LongHelp: `Manage marketplace webhooks.
 
 Examples:
-  asc marketplace webhooks list
-  asc marketplace webhooks view --webhook-id "WEBHOOK_ID"`,
+  asc marketplace webhooks list`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			MarketplaceWebhooksListCommand(),
-			MarketplaceWebhooksGetCommand(),
 			MarketplaceWebhooksCreateCommand(),
 			MarketplaceWebhooksUpdateCommand(),
 			MarketplaceWebhooksDeleteCommand(),
@@ -117,50 +115,6 @@ Examples:
 			}
 
 			return shared.PrintOutput(webhooks, *output.Output, *output.Pretty)
-		},
-	}
-}
-
-// MarketplaceWebhooksGetCommand returns the webhooks view subcommand.
-func MarketplaceWebhooksGetCommand() *ffcli.Command {
-	fs := flag.NewFlagSet("view", flag.ExitOnError)
-
-	webhookID := fs.String("webhook-id", "", "Marketplace webhook ID")
-	output := shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       "view",
-		ShortUsage: "asc marketplace webhooks view --webhook-id \"WEBHOOK_ID\" [flags]",
-		ShortHelp:  "View a marketplace webhook by ID.",
-		LongHelp: `View a marketplace webhook by ID.
-
-Examples:
-  asc marketplace webhooks view --webhook-id "WEBHOOK_ID"`,
-		FlagSet:   fs,
-		UsageFunc: shared.DefaultUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			warnMarketplaceWebhooksDeprecated()
-
-			trimmedID := strings.TrimSpace(*webhookID)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --webhook-id is required")
-				return shared.MissingRequiredUsageError()
-			}
-
-			client, err := shared.GetASCClient()
-			if err != nil {
-				return fmt.Errorf("marketplace webhooks view: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
-			webhook, err := client.GetMarketplaceWebhook(requestCtx, trimmedID)
-			if err != nil {
-				return fmt.Errorf("marketplace webhooks view: failed to fetch: %w", err)
-			}
-
-			return shared.PrintOutput(webhook, *output.Output, *output.Pretty)
 		},
 	}
 }

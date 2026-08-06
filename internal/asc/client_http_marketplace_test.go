@@ -180,23 +180,6 @@ func TestGetMarketplaceWebhooks_WithFields(t *testing.T) {
 	}
 }
 
-func TestGetMarketplaceWebhook_SendsRequest(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"marketplaceWebhooks","id":"wh-1","attributes":{"endpointUrl":"https://example.com/webhook"}}}`)
-	client := newTestClient(t, func(req *http.Request) {
-		if req.Method != http.MethodGet {
-			t.Fatalf("expected GET, got %s", req.Method)
-		}
-		if req.URL.Path != "/v1/marketplaceWebhooks/wh-1" {
-			t.Fatalf("expected path /v1/marketplaceWebhooks/wh-1, got %s", req.URL.Path)
-		}
-		assertAuthorized(t, req)
-	}, response)
-
-	if _, err := client.GetMarketplaceWebhook(context.Background(), "wh-1"); err != nil {
-		t.Fatalf("GetMarketplaceWebhook() error: %v", err)
-	}
-}
-
 func TestCreateMarketplaceWebhook_SendsRequest(t *testing.T) {
 	response := jsonResponse(http.StatusCreated, `{"data":{"type":"marketplaceWebhooks","id":"wh-1","attributes":{"endpointUrl":"https://example.com/webhook"}}}`)
 	client := newTestClient(t, func(req *http.Request) {

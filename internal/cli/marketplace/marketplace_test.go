@@ -99,17 +99,6 @@ func TestMarketplaceSearchDetailsDeleteCommand_MissingConfirm(t *testing.T) {
 	}
 }
 
-func TestMarketplaceWebhooksGetCommand_MissingID(t *testing.T) {
-	cmd := MarketplaceWebhooksGetCommand()
-	if err := cmd.FlagSet.Parse([]string{}); err != nil {
-		t.Fatalf("failed to parse flags: %v", err)
-	}
-
-	if err := cmd.Exec(context.Background(), []string{}); !errors.Is(err, flag.ErrHelp) {
-		t.Fatalf("expected flag.ErrHelp when --webhook-id is missing, got %v", err)
-	}
-}
-
 func TestMarketplaceWebhooksCreateCommand_MissingURL(t *testing.T) {
 	cmd := MarketplaceWebhooksCreateCommand()
 	if err := cmd.FlagSet.Parse([]string{"--secret", "secret"}); err != nil {
