@@ -810,15 +810,15 @@ func collectAnalyticsMetrics(ctx context.Context, client *asc.Client, appID stri
 			}
 
 			for _, instance := range instancesResp.Data {
-				reportDate, ok := parseDateValue(instance.Attributes.ReportDate)
+				processingDate, ok := parseDateValue(instance.Attributes.ProcessingDate)
 				if !ok {
 					continue
 				}
-				if containsDate(thisWeek, reportDate) {
+				if containsDate(thisWeek, processingDate) {
 					thisInstances++
 					thisReportIDs[report.ID] = struct{}{}
 				}
-				if containsDate(previousWeek, reportDate) {
+				if containsDate(previousWeek, processingDate) {
 					lastInstances++
 					lastReportIDs[report.ID] = struct{}{}
 				}
