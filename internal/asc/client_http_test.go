@@ -4095,18 +4095,58 @@ func TestGetFeedback_BuildsQuery(t *testing.T) {
 }
 
 func TestGetFeedback_IncludesScreenshots(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaFeedbackScreenshotSubmissions","id":"1","attributes":{"createdDate":"2026-01-20T00:00:00Z","comment":"Nice","email":"tester@example.com","screenshots":[{"url":"https://example.com/shot.png","width":320,"height":640,"expirationDate":"2026-01-21T00:00:00Z"}]}}]}`)
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaFeedbackScreenshotSubmissions","id":"1","attributes":{"createdDate":"2026-01-20T00:00:00Z","comment":"Nice","email":"tester@example.com","deviceModel":"iPhone17,1","osVersion":"18.0","locale":"en-US","timeZone":"America/Los_Angeles","architecture":"arm64","connectionType":"WIFI","pairedAppleWatch":"Watch7,1","appUptimeInMilliseconds":1234,"diskBytesAvailable":2000,"diskBytesTotal":4000,"batteryPercentage":85,"screenWidthInPoints":430,"screenHeightInPoints":932,"appPlatform":"IOS","devicePlatform":"IOS","deviceFamily":"IPHONE","buildBundleId":"com.example.app","screenshots":[{"url":"https://example.com/shot.png","width":320,"height":640,"expirationDate":"2026-01-21T00:00:00Z"}]},"relationships":{"build":{"data":{"type":"builds","id":"build-1"}},"tester":{"data":{"type":"betaTesters","id":"tester-1"}}}}]}`)
 	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/123/betaFeedbackScreenshotSubmissions" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
 		values := req.URL.Query()
-		expected := "createdDate,comment,email,deviceModel,osVersion,appPlatform,devicePlatform,screenshots"
+		if len(values) != 1 {
+			t.Fatalf("expected only the feedback sparse fieldset, got %q", values.Encode())
+		}
+		expected := "createdDate,comment,email,deviceModel,osVersion,locale,timeZone,architecture,connectionType,pairedAppleWatch,appUptimeInMilliseconds,diskBytesAvailable,diskBytesTotal,batteryPercentage,screenWidthInPoints,screenHeightInPoints,appPlatform,devicePlatform,deviceFamily,buildBundleId,screenshots,build,tester"
 		if values.Get("fields[betaFeedbackScreenshotSubmissions]") != expected {
 			t.Fatalf("expected screenshot fields, got %q", values.Get("fields[betaFeedbackScreenshotSubmissions]"))
 		}
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetFeedback(context.Background(), "123", WithFeedbackIncludeScreenshots()); err != nil {
+	feedback, err := client.GetFeedback(context.Background(), "123", WithFeedbackIncludeScreenshots())
+	if err != nil {
 		t.Fatalf("GetFeedback() error: %v", err)
+	}
+	if len(feedback.Data) != 1 {
+		t.Fatalf("feedback count = %d, want 1", len(feedback.Data))
+	}
+	attributes := feedback.Data[0].Attributes
+	if attributes.Locale != "en-US" || attributes.TimeZone != "America/Los_Angeles" || attributes.Architecture != "arm64" {
+		t.Fatalf("environment attributes were not decoded: %+v", attributes)
+	}
+	if attributes.ConnectionType != DeviceConnectionType("WIFI") || attributes.PairedAppleWatch != "Watch7,1" {
+		t.Fatalf("device attributes were not decoded: %+v", attributes)
+	}
+	if attributes.AppUptimeInMilliseconds != 1234 || attributes.DiskBytesAvailable != 2000 || attributes.DiskBytesTotal != 4000 {
+		t.Fatalf("runtime attributes were not decoded: %+v", attributes)
+	}
+	if attributes.BatteryPercentage != 85 || attributes.ScreenWidthInPoints != 430 || attributes.ScreenHeightInPoints != 932 {
+		t.Fatalf("screen and battery attributes were not decoded: %+v", attributes)
+	}
+	if attributes.DeviceFamily != DeviceFamily("IPHONE") || attributes.BuildBundleID != "com.example.app" {
+		t.Fatalf("family and bundle attributes were not decoded: %+v", attributes)
+	}
+	if len(attributes.Screenshots) != 1 || attributes.Screenshots[0].URL != "https://example.com/shot.png" {
+		t.Fatalf("screenshots were not decoded: %+v", attributes.Screenshots)
+	}
+	var relationships map[string]struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(feedback.Data[0].Relationships, &relationships); err != nil {
+		t.Fatalf("failed to decode relationships: %v", err)
+	}
+	if relationships["build"].Data.ID != "build-1" || relationships["tester"].Data.ID != "tester-1" {
+		t.Fatalf("relationships were not preserved: %+v", relationships)
 	}
 }
 
