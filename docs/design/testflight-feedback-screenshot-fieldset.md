@@ -63,13 +63,15 @@ command regression tests.
 
 ## Behavior and compatibility
 
-JSON remains the default output; table and Markdown keep their existing
-conditional Screenshots column. Data stays on stdout, diagnostics stay on
-stderr, and existing success and usage exit codes are unchanged. The fix is
-backward-compatible and additive: it restores the 13 feedback attributes that
-the current eight-name sparse fieldset suppresses while preserving screenshots
-and requested relationships. No lifecycle, migration, or deprecation change is
-required.
+Output selection remains TTY-aware: explicit `--output` wins,
+`ASC_DEFAULT_OUTPUT` otherwise pins the default, and without either setting
+interactive terminals use table while pipes and CI use minified JSON. Table and
+Markdown keep their existing conditional Screenshots column. Data stays on
+stdout, diagnostics stay on stderr, and existing success and usage exit codes
+are unchanged. The fix is backward-compatible and additive: it restores the 13
+feedback attributes that the current eight-name sparse fieldset suppresses
+while preserving screenshots and requested relationships. No lifecycle,
+migration, or deprecation change is required.
 
 ## Verification
 
