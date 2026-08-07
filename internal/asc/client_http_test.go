@@ -7570,6 +7570,13 @@ func TestCreateBundleIDCapability_SendsRequest(t *testing.T) {
 		if payload.Data.Attributes.CapabilityType != "ICLOUD" {
 			t.Fatalf("expected capability ICLOUD, got %q", payload.Data.Attributes.CapabilityType)
 		}
+		if len(payload.Data.Attributes.Settings) != 1 || payload.Data.Attributes.Settings[0].Key != "ICLOUD_VERSION" {
+			t.Fatalf("expected ICLOUD_VERSION setting, got %+v", payload.Data.Attributes.Settings)
+		}
+		options := payload.Data.Attributes.Settings[0].Options
+		if len(options) != 1 || options[0].Key != "XCODE_6" || options[0].Enabled == nil || !*options[0].Enabled {
+			t.Fatalf("expected enabled XCODE_6 option, got %+v", options)
+		}
 		if payload.Data.Relationships == nil || payload.Data.Relationships.BundleID == nil {
 			t.Fatalf("expected bundleId relationship")
 		}
@@ -7586,7 +7593,7 @@ func TestCreateBundleIDCapability_SendsRequest(t *testing.T) {
 			{
 				Key: "ICLOUD_VERSION",
 				Options: []CapabilityOption{
-					{Key: "XCODE_13", Enabled: &enabled},
+					{Key: "XCODE_6", Enabled: &enabled},
 				},
 			},
 		},
@@ -7614,7 +7621,7 @@ func TestDeleteBundleIDCapability_SendsRequest(t *testing.T) {
 }
 
 func TestUpdateBundleIDCapability_UsesPatchPath(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"ICLOUD","settings":[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]}}}`)
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"bundleIdCapabilities","id":"cap1","attributes":{"capabilityType":"ICLOUD","settings":[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodPatch {
 			t.Fatalf("expected PATCH, got %s", req.Method)
@@ -7648,8 +7655,8 @@ func TestUpdateBundleIDCapability_UsesPatchPath(t *testing.T) {
 		if len(payload.Data.Attributes.Settings[0].Options) != 1 {
 			t.Fatalf("expected 1 option, got %d", len(payload.Data.Attributes.Settings[0].Options))
 		}
-		if payload.Data.Attributes.Settings[0].Options[0].Key != "XCODE_13" {
-			t.Fatalf("expected option key XCODE_13, got %q", payload.Data.Attributes.Settings[0].Options[0].Key)
+		if payload.Data.Attributes.Settings[0].Options[0].Key != "XCODE_6" {
+			t.Fatalf("expected option key XCODE_6, got %q", payload.Data.Attributes.Settings[0].Options[0].Key)
 		}
 		if payload.Data.Attributes.Settings[0].Options[0].Enabled == nil || !*payload.Data.Attributes.Settings[0].Options[0].Enabled {
 			t.Fatalf("expected option enabled true")
@@ -7663,7 +7670,7 @@ func TestUpdateBundleIDCapability_UsesPatchPath(t *testing.T) {
 			{
 				Key: "ICLOUD_VERSION",
 				Options: []CapabilityOption{
-					{Key: "XCODE_13", Enabled: &enabled},
+					{Key: "XCODE_6", Enabled: &enabled},
 				},
 			},
 		},
