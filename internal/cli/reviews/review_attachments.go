@@ -18,7 +18,7 @@ import (
 func ReviewDetailsAttachmentsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("attachments-list", flag.ExitOnError)
 
-	reviewDetailID := fs.String("review-detail", "", "App Store review detail ID (required)")
+	reviewDetailID := fs.String("review-detail", "", "App Store review detail ID (required unless --next is provided)")
 	fields := fs.String("fields", "", "Fields to include: "+strings.Join(reviewAttachmentFieldList(), ", "))
 	detailFields := fs.String("detail-fields", "", "Review detail fields to include: "+strings.Join(reviewDetailFieldList(), ", "))
 	include := fs.String("include", "", "Include relationships: "+strings.Join(reviewAttachmentIncludeList(), ", "))

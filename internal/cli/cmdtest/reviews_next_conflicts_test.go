@@ -115,6 +115,14 @@ func TestReviewContinuationsRejectServerQueryFlagsBeforeAuth(t *testing.T) {
 	}
 }
 
+func TestReviewAttachmentsListHelpDocumentsNextAlternative(t *testing.T) {
+	cmd := findCommandByPath(t, "review", "attachments-list")
+	usage := cmd.FlagSet.Lookup("review-detail").Usage
+	if !strings.Contains(usage, "unless --next") {
+		t.Fatalf("--review-detail usage = %q, want --next alternative", usage)
+	}
+}
+
 func TestReviewsSummarizationsPaginationFollowsNextWithoutInitialSelectors(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
