@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	appclipscli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/appclips"
 )
@@ -92,26 +93,71 @@ func TestAppClipsAdvancedExperiencesCreateSupportsMultipleInlineLocalizations(t 
 	}
 }
 
-func TestAppClipsAdvancedExperiencesCreateRejectsUnknownInlineLocalizationFields(t *testing.T) {
-	root := RootCommand("1.2.3")
-	if err := root.Parse([]string{
-		"app-clips", "advanced-experiences", "create",
-		"--app-clip-id", "clip-1",
-		"--link", "https://example.com",
-		"--default-language", "EN",
-		"--is-powered-by",
-		"--header-image-id", "img-1",
-		"--inline-localization", `{"locale":"en-US","title":"Order ahead"}`,
-	}); err != nil {
-		t.Fatalf("parse error: %v", err)
+func TestAppClipsAdvancedExperiencesCreateRejectsInvalidInlineLocalizationsAsUsage(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "unknown JSON field",
+			args:    []string{"--inline-localization", `{"locale":"en-US","title":"Order ahead"}`},
+			wantErr: `unknown field "locale"`,
+		},
+		{
+			name:    "multiple JSON objects",
+			args:    []string{"--inline-localization", `{"language":"EN","title":"Order ahead"}{"language":"FR","title":"Commander"}`},
+			wantErr: "must contain exactly one JSON object",
+		},
+		{
+			name:    "missing JSON language",
+			args:    []string{"--inline-localization", `{"title":"Order ahead"}`},
+			wantErr: "language is required",
+		},
+		{
+			name:    "unsupported JSON language",
+			args:    []string{"--inline-localization", `{"language":"en-US","title":"Order ahead"}`},
+			wantErr: `invalid default language "en-US"`,
+		},
+		{
+			name:    "missing JSON title",
+			args:    []string{"--inline-localization", `{"language":"EN"}`},
+			wantErr: "title is required",
+		},
+		{
+			name:    "unsupported singular language",
+			args:    []string{"--language", "en-US", "--title", "Order ahead"},
+			wantErr: `invalid default language "en-US"`,
+		},
 	}
 
-	var runErr error
-	_, _ = captureOutput(t, func() {
-		runErr = root.Run(context.Background())
-	})
-	if runErr == nil || !strings.Contains(runErr.Error(), `unknown field "locale"`) {
-		t.Fatalf("expected unknown inline localization field error, got %v", runErr)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := []string{
+				"app-clips", "advanced-experiences", "create",
+				"--app-clip-id", "clip-1",
+				"--link", "https://example.com",
+				"--default-language", "EN",
+				"--is-powered-by",
+				"--header-image-id", "img-1",
+			}
+			args = append(args, test.args...)
+
+			var code int
+			stdout, stderr := captureOutput(t, func() {
+				code = rootcmd.Run(args, "1.2.3")
+			})
+
+			if code != rootcmd.ExitUsage {
+				t.Fatalf("expected exit code %d, got %d", rootcmd.ExitUsage, code)
+			}
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected stderr to contain %q, got %q", test.wantErr, stderr)
+			}
+		})
 	}
 }
 
