@@ -63,20 +63,17 @@ Create a new in-app event.
 ```bash  theme={null}
 asc app-events create \
   --app "APP_ID" \
-  --name "Summer Challenge" \
-  --event-type CHALLENGE \
-  --start "2026-06-01T00:00:00Z" \
-  --end "2026-06-30T23:59:59Z"
+  --name "Summer Challenge"
 ```
 
 **Required Flags:**
 
 * `--app` - App ID (or `ASC_APP_ID` env)
 * `--name` - Reference name (internal identifier)
-* `--event-type` - Event badge type (see [Event Types](#event-types))
 
 **Optional Flags:**
 
+* `--event-type` - Event badge type (see [Event Types](#event-types))
 * `--start` - Event start time (RFC3339 format)
 * `--end` - Event end time (RFC3339 format)
 * `--publish-start` - Publish start time (when event appears on App Store)
