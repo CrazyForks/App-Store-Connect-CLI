@@ -50,29 +50,42 @@ func TestEmitQueuesEventAndSwallowsWorkerStartErrors(t *testing.T) {
 	}
 }
 
-func TestEmitDoesNotWaitForBlockedSender(t *testing.T) {
+func TestEmitQueuesEventWithoutForegroundHTTPDelivery(t *testing.T) {
 	clearContextEnv(t)
 	setTelemetryTestHome(t)
 	t.Setenv("ASC_TELEMETRY_DISABLED", "")
 	t.Setenv("DO_NOT_TRACK", "")
 	t.Setenv(endpointEnvVar, "https://telemetry.example.test/events")
 
+	transportCalls := 0
 	originalClient := http.DefaultClient
 	http.DefaultClient = &http.Client{
-		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-			<-request.Context().Done()
-			return nil, request.Context().Err()
+		Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			transportCalls++
+			return nil, errors.New("unexpected foreground telemetry request")
 		}),
 	}
 	t.Cleanup(func() { http.DefaultClient = originalClient })
-	stubMaintenanceWorkerStart(t, func() error { return nil })
+	workerStarted := false
+	stubMaintenanceWorkerStart(t, func() error {
+		workerStarted = true
+		return nil
+	})
 
-	start := time.Now()
 	Emit("asc builds list", "1.2.3", time.Millisecond, 0)
-	elapsed := time.Since(start)
 
-	if elapsed >= 150*time.Millisecond {
-		t.Fatalf("Emit() elapsed = %s, want foreground return before blocked network deadline", elapsed)
+	if transportCalls != 0 {
+		t.Fatalf("foreground HTTP transport calls = %d, want 0", transportCalls)
+	}
+	if !workerStarted {
+		t.Fatal("expected maintenance worker start")
+	}
+	records := readDefaultSpool(t)
+	if len(records) != 1 {
+		t.Fatalf("spool records = %d, want 1", len(records))
+	}
+	if got := records[0].Endpoint; got != "https://telemetry.example.test/events" {
+		t.Fatalf("spooled endpoint = %q, want endpoint override", got)
 	}
 }
 
