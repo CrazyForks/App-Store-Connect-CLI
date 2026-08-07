@@ -172,6 +172,11 @@ func TestParseSubscriptionPromotionalOfferPricesAutoDetectsLegacyAndInlineInputs
 			wantErr: "must not mix",
 		},
 		{
+			name:    "compound and invalid territory-only price",
+			value:   "US:pp-1,Atlantis",
+			wantErr: "Atlantis",
+		},
+		{
 			name:    "mixed legacy and compound prices",
 			value:   "price-2,US:pp-1",
 			wantErr: "must not mix",

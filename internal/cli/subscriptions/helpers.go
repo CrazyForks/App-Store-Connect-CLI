@@ -288,7 +288,7 @@ func parseSubscriptionPromotionalOfferInlinePrices(value string) ([]asc.Subscrip
 		if compoundEnd == len(parts) {
 			territoryIDs, err := shared.NormalizeASCTerritoryCSV(strings.Join(parts[start:], ","))
 			if err != nil {
-				return nil, fmt.Errorf("--prices must not mix existing price IDs with TERRITORY:PRICE_POINT_ID entries")
+				return nil, fmt.Errorf("--prices must not mix existing price IDs with TERRITORY:PRICE_POINT_ID entries: %w", err)
 			}
 			for _, territoryID := range territoryIDs {
 				prices = append(prices, asc.SubscriptionPromotionalOfferPrice{TerritoryID: territoryID})
