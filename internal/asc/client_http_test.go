@@ -5392,7 +5392,20 @@ func TestGetCiProducts_WithAppFilterAndLimit(t *testing.T) {
 }
 
 func TestGetCiProduct(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"ciProducts","id":"prod-1"}}`)
+	response := jsonResponse(http.StatusOK, `{
+		"data": {
+			"type": "ciProducts",
+			"id": "prod-1",
+			"relationships": {
+				"app": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciProducts/prod-1/app"}, "data": {"type": "apps", "id": "app-1"}},
+				"bundleId": {"data": {"type": "bundleIds", "id": "bundle-id-1"}},
+				"workflows": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciProducts/prod-1/workflows"}},
+				"primaryRepositories": {"data": [{"type": "scmRepositories", "id": "repo-1"}]},
+				"additionalRepositories": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciProducts/prod-1/additionalRepositories"}},
+				"buildRuns": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciProducts/prod-1/buildRuns"}}
+			}
+		}
+	}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -5403,8 +5416,28 @@ func TestGetCiProduct(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetCiProduct(context.Background(), "prod-1"); err != nil {
+	got, err := client.GetCiProduct(context.Background(), "prod-1")
+	if err != nil {
 		t.Fatalf("GetCiProduct() error: %v", err)
+	}
+	relationships := got.Data.Relationships
+	if relationships == nil || relationships.App == nil || relationships.App.Data == nil || relationships.App.Data.ID != "app-1" || relationships.App.Links == nil || relationships.App.Links.Related == "" {
+		t.Fatalf("unexpected app relationship: %#v", relationships)
+	}
+	if relationships.BundleID == nil || relationships.BundleID.Data.ID != "bundle-id-1" {
+		t.Fatalf("unexpected bundle ID relationship: %#v", relationships)
+	}
+	if relationships.Workflows == nil || relationships.Workflows.Links == nil || relationships.Workflows.Links.Related == "" {
+		t.Fatalf("unexpected workflows relationship: %#v", relationships)
+	}
+	if relationships.PrimaryRepositories == nil || len(relationships.PrimaryRepositories.Data) != 1 {
+		t.Fatalf("unexpected primary repositories relationship: %#v", relationships)
+	}
+	if relationships.AdditionalRepositories == nil || relationships.AdditionalRepositories.Links == nil || relationships.AdditionalRepositories.Links.Related == "" {
+		t.Fatalf("unexpected additional repositories relationship: %#v", relationships)
+	}
+	if relationships.BuildRuns == nil || relationships.BuildRuns.Links == nil || relationships.BuildRuns.Links.Related == "" {
+		t.Fatalf("unexpected build runs relationship: %#v", relationships)
 	}
 }
 
@@ -5511,6 +5544,16 @@ func TestGetCiWorkflow(t *testing.T) {
 			"type": "ciWorkflows",
 			"id": "wf-1",
 			"attributes": {
+				"branchStartCondition": {
+					"filesAndFoldersRule": {
+						"mode": "START_IF_ANY_FILE_MATCHES",
+						"matchers": [{"directory": "Sources", "fileExtension": "swift", "fileName": "App.swift"}]
+					}
+				},
+				"manualPullRequestStartCondition": {
+					"source": {"patterns": [{"pattern": "feature/", "isPrefix": true}]},
+					"destination": {"patterns": [{"pattern": "main", "isPrefix": false}]}
+				},
 				"actions": [{
 					"name": "Archive - iOS",
 					"actionType": "ARCHIVE",
@@ -5554,6 +5597,14 @@ func TestGetCiWorkflow(t *testing.T) {
 	if len(got.Data.Attributes.Actions) != 1 || got.Data.Attributes.Actions[0].Scheme != "Example" {
 		t.Fatalf("unexpected actions: %#v", got.Data.Attributes.Actions)
 	}
+	matchers := got.Data.Attributes.BranchStartCondition.FilesAndFoldersRule.Matchers
+	if len(matchers) != 1 || matchers[0].Directory != "Sources" || matchers[0].FileExtension != "swift" || matchers[0].FileName != "App.swift" {
+		t.Fatalf("unexpected file matchers: %#v", matchers)
+	}
+	manualPullRequest := got.Data.Attributes.ManualPullRequestStartCondition
+	if manualPullRequest == nil || manualPullRequest.Destination == nil || len(manualPullRequest.Destination.Patterns) != 1 || manualPullRequest.Destination.Patterns[0].Pattern != "main" {
+		t.Fatalf("unexpected manual pull request condition: %#v", manualPullRequest)
+	}
 	if got.Data.Relationships == nil || got.Data.Relationships.Repository == nil {
 		t.Fatal("expected repository relationship")
 	}
@@ -5590,10 +5641,39 @@ func TestCreateCiWorkflow(t *testing.T) {
 		if !ok || data["type"] != "ciWorkflows" {
 			t.Fatalf("expected data.type=ciWorkflows")
 		}
+		attributes, ok := data["attributes"].(map[string]any)
+		if !ok || attributes["name"] != "CI" || attributes["description"] != "Build and test" || attributes["containerFilePath"] != "App.xcodeproj" || attributes["isEnabled"] != true || attributes["clean"] != true {
+			t.Fatalf("unexpected workflow attributes: %#v", data["attributes"])
+		}
+		if actions, ok := attributes["actions"].([]any); !ok || len(actions) != 0 {
+			t.Fatalf("unexpected workflow actions: %#v", attributes["actions"])
+		}
+		relationships, ok := data["relationships"].(map[string]any)
+		if !ok || len(relationships) != 4 {
+			t.Fatalf("unexpected workflow relationships: %#v", data["relationships"])
+		}
 		assertAuthorized(t, req)
 	}, response)
 
-	body := json.RawMessage(`{"data":{"type":"ciWorkflows"}}`)
+	body := json.RawMessage(`{
+		"data": {
+			"type": "ciWorkflows",
+			"attributes": {
+				"name": "CI",
+				"description": "Build and test",
+				"containerFilePath": "App.xcodeproj",
+				"isEnabled": true,
+				"clean": true,
+				"actions": []
+			},
+			"relationships": {
+				"product": {"data": {"type": "ciProducts", "id": "prod-1"}},
+				"repository": {"data": {"type": "scmRepositories", "id": "repo-1"}},
+				"xcodeVersion": {"data": {"type": "ciXcodeVersions", "id": "xcode-1"}},
+				"macOsVersion": {"data": {"type": "ciMacOsVersions", "id": "macos-1"}}
+			}
+		}
+	}`)
 	if _, err := client.CreateCiWorkflow(context.Background(), body); err != nil {
 		t.Fatalf("CreateCiWorkflow() error: %v", err)
 	}
@@ -5894,7 +5974,22 @@ func TestGetCiBuildRuns_WithSort(t *testing.T) {
 }
 
 func TestGetCiBuildRun(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"ciBuildRuns","id":"run-1","attributes":{"number":1}}}`)
+	response := jsonResponse(http.StatusOK, `{
+		"data": {
+			"type": "ciBuildRuns",
+			"id": "run-1",
+			"attributes": {"number": 1},
+			"relationships": {
+				"builds": {"data": [{"type": "builds", "id": "build-1"}]},
+				"workflow": {"data": {"type": "ciWorkflows", "id": "wf-1"}},
+				"product": {"data": {"type": "ciProducts", "id": "prod-1"}},
+				"sourceBranchOrTag": {"data": {"type": "scmGitReferences", "id": "source-ref-1"}},
+				"destinationBranch": {"data": {"type": "scmGitReferences", "id": "destination-ref-1"}},
+				"actions": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciBuildRuns/run-1/actions"}},
+				"pullRequest": {"data": {"type": "scmPullRequests", "id": "pr-1"}}
+			}
+		}
+	}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -5905,8 +6000,22 @@ func TestGetCiBuildRun(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetCiBuildRun(context.Background(), "run-1"); err != nil {
+	got, err := client.GetCiBuildRun(context.Background(), "run-1")
+	if err != nil {
 		t.Fatalf("GetCiBuildRun() error: %v", err)
+	}
+	relationships := got.Data.Relationships
+	if relationships == nil || relationships.Builds == nil || len(relationships.Builds.Data) != 1 {
+		t.Fatalf("unexpected builds relationship: %#v", relationships)
+	}
+	if relationships.Workflow == nil || relationships.Workflow.Data.ID != "wf-1" || relationships.Product == nil || relationships.Product.Data.ID != "prod-1" {
+		t.Fatalf("unexpected workflow/product relationships: %#v", relationships)
+	}
+	if relationships.SourceBranchOrTag == nil || relationships.SourceBranchOrTag.Data.ID != "source-ref-1" || relationships.DestinationBranch == nil || relationships.DestinationBranch.Data.ID != "destination-ref-1" {
+		t.Fatalf("unexpected source/destination relationships: %#v", relationships)
+	}
+	if relationships.Actions == nil || relationships.Actions.Links == nil || relationships.Actions.Links.Related == "" || relationships.PullRequest == nil || relationships.PullRequest.Data.ID != "pr-1" {
+		t.Fatalf("unexpected actions/pull request relationships: %#v", relationships)
 	}
 }
 
@@ -6128,7 +6237,19 @@ func TestCreateCiBuildRun_WithSourceBuildRunOnly(t *testing.T) {
 }
 
 func TestGetCiBuildAction(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"ciBuildActions","id":"action-1"}}`)
+	response := jsonResponse(http.StatusOK, `{
+		"data": {
+			"type": "ciBuildActions",
+			"id": "action-1",
+			"attributes": {"name": "Archive", "isRequiredToPass": false},
+			"relationships": {
+				"buildRun": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciBuildActions/action-1/buildRun"}, "data": {"type": "ciBuildRuns", "id": "run-1"}},
+				"artifacts": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciBuildActions/action-1/artifacts"}},
+				"issues": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciBuildActions/action-1/issues"}},
+				"testResults": {"links": {"related": "https://api.appstoreconnect.apple.com/v1/ciBuildActions/action-1/testResults"}}
+			}
+		}
+	}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -6139,8 +6260,26 @@ func TestGetCiBuildAction(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetCiBuildAction(context.Background(), "action-1"); err != nil {
+	got, err := client.GetCiBuildAction(context.Background(), "action-1")
+	if err != nil {
 		t.Fatalf("GetCiBuildAction() error: %v", err)
+	}
+	if got.Data.Attributes.IsRequiredToPass == nil || *got.Data.Attributes.IsRequiredToPass {
+		t.Fatalf("expected explicit false isRequiredToPass, got %#v", got.Data.Attributes.IsRequiredToPass)
+	}
+	relationships := got.Data.Relationships
+	if relationships == nil || relationships.BuildRun == nil || relationships.BuildRun.Data == nil || relationships.BuildRun.Data.ID != "run-1" || relationships.BuildRun.Links == nil || relationships.BuildRun.Links.Related == "" {
+		t.Fatalf("unexpected build run relationship: %#v", relationships)
+	}
+	if relationships.Artifacts == nil || relationships.Artifacts.Links == nil || relationships.Artifacts.Links.Related == "" || relationships.Issues == nil || relationships.Issues.Links == nil || relationships.Issues.Links.Related == "" || relationships.TestResults == nil || relationships.TestResults.Links == nil || relationships.TestResults.Links.Related == "" {
+		t.Fatalf("unexpected action resource relationships: %#v", relationships)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("json.Marshal() error: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"isRequiredToPass":false`) {
+		t.Fatalf("action response lost explicit false isRequiredToPass: %s", encoded)
 	}
 }
 
