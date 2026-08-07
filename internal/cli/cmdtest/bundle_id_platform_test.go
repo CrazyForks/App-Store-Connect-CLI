@@ -7,29 +7,63 @@ import (
 	"flag"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
+
+func setBundleIDPlatformTestServer(t *testing.T, handler http.HandlerFunc) {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	})
+	client, err := asc.NewClientWithHTTPClient(
+		os.Getenv("ASC_KEY_ID"),
+		os.Getenv("ASC_ISSUER_ID"),
+		os.Getenv("ASC_PRIVATE_KEY_PATH"),
+		&http.Client{Transport: transport},
+	)
+	if err != nil {
+		t.Fatalf("create Bundle ID platform test client: %v", err)
+	}
+	restoreClient := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return client, nil
+	})
+	t.Cleanup(restoreClient)
+}
 
 func TestDevicesListUsesBundleIDPlatformFilter(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	requestCount := 0
+	setBundleIDPlatformTestServer(t, func(w http.ResponseWriter, req *http.Request) {
+		requestCount++
 		if req.Method != http.MethodGet || req.URL.Path != "/v1/devices" {
 			t.Fatalf("expected GET /v1/devices, got %s %s", req.Method, req.URL.Path)
 		}
 		if got := req.URL.Query().Get("filter[platform]"); got != "UNIVERSAL" {
 			t.Fatalf("filter[platform] = %q, want UNIVERSAL", got)
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"data":[],"links":{"self":"https://api.appstoreconnect.apple.com/v1/devices"}}`)),
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-		}, nil
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[],"links":{"self":"https://api.appstoreconnect.apple.com/v1/devices"}}`)
 	})
 
 	root := RootCommand("1.2.3")
@@ -40,15 +74,18 @@ func TestDevicesListUsesBundleIDPlatformFilter(t *testing.T) {
 	if err := root.Run(context.Background()); err != nil {
 		t.Fatalf("run error: %v", err)
 	}
+	if requestCount != 1 {
+		t.Fatalf("request count = %d, want 1", requestCount)
+	}
 }
 
 func TestBundleIDsCreateUsesBundleIDPlatformPayload(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	requestCount := 0
+	setBundleIDPlatformTestServer(t, func(w http.ResponseWriter, req *http.Request) {
+		requestCount++
 		if req.Method != http.MethodPost || req.URL.Path != "/v1/bundleIds" {
 			t.Fatalf("expected POST /v1/bundleIds, got %s %s", req.Method, req.URL.Path)
 		}
@@ -68,11 +105,9 @@ func TestBundleIDsCreateUsesBundleIDPlatformPayload(t *testing.T) {
 		if payload.Data.Type != "bundleIds" || payload.Data.Attributes.Identifier != "com.example.universal" || payload.Data.Attributes.Name != "Universal" || payload.Data.Attributes.Platform != "UNIVERSAL" {
 			t.Fatalf("unexpected payload: %+v", payload.Data)
 		}
-		return &http.Response{
-			StatusCode: http.StatusCreated,
-			Body:       io.NopCloser(strings.NewReader(`{"data":{"type":"bundleIds","id":"bundle-1","attributes":{"identifier":"com.example.universal","name":"Universal","platform":"UNIVERSAL"}}}`)),
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-		}, nil
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"data":{"type":"bundleIds","id":"bundle-1","attributes":{"identifier":"com.example.universal","name":"Universal","platform":"UNIVERSAL"}}}`)
 	})
 
 	root := RootCommand("1.2.3")
@@ -82,6 +117,9 @@ func TestBundleIDsCreateUsesBundleIDPlatformPayload(t *testing.T) {
 	}
 	if err := root.Run(context.Background()); err != nil {
 		t.Fatalf("run error: %v", err)
+	}
+	if requestCount != 1 {
+		t.Fatalf("request count = %d, want 1", requestCount)
 	}
 }
 
