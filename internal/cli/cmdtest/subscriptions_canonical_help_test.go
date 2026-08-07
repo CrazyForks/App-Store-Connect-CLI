@@ -133,6 +133,22 @@ func TestSubscriptionsHelpShowsCanonicalCommerceSubcommands(t *testing.T) {
 		}
 	}
 
+	introductoryViewCmd := findSubcommand(root, "subscriptions", "offers", "introductory", "view")
+	if introductoryViewCmd == nil {
+		t.Fatal("expected subscriptions offers introductory view command")
+		return
+	}
+	introductoryViewUsage := introductoryViewCmd.UsageFunc(introductoryViewCmd)
+	if !strings.Contains(introductoryViewUsage, `asc subscriptions offers introductory view --subscription-id "SUB_ID" --id "OFFER_ID"`) {
+		t.Fatalf("expected introductory offer view help to require the parent subscription, got %q", introductoryViewUsage)
+	}
+	if !strings.Contains(introductoryViewUsage, "--app") {
+		t.Fatalf("expected introductory offer view help to document subscription resolution, got %q", introductoryViewUsage)
+	}
+	if strings.Contains(introductoryViewUsage, `asc subscriptions offers introductory view --id "OFFER_ID"`) {
+		t.Fatalf("expected introductory offer view help to drop the unsupported id-only invocation, got %q", introductoryViewUsage)
+	}
+
 	offerCodesCmd := findSubcommand(root, "subscriptions", "offers", "offer-codes")
 	if offerCodesCmd == nil {
 		t.Fatal("expected subscriptions offers offer-codes command")

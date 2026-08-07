@@ -573,23 +573,6 @@ func TestDeleteSubscriptionImage(t *testing.T) {
 	}
 }
 
-func TestGetSubscriptionIntroductoryOffer(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":{"type":"subscriptionIntroductoryOffers","id":"offer-1","attributes":{"duration":"ONE_MONTH","numberOfPeriods":1,"offerMode":"FREE_TRIAL"}}}`)
-	client := newTestClient(t, func(req *http.Request) {
-		if req.Method != http.MethodGet {
-			t.Fatalf("expected GET, got %s", req.Method)
-		}
-		if req.URL.Path != "/v1/subscriptionIntroductoryOffers/offer-1" {
-			t.Fatalf("expected path /v1/subscriptionIntroductoryOffers/offer-1, got %s", req.URL.Path)
-		}
-		assertAuthorized(t, req)
-	}, response)
-
-	if _, err := client.GetSubscriptionIntroductoryOffer(context.Background(), "offer-1"); err != nil {
-		t.Fatalf("GetSubscriptionIntroductoryOffer() error: %v", err)
-	}
-}
-
 func TestCreateSubscriptionIntroductoryOffer(t *testing.T) {
 	response := jsonResponse(http.StatusCreated, `{"data":{"type":"subscriptionIntroductoryOffers","id":"offer-1","attributes":{"duration":"ONE_MONTH","numberOfPeriods":1,"offerMode":"FREE_TRIAL"}}}`)
 	client := newTestClient(t, func(req *http.Request) {
