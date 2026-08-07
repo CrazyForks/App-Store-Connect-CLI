@@ -133,7 +133,7 @@ func TestBuildFeedbackQuery_IncludesScreenshots(t *testing.T) {
 		t.Fatalf("failed to parse query: %v", err)
 	}
 
-	expected := "createdDate,comment,email,deviceModel,osVersion,appPlatform,devicePlatform,screenshots"
+	expected := "createdDate,comment,email,deviceModel,osVersion,locale,timeZone,architecture,connectionType,pairedAppleWatch,appUptimeInMilliseconds,diskBytesAvailable,diskBytesTotal,batteryPercentage,screenWidthInPoints,screenHeightInPoints,appPlatform,devicePlatform,deviceFamily,buildBundleId,screenshots,build,tester"
 	if got := values.Get("fields[betaFeedbackScreenshotSubmissions]"); got != expected {
 		t.Fatalf("expected fields to be %q, got %q", expected, got)
 	}
