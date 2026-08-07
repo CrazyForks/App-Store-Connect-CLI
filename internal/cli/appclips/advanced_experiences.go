@@ -2,8 +2,10 @@ package appclips
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -12,6 +14,45 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
+
+type inlineLocalizationFlag []string
+
+func (f *inlineLocalizationFlag) String() string {
+	return strings.Join(*f, ",")
+}
+
+func (f *inlineLocalizationFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
+func parseInlineLocalizations(values []string) ([]asc.AppClipAdvancedExperienceLocalizationCreateAttributes, error) {
+	localizations := make([]asc.AppClipAdvancedExperienceLocalizationCreateAttributes, 0, len(values))
+	for i, value := range values {
+		var localization asc.AppClipAdvancedExperienceLocalizationCreateAttributes
+		decoder := json.NewDecoder(strings.NewReader(value))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&localization); err != nil {
+			return nil, fmt.Errorf("--inline-localization %d must be a JSON object with language, title, and optional subtitle: %w", i+1, err)
+		}
+		if err := decoder.Decode(&struct{}{}); err != io.EOF {
+			return nil, fmt.Errorf("--inline-localization %d must contain exactly one JSON object", i+1)
+		}
+
+		language, err := normalizeAppClipLanguage(string(localization.Language))
+		if err != nil {
+			return nil, fmt.Errorf("--inline-localization %d: %w", i+1, err)
+		}
+		localization.Language = language
+		localization.Title = strings.TrimSpace(localization.Title)
+		localization.Subtitle = strings.TrimSpace(localization.Subtitle)
+		if localization.Title == "" {
+			return nil, fmt.Errorf("--inline-localization %d: title is required", i+1)
+		}
+		localizations = append(localizations, localization)
+	}
+	return localizations, nil
+}
 
 // AppClipAdvancedExperiencesCommand returns the advanced experiences command group.
 func AppClipAdvancedExperiencesCommand() *ffcli.Command {
@@ -192,6 +233,8 @@ func AppClipAdvancedExperiencesCreateCommand() *ffcli.Command {
 	category := fs.String("category", "", "Business category")
 	headerImageID := fs.String("header-image-id", "", "Header image ID")
 	localizationIDs := fs.String("localization-id", "", "Existing localization ID(s), comma-separated")
+	var inlineLocalizationJSON inlineLocalizationFlag
+	fs.Var(&inlineLocalizationJSON, "inline-localization", "Inline localization as JSON with language, title, and optional subtitle (repeatable)")
 	language := fs.String("language", "", "Inline localization language (use with --title)")
 	title := fs.String("title", "", "Inline localization title (use with --language)")
 	subtitle := fs.String("subtitle", "", "Inline localization subtitle (optional; requires --language and --title)")
@@ -199,16 +242,17 @@ func AppClipAdvancedExperiencesCreateCommand() *ffcli.Command {
 
 	return &ffcli.Command{
 		Name:       "create",
-		ShortUsage: "asc app-clips advanced-experiences create --app-clip-id \"CLIP_ID\" --link \"https://example.com\" --default-language EN --is-powered-by --header-image-id \"IMAGE_ID\" (--localization-id \"LOCALIZATION_ID\" | --language EN --title \"TITLE\") [flags]",
+		ShortUsage: "asc app-clips advanced-experiences create --app-clip-id \"CLIP_ID\" --link \"https://example.com\" --default-language EN --is-powered-by --header-image-id \"IMAGE_ID\" (--localization-id \"LOCALIZATION_ID\" | --language EN --title \"TITLE\" | --inline-localization JSON) [flags]",
 		ShortHelp:  "Create an advanced experience.",
 		LongHelp: `Create an advanced experience.
 
 Upload the header image first with ` + "`asc app-clips advanced-experiences images create --file path/to/image.png`" + `.
-Provide either existing localization IDs with ` + "`--localization-id`" + ` or an inline localization with ` + "`--language`" + ` and ` + "`--title`" + `.
+Provide existing localization IDs with ` + "`--localization-id`" + `, one inline localization with ` + "`--language`" + ` and ` + "`--title`" + `, or repeat ` + "`--inline-localization`" + ` for multiple JSON localizations. These inputs may be combined.
 
 Examples:
   asc app-clips advanced-experiences create --app-clip-id "CLIP_ID" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --localization-id "LOCALIZATION_ID"
-  asc app-clips advanced-experiences create --app "APP_ID" --bundle-id "com.example.clip" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --language EN --title "Order ahead" --subtitle "Ready when you arrive"`,
+  asc app-clips advanced-experiences create --app "APP_ID" --bundle-id "com.example.clip" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --language EN --title "Order ahead" --subtitle "Ready when you arrive"
+  asc app-clips advanced-experiences create --app-clip-id "CLIP_ID" --link "https://example.com" --default-language EN --is-powered-by --header-image-id "IMAGE_ID" --inline-localization '{"language":"EN","title":"Order ahead"}' --inline-localization '{"language":"FR","title":"Commander"}'`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -260,7 +304,10 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
-			inlineLocalizations := make([]asc.AppClipAdvancedExperienceLocalizationCreateAttributes, 0, 1)
+			inlineLocalizations, err := parseInlineLocalizations(inlineLocalizationJSON)
+			if err != nil {
+				return fmt.Errorf("app-clips advanced-experiences create: %w", err)
+			}
 			if languageValue != "" && titleValue != "" {
 				parsedLanguage, err := normalizeAppClipLanguage(languageValue)
 				if err != nil {
@@ -273,7 +320,7 @@ Examples:
 				})
 			}
 			if len(localizationValues) == 0 && len(inlineLocalizations) == 0 {
-				fmt.Fprintln(os.Stderr, "Error: provide --localization-id or both --language and --title")
+				fmt.Fprintln(os.Stderr, "Error: provide --localization-id, --inline-localization, or both --language and --title")
 				return shared.MissingRequiredUsageError()
 			}
 

@@ -4716,7 +4716,7 @@ func TestAppClipsValidationErrors(t *testing.T) {
 		{
 			name:    "advanced experiences create missing localizations",
 			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--header-image-id", "IMAGE_ID", "--localization-id", " , "},
-			wantErr: "Error: provide --localization-id or both --language and --title",
+			wantErr: "Error: provide --localization-id, --inline-localization, or both --language and --title",
 		},
 		{
 			name:    "advanced experiences create missing inline language",

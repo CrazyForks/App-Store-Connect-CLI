@@ -19,7 +19,7 @@ import (
 	appclipscli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/appclips"
 )
 
-func TestAppClipsAdvancedExperiencesCreateSupportsInlineLocalization(t *testing.T) {
+func TestAppClipsAdvancedExperiencesCreateSupportsMultipleInlineLocalizations(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/appClipAdvancedExperiences" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -35,15 +35,23 @@ func TestAppClipsAdvancedExperiencesCreateSupportsInlineLocalization(t *testing.
 		if payload.Data.Relationships.HeaderImage.Data.ID != "img-1" {
 			t.Fatalf("expected header image id img-1, got %s", payload.Data.Relationships.HeaderImage.Data.ID)
 		}
-		if len(payload.Data.Relationships.Localizations.Data) != 1 || payload.Data.Relationships.Localizations.Data[0].ID != "${localization-1}" {
+		if len(payload.Data.Relationships.Localizations.Data) != 2 ||
+			payload.Data.Relationships.Localizations.Data[0].ID != "${localization-1}" ||
+			payload.Data.Relationships.Localizations.Data[1].ID != "${localization-2}" {
 			t.Fatalf("unexpected localization linkage: %#v", payload.Data.Relationships.Localizations.Data)
 		}
-		if len(payload.Included) != 1 || payload.Included[0].ID != payload.Data.Relationships.Localizations.Data[0].ID {
+		if len(payload.Included) != 2 ||
+			payload.Included[0].ID != payload.Data.Relationships.Localizations.Data[0].ID ||
+			payload.Included[1].ID != payload.Data.Relationships.Localizations.Data[1].ID {
 			t.Fatalf("included localization must use the relationship local ID: %#v", payload.Included)
 		}
-		included := payload.Included[0].Attributes
-		if included.Language != asc.AppClipAdvancedExperienceLanguageEN || included.Title != "Order ahead" || included.Subtitle != "Ready when you arrive" {
-			t.Fatalf("unexpected inline localization: %#v", included)
+		english := payload.Included[0].Attributes
+		if english.Language != asc.AppClipAdvancedExperienceLanguageEN || english.Title != "Order ahead" || english.Subtitle != "Ready when you arrive" {
+			t.Fatalf("unexpected English localization: %#v", english)
+		}
+		french := payload.Included[1].Attributes
+		if french.Language != asc.AppClipAdvancedExperienceLanguageFR || french.Title != "Commander" || french.Subtitle != "Prêt à votre arrivée" {
+			t.Fatalf("unexpected French localization: %#v", french)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -62,9 +70,8 @@ func TestAppClipsAdvancedExperiencesCreateSupportsInlineLocalization(t *testing.
 			"--default-language", "EN",
 			"--is-powered-by",
 			"--header-image-id", "img-1",
-			"--language", "EN",
-			"--title", "Order ahead",
-			"--subtitle", "Ready when you arrive",
+			"--inline-localization", `{"language":"EN","title":"Order ahead","subtitle":"Ready when you arrive"}`,
+			"--inline-localization", `{"language":"FR","title":"Commander","subtitle":"Prêt à votre arrivée"}`,
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
@@ -82,6 +89,29 @@ func TestAppClipsAdvancedExperiencesCreateSupportsInlineLocalization(t *testing.
 	}
 	if response.Data.ID != "adv-1" {
 		t.Fatalf("expected advanced experience id adv-1, got %s", response.Data.ID)
+	}
+}
+
+func TestAppClipsAdvancedExperiencesCreateRejectsUnknownInlineLocalizationFields(t *testing.T) {
+	root := RootCommand("1.2.3")
+	if err := root.Parse([]string{
+		"app-clips", "advanced-experiences", "create",
+		"--app-clip-id", "clip-1",
+		"--link", "https://example.com",
+		"--default-language", "EN",
+		"--is-powered-by",
+		"--header-image-id", "img-1",
+		"--inline-localization", `{"locale":"en-US","title":"Order ahead"}`,
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	var runErr error
+	_, _ = captureOutput(t, func() {
+		runErr = root.Run(context.Background())
+	})
+	if runErr == nil || !strings.Contains(runErr.Error(), `unknown field "locale"`) {
+		t.Fatalf("expected unknown inline localization field error, got %v", runErr)
 	}
 }
 
