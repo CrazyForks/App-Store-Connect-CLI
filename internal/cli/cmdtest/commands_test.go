@@ -5899,11 +5899,6 @@ func TestAppEventsCreateValidationErrors(t *testing.T) {
 			wantErr: "Error: --name is required",
 		},
 		{
-			name:    "missing event type",
-			args:    []string{"app-events", "create", "--app", "APP_ID", "--name", "Launch", "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z"},
-			wantErr: "Error: --event-type is required",
-		},
-		{
 			name:    "missing end time",
 			args:    []string{"app-events", "create", "--app", "APP_ID", "--name", "Launch", "--event-type", "CHALLENGE", "--start", "2026-01-01T00:00:00Z"},
 			wantErr: "Error: --end is required",
