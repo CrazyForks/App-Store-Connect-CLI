@@ -3139,12 +3139,12 @@ func TestTestFlightBetaDetailsValidationErrors(t *testing.T) {
 		},
 		{
 			name:    "beta-details update missing id",
-			args:    []string{"testflight", "review", "edit"},
+			args:    []string{"testflight", "distribution", "edit"},
 			wantErr: "--id is required",
 		},
 		{
 			name:    "beta-details update missing updates",
-			args:    []string{"testflight", "review", "edit", "--id", "DETAIL_ID"},
+			args:    []string{"testflight", "distribution", "edit", "--id", "DETAIL_ID"},
 			wantErr: "at least one update flag is required",
 		},
 	}
