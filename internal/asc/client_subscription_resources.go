@@ -324,21 +324,6 @@ func (c *Client) GetSubscriptionIntroductoryOffers(ctx context.Context, subscrip
 	return &response, nil
 }
 
-// GetSubscriptionIntroductoryOffer retrieves an introductory offer by ID.
-func (c *Client) GetSubscriptionIntroductoryOffer(ctx context.Context, offerID string) (*SubscriptionIntroductoryOfferResponse, error) {
-	path := fmt.Sprintf("/v1/subscriptionIntroductoryOffers/%s", strings.TrimSpace(offerID))
-	data, err := c.do(ctx, http.MethodGet, path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var response SubscriptionIntroductoryOfferResponse
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-	return &response, nil
-}
-
 // CreateSubscriptionIntroductoryOffer creates an introductory offer.
 func (c *Client) CreateSubscriptionIntroductoryOffer(ctx context.Context, subscriptionID string, attrs SubscriptionIntroductoryOfferCreateAttributes, territoryID, pricePointID string) (*SubscriptionIntroductoryOfferResponse, error) {
 	subscriptionID = strings.TrimSpace(subscriptionID)
