@@ -16,6 +16,35 @@ import (
 	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
+func TestAppCreateCanPromptInteractivelyUsesControllingTTYWhenStdinIsNotTerminal(t *testing.T) {
+	origOpenTTY := openTTYFn
+	origIsTerminal := termIsTerminalFn
+	t.Cleanup(func() {
+		openTTYFn = origOpenTTY
+		termIsTerminalFn = origIsTerminal
+	})
+
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open test TTY: %v", err)
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+
+	openTTYFn = func() (*os.File, error) {
+		return tty, nil
+	}
+	termIsTerminalFn = func(fd int) bool {
+		return false
+	}
+
+	if !appCreateCanPromptInteractively() {
+		t.Fatal("expected controlling TTY to allow app-create prompts when stdin is not a terminal")
+	}
+	if _, err := tty.Stat(); err == nil {
+		t.Fatal("expected controlling TTY availability probe to close its file")
+	}
+}
+
 func TestWebAppsCreatePassesPasswordCompatibilityFlagToSessionResolver(t *testing.T) {
 	origResolveAppCreateSession := resolveAppCreateSessionFn
 	origNewWebClient := newWebClientFn
