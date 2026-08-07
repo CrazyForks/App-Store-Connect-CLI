@@ -306,12 +306,12 @@ Examples:
 
 			inlineLocalizations, err := parseInlineLocalizations(inlineLocalizationJSON)
 			if err != nil {
-				return fmt.Errorf("app-clips advanced-experiences create: %w", err)
+				return shared.UsageErrorf("app-clips advanced-experiences create: %v", err)
 			}
 			if languageValue != "" && titleValue != "" {
 				parsedLanguage, err := normalizeAppClipLanguage(languageValue)
 				if err != nil {
-					return fmt.Errorf("app-clips advanced-experiences create: %w", err)
+					return shared.UsageErrorf("app-clips advanced-experiences create: %v", err)
 				}
 				inlineLocalizations = append(inlineLocalizations, asc.AppClipAdvancedExperienceLocalizationCreateAttributes{
 					Language: parsedLanguage,
