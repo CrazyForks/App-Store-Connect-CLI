@@ -7183,7 +7183,7 @@ func TestGetBundleID_SendsRequest(t *testing.T) {
 }
 
 func TestCreateBundleID_SendsRequest(t *testing.T) {
-	response := jsonResponse(http.StatusCreated, `{"data":{"type":"bundleIds","id":"b1","attributes":{"name":"Demo","identifier":"com.example.demo","platform":"IOS"}}}`)
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"bundleIds","id":"b1","attributes":{"name":"Demo","identifier":"com.example.demo","platform":"UNIVERSAL"}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", req.Method)
@@ -7205,8 +7205,8 @@ func TestCreateBundleID_SendsRequest(t *testing.T) {
 		if payload.Data.Attributes.Identifier != "com.example.demo" {
 			t.Fatalf("expected identifier com.example.demo, got %q", payload.Data.Attributes.Identifier)
 		}
-		if payload.Data.Attributes.Platform != PlatformIOS {
-			t.Fatalf("expected platform IOS, got %q", payload.Data.Attributes.Platform)
+		if payload.Data.Attributes.Platform != BundleIDPlatformUniversal {
+			t.Fatalf("expected platform UNIVERSAL, got %q", payload.Data.Attributes.Platform)
 		}
 		assertAuthorized(t, req)
 	}, response)
@@ -7214,7 +7214,7 @@ func TestCreateBundleID_SendsRequest(t *testing.T) {
 	attrs := BundleIDCreateAttributes{
 		Name:       "Demo",
 		Identifier: "com.example.demo",
-		Platform:   PlatformIOS,
+		Platform:   BundleIDPlatformUniversal,
 	}
 	if _, err := client.CreateBundleID(context.Background(), attrs); err != nil {
 		t.Fatalf("CreateBundleID() error: %v", err)
@@ -7953,7 +7953,7 @@ func TestGetDevice_SendsRequest(t *testing.T) {
 }
 
 func TestRegisterDevice_SendsRequest(t *testing.T) {
-	response := jsonResponse(http.StatusCreated, `{"data":{"type":"devices","id":"d1","attributes":{"name":"Device","udid":"UDID","platform":"IOS","status":"ENABLED"}}}`)
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"devices","id":"d1","attributes":{"name":"Device","udid":"UDID","platform":"UNIVERSAL","status":"ENABLED"}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", req.Method)
@@ -7975,8 +7975,8 @@ func TestRegisterDevice_SendsRequest(t *testing.T) {
 		if payload.Data.Attributes.UDID != "UDID" {
 			t.Fatalf("expected udid UDID, got %q", payload.Data.Attributes.UDID)
 		}
-		if payload.Data.Attributes.Platform != DevicePlatformIOS {
-			t.Fatalf("expected platform IOS, got %q", payload.Data.Attributes.Platform)
+		if payload.Data.Attributes.Platform != DevicePlatformUniversal {
+			t.Fatalf("expected platform UNIVERSAL, got %q", payload.Data.Attributes.Platform)
 		}
 		assertAuthorized(t, req)
 	}, response)
@@ -7984,7 +7984,7 @@ func TestRegisterDevice_SendsRequest(t *testing.T) {
 	attrs := DeviceCreateAttributes{
 		Name:     "Device",
 		UDID:     "UDID",
-		Platform: DevicePlatformIOS,
+		Platform: DevicePlatformUniversal,
 	}
 	if _, err := client.RegisterDevice(context.Background(), attrs); err != nil {
 		t.Fatalf("RegisterDevice() error: %v", err)
