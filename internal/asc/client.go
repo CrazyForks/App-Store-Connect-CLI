@@ -206,7 +206,40 @@ type BetaTesterAttributes struct {
 	Email      string                `json:"email,omitempty"`
 	InviteType BetaInviteType        `json:"inviteType,omitempty"`
 	State      BetaTesterState       `json:"state,omitempty"`
-	AppDevices []BetaTesterAppDevice `json:"appDevices,omitempty"`
+	AppDevices []BetaTesterAppDevice `json:"-"`
+}
+
+// UnmarshalJSON keeps absent appDevices nil while retaining explicit arrays.
+func (a *BetaTesterAttributes) UnmarshalJSON(data []byte) error {
+	type betaTesterAttributesAlias BetaTesterAttributes
+	*a = BetaTesterAttributes{}
+	aux := struct {
+		*betaTesterAttributesAlias
+		AppDevices []BetaTesterAppDevice `json:"appDevices"`
+	}{
+		betaTesterAttributesAlias: (*betaTesterAttributesAlias)(a),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	a.AppDevices = aux.AppDevices
+	return nil
+}
+
+// MarshalJSON preserves absent and explicit empty appDevices values.
+func (a BetaTesterAttributes) MarshalJSON() ([]byte, error) {
+	type betaTesterAttributesAlias BetaTesterAttributes
+	var appDevices *[]BetaTesterAppDevice
+	if a.AppDevices != nil {
+		appDevices = &a.AppDevices
+	}
+	return json.Marshal(struct {
+		betaTesterAttributesAlias
+		AppDevices *[]BetaTesterAppDevice `json:"appDevices,omitempty"`
+	}{
+		betaTesterAttributesAlias: betaTesterAttributesAlias(a),
+		AppDevices:                appDevices,
+	})
 }
 
 // BetaTesterAppDevice describes a device on which a tester installed the app.

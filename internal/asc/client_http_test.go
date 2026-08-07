@@ -2804,6 +2804,40 @@ func TestGetBetaTester_SendsRequest(t *testing.T) {
 	}
 }
 
+func TestBetaTesterAttributesPreservesAppDevicesPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		input       string
+		wantPresent bool
+		wantValue   string
+	}{
+		{name: "explicit empty array", input: `{"email":"tester@example.com","appDevices":[]}`, wantPresent: true, wantValue: `[]`},
+		{name: "absent", input: `{"email":"tester@example.com"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attrs BetaTesterAttributes
+			if err := json.Unmarshal([]byte(tc.input), &attrs); err != nil {
+				t.Fatalf("unmarshal beta tester attributes: %v", err)
+			}
+			encoded, err := json.Marshal(attrs)
+			if err != nil {
+				t.Fatalf("marshal beta tester attributes: %v", err)
+			}
+			var output map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &output); err != nil {
+				t.Fatalf("decode beta tester attributes output: %v", err)
+			}
+			value, present := output["appDevices"]
+			if present != tc.wantPresent {
+				t.Fatalf("appDevices presence = %t in %s, want %t", present, encoded, tc.wantPresent)
+			}
+			if tc.wantPresent && string(value) != tc.wantValue {
+				t.Fatalf("appDevices JSON = %s, want %s", value, tc.wantValue)
+			}
+		})
+	}
+}
+
 func TestUpdateBetaGroup_SendsRequest(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"betaGroups","id":"bg1","attributes":{"name":"Updated Beta Testers","publicLinkEnabled":true}}}`)
 	client := newTestClient(t, func(req *http.Request) {
