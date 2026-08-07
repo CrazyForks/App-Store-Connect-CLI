@@ -1015,15 +1015,15 @@ func TestAppStoreVersionStateOptionsPreserveExistingComposition(t *testing.T) {
 
 func TestBuildAppStoreVersionQuery(t *testing.T) {
 	query := &appStoreVersionQuery{}
-	WithAppStoreVersionInclude([]string{"appStoreReviewDetail", "ageRatingDeclaration"})(query)
+	WithAppStoreVersionInclude([]string{"app", "appStoreReviewDetail"})(query)
 	WithAppStoreVersionLocalizationsIncludeLimit(50)(query)
 
 	values, err := url.ParseQuery(buildAppStoreVersionQuery(query))
 	if err != nil {
 		t.Fatalf("failed to parse query: %v", err)
 	}
-	if got := values.Get("include"); got != "appStoreReviewDetail,ageRatingDeclaration" {
-		t.Fatalf("expected include=appStoreReviewDetail,ageRatingDeclaration, got %q", got)
+	if got := values.Get("include"); got != "app,appStoreReviewDetail" {
+		t.Fatalf("expected include=app,appStoreReviewDetail, got %q", got)
 	}
 	if got := values.Get("limit[appStoreVersionLocalizations]"); got != "50" {
 		t.Fatalf("expected localization include limit 50, got %q", got)
