@@ -1178,13 +1178,23 @@ func TestWebAppsCreateSurfacesBundleIDRollbackFailure(t *testing.T) {
 }
 
 func TestBundleIDPlatformForWebApp(t *testing.T) {
-	t.Run("maps UNIVERSAL to IOS for bundle id create", func(t *testing.T) {
+	t.Run("keeps universal bundle id platform", func(t *testing.T) {
 		got, err := bundleIDPlatformForWebApp("UNIVERSAL")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got != asc.PlatformIOS {
-			t.Fatalf("expected %q, got %q", asc.PlatformIOS, got)
+		if got != asc.BundleIDPlatformUniversal {
+			t.Fatalf("expected %q, got %q", asc.BundleIDPlatformUniversal, got)
+		}
+	})
+
+	t.Run("maps tvOS app to iOS bundle id platform", func(t *testing.T) {
+		got, err := bundleIDPlatformForWebApp("TV_OS")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != asc.BundleIDPlatformIOS {
+			t.Fatalf("expected %q, got %q", asc.BundleIDPlatformIOS, got)
 		}
 	})
 
@@ -1193,8 +1203,8 @@ func TestBundleIDPlatformForWebApp(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got != asc.PlatformMacOS {
-			t.Fatalf("expected %q, got %q", asc.PlatformMacOS, got)
+		if got != asc.BundleIDPlatformMacOS {
+			t.Fatalf("expected %q, got %q", asc.BundleIDPlatformMacOS, got)
 		}
 	})
 
