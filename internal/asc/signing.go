@@ -66,17 +66,24 @@ type BundleIDCapabilityCreateAttributes struct {
 
 // CapabilitySetting describes a capability setting.
 type CapabilitySetting struct {
-	Key     string             `json:"key"`
-	Name    string             `json:"name,omitempty"`
-	Options []CapabilityOption `json:"options,omitempty"`
+	Key              string             `json:"key"`
+	Name             string             `json:"name,omitempty"`
+	Description      string             `json:"description,omitempty"`
+	EnabledByDefault *bool              `json:"enabledByDefault,omitempty"`
+	Visible          *bool              `json:"visible,omitempty"`
+	AllowedInstances string             `json:"allowedInstances,omitempty"`
+	MinInstances     *int               `json:"minInstances,omitempty"`
+	Options          []CapabilityOption `json:"options,omitempty"`
 }
 
 // CapabilityOption describes a capability option.
 type CapabilityOption struct {
-	Key         string `json:"key"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Enabled     *bool  `json:"enabled,omitempty"`
+	Key              string `json:"key"`
+	Name             string `json:"name,omitempty"`
+	Description      string `json:"description,omitempty"`
+	EnabledByDefault *bool  `json:"enabledByDefault,omitempty"`
+	Enabled          *bool  `json:"enabled,omitempty"`
+	SupportsWildcard *bool  `json:"supportsWildcard,omitempty"`
 }
 
 // BundleIDCapabilityRelationships describes relationships for bundle ID capabilities.
