@@ -1711,6 +1711,16 @@ func TestSubscriptionsValidationErrors(t *testing.T) {
 			wantErr: "--subscription-id is required",
 		},
 		{
+			name:    "subscriptions introductory-offers view missing subscription-id",
+			args:    []string{"subscriptions", "offers", "introductory", "view", "--id", "OFFER_ID"},
+			wantErr: "--subscription-id is required",
+		},
+		{
+			name:    "subscriptions introductory-offers view missing offer id",
+			args:    []string{"subscriptions", "offers", "introductory", "view", "--subscription-id", "SUB_ID"},
+			wantErr: "--id is required",
+		},
+		{
 			name:    "subscriptions introductory-offers create missing offer-duration",
 			args:    []string{"subscriptions", "offers", "introductory", "create", "--subscription-id", "SUB_ID", "--offer-mode", "FREE_TRIAL", "--number-of-periods", "1"},
 			wantErr: "--offer-duration is required",
@@ -3129,12 +3139,12 @@ func TestTestFlightBetaDetailsValidationErrors(t *testing.T) {
 		},
 		{
 			name:    "beta-details update missing id",
-			args:    []string{"testflight", "review", "edit"},
+			args:    []string{"testflight", "distribution", "edit"},
 			wantErr: "--id is required",
 		},
 		{
 			name:    "beta-details update missing updates",
-			args:    []string{"testflight", "review", "edit", "--id", "DETAIL_ID"},
+			args:    []string{"testflight", "distribution", "edit", "--id", "DETAIL_ID"},
 			wantErr: "at least one update flag is required",
 		},
 	}
@@ -4690,6 +4700,31 @@ func TestAppClipsValidationErrors(t *testing.T) {
 			name:    "advanced experiences create missing powered-by",
 			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN"},
 			wantErr: "Error: --is-powered-by is required",
+		},
+		{
+			name:    "advanced experiences create missing header image",
+			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--localization-id", "LOC_ID"},
+			wantErr: "Error: --header-image-id is required",
+		},
+		{
+			name:    "advanced experiences create missing localizations",
+			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--header-image-id", "IMAGE_ID", "--localization-id", " , "},
+			wantErr: "Error: provide --localization-id, --inline-localization, or both --language and --title",
+		},
+		{
+			name:    "advanced experiences create missing inline language",
+			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--header-image-id", "IMAGE_ID", "--title", "Order ahead"},
+			wantErr: "Error: --language is required when --title is set",
+		},
+		{
+			name:    "advanced experiences create missing inline title",
+			args:    []string{"app-clips", "advanced-experiences", "create", "--app-clip-id", "CLIP_ID", "--link", "https://example.com", "--default-language", "EN", "--is-powered-by", "--header-image-id", "IMAGE_ID", "--language", "EN"},
+			wantErr: "Error: --title is required when --language is set",
+		},
+		{
+			name:    "advanced experiences remove missing confirm",
+			args:    []string{"app-clips", "advanced-experiences", "delete", "--experience-id", "EXP_ID"},
+			wantErr: "Error: --confirm is required to remove",
 		},
 		{
 			name:    "advanced experience images create missing file",

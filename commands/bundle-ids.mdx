@@ -168,7 +168,7 @@ asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
 # Capability with settings (iCloud)
 asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
   --capability ICLOUD \
-  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]'
+  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]'
 ```
 
 ### Common Capability Types
@@ -182,19 +182,24 @@ asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
 * `SIRIKIT` - SiriKit
 * `PERSONAL_VPN` - Personal VPN
 * `NETWORK_EXTENSIONS` - Network Extensions
-* `HOTSPOT` - Hotspot Configuration
+* `HOT_SPOT` - Hotspot Configuration
 * `MULTIPATH` - Multipath networking
 * `NFC_TAG_READING` - NFC tag reading
 
-**Settings required:**
+**Capabilities with settings documented in Apple's current schema:**
 
 * `ICLOUD` - iCloud (CloudKit/Documents)
-* `APP_GROUPS` - App Groups
-* `ASSOCIATED_DOMAINS` - Associated Domains
 * `DATA_PROTECTION` - Data Protection
-* `HEALTHKIT` - HealthKit
-* `HOMEKIT` - HomeKit
-* `WIRELESS_ACCESSORY_CONFIGURATION` - Wireless Accessory
+* `APPLE_ID_AUTH` - Sign in with Apple consent
+
+The published schema lists `ICLOUD_VERSION`,
+`DATA_PROTECTION_PERMISSION_LEVEL`, and `APPLE_ID_AUTH_APP_CONSENT`, but Apple
+can return newer setting and option keys before they appear in that schema.
+`--settings` requires exact JSON field names and value types, then sends key
+strings and nonempty `allowedInstances` values unchanged. Current documented
+examples include `XCODE_5`, `XCODE_6`, `COMPLETE_PROTECTION`,
+`PROTECTED_UNLESS_OPEN`, `PROTECTED_UNTIL_FIRST_USER_AUTH`, and
+`PRIMARY_APP_CONSENT`.
 
 ### iCloud Capability
 
@@ -202,21 +207,23 @@ asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
 # Enable iCloud with CloudKit
 asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
   --capability ICLOUD \
-  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]'
+  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]'
 
 # Enable legacy iCloud (documents)
 asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
   --capability ICLOUD \
-  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_9","enabled":true}]}]'
+  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_5","enabled":true}]}]'
 ```
 
 ### App Groups Capability
 
 ```bash  theme={null}
 asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
-  --capability APP_GROUPS \
-  --settings '[{"key":"APP_GROUP_IDS","options":[{"key":"group.com.example.shared","enabled":true}]}]'
+  --capability APP_GROUPS
 ```
+
+App group membership is not configured through capability settings. Configure
+the group association separately in Certificates, Identifiers & Profiles.
 
 ### Update Capability
 
@@ -224,7 +231,7 @@ Modify capability settings:
 
 ```bash  theme={null}
 asc bundle-ids capabilities update --id "CAPABILITY_ID" \
-  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]'
+  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]'
 
 # Change capability type
 asc bundle-ids capabilities update --id "CAPABILITY_ID" \
@@ -264,7 +271,7 @@ asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
 # 4. Add iCloud
 asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
   --capability ICLOUD \
-  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]'
+  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]'
 
 # 5. Verify capabilities
 asc bundle-ids capabilities list --bundle "BUNDLE_ID" --output table
@@ -307,27 +314,26 @@ asc bundle-ids list --output json | grep "com.example.app"
 
 # 2. Add App Groups to main app
 asc bundle-ids capabilities add --bundle "MAIN_BUNDLE_ID" \
-  --capability APP_GROUPS \
-  --settings '[{"key":"APP_GROUP_IDS","options":[{"key":"group.com.example.shared","enabled":true}]}]'
+  --capability APP_GROUPS
 
 # 3. Add App Groups to widget
 asc bundle-ids capabilities add --bundle "WIDGET_BUNDLE_ID" \
-  --capability APP_GROUPS \
-  --settings '[{"key":"APP_GROUP_IDS","options":[{"key":"group.com.example.shared","enabled":true}]}]'
+  --capability APP_GROUPS
 
 # 4. Add App Groups to share extension
 asc bundle-ids capabilities add --bundle "SHARE_BUNDLE_ID" \
-  --capability APP_GROUPS \
-  --settings '[{"key":"APP_GROUP_IDS","options":[{"key":"group.com.example.shared","enabled":true}]}]'
+  --capability APP_GROUPS
 ```
 
 ### Associated Domains (Universal Links)
 
 ```bash  theme={null}
 asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
-  --capability ASSOCIATED_DOMAINS \
-  --settings '[{"key":"ASSOCIATED_DOMAIN_IDS","options":[{"key":"applinks:example.com","enabled":true},{"key":"applinks:www.example.com","enabled":true}]}]'
+  --capability ASSOCIATED_DOMAINS
 ```
+
+Associated domain values are app entitlements and are not configured through
+the bundle ID capability settings payload.
 
 ### HealthKit and HomeKit
 
@@ -411,13 +417,13 @@ JSON settings must be properly formatted:
 # Correct format
 asc bundle-ids capabilities add --bundle "BUNDLE_ID" \
   --capability ICLOUD \
-  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]'
+  --settings '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]'
 ```
 
 Validate JSON:
 
 ```bash  theme={null}
-echo '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_13","enabled":true}]}]' | jq .
+echo '[{"key":"ICLOUD_VERSION","options":[{"key":"XCODE_6","enabled":true}]}]' | jq .
 ```
 
 ### Provisioning Profiles Invalid After Capability Change
