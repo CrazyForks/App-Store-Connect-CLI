@@ -355,6 +355,57 @@ func TestReleaseWorkflowResumesDraftButNeverClobbersPublishedAssets(t *testing.T
 			t.Errorf("release workflow missing retry-safe publication contract %q", want)
 		}
 	}
+
+	stepStart := strings.Index(workflow, "- name: Create, resume, or verify GitHub Release")
+	stepEnd := strings.Index(workflow, "- name: Pack immutable published artifact")
+	if stepStart == -1 || stepEnd == -1 || stepStart >= stepEnd {
+		t.Fatal("release workflow missing publication step boundaries")
+	}
+	publishStep := workflow[stepStart:stepEnd]
+	draftStart := strings.Index(publishStep, `if [ "$release_is_draft" = "true" ]`)
+	checksumIndex := strings.Index(publishStep[draftStart:], `shasum -a 256 -c "asc_${VERSION}_checksums.txt"`)
+	publishIndex := strings.Index(publishStep[draftStart:], `gh release edit "${VERSION}" --draft=false`)
+	if draftStart == -1 || checksumIndex == -1 || publishIndex == -1 {
+		t.Fatal("release workflow must checksum-verify and publish a completed draft")
+	}
+	if checksumIndex >= publishIndex {
+		t.Fatal("release workflow must verify draft checksums before making the release public")
+	}
+}
+
+func TestReleaseWorkflowGrantsArtifactReadPermissionToArtifactJobs(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	jobs := []struct {
+		name string
+		next string
+	}{
+		{name: "build", next: "publish"},
+		{name: "publish", next: "homebrew"},
+		{name: "homebrew", next: "winget"},
+		{name: "winget", next: ""},
+	}
+	for _, job := range jobs {
+		start := strings.Index(workflow, "\n  "+job.name+":\n")
+		if start == -1 {
+			t.Fatalf("release workflow missing %s job", job.name)
+		}
+		end := len(workflow)
+		if job.next != "" {
+			next := strings.Index(workflow[start+1:], "\n  "+job.next+":\n")
+			if next == -1 {
+				t.Fatalf("release workflow missing %s job boundary", job.next)
+			}
+			end = start + 1 + next
+		}
+		if !strings.Contains(workflow[start:end], "permissions:\n      actions: read") {
+			t.Errorf("%s job must have actions read permission for artifact access", job.name)
+		}
+	}
 }
 
 func TestReleaseWorkflowSerializesTagAndDispatchForSameVersion(t *testing.T) {

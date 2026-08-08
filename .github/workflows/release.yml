@@ -25,7 +25,6 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.notarize_existing
     runs-on: macos-latest
     permissions:
-      actions: read
       contents: read
     steps:
       - name: Checkout release tag
@@ -162,6 +161,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || !inputs.notarize_existing
     runs-on: macos-latest
     permissions:
+      actions: read
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -498,6 +498,10 @@ jobs:
               diff -u "$expected_names" "$published_names" || true
               exit 1
             fi
+            (
+              cd published-release
+              shasum -a 256 -c "asc_${VERSION}_checksums.txt"
+            )
             gh release edit "${VERSION}" --draft=false
           else
             if ! cmp -s "$expected_names" "$published_names"; then
@@ -506,10 +510,11 @@ jobs:
               exit 1
             fi
             gh release download "${VERSION}" --dir published-release
+            (
+              cd published-release
+              shasum -a 256 -c "asc_${VERSION}_checksums.txt"
+            )
           fi
-
-          cd published-release
-          shasum -a 256 -c "asc_${VERSION}_checksums.txt"
 
       - name: Pack immutable published artifact
         if: steps.published_artifact.outputs.reused != 'true'
@@ -532,6 +537,7 @@ jobs:
     needs: publish
     runs-on: macos-latest
     permissions:
+      actions: read
       contents: read
     env:
       VERSION: ${{ needs.publish.outputs.version }}
@@ -627,6 +633,7 @@ jobs:
     needs: publish
     runs-on: macos-latest
     permissions:
+      actions: read
       contents: read
     env:
       VERSION: ${{ needs.publish.outputs.version }}
