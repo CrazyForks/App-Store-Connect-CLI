@@ -315,6 +315,24 @@ func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowUsesValidSecureReleaseSteps(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	if strings.Contains(workflow, "- parallel:") {
+		t.Fatal("release workflow must use valid run or uses steps")
+	}
+	if !strings.Contains(workflow, "go-version-file: go.mod\n          cache: false") {
+		t.Fatal("release build must not restore a shared Go build cache")
+	}
+	if !strings.Contains(workflow, `gh release download "${VERSION}" --repo "${GH_REPO}" --dir published-release`) {
+		t.Fatal("published-release recovery must select the repository explicitly")
+	}
+}
+
 func TestReleaseWorkflowReusesArtifactsAcrossRerunAttempts(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
@@ -398,6 +416,9 @@ func TestVerifyReleaseAssetsRequiresExactChecksumCoverage(t *testing.T) {
 	if got := strings.Count(string(workflowData), "verify_release_assets.py"); got != 6 {
 		t.Fatalf("every release consumer must run exact checksum coverage verification, got %d verifier calls", got)
 	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Fatalf("python3 is required for release asset verification tests: %v", err)
+	}
 
 	const version = "1.2.3"
 	canonicalNames := []string{
@@ -461,12 +482,12 @@ func TestVerifyReleaseAssetsRequiresExactChecksumCoverage(t *testing.T) {
 			}
 
 			cmd := exec.Command("python3", "scripts/verify_release_assets.py", "--release-dir", releaseDir, "--version", version)
-			err := cmd.Run()
+			output, err := cmd.CombinedOutput()
 			if tt.wantSucceeded && err != nil {
-				t.Fatalf("verify release assets: %v", err)
+				t.Fatalf("verify release assets: %v\n%s", err, output)
 			}
 			if !tt.wantSucceeded && err == nil {
-				t.Fatal("verification unexpectedly accepted incomplete or unsafe checksum coverage")
+				t.Fatalf("verification unexpectedly accepted incomplete or unsafe checksum coverage\n%s", output)
 			}
 		})
 	}
@@ -505,9 +526,12 @@ func TestReleaseWorkflowResumesDraftButNeverClobbersPublishedAssets(t *testing.T
 	}
 	publishStep := workflow[stepStart:stepEnd]
 	draftStart := strings.Index(publishStep, `if [ "$release_is_draft" = "true" ]`)
+	if draftStart == -1 {
+		t.Fatal("release workflow must checksum-verify and publish a completed draft")
+	}
 	checksumIndex := strings.Index(publishStep[draftStart:], `python3 workflow-source/scripts/verify_release_assets.py --release-dir published-release --version "${VERSION}"`)
 	publishIndex := strings.Index(publishStep[draftStart:], `gh release edit "${VERSION}" --draft=false`)
-	if draftStart == -1 || checksumIndex == -1 || publishIndex == -1 {
+	if checksumIndex == -1 || publishIndex == -1 {
 		t.Fatal("release workflow must checksum-verify and publish a completed draft")
 	}
 	if checksumIndex >= publishIndex {

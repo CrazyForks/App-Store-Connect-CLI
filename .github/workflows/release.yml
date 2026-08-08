@@ -227,8 +227,8 @@ jobs:
         run: |
           artifact_name="candidate-release-${VERSION}"
           release_commit=$(git rev-parse HEAD)
-          artifact_id=$(gh api "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
-            --jq "[.artifacts[] | select(.name == \"${artifact_name}\" and .expired == false)][0].id // empty")
+          artifact_id=$(gh api --paginate "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | \
+            jq -sr --arg name "$artifact_name" '[.[].artifacts[] | select(.name == $name and .expired == false)][0].id // empty')
           if [ -n "$artifact_id" ]; then
             echo "Reusing immutable build artifact ${artifact_name}."
             echo "reused=true" >> "$GITHUB_OUTPUT"
@@ -307,10 +307,10 @@ jobs:
             echo "reused=true" >> "$GITHUB_OUTPUT"
             echo "cross_run=true" >> "$GITHUB_OUTPUT"
             exit 0
-          done < <(gh api -X GET "repos/${GH_REPO}/actions/artifacts" \
+          done < <(gh api --paginate -X GET "repos/${GH_REPO}/actions/artifacts" \
             -f name="$artifact_name" \
-            -f per_page=100 \
-            --jq '.artifacts | sort_by(.created_at) | reverse[] | select(.expired == false) | [.id, .workflow_run.id] | @tsv')
+            -f per_page=100 | \
+            jq -sr '[.[].artifacts[]] | sort_by(.created_at) | reverse[] | select(.expired == false) | [.id, .workflow_run.id] | @tsv')
 
           if [ "$draft_has_assets" -eq 1 ]; then
             echo "::error::No retained candidate artifact matches the existing draft assets"
@@ -356,7 +356,7 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Install tooling
         if: steps.candidate_artifact.outputs.reused != 'true'
@@ -406,29 +406,28 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_DEVELOPER_ID_CERT }}
           p12-password: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
 
-      - parallel:
-          - name: Build macOS binaries
-            if: steps.candidate_artifact.outputs.reused != 'true'
-            run: |
-              COMMIT=$(git rev-parse --short HEAD)
-              DATE=$(git show -s --format=%cI HEAD)
-              GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_macOS_amd64 .
-              GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_macOS_arm64 .
+      - name: Build macOS binaries
+        if: steps.candidate_artifact.outputs.reused != 'true'
+        run: |
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(git show -s --format=%cI HEAD)
+          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "release/asc_${VERSION}_macOS_amd64" .
+          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "release/asc_${VERSION}_macOS_arm64" .
 
-          - name: Build for Linux
-            if: steps.candidate_artifact.outputs.reused != 'true'
-            run: |
-              COMMIT=$(git rev-parse --short HEAD)
-              DATE=$(git show -s --format=%cI HEAD)
-              GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_linux_amd64 .
-              GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_linux_arm64 .
+      - name: Build for Linux
+        if: steps.candidate_artifact.outputs.reused != 'true'
+        run: |
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(git show -s --format=%cI HEAD)
+          GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "release/asc_${VERSION}_linux_amd64" .
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "release/asc_${VERSION}_linux_arm64" .
 
-          - name: Build for Windows
-            if: steps.candidate_artifact.outputs.reused != 'true'
-            run: |
-              COMMIT=$(git rev-parse --short HEAD)
-              DATE=$(git show -s --format=%cI HEAD)
-              GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_windows_amd64.exe .
+      - name: Build for Windows
+        if: steps.candidate_artifact.outputs.reused != 'true'
+        run: |
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(git show -s --format=%cI HEAD)
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o "release/asc_${VERSION}_windows_amd64.exe" .
 
       - name: Sign and verify macOS binaries
         if: steps.candidate_artifact.outputs.reused != 'true'
@@ -552,8 +551,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           artifact_name="published-release-${VERSION}"
-          artifact_id=$(gh api "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
-            --jq "[.artifacts[] | select(.name == \"${artifact_name}\" and .expired == false)][0].id // empty")
+          artifact_id=$(gh api --paginate "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | \
+            jq -sr --arg name "$artifact_name" '[.[].artifacts[] | select(.name == $name and .expired == false)][0].id // empty')
           if [ -n "$artifact_id" ]; then
             echo "Reusing immutable published artifact ${artifact_name}."
             echo "reused=true" >> "$GITHUB_OUTPUT"
@@ -578,9 +577,10 @@ jobs:
         if: steps.published_artifact.outputs.reused != 'true' && needs.prepare.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           mkdir -p published-release
-          gh release download "${VERSION}" --dir published-release
+          gh release download "${VERSION}" --repo "${GH_REPO}" --dir published-release
           python3 workflow-source/scripts/verify_release_assets.py --release-dir published-release --version "${VERSION}"
 
       - name: Create, resume, or verify GitHub Release
@@ -821,13 +821,13 @@ jobs:
           python3 scripts/generate_winget_manifests.py \
             --version "${VERSION}" \
             --release-dir release \
-            --output-dir release/winget
+            --output-dir winget-output
 
       - name: Upload WinGet manifests artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: winget-manifests-${{ needs.publish.outputs.version }}-${{ github.run_attempt }}
-          path: release/winget/manifests/r/Rorkai/ASC/${{ needs.publish.outputs.version }}
+          path: winget-output/manifests/r/Rorkai/ASC/${{ needs.publish.outputs.version }}
           if-no-files-found: error
 
       - name: Submit WinGet package PR
@@ -846,7 +846,7 @@ jobs:
           fi
 
           BRANCH="rorkai-asc-${VERSION}"
-          MANIFEST_SOURCE="${PWD}/release/winget/manifests/r/Rorkai/ASC/${VERSION}"
+          MANIFEST_SOURCE="${PWD}/winget-output/manifests/r/Rorkai/ASC/${VERSION}"
 
           if ! gh repo view "${WINGET_FORK_OWNER}/winget-pkgs" >/dev/null 2>&1; then
             if [ "${WINGET_FORK_OWNER}" = "${AUTH_LOGIN}" ]; then

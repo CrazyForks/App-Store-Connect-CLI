@@ -8,6 +8,7 @@ import hashlib
 import re
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 from release_rehearsal import expected_artifact_names
 
@@ -15,7 +16,7 @@ from release_rehearsal import expected_artifact_names
 CHECKSUM_LINE = re.compile(r"^([0-9a-fA-F]{64}) ([ *])(.+)$")
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     print(f"release asset verification failed: {message}", file=sys.stderr)
     raise SystemExit(1)
 
@@ -79,8 +80,8 @@ def main() -> None:
 
     expected_set = set(expected_hashes)
     if actual_set != expected_set:
-        missing = sorted(actual_set - expected_set)
-        unexpected = sorted(expected_set - actual_set)
+        unexpected = sorted(actual_set - expected_set)
+        missing = sorted(expected_set - actual_set)
         fail(
             "checksum coverage mismatch; "
             f"missing entries={missing}, unknown entries={unexpected}"
