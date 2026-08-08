@@ -249,13 +249,24 @@ jobs:
           fi
 
           mkdir -p workflow-artifact
+          default_branch=$(gh api "repos/${GH_REPO}" --jq '.default_branch')
           while IFS=$'\t' read -r artifact_id artifact_run_id; do
             [ -n "$artifact_id" ] || continue
-            IFS=$'\t' read -r run_path run_head_sha < <(gh api "repos/${GH_REPO}/actions/runs/${artifact_run_id}" \
-              --jq '[.path, .head_sha] | @tsv' 2>/dev/null || true)
-            if [ "$run_path" != ".github/workflows/release.yml" ] || [ "$run_head_sha" != "$release_commit" ]; then
+            run_path=""
+            run_head_sha=""
+            run_event=""
+            run_repository=""
+            run_head_branch=""
+            IFS=$'\t' read -r run_path run_head_sha run_event run_repository run_head_branch < <(gh api "repos/${GH_REPO}/actions/runs/${artifact_run_id}" \
+              --jq '[.path, .head_sha, .event, .head_repository.full_name, .head_branch] | @tsv' 2>/dev/null || true)
+            if [ "$run_path" != ".github/workflows/release.yml" ] || [ "$run_repository" != "$GH_REPO" ]; then
               continue
             fi
+            case "$run_event" in
+              push) [ "$run_head_sha" = "$release_commit" ] || continue ;;
+              workflow_dispatch) [ "$run_head_branch" = "$default_branch" ] || continue ;;
+              *) continue ;;
+            esac
             artifact_dir="${RUNNER_TEMP}/candidate-artifact-${artifact_id}"
             archive_zip="${artifact_dir}/artifact.zip"
             archive_dir="${artifact_dir}/download"
@@ -655,6 +666,7 @@ jobs:
       - name: Pack immutable published artifact
         if: steps.published_artifact.outputs.reused != 'true'
         run: |
+          mkdir -p workflow-artifact
           rm -rf release
           mv published-release release
           tar -cf "workflow-artifact/published-release-${VERSION}.tar" release

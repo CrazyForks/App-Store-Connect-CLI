@@ -330,8 +330,17 @@ func TestReleaseWorkflowReusesArtifactsAcrossRerunAttempts(t *testing.T) {
 		`artifact_name="candidate-release-${VERSION}"`,
 		`artifact_name="published-release-${VERSION}"`,
 		`candidate-release-${VERSION}.commit`,
+		`run_path=""`,
+		`run_head_sha=""`,
+		`run_event=""`,
+		`run_repository=""`,
+		`run_head_branch=""`,
 		`run_path" != ".github/workflows/release.yml`,
-		`run_head_sha" != "$release_commit`,
+		`run_repository" != "$GH_REPO`,
+		`default_branch=$(gh api "repos/${GH_REPO}" --jq '.default_branch')`,
+		`case "$run_event" in`,
+		`push) [ "$run_head_sha" = "$release_commit" ] || continue ;;`,
+		`workflow_dispatch) [ "$run_head_branch" = "$default_branch" ] || continue ;;`,
 		`test "$(cat "$provenance")" = "$release_commit"`,
 		`gh release download "${VERSION}" --dir "$draft_dir"`,
 		`cmp -s "$draft_asset" "$candidate_dir/release/$name"`,
@@ -369,6 +378,15 @@ func TestReleaseWorkflowRepairsPackageManagersWithoutRebuildingPublishedRelease(
 		if !strings.Contains(workflow, want) {
 			t.Errorf("release workflow missing published-release repair contract %q", want)
 		}
+	}
+
+	packStart := strings.Index(workflow, "- name: Pack immutable published artifact")
+	packEnd := strings.Index(workflow, "- name: Upload immutable published artifact")
+	if packStart == -1 || packEnd == -1 || packStart >= packEnd {
+		t.Fatal("release workflow missing published artifact packing step")
+	}
+	if !strings.Contains(workflow[packStart:packEnd], "mkdir -p workflow-artifact") {
+		t.Fatal("published-release repair must create the artifact directory before packing")
 	}
 }
 
