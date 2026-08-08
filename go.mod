@@ -6,7 +6,7 @@ require (
 	github.com/1Password/srp v0.2.0
 	github.com/99designs/keyring v1.2.2
 	github.com/AlecAivazis/survey/v2 v2.3.7
-	github.com/bitrise-io/go-utils/v2 v2.0.0-alpha.35
+	github.com/bitrise-io/go-utils/v2 v2.0.0-alpha.36
 	github.com/bitrise-io/go-xcode v1.3.4
 	github.com/bitrise-io/go-xcode/v2 v2.0.0-alpha.84.0.20260710143042-ba29d6757432
 	github.com/creack/pty v1.1.24

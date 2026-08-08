@@ -13,19 +13,27 @@ import (
 type SalesReportType string
 
 const (
-	SalesReportTypeSales             SalesReportType = "SALES"
-	SalesReportTypePreOrder          SalesReportType = "PRE_ORDER"
-	SalesReportTypeNewsstand         SalesReportType = "NEWSSTAND"
-	SalesReportTypeSubscription      SalesReportType = "SUBSCRIPTION"
-	SalesReportTypeSubscriptionEvent SalesReportType = "SUBSCRIPTION_EVENT"
+	SalesReportTypeSales                           SalesReportType = "SALES"
+	SalesReportTypePreOrder                        SalesReportType = "PRE_ORDER"
+	SalesReportTypeNewsstand                       SalesReportType = "NEWSSTAND"
+	SalesReportTypeSubscription                    SalesReportType = "SUBSCRIPTION"
+	SalesReportTypeSubscriptionEvent               SalesReportType = "SUBSCRIPTION_EVENT"
+	SalesReportTypeSubscriber                      SalesReportType = "SUBSCRIBER"
+	SalesReportTypeSubscriptionOfferCodeRedemption SalesReportType = "SUBSCRIPTION_OFFER_CODE_REDEMPTION"
+	SalesReportTypeInstalls                        SalesReportType = "INSTALLS"
+	SalesReportTypeFirstAnnual                     SalesReportType = "FIRST_ANNUAL"
+	SalesReportTypeWinBackEligibility              SalesReportType = "WIN_BACK_ELIGIBILITY"
 )
 
 // SalesReportSubType represents the report detail level.
 type SalesReportSubType string
 
 const (
-	SalesReportSubTypeSummary  SalesReportSubType = "SUMMARY"
-	SalesReportSubTypeDetailed SalesReportSubType = "DETAILED"
+	SalesReportSubTypeSummary            SalesReportSubType = "SUMMARY"
+	SalesReportSubTypeDetailed           SalesReportSubType = "DETAILED"
+	SalesReportSubTypeSummaryInstallType SalesReportSubType = "SUMMARY_INSTALL_TYPE"
+	SalesReportSubTypeSummaryTerritory   SalesReportSubType = "SUMMARY_TERRITORY"
+	SalesReportSubTypeSummaryChannel     SalesReportSubType = "SUMMARY_CHANNEL"
 )
 
 // SalesReportFrequency represents the reporting frequency.
@@ -44,6 +52,7 @@ type SalesReportVersion string
 const (
 	SalesReportVersion1_0 SalesReportVersion = "1_0"
 	SalesReportVersion1_1 SalesReportVersion = "1_1"
+	SalesReportVersion1_2 SalesReportVersion = "1_2"
 	SalesReportVersion1_3 SalesReportVersion = "1_3"
 	SalesReportVersion1_4 SalesReportVersion = "1_4"
 )
@@ -56,7 +65,8 @@ const (
 	AnalyticsAccessTypeOneTimeSnapshot AnalyticsAccessType = "ONE_TIME_SNAPSHOT"
 )
 
-// AnalyticsReportRequestState represents analytics request states.
+// AnalyticsReportRequestState is retained for source compatibility with older
+// responses; current App Store Connect responses do not expose this attribute.
 type AnalyticsReportRequestState string
 
 const (
@@ -83,10 +93,12 @@ type ReportDownload struct {
 
 // AnalyticsReportRequestAttributes describes analytics report request data.
 type AnalyticsReportRequestAttributes struct {
-	AccessType             AnalyticsAccessType         `json:"accessType,omitempty"`
-	State                  AnalyticsReportRequestState `json:"state,omitempty"`
-	CreatedDate            string                      `json:"createdDate,omitempty"`
-	StoppedDueToInactivity *bool                       `json:"stoppedDueToInactivity,omitempty"`
+	AccessType AnalyticsAccessType `json:"accessType,omitempty"`
+	// Legacy compatibility: current App Store Connect responses omit this field.
+	State AnalyticsReportRequestState `json:"state,omitempty"`
+	// Legacy compatibility: current App Store Connect responses omit this field.
+	CreatedDate            string `json:"createdDate,omitempty"`
+	StoppedDueToInactivity *bool  `json:"stoppedDueToInactivity,omitempty"`
 }
 
 // AnalyticsReportRequestRelationships describes request relationships.
@@ -201,7 +213,8 @@ type AnalyticsReportRequestReportsLinkagesResponse = LinkagesResponse
 
 type analyticsReportRequestsQuery struct {
 	listQuery
-	state string
+	accessType         AnalyticsAccessType
+	deprecatedStateSet bool
 }
 
 type analyticsReportsQuery struct {
@@ -249,10 +262,19 @@ func WithAnalyticsReportRequestsNextURL(next string) AnalyticsReportRequestsOpti
 	}
 }
 
-// WithAnalyticsReportRequestsState filters requests by state.
-func WithAnalyticsReportRequestsState(state string) AnalyticsReportRequestsOption {
+// WithAnalyticsReportRequestsAccessType filters requests by access type.
+func WithAnalyticsReportRequestsAccessType(accessType AnalyticsAccessType) AnalyticsReportRequestsOption {
 	return func(q *analyticsReportRequestsQuery) {
-		q.state = strings.TrimSpace(state)
+		q.accessType = AnalyticsAccessType(strings.TrimSpace(string(accessType)))
+	}
+}
+
+// WithAnalyticsReportRequestsState is retained for source compatibility.
+// Deprecated: App Store Connect does not support state filtering. Use
+// WithAnalyticsReportRequestsAccessType instead.
+func WithAnalyticsReportRequestsState(_ string) AnalyticsReportRequestsOption {
+	return func(q *analyticsReportRequestsQuery) {
+		q.deprecatedStateSet = true
 	}
 }
 
@@ -349,8 +371,8 @@ func buildSalesReportQuery(params SalesReportParams) string {
 
 func buildAnalyticsReportRequestsQuery(query *analyticsReportRequestsQuery) string {
 	values := url.Values{}
-	if strings.TrimSpace(query.state) != "" {
-		values.Set("filter[state]", strings.TrimSpace(query.state))
+	if strings.TrimSpace(string(query.accessType)) != "" {
+		values.Set("filter[accessType]", strings.TrimSpace(string(query.accessType)))
 	}
 	addLimit(values, query.limit)
 	return values.Encode()
@@ -431,6 +453,9 @@ func (c *Client) GetAnalyticsReportRequests(ctx context.Context, appID string, o
 	query := &analyticsReportRequestsQuery{}
 	for _, opt := range opts {
 		opt(query)
+	}
+	if query.deprecatedStateSet {
+		return nil, fmt.Errorf("analyticsReportRequests: state filtering is unsupported by App Store Connect; use WithAnalyticsReportRequestsAccessType")
 	}
 
 	path := "/v1/analyticsReportRequests"
