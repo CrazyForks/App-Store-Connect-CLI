@@ -191,7 +191,7 @@ func TestReleaseWorkflowNotarizesMacOSBinariesBeforePublishing(t *testing.T) {
 
 	notarizeIndex := strings.Index(workflow, "- name: Notarize macOS binaries")
 	checksumIndex := strings.Index(workflow, "- name: Create checksums")
-	publishIndex := strings.Index(workflow, "- name: Create or verify GitHub Release")
+	publishIndex := strings.Index(workflow, "- name: Create, resume, or verify GitHub Release")
 	if notarizeIndex == -1 || checksumIndex == -1 || publishIndex == -1 {
 		t.Fatalf("release workflow must contain notarization, checksum, and publish steps")
 	}
@@ -292,43 +292,84 @@ func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
 		"outputs:\n      version: ${{ steps.version.outputs.version }}",
 		"actions/upload-artifact@",
 		"actions/download-artifact@",
-		"name: release-${{ needs.build.outputs.version }}",
-		`tar -cf "workflow-artifact/release-${VERSION}.tar" release`,
-		`tar -xf "workflow-artifact/release-${VERSION}.tar"`,
+		"name: candidate-release-${{ needs.build.outputs.version }}",
+		"name: published-release-${{ needs.publish.outputs.version }}",
+		`tar -cf "workflow-artifact/candidate-release-${VERSION}.tar" release`,
+		`tar -cf "workflow-artifact/published-release-${VERSION}.tar" release`,
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("release workflow missing split-job contract %q", want)
 		}
 	}
 
-	if got := strings.Count(workflow, "name: release-${{ steps.version.outputs.version }}"); got != 1 {
+	if got := strings.Count(workflow, "name: candidate-release-${{ steps.version.outputs.version }}"); got != 1 {
 		t.Fatalf("release workflow must upload exactly one immutable release artifact, got %d", got)
 	}
 	if got := strings.Count(workflow, "actions/download-artifact@"); got != 3 {
-		t.Fatalf("each publisher must download the same build artifact, got %d downloads", got)
+		t.Fatalf("publishers must consume the candidate and published artifacts in three downloads, got %d", got)
 	}
 }
 
-func TestReleaseWorkflowNeverClobbersPublishedAssets(t *testing.T) {
+func TestReleaseWorkflowReusesArtifactsAcrossRerunAttempts(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
 
 	workflow := string(data)
-	for _, unwanted := range []string{"gh release upload", "--clobber"} {
-		if strings.Contains(workflow, unwanted) {
-			t.Errorf("release workflow must not replace published assets; found %q", unwanted)
-		}
-	}
 	for _, want := range []string{
-		`gh release download "${VERSION}"`,
-		`cmp -s "$asset" "$published/$name"`,
-		`Published release assets differ from this run`,
+		`actions/runs/${GITHUB_RUN_ID}/artifacts`,
+		`artifact_name="candidate-release-${VERSION}"`,
+		`artifact_name="published-release-${VERSION}"`,
+		`if: steps.candidate_artifact.outputs.reused != 'true'`,
+		`if: steps.published_artifact.outputs.reused != 'true'`,
 	} {
 		if !strings.Contains(workflow, want) {
-			t.Errorf("release workflow missing published-asset verification %q", want)
+			t.Errorf("release workflow missing rerun artifact contract %q", want)
 		}
+	}
+}
+
+func TestReleaseWorkflowResumesDraftButNeverClobbersPublishedAssets(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	if strings.Contains(workflow, "--clobber") {
+		t.Fatal("release workflow must not replace a published asset")
+	}
+	for _, want := range []string{
+		`--json isDraft`,
+		`gh release create "${VERSION}" --draft --generate-notes --verify-tag`,
+		`if [ "$release_is_draft" = "true" ]`,
+		`gh release upload "${VERSION}" "$asset"`,
+		`cmp -s "$asset" "published-release/$name"`,
+		`gh release edit "${VERSION}" --draft=false`,
+		`gh release download "${VERSION}"`,
+		`shasum -a 256 -c "asc_${VERSION}_checksums.txt"`,
+		`published-release-${VERSION}.tar`,
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Errorf("release workflow missing retry-safe publication contract %q", want)
+		}
+	}
+}
+
+func TestReleaseWorkflowSerializesTagAndDispatchForSameVersion(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	want := "group: release-cli-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}"
+	if !strings.Contains(workflow, want) {
+		t.Fatalf("release workflow missing normalized concurrency group %q", want)
+	}
+	if strings.Contains(workflow, "inputs.version || github.ref }}") {
+		t.Fatal("release workflow splits tag and dispatch concurrency groups")
 	}
 }
 
