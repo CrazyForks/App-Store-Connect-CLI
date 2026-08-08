@@ -30,8 +30,18 @@ func normalizeSalesReportType(value string) (asc.SalesReportType, error) {
 		return asc.SalesReportTypeSubscription, nil
 	case string(asc.SalesReportTypeSubscriptionEvent):
 		return asc.SalesReportTypeSubscriptionEvent, nil
+	case string(asc.SalesReportTypeSubscriber):
+		return asc.SalesReportTypeSubscriber, nil
+	case string(asc.SalesReportTypeSubscriptionOfferCodeRedemption):
+		return asc.SalesReportTypeSubscriptionOfferCodeRedemption, nil
+	case string(asc.SalesReportTypeInstalls):
+		return asc.SalesReportTypeInstalls, nil
+	case string(asc.SalesReportTypeFirstAnnual):
+		return asc.SalesReportTypeFirstAnnual, nil
+	case string(asc.SalesReportTypeWinBackEligibility):
+		return asc.SalesReportTypeWinBackEligibility, nil
 	default:
-		return "", fmt.Errorf("--type must be SALES, PRE_ORDER, NEWSSTAND, SUBSCRIPTION, or SUBSCRIPTION_EVENT")
+		return "", fmt.Errorf("--type must be SALES, PRE_ORDER, NEWSSTAND, SUBSCRIPTION, SUBSCRIPTION_EVENT, SUBSCRIBER, SUBSCRIPTION_OFFER_CODE_REDEMPTION, INSTALLS, FIRST_ANNUAL, or WIN_BACK_ELIGIBILITY")
 	}
 }
 
@@ -42,8 +52,14 @@ func normalizeSalesReportSubType(value string) (asc.SalesReportSubType, error) {
 		return asc.SalesReportSubTypeSummary, nil
 	case string(asc.SalesReportSubTypeDetailed):
 		return asc.SalesReportSubTypeDetailed, nil
+	case string(asc.SalesReportSubTypeSummaryInstallType):
+		return asc.SalesReportSubTypeSummaryInstallType, nil
+	case string(asc.SalesReportSubTypeSummaryTerritory):
+		return asc.SalesReportSubTypeSummaryTerritory, nil
+	case string(asc.SalesReportSubTypeSummaryChannel):
+		return asc.SalesReportSubTypeSummaryChannel, nil
 	default:
-		return "", fmt.Errorf("--subtype must be SUMMARY or DETAILED")
+		return "", fmt.Errorf("--subtype must be SUMMARY, DETAILED, SUMMARY_INSTALL_TYPE, SUMMARY_TERRITORY, or SUMMARY_CHANNEL")
 	}
 }
 
@@ -63,22 +79,87 @@ func normalizeSalesReportFrequency(value string) (asc.SalesReportFrequency, erro
 	}
 }
 
-func normalizeSalesReportVersion(value string, reportType asc.SalesReportType) (asc.SalesReportVersion, error) {
+func normalizeSalesReportVersion(value string, reportType asc.SalesReportType, reportSubType asc.SalesReportSubType, frequency asc.SalesReportFrequency) (asc.SalesReportVersion, error) {
+	allowed, err := allowedSalesReportVersions(reportType, reportSubType, frequency)
+	if err != nil {
+		return "", err
+	}
 	normalized := strings.TrimSpace(value)
 	if normalized == "" {
-		return defaultSalesReportVersion(reportType), nil
+		return defaultSalesReportVersion(reportType, reportSubType, frequency), nil
 	}
 	if !salesReportVersionPattern.MatchString(normalized) {
 		return "", fmt.Errorf("--version must use major_minor format (for example, 1_4)")
 	}
-	return asc.SalesReportVersion(normalized), nil
+	for _, version := range allowed {
+		if normalized == string(version) {
+			return version, nil
+		}
+	}
+	return "", fmt.Errorf("--version %s is not supported for --type %s --subtype %s --frequency %s; allowed: %s", normalized, reportType, reportSubType, frequency, joinSalesReportVersions(allowed))
 }
 
-func defaultSalesReportVersion(reportType asc.SalesReportType) asc.SalesReportVersion {
+func defaultSalesReportVersion(reportType asc.SalesReportType, reportSubType asc.SalesReportSubType, frequency asc.SalesReportFrequency) asc.SalesReportVersion {
 	if reportType == asc.SalesReportTypeSubscription {
+		// Apple currently serves 1_4 in production even though the endpoint table
+		// still lists 1_3. Preserve the live-verified default from PR #1842.
 		return asc.SalesReportVersion1_4
 	}
-	return asc.SalesReportVersion1_0
+	versions, err := allowedSalesReportVersions(reportType, reportSubType, frequency)
+	if err == nil && len(versions) > 0 {
+		return versions[0]
+	}
+	return ""
+}
+
+func validateSalesReportTuple(reportType asc.SalesReportType, reportSubType asc.SalesReportSubType, frequency asc.SalesReportFrequency) error {
+	_, err := allowedSalesReportVersions(reportType, reportSubType, frequency)
+	return err
+}
+
+func allowedSalesReportVersions(reportType asc.SalesReportType, reportSubType asc.SalesReportSubType, frequency asc.SalesReportFrequency) ([]asc.SalesReportVersion, error) {
+	versions := []asc.SalesReportVersion(nil)
+	switch {
+	case reportType == asc.SalesReportTypeFirstAnnual && reportSubType == asc.SalesReportSubTypeDetailed && frequency == asc.SalesReportFrequencyDaily:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_0}
+	case reportType == asc.SalesReportTypeFirstAnnual && reportSubType == asc.SalesReportSubTypeSummary && frequency == asc.SalesReportFrequencyYearly:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_0}
+	case reportType == asc.SalesReportTypeInstalls && frequency == asc.SalesReportFrequencyYearly &&
+		(reportSubType == asc.SalesReportSubTypeSummaryChannel || reportSubType == asc.SalesReportSubTypeSummaryInstallType || reportSubType == asc.SalesReportSubTypeSummaryTerritory || reportSubType == asc.SalesReportSubTypeDetailed):
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_0, asc.SalesReportVersion1_1}
+	case reportType == asc.SalesReportTypeInstalls && frequency == asc.SalesReportFrequencyMonthly &&
+		(reportSubType == asc.SalesReportSubTypeSummary || reportSubType == asc.SalesReportSubTypeDetailed):
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_2}
+	case reportType == asc.SalesReportTypeNewsstand && reportSubType == asc.SalesReportSubTypeDetailed &&
+		(frequency == asc.SalesReportFrequencyDaily || frequency == asc.SalesReportFrequencyWeekly):
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_0}
+	case reportType == asc.SalesReportTypePreOrder && reportSubType == asc.SalesReportSubTypeSummary:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_0}
+	case reportType == asc.SalesReportTypeSales && reportSubType == asc.SalesReportSubTypeSummary:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_0}
+	case reportType == asc.SalesReportTypeSubscriber && reportSubType == asc.SalesReportSubTypeDetailed && frequency == asc.SalesReportFrequencyDaily:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_3}
+	case reportType == asc.SalesReportTypeSubscription && reportSubType == asc.SalesReportSubTypeSummary && frequency == asc.SalesReportFrequencyDaily:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_3, asc.SalesReportVersion1_4}
+	case reportType == asc.SalesReportTypeSubscriptionEvent && reportSubType == asc.SalesReportSubTypeSummary && frequency == asc.SalesReportFrequencyDaily:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_3}
+	case reportType == asc.SalesReportTypeSubscriptionOfferCodeRedemption && reportSubType == asc.SalesReportSubTypeSummary && frequency == asc.SalesReportFrequencyDaily:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_0}
+	case reportType == asc.SalesReportTypeWinBackEligibility && reportSubType == asc.SalesReportSubTypeSummary && frequency == asc.SalesReportFrequencyDaily:
+		versions = []asc.SalesReportVersion{asc.SalesReportVersion1_0}
+	}
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("unsupported sales report combination: --type %s --subtype %s --frequency %s", reportType, reportSubType, frequency)
+	}
+	return versions, nil
+}
+
+func joinSalesReportVersions(versions []asc.SalesReportVersion) string {
+	values := make([]string, 0, len(versions))
+	for _, version := range versions {
+		values = append(values, string(version))
+	}
+	return strings.Join(values, ", ")
 }
 
 func normalizeAnalyticsAccessType(value string) (asc.AnalyticsAccessType, error) {
@@ -90,20 +171,6 @@ func normalizeAnalyticsAccessType(value string) (asc.AnalyticsAccessType, error)
 		return asc.AnalyticsAccessTypeOneTimeSnapshot, nil
 	default:
 		return "", fmt.Errorf("--access-type must be ONGOING or ONE_TIME_SNAPSHOT")
-	}
-}
-
-func normalizeAnalyticsRequestState(value string) (asc.AnalyticsReportRequestState, error) {
-	normalized := strings.ToUpper(strings.TrimSpace(value))
-	switch normalized {
-	case string(asc.AnalyticsReportRequestStateProcessing):
-		return asc.AnalyticsReportRequestStateProcessing, nil
-	case string(asc.AnalyticsReportRequestStateCompleted):
-		return asc.AnalyticsReportRequestStateCompleted, nil
-	case string(asc.AnalyticsReportRequestStateFailed):
-		return asc.AnalyticsReportRequestStateFailed, nil
-	default:
-		return "", fmt.Errorf("--state must be PROCESSING, COMPLETED, or FAILED")
 	}
 }
 
@@ -120,19 +187,30 @@ func validateUUIDFlag(flagName, value string) error {
 func normalizeReportDate(value string, frequency asc.SalesReportFrequency) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return "", fmt.Errorf("--date is required")
+		if frequency == asc.SalesReportFrequencyDaily {
+			return "", nil
+		}
+		return "", fmt.Errorf("--date is required for %s reports", frequency)
 	}
 	switch frequency {
 	case asc.SalesReportFrequencyMonthly:
 		parsed, err := time.Parse("2006-01", trimmed)
+		if err == nil {
+			return parsed.Format("2006-01"), nil
+		}
+		parsed, err = time.Parse("2006-01-02", trimmed)
 		if err != nil {
-			return "", fmt.Errorf("--date must be in YYYY-MM format for monthly reports")
+			return "", fmt.Errorf("--date must be in YYYY-MM or YYYY-MM-DD format for monthly reports")
 		}
 		return parsed.Format("2006-01"), nil
 	case asc.SalesReportFrequencyYearly:
 		parsed, err := time.Parse("2006", trimmed)
+		if err == nil {
+			return parsed.Format("2006"), nil
+		}
+		parsed, err = time.Parse("2006-01-02", trimmed)
 		if err != nil {
-			return "", fmt.Errorf("--date must be in YYYY format for yearly reports")
+			return "", fmt.Errorf("--date must be in YYYY or YYYY-MM-DD format for yearly reports")
 		}
 		return parsed.Format("2006"), nil
 	case asc.SalesReportFrequencyWeekly:
@@ -373,7 +451,11 @@ func generateReportDates(start, end string, freq asc.SalesReportFrequency) ([]st
 		}
 		var dates []string
 		for cur := s; !cur.After(e); cur = cur.AddDate(1, 0, 0) {
-			dates = append(dates, cur.Format("2006"))
+			reportDate, normErr := normalizeReportDate(cur.Format("2006"), asc.SalesReportFrequencyYearly)
+			if normErr != nil {
+				return nil, normErr
+			}
+			dates = append(dates, reportDate)
 		}
 		return dates, nil
 
@@ -388,7 +470,11 @@ func generateReportDates(start, end string, freq asc.SalesReportFrequency) ([]st
 		}
 		var dates []string
 		for cur := s; !cur.After(e); cur = cur.AddDate(0, 1, 0) {
-			dates = append(dates, cur.Format("2006-01"))
+			reportDate, normErr := normalizeReportDate(cur.Format("2006-01"), asc.SalesReportFrequencyMonthly)
+			if normErr != nil {
+				return nil, normErr
+			}
+			dates = append(dates, reportDate)
 		}
 		return dates, nil
 
