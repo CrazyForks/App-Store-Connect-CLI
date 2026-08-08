@@ -7,12 +7,152 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Existing release tag to rebuild
+        description: Release tag to build or repair
         required: true
         type: string
+      notarize_existing:
+        description: Notarize an existing release without replacing its assets
+        required: false
+        default: false
+        type: boolean
 
 jobs:
+  repair-notarization:
+    if: github.event_name == 'workflow_dispatch' && inputs.notarize_existing
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.version }}
+
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ inputs.version }}
+        run: |
+          TAG="${RELEASE_TAG}"
+
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must match x.y.z. Got: ${TAG}"
+            exit 1
+          fi
+
+          printf 'VERSION=%s\n' "$TAG" >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate notarization secrets
+        env:
+          APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
+        run: |
+          missing=0
+          for name in APPLE_DEVELOPER_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Required secret ${name} is not set"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Prepare App Store Connect auth
+        env:
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
+        run: |
+          python3 -c 'import base64, os; from pathlib import Path; Path("/tmp/AuthKey.p8").write_bytes(base64.b64decode(os.environ["ASC_PRIVATE_KEY_B64"], validate=True))'
+          chmod 600 /tmp/AuthKey.p8
+          go build -trimpath -ldflags "-s -w" -o /tmp/asc-notary-bootstrap .
+
+      - name: Verify notarization auth
+        env:
+          ASC_BYPASS_KEYCHAIN: "1"
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_PATH: /tmp/AuthKey.p8
+        run: /tmp/asc-notary-bootstrap auth status --validate --output json >/dev/null
+
+      - name: Download and verify existing release
+        env:
+          APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p existing-release
+          gh release download "${VERSION}" --dir existing-release
+          cd existing-release
+          test -f "asc_${VERSION}_checksums.txt"
+          shasum -a 256 -c "asc_${VERSION}_checksums.txt"
+          for binary in asc_*_macOS_*; do
+            test -f "$binary"
+            codesign --verify --deep --strict --verbose=2 "$binary"
+            authority=$(codesign -dv --verbose=4 "$binary" 2>&1 | sed -n 's/^Authority=//p' | head -n 1)
+            if [ "$authority" != "$APPLE_DEVELOPER_ID" ]; then
+              echo "::error::$(basename "$binary") is signed by an unexpected Developer ID"
+              exit 1
+            fi
+          done
+
+      - name: Notarize existing macOS binaries
+        env:
+          ASC_BYPASS_KEYCHAIN: "1"
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_PATH: /tmp/AuthKey.p8
+        run: |
+          for binary in existing-release/asc_*_macOS_*; do
+            archive="${RUNNER_TEMP}/$(basename "$binary").zip"
+            output="${RUNNER_TEMP}/$(basename "$binary").notarization.json"
+            errors="${RUNNER_TEMP}/$(basename "$binary").notarization.stderr"
+            ditto -c -k --keepParent "$binary" "$archive"
+
+            set +e
+            /tmp/asc-notary-bootstrap notarization submit \
+              --file "$archive" \
+              --wait \
+              --timeout 1h \
+              --output json >"$output" 2>"$errors"
+            status=$?
+            set -e
+
+            cat "$errors" >&2 || true
+            cat "$output"
+            submission_id=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("data", {}).get("id", ""))' "$output" 2>/dev/null || true)
+            if [ "$status" -ne 0 ]; then
+              if [ -n "$submission_id" ]; then
+                /tmp/asc-notary-bootstrap notarization log --id "$submission_id" --output json || true
+              fi
+              exit "$status"
+            fi
+
+            accepted=0
+            for _ in {1..20}; do
+              if spctl --assess --type execute --verbose=4 "$binary"; then
+                accepted=1
+                break
+              fi
+              sleep 15
+            done
+            if [ "$accepted" -ne 1 ]; then
+              echo "::error::Gatekeeper did not accept $(basename "$binary") after notarization"
+              exit 1
+            fi
+          done
+
+      - name: Remove notarization credentials
+        if: always()
+        run: rm -f /tmp/AuthKey.p8
+
   release:
+    if: github.event_name != 'workflow_dispatch' || !inputs.notarize_existing
     runs-on: macos-latest
     permissions:
       contents: write
@@ -35,6 +175,26 @@ jobs:
 
           printf 'VERSION=%s\n' "$TAG" >> "$GITHUB_ENV"
 
+      - name: Validate release secrets
+        env:
+          APPLE_DEVELOPER_ID_CERT: ${{ secrets.APPLE_DEVELOPER_ID_CERT }}
+          APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
+          APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
+        run: |
+          missing=0
+          for name in APPLE_DEVELOPER_ID_CERT APPLE_DEVELOPER_ID_PASSWORD APPLE_DEVELOPER_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Required secret ${name} is not set"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
@@ -43,6 +203,22 @@ jobs:
 
       - name: Install tooling
         run: make tools
+
+      - name: Prepare App Store Connect auth
+        env:
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
+        run: |
+          python3 -c 'import base64, os; from pathlib import Path; Path("/tmp/AuthKey.p8").write_bytes(base64.b64decode(os.environ["ASC_PRIVATE_KEY_B64"], validate=True))'
+          chmod 600 /tmp/AuthKey.p8
+          go build -trimpath -ldflags "-s -w" -o /tmp/asc-notary-bootstrap .
+
+      - name: Verify notarization auth
+        env:
+          ASC_BYPASS_KEYCHAIN: "1"
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_PATH: /tmp/AuthKey.p8
+        run: /tmp/asc-notary-bootstrap auth status --validate --output json >/dev/null
 
       - name: Self-test docs validators
         run: python3 scripts/test_check_docs.py
@@ -98,6 +274,56 @@ jobs:
             codesign --force --sign "${APPLE_DEVELOPER_ID}" --timestamp --options=runtime "$binary"
             codesign --verify --deep --strict --verbose=2 "$binary"
           done
+
+      - name: Notarize macOS binaries
+        env:
+          ASC_BYPASS_KEYCHAIN: "1"
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_PATH: /tmp/AuthKey.p8
+        run: |
+          for binary in release/asc_*_macOS_*; do
+            archive="${RUNNER_TEMP}/$(basename "$binary").zip"
+            output="${RUNNER_TEMP}/$(basename "$binary").notarization.json"
+            errors="${RUNNER_TEMP}/$(basename "$binary").notarization.stderr"
+            ditto -c -k --keepParent "$binary" "$archive"
+
+            set +e
+            /tmp/asc-notary-bootstrap notarization submit \
+              --file "$archive" \
+              --wait \
+              --timeout 1h \
+              --output json >"$output" 2>"$errors"
+            status=$?
+            set -e
+
+            cat "$errors" >&2 || true
+            cat "$output"
+            submission_id=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("data", {}).get("id", ""))' "$output" 2>/dev/null || true)
+            if [ "$status" -ne 0 ]; then
+              if [ -n "$submission_id" ]; then
+                /tmp/asc-notary-bootstrap notarization log --id "$submission_id" --output json || true
+              fi
+              exit "$status"
+            fi
+
+            accepted=0
+            for _ in {1..20}; do
+              if spctl --assess --type execute --verbose=4 "$binary"; then
+                accepted=1
+                break
+              fi
+              sleep 15
+            done
+            if [ "$accepted" -ne 1 ]; then
+              echo "::error::Gatekeeper did not accept $(basename "$binary") after notarization"
+              exit 1
+            fi
+          done
+
+      - name: Remove notarization credentials
+        if: always()
+        run: rm -f /tmp/AuthKey.p8
 
       - name: Create checksums
         run: |
