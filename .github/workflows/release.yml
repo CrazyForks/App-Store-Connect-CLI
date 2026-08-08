@@ -194,14 +194,98 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           artifact_name="candidate-release-${VERSION}"
+          release_commit=$(git rev-parse HEAD)
           artifact_id=$(gh api "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
             --jq "[.artifacts[] | select(.name == \"${artifact_name}\" and .expired == false)][0].id // empty")
           if [ -n "$artifact_id" ]; then
             echo "Reusing immutable build artifact ${artifact_name}."
             echo "reused=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "reused=false" >> "$GITHUB_OUTPUT"
+            echo "cross_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          draft_dir="${RUNNER_TEMP}/existing-release-draft"
+          draft_has_assets=0
+          release_is_draft=$(gh release view "${VERSION}" --json isDraft --jq '.isDraft' 2>/dev/null || true)
+          if [ "$release_is_draft" = "true" ]; then
+            draft_asset_count=$(gh release view "${VERSION}" --json assets --jq '.assets | length')
+            if [ "$draft_asset_count" -gt 0 ]; then
+              mkdir -p "$draft_dir"
+              gh release download "${VERSION}" --dir "$draft_dir"
+              draft_has_assets=1
+            fi
+          fi
+
+          mkdir -p workflow-artifact
+          while IFS=$'\t' read -r artifact_id artifact_run_id; do
+            [ -n "$artifact_id" ] || continue
+            IFS=$'\t' read -r run_path run_head_sha < <(gh api "repos/${GH_REPO}/actions/runs/${artifact_run_id}" \
+              --jq '[.path, .head_sha] | @tsv' 2>/dev/null || true)
+            if [ "$run_path" != ".github/workflows/release.yml" ] || [ "$run_head_sha" != "$release_commit" ]; then
+              continue
+            fi
+            artifact_dir="${RUNNER_TEMP}/candidate-artifact-${artifact_id}"
+            archive_zip="${artifact_dir}/artifact.zip"
+            archive_dir="${artifact_dir}/download"
+            candidate_dir="${artifact_dir}/candidate"
+            mkdir -p "$archive_dir" "$candidate_dir"
+            if ! gh api "repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip" > "$archive_zip"; then
+              continue
+            fi
+            if ! ditto -x -k "$archive_zip" "$archive_dir"; then
+              continue
+            fi
+            archive="${archive_dir}/candidate-release-${VERSION}.tar"
+            provenance="${archive_dir}/candidate-release-${VERSION}.commit"
+            if [ ! -f "$archive" ] || [ ! -f "$provenance" ] || ! test "$(cat "$provenance")" = "$release_commit"; then
+              continue
+            fi
+
+            if [ "$draft_has_assets" -eq 1 ]; then
+              if ! tar -xf "$archive" -C "$candidate_dir"; then
+                continue
+              fi
+              candidate_matches=1
+              while IFS= read -r -d '' draft_asset; do
+                name=$(basename "$draft_asset")
+                if [ ! -f "$candidate_dir/release/$name" ] || ! cmp -s "$draft_asset" "$candidate_dir/release/$name"; then
+                  candidate_matches=0
+                  break
+                fi
+              done < <(find "$draft_dir" -maxdepth 1 -type f -print0)
+              if [ "$candidate_matches" -ne 1 ]; then
+                continue
+              fi
+            fi
+
+            cp "$archive" "workflow-artifact/candidate-release-${VERSION}.tar"
+            cp "$provenance" "workflow-artifact/candidate-release-${VERSION}.commit"
+            echo "Recovered immutable build artifact ${artifact_name} (${artifact_id})."
+            echo "reused=true" >> "$GITHUB_OUTPUT"
+            echo "cross_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          done < <(gh api -X GET "repos/${GH_REPO}/actions/artifacts" \
+            -f name="$artifact_name" \
+            -f per_page=100 \
+            --jq '.artifacts | sort_by(.created_at) | reverse[] | select(.expired == false) | [.id, .workflow_run.id] | @tsv')
+
+          if [ "$draft_has_assets" -eq 1 ]; then
+            echo "::error::No retained candidate artifact matches the existing draft assets"
+            exit 1
+          fi
+          echo "reused=false" >> "$GITHUB_OUTPUT"
+          echo "cross_run=false" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize recovered immutable release artifact
+        if: steps.candidate_artifact.outputs.cross_run == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-release-${{ steps.version.outputs.version }}
+          path: |
+            workflow-artifact/candidate-release-${{ steps.version.outputs.version }}.tar
+            workflow-artifact/candidate-release-${{ steps.version.outputs.version }}.commit
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Validate release secrets
         if: steps.candidate_artifact.outputs.reused != 'true'
@@ -380,13 +464,16 @@ jobs:
         run: |
           mkdir -p workflow-artifact
           tar -cf "workflow-artifact/candidate-release-${VERSION}.tar" release
+          git rev-parse HEAD > "workflow-artifact/candidate-release-${VERSION}.commit"
 
       - name: Upload immutable release artifact
         if: steps.candidate_artifact.outputs.reused != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-release-${{ steps.version.outputs.version }}
-          path: workflow-artifact/candidate-release-${{ steps.version.outputs.version }}.tar
+          path: |
+            workflow-artifact/candidate-release-${{ steps.version.outputs.version }}.tar
+            workflow-artifact/candidate-release-${{ steps.version.outputs.version }}.commit
           if-no-files-found: error
           retention-days: 14
 
@@ -712,7 +799,7 @@ jobs:
             BRANCH_EXISTS=1
             git checkout -B "${BRANCH}" "origin/${BRANCH}"
           else
-            git checkout -b "${BRANCH}" origin/master
+            git checkout -b "${BRANCH}" upstream/master
           fi
           git sparse-checkout set "manifests/r/Rorkai/ASC"
 

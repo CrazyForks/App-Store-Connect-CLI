@@ -302,8 +302,8 @@ func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
 		}
 	}
 
-	if got := strings.Count(workflow, "name: candidate-release-${{ steps.version.outputs.version }}"); got != 1 {
-		t.Fatalf("release workflow must upload exactly one immutable release artifact, got %d", got)
+	if got := strings.Count(workflow, "name: candidate-release-${{ steps.version.outputs.version }}"); got != 2 {
+		t.Fatalf("release workflow must define mutually exclusive fresh and recovered artifact uploads, got %d", got)
 	}
 	if got := strings.Count(workflow, "actions/download-artifact@"); got != 3 {
 		t.Fatalf("publishers must consume the candidate and published artifacts in three downloads, got %d", got)
@@ -319,8 +319,20 @@ func TestReleaseWorkflowReusesArtifactsAcrossRerunAttempts(t *testing.T) {
 	workflow := string(data)
 	for _, want := range []string{
 		`actions/runs/${GITHUB_RUN_ID}/artifacts`,
+		`repos/${GH_REPO}/actions/artifacts`,
+		`repos/${GH_REPO}/actions/artifacts/${artifact_id}/zip`,
+		`repos/${GH_REPO}/actions/runs/${artifact_run_id}`,
 		`artifact_name="candidate-release-${VERSION}"`,
 		`artifact_name="published-release-${VERSION}"`,
+		`candidate-release-${VERSION}.commit`,
+		`run_path" != ".github/workflows/release.yml`,
+		`run_head_sha" != "$release_commit`,
+		`test "$(cat "$provenance")" = "$release_commit"`,
+		`gh release download "${VERSION}" --dir "$draft_dir"`,
+		`cmp -s "$draft_asset" "$candidate_dir/release/$name"`,
+		`No retained candidate artifact matches the existing draft assets`,
+		`cross_run=true`,
+		`if: steps.candidate_artifact.outputs.cross_run == 'true'`,
 		`if: steps.candidate_artifact.outputs.reused != 'true'`,
 		`if: steps.published_artifact.outputs.reused != 'true'`,
 	} {
@@ -450,6 +462,7 @@ func TestReleaseWorkflowPushesWinGetBranchWithoutHistoryRewrite(t *testing.T) {
 		"--force-with-lease",
 		"git push --force",
 		`git merge-base --is-ancestor origin/master "origin/${BRANCH}"`,
+		`git checkout -b "${BRANCH}" origin/master`,
 		`grep -Ev "^manifests/r/Rorkai/ASC/${VERSION}/"`,
 	} {
 		if strings.Contains(workflow, unwanted) {
@@ -458,7 +471,7 @@ func TestReleaseWorkflowPushesWinGetBranchWithoutHistoryRewrite(t *testing.T) {
 	}
 	for _, want := range []string{
 		`git merge-base --is-ancestor origin/master upstream/master`,
-		`git checkout -b "${BRANCH}" origin/master`,
+		`git checkout -b "${BRANCH}" upstream/master`,
 		`git push --set-upstream origin "${BRANCH}"`,
 		`git diff --name-only -z upstream/master...HEAD`,
 		`case "$changed_path" in`,
