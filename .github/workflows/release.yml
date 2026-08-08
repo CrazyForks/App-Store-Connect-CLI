@@ -703,10 +703,6 @@ jobs:
           BRANCH_EXISTS=0
           if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
             BRANCH_EXISTS=1
-            if ! git merge-base --is-ancestor origin/master "origin/${BRANCH}"; then
-              echo "::error::The existing WinGet release branch does not descend from the fork master branch"
-              exit 1
-            fi
             git checkout -B "${BRANCH}" "origin/${BRANCH}"
           else
             git checkout -b "${BRANCH}" origin/master
@@ -714,10 +710,16 @@ jobs:
           git sparse-checkout set "manifests/r/Rorkai/ASC"
 
           verify_winget_scope() {
-            unexpected_paths=$(git diff --name-only upstream/master...HEAD | grep -Ev "^manifests/r/Rorkai/ASC/${VERSION}/" || true)
-            if [ -n "$unexpected_paths" ]; then
+            unexpected_paths=()
+            while IFS= read -r -d '' changed_path; do
+              case "$changed_path" in
+                "manifests/r/Rorkai/ASC/${VERSION}/"*) ;;
+                *) unexpected_paths+=("$changed_path") ;;
+              esac
+            done < <(git diff --name-only -z upstream/master...HEAD)
+            if [ "${#unexpected_paths[@]}" -ne 0 ]; then
               echo "::error::WinGet branch contains changes outside the ${VERSION} manifest directory"
-              echo "$unexpected_paths"
+              printf '%s\n' "${unexpected_paths[@]}"
               exit 1
             fi
           }

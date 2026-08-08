@@ -395,7 +395,12 @@ func TestReleaseWorkflowPushesWinGetBranchWithoutHistoryRewrite(t *testing.T) {
 	}
 
 	workflow := string(data)
-	for _, unwanted := range []string{"--force-with-lease", "git push --force"} {
+	for _, unwanted := range []string{
+		"--force-with-lease",
+		"git push --force",
+		`git merge-base --is-ancestor origin/master "origin/${BRANCH}"`,
+		`grep -Ev "^manifests/r/Rorkai/ASC/${VERSION}/"`,
+	} {
 		if strings.Contains(workflow, unwanted) {
 			t.Errorf("WinGet publication must not rewrite branch history; found %q", unwanted)
 		}
@@ -404,6 +409,9 @@ func TestReleaseWorkflowPushesWinGetBranchWithoutHistoryRewrite(t *testing.T) {
 		`git merge-base --is-ancestor origin/master upstream/master`,
 		`git checkout -b "${BRANCH}" origin/master`,
 		`git push --set-upstream origin "${BRANCH}"`,
+		`git diff --name-only -z upstream/master...HEAD`,
+		`case "$changed_path" in`,
+		`"manifests/r/Rorkai/ASC/${VERSION}/"*)`,
 		`WinGet branch contains changes outside the ${VERSION} manifest directory`,
 	} {
 		if !strings.Contains(workflow, want) {
