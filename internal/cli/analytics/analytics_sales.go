@@ -21,7 +21,7 @@ func AnalyticsSalesCommand() *ffcli.Command {
 	reportType := fs.String("type", "", "Report type: SALES, PRE_ORDER, NEWSSTAND, SUBSCRIPTION, SUBSCRIPTION_EVENT, SUBSCRIBER, SUBSCRIPTION_OFFER_CODE_REDEMPTION, INSTALLS, FIRST_ANNUAL, WIN_BACK_ELIGIBILITY")
 	reportSubType := fs.String("subtype", "", "Report subtype: SUMMARY, DETAILED, SUMMARY_INSTALL_TYPE, SUMMARY_TERRITORY, SUMMARY_CHANNEL")
 	frequency := fs.String("frequency", "", "Frequency: DAILY, WEEKLY, MONTHLY, YEARLY")
-	date := fs.String("date", "", "Report date in YYYY-MM-DD (optional for DAILY; legacy monthly YYYY-MM and yearly YYYY are normalized to period end)")
+	date := fs.String("date", "", "Report date: daily/weekly YYYY-MM-DD, monthly YYYY-MM or YYYY-MM-DD, yearly YYYY or YYYY-MM-DD (optional for DAILY)")
 	version := fs.String("version", "", "Report format version allowed for the selected type, subtype, and frequency")
 	output := fs.String("output", "", "Output file path (default: sales_report_{date|latest}_{type}.tsv.gz)")
 	decompress := fs.Bool("decompress", false, "Decompress gzip output to .tsv")

@@ -38,17 +38,17 @@ asc analytics sales \
 
 * **Daily**: `YYYY-MM-DD`
 * **Weekly**: `YYYY-MM-DD` (Monday start or Sunday end)
-* **Monthly**: `YYYY-MM-DD`
-* **Yearly**: `YYYY-MM-DD`
+* **Monthly**: `YYYY-MM` or `YYYY-MM-DD`
+* **Yearly**: `YYYY` or `YYYY-MM-DD`
 
 For `DAILY` reports, omit `--date` to download the latest available report. `--date` is required for `WEEKLY`, `MONTHLY`, and `YEARLY` reports.
-For compatibility, the legacy monthly `YYYY-MM` and yearly `YYYY` forms remain accepted and are normalized to the period-end date sent to Apple.
+For monthly and yearly reports, the CLI reduces a full date to its containing month or year. It always sends Apple's live `YYYY-MM` monthly or `YYYY` yearly period identifier on the wire.
 
 The CLI validates the complete type, subtype, frequency, and version combination before authentication. This prevents Apple from receiving combinations that its [Sales Reports endpoint](https://developer.apple.com/documentation/appstoreconnectapi/get-v1-salesreports) explicitly rejects. `SUBSCRIPTION` defaults to the live-verified `1_4`; the CLI also accepts Apple's documented `1_3` for that tuple.
 
 **Optional Flags:**
 
-* `--date` - Report date in `YYYY-MM-DD`; optional for `DAILY`
+* `--date` - Report date in the frequency-specific format above; optional for `DAILY`
 * `--version` - Report format version allowed for the selected type, subtype, and frequency
 * `--output` - Custom output path (default: `sales_report_{date|latest}_{type}.tsv.gz`)
 * `--decompress` - Decompress to `.tsv` format
@@ -78,7 +78,7 @@ asc analytics sales \
   --type SALES \
   --subtype SUMMARY \
   --frequency MONTHLY \
-  --date "2024-01-31" \
+  --date "2024-01" \
   --output "reports/monthly.tsv.gz"
 ```
 

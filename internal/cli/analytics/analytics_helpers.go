@@ -194,23 +194,25 @@ func normalizeReportDate(value string, frequency asc.SalesReportFrequency) (stri
 	}
 	switch frequency {
 	case asc.SalesReportFrequencyMonthly:
-		if parsed, err := time.Parse("2006-01-02", trimmed); err == nil {
-			return parsed.Format("2006-01-02"), nil
-		}
 		parsed, err := time.Parse("2006-01", trimmed)
-		if err != nil {
-			return "", fmt.Errorf("--date must be in YYYY-MM-DD format for monthly reports (legacy YYYY-MM is also accepted)")
+		if err == nil {
+			return parsed.Format("2006-01"), nil
 		}
-		return parsed.AddDate(0, 1, -1).Format("2006-01-02"), nil
+		parsed, err = time.Parse("2006-01-02", trimmed)
+		if err != nil {
+			return "", fmt.Errorf("--date must be in YYYY-MM or YYYY-MM-DD format for monthly reports")
+		}
+		return parsed.Format("2006-01"), nil
 	case asc.SalesReportFrequencyYearly:
-		if parsed, err := time.Parse("2006-01-02", trimmed); err == nil {
-			return parsed.Format("2006-01-02"), nil
-		}
 		parsed, err := time.Parse("2006", trimmed)
-		if err != nil {
-			return "", fmt.Errorf("--date must be in YYYY-MM-DD format for yearly reports (legacy YYYY is also accepted)")
+		if err == nil {
+			return parsed.Format("2006"), nil
 		}
-		return parsed.AddDate(1, 0, -1).Format("2006-01-02"), nil
+		parsed, err = time.Parse("2006-01-02", trimmed)
+		if err != nil {
+			return "", fmt.Errorf("--date must be in YYYY or YYYY-MM-DD format for yearly reports")
+		}
+		return parsed.Format("2006"), nil
 	case asc.SalesReportFrequencyWeekly:
 		parsed, err := time.Parse("2006-01-02", trimmed)
 		if err != nil {

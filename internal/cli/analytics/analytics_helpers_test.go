@@ -97,18 +97,20 @@ func TestNormalizeReportDate_MonthlyFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected monthly date to parse, got %v", err)
 	}
-	if date != "2024-01-31" {
-		t.Fatalf("expected legacy month to normalize to 2024-01-31, got %q", date)
+	if date != "2024-01" {
+		t.Fatalf("expected monthly report key 2024-01, got %q", date)
 	}
 }
 
-func TestNormalizeReportDate_MonthlyCanonicalFormat(t *testing.T) {
-	date, err := normalizeReportDate("2024-01-31", asc.SalesReportFrequencyMonthly)
-	if err != nil {
-		t.Fatalf("expected monthly date to parse, got %v", err)
-	}
-	if date != "2024-01-31" {
-		t.Fatalf("expected date to remain 2024-01-31, got %q", date)
+func TestNormalizeReportDate_MonthlyFullDate(t *testing.T) {
+	for _, input := range []string{"2024-02-15", "2024-02-29"} {
+		date, err := normalizeReportDate(input, asc.SalesReportFrequencyMonthly)
+		if err != nil {
+			t.Fatalf("expected monthly date %s to parse, got %v", input, err)
+		}
+		if date != "2024-02" {
+			t.Fatalf("expected monthly report key 2024-02 for %s, got %q", input, date)
+		}
 	}
 }
 
@@ -117,18 +119,20 @@ func TestNormalizeReportDate_YearlyFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected yearly date to parse, got %v", err)
 	}
-	if date != "2024-12-31" {
-		t.Fatalf("expected legacy year to normalize to 2024-12-31, got %q", date)
+	if date != "2024" {
+		t.Fatalf("expected yearly report key 2024, got %q", date)
 	}
 }
 
-func TestNormalizeReportDate_YearlyCanonicalFormat(t *testing.T) {
-	date, err := normalizeReportDate("2024-12-31", asc.SalesReportFrequencyYearly)
-	if err != nil {
-		t.Fatalf("expected yearly date to parse, got %v", err)
-	}
-	if date != "2024-12-31" {
-		t.Fatalf("expected date to remain 2024-12-31, got %q", date)
+func TestNormalizeReportDate_YearlyFullDate(t *testing.T) {
+	for _, input := range []string{"2024-06-30", "2024-12-31"} {
+		date, err := normalizeReportDate(input, asc.SalesReportFrequencyYearly)
+		if err != nil {
+			t.Fatalf("expected yearly date %s to parse, got %v", input, err)
+		}
+		if date != "2024" {
+			t.Fatalf("expected yearly report key 2024 for %s, got %q", input, date)
+		}
 	}
 }
 
