@@ -16,6 +16,10 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: release-cli-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   repair-notarization:
     if: github.event_name == 'workflow_dispatch' && inputs.notarize_existing
@@ -151,11 +155,14 @@ jobs:
         if: always()
         run: rm -f /tmp/AuthKey.p8
 
-  release:
+  build:
+    name: Build, sign, and notarize
     if: github.event_name != 'workflow_dispatch' || !inputs.notarize_existing
     runs-on: macos-latest
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -163,6 +170,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.version) || github.ref }}
 
       - name: Validate release tag
+        id: version
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
         run: |
@@ -174,6 +182,7 @@ jobs:
           fi
 
           printf 'VERSION=%s\n' "$TAG" >> "$GITHUB_ENV"
+          printf 'version=%s\n' "$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Validate release secrets
         env:
@@ -225,7 +234,8 @@ jobs:
 
       - name: Run release guardrails
         run: |
-          export PATH="$(go env GOPATH)/bin:$PATH"
+          PATH_VALUE="$(go env GOPATH)/bin:$PATH"
+          export PATH="$PATH_VALUE"
           make format-check
           make check-docs
           make check-wall-of-apps
@@ -245,31 +255,27 @@ jobs:
           - name: Build macOS binaries
             run: |
               COMMIT=$(git rev-parse --short HEAD)
-              DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              DATE=$(git show -s --format=%cI HEAD)
               GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_macOS_amd64 .
               GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_macOS_arm64 .
 
           - name: Build for Linux
             run: |
               COMMIT=$(git rev-parse --short HEAD)
-              DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              DATE=$(git show -s --format=%cI HEAD)
               GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_linux_amd64 .
               GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_linux_arm64 .
 
           - name: Build for Windows
             run: |
               COMMIT=$(git rev-parse --short HEAD)
-              DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+              DATE=$(git show -s --format=%cI HEAD)
               GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o release/asc_${VERSION}_windows_amd64.exe .
 
       - name: Sign and verify macOS binaries
         env:
           APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
         run: |
-          if [ -z "${APPLE_DEVELOPER_ID}" ]; then
-            echo "::error::APPLE_DEVELOPER_ID not set"
-            exit 1
-          fi
           for binary in release/asc_*_macOS_*; do
             codesign --force --sign "${APPLE_DEVELOPER_ID}" --timestamp --options=runtime "$binary"
             codesign --verify --deep --strict --verbose=2 "$binary"
@@ -328,20 +334,96 @@ jobs:
       - name: Create checksums
         run: |
           cd release
-          shasum -a 256 * > asc_${VERSION}_checksums.txt
+          assets=(asc_*)
+          shasum -a 256 "${assets[@]}" > "asc_${VERSION}_checksums.txt"
 
       - name: Display files
         run: ls -la release/
 
-      - name: Create or update GitHub Release
+      - name: Pack immutable release artifact
+        run: |
+          mkdir -p workflow-artifact
+          tar -cf "workflow-artifact/release-${VERSION}.tar" release
+
+      - name: Upload immutable release artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ steps.version.outputs.version }}
+          path: workflow-artifact/release-${{ steps.version.outputs.version }}.tar
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Download immutable release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.build.outputs.version }}
+          path: workflow-artifact
+
+      - name: Unpack and verify release artifact
+        run: |
+          tar -xf "workflow-artifact/release-${VERSION}.tar"
+          cd release
+          shasum -a 256 -c "asc_${VERSION}_checksums.txt"
+
+      - name: Create or verify GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "${VERSION}" >/dev/null 2>&1; then
-            gh release upload "${VERSION}" release/* --clobber
+            expected_names="${RUNNER_TEMP}/expected-release-assets.txt"
+            published_names="${RUNNER_TEMP}/published-release-assets.txt"
+            find release -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort > "$expected_names"
+            gh release view "${VERSION}" --json assets --jq '.assets[].name' | LC_ALL=C sort > "$published_names"
+            if ! cmp -s "$expected_names" "$published_names"; then
+              echo "::error::Published release assets differ from this run"
+              diff -u "$expected_names" "$published_names" || true
+              exit 1
+            fi
+
+            published=$(mktemp -d)
+            gh release download "${VERSION}" --dir "$published"
+            for asset in release/asc_*; do
+              name=$(basename "$asset")
+              if ! cmp -s "$asset" "$published/$name"; then
+                echo "::error::Published release assets differ from this run: ${name}"
+                exit 1
+              fi
+            done
+            echo "Published release assets match the immutable build artifact."
           else
-            gh release create "${VERSION}" release/* --generate-notes --verify-tag
+            gh release create "${VERSION}" release/asc_* --generate-notes --verify-tag
           fi
+
+  homebrew:
+    name: Update Homebrew tap
+    needs: [build, publish]
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Download immutable release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.build.outputs.version }}
+          path: workflow-artifact
+
+      - name: Unpack and verify release artifact
+        run: |
+          tar -xf "workflow-artifact/release-${VERSION}.tar"
+          cd release
+          shasum -a 256 -c "asc_${VERSION}_checksums.txt"
 
       - name: Update Homebrew tap
         env:
@@ -352,14 +434,13 @@ jobs:
             exit 1
           fi
 
-          export SHA256_AMD64=$(shasum -a 256 release/asc_${VERSION}_macOS_amd64 | cut -d ' ' -f 1)
-          export SHA256=$(shasum -a 256 release/asc_${VERSION}_macOS_arm64 | cut -d ' ' -f 1)
+          SHA256_AMD64=$(shasum -a 256 "release/asc_${VERSION}_macOS_amd64" | cut -d ' ' -f 1)
+          SHA256=$(shasum -a 256 "release/asc_${VERSION}_macOS_arm64" | cut -d ' ' -f 1)
+          export SHA256_AMD64 SHA256
 
-          # Clone the tap repo
-          git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/rorkai/homebrew-tap.git homebrew-tap
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/rorkai/homebrew-tap.git" homebrew-tap
           cd homebrew-tap
 
-          # Update the formula
           python3 - <<'PY'
           import os
           from pathlib import Path
@@ -408,12 +489,41 @@ jobs:
           Path("Formula/asc.rb").write_text(formula, encoding="utf-8")
           PY
 
-          # Commit and push
           git config user.name "Rudrank Riyam"
           git config user.email "rudrankriyam@gmail.com"
           git add Formula/asc.rb
-          git commit -m "Update asc to ${VERSION}" || echo "No changes to commit"
-          git push
+          if git diff --cached --quiet; then
+            echo "Homebrew formula is already current."
+          else
+            git commit -m "Update asc to ${VERSION}"
+            git push
+          fi
+
+  winget:
+    name: Submit WinGet package
+    needs: [build, publish]
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.build.outputs.version }}
+
+      - name: Download immutable release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ needs.build.outputs.version }}
+          path: workflow-artifact
+
+      - name: Unpack and verify release artifact
+        run: |
+          tar -xf "workflow-artifact/release-${VERSION}.tar"
+          cd release
+          shasum -a 256 -c "asc_${VERSION}_checksums.txt"
 
       - name: Generate WinGet manifests
         run: |
@@ -423,10 +533,11 @@ jobs:
             --output-dir release/winget
 
       - name: Upload WinGet manifests artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: winget-manifests-${{ env.VERSION }}
-          path: release/winget/manifests/r/Rorkai/ASC/${{ env.VERSION }}
+          name: winget-manifests-${{ needs.build.outputs.version }}
+          path: release/winget/manifests/r/Rorkai/ASC/${{ needs.build.outputs.version }}
+          if-no-files-found: error
 
       - name: Submit WinGet package PR
         env:
@@ -438,7 +549,7 @@ jobs:
             exit 1
           fi
 
-          AUTH_LOGIN="$(gh api user --jq .login)"
+          AUTH_LOGIN=$(gh api user --jq .login)
           if [ -z "$WINGET_FORK_OWNER" ]; then
             WINGET_FORK_OWNER="${AUTH_LOGIN}"
           fi
@@ -457,22 +568,42 @@ jobs:
           git clone --filter=blob:none --sparse "https://x-access-token:${GH_TOKEN}@github.com/${WINGET_FORK_OWNER}/winget-pkgs.git" winget-pkgs
           cd winget-pkgs
           git remote add upstream https://github.com/microsoft/winget-pkgs.git
-          git fetch upstream master --depth 1
-          git fetch origin "${BRANCH}:refs/remotes/origin/${BRANCH}" --depth 1 || true
+          git fetch origin master
+          git fetch upstream master
+          if ! git merge-base --is-ancestor origin/master upstream/master; then
+            echo "::error::The WinGet fork master branch is not an ancestor of upstream/master"
+            exit 1
+          fi
+
+          git fetch origin "${BRANCH}:refs/remotes/origin/${BRANCH}" || true
           BRANCH_EXISTS=0
           if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
             BRANCH_EXISTS=1
+            if ! git merge-base --is-ancestor origin/master "origin/${BRANCH}"; then
+              echo "::error::The existing WinGet release branch does not descend from the fork master branch"
+              exit 1
+            fi
             git checkout -B "${BRANCH}" "origin/${BRANCH}"
           else
-            git checkout -B "${BRANCH}" upstream/master
+            git checkout -b "${BRANCH}" origin/master
           fi
           git sparse-checkout set "manifests/r/Rorkai/ASC"
+
+          verify_winget_scope() {
+            unexpected_paths=$(git diff --name-only upstream/master...HEAD | grep -Ev "^manifests/r/Rorkai/ASC/${VERSION}/" || true)
+            if [ -n "$unexpected_paths" ]; then
+              echo "::error::WinGet branch contains changes outside the ${VERSION} manifest directory"
+              echo "$unexpected_paths"
+              exit 1
+            fi
+          }
+          verify_winget_scope
 
           PR_KIND="New package"
           if [ -d manifests/r/Rorkai/ASC ] && find manifests/r/Rorkai/ASC -mindepth 1 -maxdepth 1 -type d | grep -q .; then
             PR_KIND="New version"
           fi
-          OPEN_PACKAGE_PRS="$(gh pr list --repo microsoft/winget-pkgs --state open --search "Rorkai.ASC in:title" --json headRefName --jq "[.[] | select(.headRefName != \"${BRANCH}\")] | length" || echo "0")"
+          OPEN_PACKAGE_PRS=$(gh pr list --repo microsoft/winget-pkgs --state open --search "Rorkai.ASC in:title" --json headRefName --jq "[.[] | select(.headRefName != \"${BRANCH}\")] | length" || echo "0")
           if [ "${PR_KIND}" = "New package" ] && [ "${OPEN_PACKAGE_PRS}" != "0" ]; then
             PR_KIND="New version"
           fi
@@ -491,7 +622,12 @@ jobs:
             echo "WinGet manifests for ${VERSION} already exist on ${BRANCH}; checking for an open PR."
           else
             git commit -m "${PR_KIND}: Rorkai.ASC version ${VERSION}"
-            git push --force-with-lease origin "${BRANCH}"
+            verify_winget_scope
+            if [ "${BRANCH_EXISTS}" = "1" ]; then
+              git push origin "${BRANCH}"
+            else
+              git push --set-upstream origin "${BRANCH}"
+            fi
           fi
 
           if gh pr list --repo microsoft/winget-pkgs --state open --search "Rorkai.ASC version ${VERSION} in:title" --json number --jq '.[0].number // empty' | grep -q .; then

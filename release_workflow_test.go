@@ -13,18 +13,24 @@ func TestReleaseWorkflowExportsHomebrewChecksumsBeforeFormulaGeneration(t *testi
 	}
 
 	workflow := string(data)
-	exportAMD64 := "export SHA256_AMD64="
-	exportArm64 := "export SHA256="
+	assignAMD64 := "SHA256_AMD64=$(shasum"
+	assignArm64 := "SHA256=$(shasum"
+	exportChecksums := "export SHA256_AMD64 SHA256"
 	pythonStep := "python3 - <<'PY'"
 
-	exportAMD64Index := strings.Index(workflow, exportAMD64)
-	if exportAMD64Index == -1 {
-		t.Fatalf("release workflow missing %q", exportAMD64)
+	assignAMD64Index := strings.Index(workflow, assignAMD64)
+	if assignAMD64Index == -1 {
+		t.Fatalf("release workflow missing %q", assignAMD64)
 	}
 
-	exportArm64Index := strings.Index(workflow, exportArm64)
-	if exportArm64Index == -1 {
-		t.Fatalf("release workflow missing %q", exportArm64)
+	assignArm64Index := strings.Index(workflow, assignArm64)
+	if assignArm64Index == -1 {
+		t.Fatalf("release workflow missing %q", assignArm64)
+	}
+
+	exportIndex := strings.Index(workflow, exportChecksums)
+	if exportIndex == -1 {
+		t.Fatalf("release workflow missing %q", exportChecksums)
 	}
 
 	pythonIndex := strings.Index(workflow, pythonStep)
@@ -32,11 +38,11 @@ func TestReleaseWorkflowExportsHomebrewChecksumsBeforeFormulaGeneration(t *testi
 		t.Fatalf("release workflow missing %q", pythonStep)
 	}
 
-	if exportAMD64Index > pythonIndex {
-		t.Fatalf("%q must appear before %q", exportAMD64, pythonStep)
+	if assignAMD64Index > exportIndex || exportIndex > pythonIndex {
+		t.Fatalf("%q must be assigned and exported before %q", assignAMD64, pythonStep)
 	}
-	if exportArm64Index > pythonIndex {
-		t.Fatalf("%q must appear before %q", exportArm64, pythonStep)
+	if assignArm64Index > exportIndex || exportIndex > pythonIndex {
+		t.Fatalf("%q must be assigned and exported before %q", assignArm64, pythonStep)
 	}
 }
 
@@ -173,7 +179,7 @@ func TestReleaseWorkflowNotarizesMacOSBinariesBeforePublishing(t *testing.T) {
 
 	notarizeIndex := strings.Index(workflow, "- name: Notarize macOS binaries")
 	checksumIndex := strings.Index(workflow, "- name: Create checksums")
-	publishIndex := strings.Index(workflow, "- name: Create or update GitHub Release")
+	publishIndex := strings.Index(workflow, "- name: Create or verify GitHub Release")
 	if notarizeIndex == -1 || checksumIndex == -1 || publishIndex == -1 {
 		t.Fatalf("release workflow must contain notarization, checksum, and publish steps")
 	}
@@ -194,7 +200,7 @@ func TestReleaseWorkflowCanRepairExistingNotarizationWithoutReplacingAssets(t *t
 	}
 
 	start := strings.Index(workflow, "\n  repair-notarization:\n")
-	end := strings.Index(workflow, "\n  release:\n")
+	end := strings.Index(workflow, "\n  build:\n")
 	if start == -1 || end == -1 || start >= end {
 		t.Fatal("release workflow must define repair-notarization before release")
 	}
@@ -221,6 +227,100 @@ func TestReleaseWorkflowCanRepairExistingNotarizationWithoutReplacingAssets(t *t
 	} {
 		if strings.Contains(repairJob, unwanted) {
 			t.Errorf("repair-notarization job must not replace release assets; found %q", unwanted)
+		}
+	}
+}
+
+func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	for _, want := range []string{
+		"\n  build:\n",
+		"\n  publish:\n",
+		"\n  homebrew:\n",
+		"\n  winget:\n",
+		"outputs:\n      version: ${{ steps.version.outputs.version }}",
+		"actions/upload-artifact@",
+		"actions/download-artifact@",
+		"name: release-${{ needs.build.outputs.version }}",
+		`tar -cf "workflow-artifact/release-${VERSION}.tar" release`,
+		`tar -xf "workflow-artifact/release-${VERSION}.tar"`,
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Errorf("release workflow missing split-job contract %q", want)
+		}
+	}
+
+	if got := strings.Count(workflow, "name: release-${{ steps.version.outputs.version }}"); got != 1 {
+		t.Fatalf("release workflow must upload exactly one immutable release artifact, got %d", got)
+	}
+	if got := strings.Count(workflow, "actions/download-artifact@"); got != 3 {
+		t.Fatalf("each publisher must download the same build artifact, got %d downloads", got)
+	}
+}
+
+func TestReleaseWorkflowNeverClobbersPublishedAssets(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	for _, unwanted := range []string{"gh release upload", "--clobber"} {
+		if strings.Contains(workflow, unwanted) {
+			t.Errorf("release workflow must not replace published assets; found %q", unwanted)
+		}
+	}
+	for _, want := range []string{
+		`gh release download "${VERSION}"`,
+		`cmp -s "$asset" "$published/$name"`,
+		`Published release assets differ from this run`,
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Errorf("release workflow missing published-asset verification %q", want)
+		}
+	}
+}
+
+func TestReleaseWorkflowUsesCommitTimestampForBuildMetadata(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	if !strings.Contains(workflow, `DATE=$(git show -s --format=%cI HEAD)`) {
+		t.Fatal("release workflow must derive build metadata from the release commit")
+	}
+	if strings.Contains(workflow, `DATE=$(date -u`) {
+		t.Fatal("release workflow must not embed the wall-clock build time")
+	}
+}
+
+func TestReleaseWorkflowPushesWinGetBranchWithoutHistoryRewrite(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	for _, unwanted := range []string{"--force-with-lease", "git push --force"} {
+		if strings.Contains(workflow, unwanted) {
+			t.Errorf("WinGet publication must not rewrite branch history; found %q", unwanted)
+		}
+	}
+	for _, want := range []string{
+		`git merge-base --is-ancestor origin/master upstream/master`,
+		`git checkout -b "${BRANCH}" origin/master`,
+		`git push --set-upstream origin "${BRANCH}"`,
+		`WinGet branch contains changes outside the ${VERSION} manifest directory`,
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Errorf("release workflow missing fast-forward-only WinGet contract %q", want)
 		}
 	}
 }
