@@ -146,3 +146,127 @@ func TestReleaseWorkflowDoesNotInterpolateDispatchInputIntoShell(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseWorkflowNotarizesMacOSBinariesBeforePublishing(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	releaseStart := strings.Index(workflow, "\n  release:\n")
+	if releaseStart == -1 {
+		t.Fatal("release workflow missing release job")
+	}
+	releaseJob := workflow[releaseStart:]
+	for _, want := range []string{
+		`ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}`,
+		`ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}`,
+		`ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}`,
+		`ASC_PRIVATE_KEY_PATH: ${{ runner.temp }}/AuthKey.p8`,
+		`ASC_BYPASS_KEYCHAIN: "1"`,
+		`notarization list --limit 1 --output json`,
+		`notarization submit`,
+		`--wait`,
+		`--timeout 1h`,
+		`notarization log --id`,
+		`codesign -vvvv -R="notarized" --check-notarization`,
+	} {
+		if !strings.Contains(releaseJob, want) {
+			t.Errorf("release workflow missing notarization contract %q", want)
+		}
+	}
+	if strings.Contains(releaseJob, `auth status --validate`) {
+		t.Fatal("release workflow must validate the environment credentials with a Notary API request")
+	}
+	if strings.Contains(releaseJob, `spctl --assess`) {
+		t.Fatal("release workflow must not assess standalone binaries with spctl")
+	}
+
+	notarizeIndex := strings.Index(workflow, "- name: Notarize macOS binaries")
+	checksumIndex := strings.Index(workflow, "- name: Create checksums")
+	publishIndex := strings.Index(workflow, "- name: Create or update GitHub Release")
+	if notarizeIndex == -1 || checksumIndex == -1 || publishIndex == -1 {
+		t.Fatalf("release workflow must contain notarization, checksum, and publish steps")
+	}
+	if notarizeIndex >= checksumIndex || checksumIndex >= publishIndex {
+		t.Fatalf("release workflow must notarize before checksums and publish: notarize=%d checksum=%d publish=%d", notarizeIndex, checksumIndex, publishIndex)
+	}
+}
+
+func TestReleaseWorkflowCanRepairExistingNotarizationWithoutReplacingAssets(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	if !strings.Contains(workflow, "notarize_existing:") {
+		t.Fatal("release workflow missing notarize_existing dispatch input")
+	}
+
+	start := strings.Index(workflow, "\n  repair-notarization:\n")
+	end := strings.Index(workflow, "\n  release:\n")
+	if start == -1 || end == -1 || start >= end {
+		t.Fatal("release workflow must define repair-notarization before release")
+	}
+	repairJob := workflow[start:end]
+
+	for _, want := range []string{
+		`persist-credentials: false`,
+		`gh release download "${VERSION}"`,
+		`shasum -a 256 -c`,
+		`codesign --verify --deep --strict --verbose=2`,
+		`is signed by an unexpected Developer ID`,
+		`ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}`,
+		`ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}`,
+		`ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}`,
+		`ASC_PRIVATE_KEY_PATH: ${{ runner.temp }}/AuthKey.p8`,
+		`ASC_BYPASS_KEYCHAIN: "1"`,
+		`notarization list --limit 1 --output json`,
+		`notarization submit`,
+		`codesign -vvvv -R="notarized" --check-notarization`,
+	} {
+		if !strings.Contains(repairJob, want) {
+			t.Errorf("repair-notarization job missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		`auth status --validate`,
+		`spctl --assess`,
+	} {
+		if strings.Contains(repairJob, unwanted) {
+			t.Errorf("repair-notarization job contains invalid verification %q", unwanted)
+		}
+	}
+
+	for _, unwanted := range []string{
+		`gh release upload`,
+		`gh release create`,
+		`codesign --force`,
+		`--clobber`,
+	} {
+		if strings.Contains(repairJob, unwanted) {
+			t.Errorf("repair-notarization job must not replace release assets; found %q", unwanted)
+		}
+	}
+}
+
+func TestReleaseWorkflowCreatesPrivateKeyWithRestrictedModeInRunnerTemp(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	if got := strings.Count(workflow, `install -m 600 /dev/null "$RUNNER_TEMP/AuthKey.p8"`); got != 2 {
+		t.Fatalf("release workflow must securely create both temporary keys, got %d sites", got)
+	}
+	cleanup := "- name: Remove notarization credentials\n        if: always()\n        run: rm -f \"$RUNNER_TEMP/AuthKey.p8\""
+	if got := strings.Count(workflow, cleanup); got != 2 {
+		t.Fatalf("release workflow must unconditionally clean up both temporary keys, got %d sites", got)
+	}
+	if strings.Contains(workflow, "/tmp/AuthKey.p8") {
+		t.Fatal("release workflow must not store private keys in shared /tmp")
+	}
+}
