@@ -218,7 +218,11 @@ func TestReleaseWorkflowCanRepairExistingNotarizationWithoutReplacingAssets(t *t
 		`shasum -a 256 -c`,
 		`codesign --verify --deep --strict --verbose=2`,
 		`is signed by an unexpected Developer ID`,
+		`ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}`,
+		`ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}`,
+		`ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}`,
 		`ASC_PRIVATE_KEY_PATH: ${{ runner.temp }}/AuthKey.p8`,
+		`ASC_BYPASS_KEYCHAIN: "1"`,
 		`notarization list --limit 1 --output json`,
 		`notarization submit`,
 		`codesign -vvvv -R="notarized" --check-notarization`,
@@ -258,8 +262,9 @@ func TestReleaseWorkflowCreatesPrivateKeyWithRestrictedModeInRunnerTemp(t *testi
 	if got := strings.Count(workflow, `install -m 600 /dev/null "$RUNNER_TEMP/AuthKey.p8"`); got != 2 {
 		t.Fatalf("release workflow must securely create both temporary keys, got %d sites", got)
 	}
-	if got := strings.Count(workflow, `run: rm -f "$RUNNER_TEMP/AuthKey.p8"`); got != 2 {
-		t.Fatalf("release workflow must clean up both temporary keys, got %d sites", got)
+	cleanup := "- name: Remove notarization credentials\n        if: always()\n        run: rm -f \"$RUNNER_TEMP/AuthKey.p8\""
+	if got := strings.Count(workflow, cleanup); got != 2 {
+		t.Fatalf("release workflow must unconditionally clean up both temporary keys, got %d sites", got)
 	}
 	if strings.Contains(workflow, "/tmp/AuthKey.p8") {
 		t.Fatal("release workflow must not store private keys in shared /tmp")
