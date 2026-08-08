@@ -610,7 +610,7 @@ jobs:
                 end
 
                 test do
-                  assert_match "asc is a fast, lightweight CLI for App Store Connect", shell_output("#{{bin}}/asc --help")
+                  assert_match version.to_s, shell_output("#{{bin}}/asc --version")
                 end
               end
               """
