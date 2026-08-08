@@ -31,6 +31,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ inputs.version }}
+          persist-credentials: false
 
       - name: Validate release tag
         env:
@@ -73,8 +74,8 @@ jobs:
         env:
           ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
         run: |
-          python3 -c 'import base64, os; from pathlib import Path; Path("/tmp/AuthKey.p8").write_bytes(base64.b64decode(os.environ["ASC_PRIVATE_KEY_B64"], validate=True))'
-          chmod 600 /tmp/AuthKey.p8
+          install -m 600 /dev/null "$RUNNER_TEMP/AuthKey.p8"
+          python3 -c 'import base64, os; from pathlib import Path; Path(os.environ["RUNNER_TEMP"], "AuthKey.p8").write_bytes(base64.b64decode(os.environ["ASC_PRIVATE_KEY_B64"], validate=True))'
           go build -trimpath -ldflags "-s -w" -o /tmp/asc-notary-bootstrap .
 
       - name: Verify notarization auth
@@ -82,8 +83,8 @@ jobs:
           ASC_BYPASS_KEYCHAIN: "1"
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_PATH: /tmp/AuthKey.p8
-        run: /tmp/asc-notary-bootstrap auth status --validate --output json >/dev/null
+          ASC_PRIVATE_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+        run: /tmp/asc-notary-bootstrap notarization list --limit 1 --output json >/dev/null
 
       - name: Download and verify existing release
         env:
@@ -110,7 +111,7 @@ jobs:
           ASC_BYPASS_KEYCHAIN: "1"
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_PATH: /tmp/AuthKey.p8
+          ASC_PRIVATE_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
         run: |
           for binary in existing-release/asc_*_macOS_*; do
             archive="${RUNNER_TEMP}/$(basename "$binary").zip"
@@ -137,23 +138,23 @@ jobs:
               exit "$status"
             fi
 
-            accepted=0
+            ticket_available=0
             for _ in {1..20}; do
-              if spctl --assess --type execute --verbose=4 "$binary"; then
-                accepted=1
+              if codesign -vvvv -R="notarized" --check-notarization "$binary"; then
+                ticket_available=1
                 break
               fi
               sleep 15
             done
-            if [ "$accepted" -ne 1 ]; then
-              echo "::error::Gatekeeper did not accept $(basename "$binary") after notarization"
+            if [ "$ticket_available" -ne 1 ]; then
+              echo "::error::Notarization ticket is not available for $(basename "$binary")"
               exit 1
             fi
           done
 
       - name: Remove notarization credentials
         if: always()
-        run: rm -f /tmp/AuthKey.p8
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
 
   build:
     name: Build, sign, and notarize
@@ -168,6 +169,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.version) || github.ref }}
+          persist-credentials: false
 
       - name: Validate release tag
         id: version
@@ -217,8 +219,8 @@ jobs:
         env:
           ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
         run: |
-          python3 -c 'import base64, os; from pathlib import Path; Path("/tmp/AuthKey.p8").write_bytes(base64.b64decode(os.environ["ASC_PRIVATE_KEY_B64"], validate=True))'
-          chmod 600 /tmp/AuthKey.p8
+          install -m 600 /dev/null "$RUNNER_TEMP/AuthKey.p8"
+          python3 -c 'import base64, os; from pathlib import Path; Path(os.environ["RUNNER_TEMP"], "AuthKey.p8").write_bytes(base64.b64decode(os.environ["ASC_PRIVATE_KEY_B64"], validate=True))'
           go build -trimpath -ldflags "-s -w" -o /tmp/asc-notary-bootstrap .
 
       - name: Verify notarization auth
@@ -226,8 +228,8 @@ jobs:
           ASC_BYPASS_KEYCHAIN: "1"
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_PATH: /tmp/AuthKey.p8
-        run: /tmp/asc-notary-bootstrap auth status --validate --output json >/dev/null
+          ASC_PRIVATE_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+        run: /tmp/asc-notary-bootstrap notarization list --limit 1 --output json >/dev/null
 
       - name: Self-test docs validators
         run: python3 scripts/test_check_docs.py
@@ -286,7 +288,7 @@ jobs:
           ASC_BYPASS_KEYCHAIN: "1"
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY_PATH: /tmp/AuthKey.p8
+          ASC_PRIVATE_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
         run: |
           for binary in release/asc_*_macOS_*; do
             archive="${RUNNER_TEMP}/$(basename "$binary").zip"
@@ -313,23 +315,23 @@ jobs:
               exit "$status"
             fi
 
-            accepted=0
+            ticket_available=0
             for _ in {1..20}; do
-              if spctl --assess --type execute --verbose=4 "$binary"; then
-                accepted=1
+              if codesign -vvvv -R="notarized" --check-notarization "$binary"; then
+                ticket_available=1
                 break
               fi
               sleep 15
             done
-            if [ "$accepted" -ne 1 ]; then
-              echo "::error::Gatekeeper did not accept $(basename "$binary") after notarization"
+            if [ "$ticket_available" -ne 1 ]; then
+              echo "::error::Notarization ticket is not available for $(basename "$binary")"
               exit 1
             fi
           done
 
       - name: Remove notarization credentials
         if: always()
-        run: rm -f /tmp/AuthKey.p8
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Create checksums
         run: |
