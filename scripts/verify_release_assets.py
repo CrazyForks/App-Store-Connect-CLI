@@ -9,6 +9,8 @@ import re
 import sys
 from pathlib import Path
 
+from release_rehearsal import expected_artifact_names
+
 
 CHECKSUM_LINE = re.compile(r"^([0-9a-fA-F]{64}) ([ *])(.+)$")
 
@@ -42,7 +44,19 @@ def main() -> None:
             continue
         if not entry.is_file() or entry.is_symlink():
             fail(f"unexpected non-file release entry: {entry.name}")
+        if entry.stat().st_size == 0:
+            fail(f"release asset is empty: {entry.name}")
         actual_names.append(entry.name)
+
+    canonical_names = set(expected_artifact_names(args.version))
+    actual_set = set(actual_names)
+    if actual_set != canonical_names:
+        missing = sorted(canonical_names - actual_set)
+        unexpected = sorted(actual_set - canonical_names)
+        fail(
+            "canonical release asset mismatch; "
+            f"missing assets={missing}, unexpected assets={unexpected}"
+        )
 
     expected_hashes: dict[str, str] = {}
     for line_number, line in enumerate(
@@ -63,7 +77,6 @@ def main() -> None:
             fail(f"duplicate checksum entry: {name}")
         expected_hashes[name] = digest.lower()
 
-    actual_set = set(actual_names)
     expected_set = set(expected_hashes)
     if actual_set != expected_set:
         missing = sorted(actual_set - expected_set)

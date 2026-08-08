@@ -400,35 +400,63 @@ func TestVerifyReleaseAssetsRequiresExactChecksumCoverage(t *testing.T) {
 	}
 
 	const version = "1.2.3"
-	const assetName = "asc_1.2.3_macOS_arm64"
-	asset := []byte("signed binary bytes")
-	assetSum := sha256.Sum256(asset)
-	validLine := fmt.Sprintf("%x  %s\n", assetSum, assetName)
+	canonicalNames := []string{
+		"asc_1.2.3_macOS_amd64",
+		"asc_1.2.3_macOS_arm64",
+		"asc_1.2.3_linux_amd64",
+		"asc_1.2.3_linux_arm64",
+		"asc_1.2.3_windows_amd64.exe",
+	}
 
 	tests := []struct {
-		name          string
-		manifest      string
-		extraAsset    bool
-		wantSucceeded bool
+		name             string
+		omitCanonical    string
+		addUnlistedAsset bool
+		emptyAsset       string
+		wrongDigest      bool
+		pathTraversal    bool
+		wantSucceeded    bool
 	}{
-		{name: "complete", manifest: validLine, wantSucceeded: true},
-		{name: "omitted asset", manifest: validLine, extraAsset: true},
-		{name: "wrong digest", manifest: strings.Repeat("0", 64) + "  " + assetName + "\n"},
-		{name: "path traversal", manifest: fmt.Sprintf("%x  ../%s\n", assetSum, assetName)},
+		{name: "complete", wantSucceeded: true},
+		{name: "missing canonical asset", omitCanonical: "asc_1.2.3_windows_amd64.exe"},
+		{name: "unlisted asset", addUnlistedAsset: true},
+		{name: "empty canonical asset", emptyAsset: "asc_1.2.3_macOS_arm64"},
+		{name: "wrong digest", wrongDigest: true},
+		{name: "path traversal", pathTraversal: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			releaseDir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(releaseDir, assetName), asset, 0o600); err != nil {
-				t.Fatalf("write asset: %v", err)
+			var manifest strings.Builder
+			for index, name := range canonicalNames {
+				if name == tt.omitCanonical {
+					continue
+				}
+				asset := []byte("signed binary bytes for " + name)
+				if name == tt.emptyAsset {
+					asset = nil
+				}
+				if err := os.WriteFile(filepath.Join(releaseDir, name), asset, 0o600); err != nil {
+					t.Fatalf("write asset: %v", err)
+				}
+				digest := sha256.Sum256(asset)
+				digestText := fmt.Sprintf("%x", digest)
+				manifestName := name
+				if tt.wrongDigest && index == 0 {
+					digestText = strings.Repeat("0", 64)
+				}
+				if tt.pathTraversal && index == 0 {
+					manifestName = "../" + name
+				}
+				fmt.Fprintf(&manifest, "%s  %s\n", digestText, manifestName)
 			}
-			if tt.extraAsset {
-				if err := os.WriteFile(filepath.Join(releaseDir, "asc_1.2.3_linux_arm64"), []byte("extra"), 0o600); err != nil {
+			if tt.addUnlistedAsset {
+				if err := os.WriteFile(filepath.Join(releaseDir, "asc_1.2.3_extra"), []byte("extra"), 0o600); err != nil {
 					t.Fatalf("write extra asset: %v", err)
 				}
 			}
-			if err := os.WriteFile(filepath.Join(releaseDir, "asc_1.2.3_checksums.txt"), []byte(tt.manifest), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(releaseDir, "asc_1.2.3_checksums.txt"), []byte(manifest.String()), 0o600); err != nil {
 				t.Fatalf("write checksum manifest: %v", err)
 			}
 
