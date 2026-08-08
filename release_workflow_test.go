@@ -1,7 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -212,7 +216,7 @@ func TestReleaseWorkflowCanRepairExistingNotarizationWithoutReplacingAssets(t *t
 	}
 
 	start := strings.Index(workflow, "\n  repair-notarization:\n")
-	end := strings.Index(workflow, "\n  build:\n")
+	end := strings.Index(workflow, "\n  prepare:\n")
 	if start == -1 || end == -1 || start >= end {
 		t.Fatal("release workflow must define repair-notarization before release")
 	}
@@ -221,7 +225,7 @@ func TestReleaseWorkflowCanRepairExistingNotarizationWithoutReplacingAssets(t *t
 	for _, want := range []string{
 		`persist-credentials: false`,
 		`gh release download "${VERSION}"`,
-		`shasum -a 256 -c`,
+		`python3 workflow-source/scripts/verify_release_assets.py --release-dir existing-release --version "${VERSION}"`,
 		`codesign --verify --deep --strict --verbose=2`,
 		`is signed by an unexpected Developer ID`,
 		`ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}`,
@@ -285,6 +289,7 @@ func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
 
 	workflow := string(data)
 	for _, want := range []string{
+		"\n  prepare:\n",
 		"\n  build:\n",
 		"\n  publish:\n",
 		"\n  homebrew:\n",
@@ -292,7 +297,7 @@ func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
 		"outputs:\n      version: ${{ steps.version.outputs.version }}",
 		"actions/upload-artifact@",
 		"actions/download-artifact@",
-		"name: candidate-release-${{ needs.build.outputs.version }}",
+		"name: candidate-release-${{ needs.prepare.outputs.version }}",
 		"name: published-release-${{ needs.publish.outputs.version }}",
 		`tar -cf "workflow-artifact/candidate-release-${VERSION}.tar" release`,
 		`tar -cf "workflow-artifact/published-release-${VERSION}.tar" release`,
@@ -302,8 +307,8 @@ func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
 		}
 	}
 
-	if got := strings.Count(workflow, "name: candidate-release-${{ steps.version.outputs.version }}"); got != 2 {
-		t.Fatalf("release workflow must define mutually exclusive fresh and recovered artifact uploads, got %d", got)
+	if got := strings.Count(workflow, "name: candidate-release-${{ needs.prepare.outputs.version }}"); got != 3 {
+		t.Fatalf("release workflow must define two mutually exclusive uploads and one download for the candidate artifact, got %d references", got)
 	}
 	if got := strings.Count(workflow, "actions/download-artifact@"); got != 3 {
 		t.Fatalf("publishers must consume the candidate and published artifacts in three downloads, got %d", got)
@@ -342,6 +347,85 @@ func TestReleaseWorkflowReusesArtifactsAcrossRerunAttempts(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowRepairsPackageManagersWithoutRebuildingPublishedRelease(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	for _, want := range []string{
+		"\n  prepare:\n",
+		`published: ${{ steps.release.outputs.published }}`,
+		`gh api "repos/${GH_REPO}/releases/tags/${VERSION}" --jq '.draft'`,
+		`elif ! grep -Fq "HTTP 404" "$release_error"`,
+		`needs: prepare`,
+		`needs.prepare.outputs.published != 'true'`,
+		"needs:\n      - prepare\n      - build",
+		`needs.prepare.outputs.published == 'true' || needs.build.result == 'success'`,
+		`if: steps.published_artifact.outputs.reused != 'true' && needs.prepare.outputs.published == 'true'`,
+		`gh release download "${VERSION}" --dir published-release`,
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Errorf("release workflow missing published-release repair contract %q", want)
+		}
+	}
+}
+
+func TestVerifyReleaseAssetsRequiresExactChecksumCoverage(t *testing.T) {
+	workflowData, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+	if got := strings.Count(string(workflowData), "verify_release_assets.py"); got != 6 {
+		t.Fatalf("every release consumer must run exact checksum coverage verification, got %d verifier calls", got)
+	}
+
+	const version = "1.2.3"
+	const assetName = "asc_1.2.3_macOS_arm64"
+	asset := []byte("signed binary bytes")
+	assetSum := sha256.Sum256(asset)
+	validLine := fmt.Sprintf("%x  %s\n", assetSum, assetName)
+
+	tests := []struct {
+		name          string
+		manifest      string
+		extraAsset    bool
+		wantSucceeded bool
+	}{
+		{name: "complete", manifest: validLine, wantSucceeded: true},
+		{name: "omitted asset", manifest: validLine, extraAsset: true},
+		{name: "wrong digest", manifest: strings.Repeat("0", 64) + "  " + assetName + "\n"},
+		{name: "path traversal", manifest: fmt.Sprintf("%x  ../%s\n", assetSum, assetName)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			releaseDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(releaseDir, assetName), asset, 0o600); err != nil {
+				t.Fatalf("write asset: %v", err)
+			}
+			if tt.extraAsset {
+				if err := os.WriteFile(filepath.Join(releaseDir, "asc_1.2.3_linux_arm64"), []byte("extra"), 0o600); err != nil {
+					t.Fatalf("write extra asset: %v", err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(releaseDir, "asc_1.2.3_checksums.txt"), []byte(tt.manifest), 0o600); err != nil {
+				t.Fatalf("write checksum manifest: %v", err)
+			}
+
+			cmd := exec.Command("python3", "scripts/verify_release_assets.py", "--release-dir", releaseDir, "--version", version)
+			err := cmd.Run()
+			if tt.wantSucceeded && err != nil {
+				t.Fatalf("verify release assets: %v", err)
+			}
+			if !tt.wantSucceeded && err == nil {
+				t.Fatal("verification unexpectedly accepted incomplete or unsafe checksum coverage")
+			}
+		})
+	}
+}
+
 func TestReleaseWorkflowResumesDraftButNeverClobbersPublishedAssets(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
@@ -360,7 +444,7 @@ func TestReleaseWorkflowResumesDraftButNeverClobbersPublishedAssets(t *testing.T
 		`cmp -s "$asset" "published-release/$name"`,
 		`gh release edit "${VERSION}" --draft=false`,
 		`gh release download "${VERSION}"`,
-		`shasum -a 256 -c "asc_${VERSION}_checksums.txt"`,
+		`python3 workflow-source/scripts/verify_release_assets.py --release-dir published-release --version "${VERSION}"`,
 		`published-release-${VERSION}.tar`,
 	} {
 		if !strings.Contains(workflow, want) {
@@ -375,7 +459,7 @@ func TestReleaseWorkflowResumesDraftButNeverClobbersPublishedAssets(t *testing.T
 	}
 	publishStep := workflow[stepStart:stepEnd]
 	draftStart := strings.Index(publishStep, `if [ "$release_is_draft" = "true" ]`)
-	checksumIndex := strings.Index(publishStep[draftStart:], `shasum -a 256 -c "asc_${VERSION}_checksums.txt"`)
+	checksumIndex := strings.Index(publishStep[draftStart:], `python3 workflow-source/scripts/verify_release_assets.py --release-dir published-release --version "${VERSION}"`)
 	publishIndex := strings.Index(publishStep[draftStart:], `gh release edit "${VERSION}" --draft=false`)
 	if draftStart == -1 || checksumIndex == -1 || publishIndex == -1 {
 		t.Fatal("release workflow must checksum-verify and publish a completed draft")
