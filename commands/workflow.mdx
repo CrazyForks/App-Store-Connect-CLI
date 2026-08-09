@@ -146,12 +146,15 @@ per-attempt `timeout`. Retry is explicit: the runner does not classify commands
 or automatically retry mutations. Attempt diagnostics stream to stderr, while
 the structured result and resume state retain attempt outcomes. Workflow-call
 steps and lifecycle hooks do not accept retry or timeout.
+Persisted failed-attempt diagnostics alone are not a resume checkpoint. Recovery
+requires an already successful step or hook, or a retry-enabled failed step.
 
 If a command exits successfully but declared output extraction fails, the run
 is terminal and `--resume` refuses to repeat the possibly mutating command.
 A timeout-only failure is likewise terminal because the command may have
 completed remotely. Adding `retry` is the explicit repeat-safety signal that
 makes a timed-out step eligible for retry and later resume.
+Omit `retry` or `timeout` to disable it; explicit `null` is invalid.
 
 ## Output
 

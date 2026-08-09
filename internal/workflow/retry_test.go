@@ -54,11 +54,15 @@ func TestValidate_RetryAndTimeoutPaths(t *testing.T) {
 		{"retry negative delay", `{"run":"echo ok","retry":{"max_attempts":2,"delay":"-1s"}}`, "invalid_retry_delay", "workflows.main.steps[0].retry.delay"},
 		{"retry invalid delay", `{"run":"echo ok","retry":{"max_attempts":2,"delay":"later"}}`, "invalid_retry_delay", "workflows.main.steps[0].retry.delay"},
 		{"retry excessive delay", `{"run":"echo ok","retry":{"max_attempts":2,"delay":"24h1s"}}`, "invalid_retry_delay", "workflows.main.steps[0].retry.delay"},
+		{"null retry", `{"run":"echo ok","retry":null}`, "invalid_step_retry", "workflows.main.steps[0].retry"},
+		{"mixed-case null retry", `{"run":"echo ok","Retry":null}`, "invalid_step_retry", "workflows.main.steps[0].retry"},
 		{"zero timeout", `{"run":"echo ok","timeout":"0s"}`, "invalid_step_timeout", "workflows.main.steps[0].timeout"},
 		{"negative timeout", `{"run":"echo ok","timeout":"-1s"}`, "invalid_step_timeout", "workflows.main.steps[0].timeout"},
 		{"invalid timeout", `{"run":"echo ok","timeout":"forever"}`, "invalid_step_timeout", "workflows.main.steps[0].timeout"},
 		{"excessive timeout", `{"run":"echo ok","timeout":"24h1s"}`, "invalid_step_timeout", "workflows.main.steps[0].timeout"},
 		{"empty timeout", `{"run":"echo ok","timeout":""}`, "invalid_step_timeout", "workflows.main.steps[0].timeout"},
+		{"null timeout", `{"run":"echo ok","timeout":null}`, "invalid_step_timeout", "workflows.main.steps[0].timeout"},
+		{"mixed-case null timeout", `{"run":"echo ok","Timeout":null}`, "invalid_step_timeout", "workflows.main.steps[0].timeout"},
 		{"retry on workflow", `{"workflow":"child","retry":{"max_attempts":2,"delay":"1s"}}`, "step_retry_on_workflow", "workflows.main.steps[0].retry"},
 		{"timeout on workflow", `{"workflow":"child","timeout":"1s"}`, "step_timeout_on_workflow", "workflows.main.steps[0].timeout"},
 	}
@@ -312,18 +316,18 @@ func TestRun_TimeoutHasStableStructuredFailure(t *testing.T) {
 	}
 }
 
-func TestRun_TimeoutWithoutRetryIsTerminalAndCannotResume(t *testing.T) {
+func TestRun_TimeoutPolicyWithoutRetryIsTerminalAndCannotResume(t *testing.T) {
 	tests := []struct {
 		name          string
 		steps         string
 		hasCheckpoint bool
 	}{
 		{
-			name:  "first step",
+			name:  "timeout first step",
 			steps: `[{"name":"bounded","run":"if [ -f \"$RESUME_MARKER\" ]; then printf x >> \"$REPLAY_COUNTER\"; fi; sleep 10","timeout":"250ms"}]`,
 		},
 		{
-			name:          "after completed checkpoint",
+			name:          "timeout after completed checkpoint",
 			steps:         `[{"name":"checkpoint","run":"printf x >> \"$CHECKPOINT_COUNTER\""},{"name":"bounded","run":"if [ -f \"$RESUME_MARKER\" ]; then printf x >> \"$REPLAY_COUNTER\"; fi; sleep 10","timeout":"250ms"}]`,
 			hasCheckpoint: true,
 		},
@@ -349,11 +353,11 @@ func TestRun_TimeoutWithoutRetryIsTerminalAndCannotResume(t *testing.T) {
 			opts.StateDir = filepath.Join(dir, "runs")
 			result, err := Run(context.Background(), def, opts)
 			if err == nil {
-				t.Fatal("expected timeout")
+				t.Fatal("expected step failure")
 			}
 			failed := result.Steps[len(result.Steps)-1]
-			if failed.FailureReason != "timeout" || len(failed.Attempts) != 1 || failed.Attempts[0].Status != "timeout" {
-				t.Fatalf("timeout step = %+v", failed)
+			if failed.FailureReason != "timeout" || len(failed.Attempts) != 1 || failed.Attempts[0].FailureReason != "timeout" {
+				t.Fatalf("failed step = %+v", failed)
 			}
 			if !result.Terminal || result.TerminalReason == "" || result.Recoverable || result.Resume != nil {
 				t.Fatalf("timeout-only result must be terminal and nonrecoverable: %+v", result)
@@ -391,6 +395,105 @@ func TestRun_TimeoutWithoutRetryIsTerminalAndCannotResume(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRun_TimeoutConfiguredCommandFailureNeedsRecoveryCheckpoint(t *testing.T) {
+	t.Run("first step is diagnostic only", func(t *testing.T) {
+		dir := t.TempDir()
+		markerPath := filepath.Join(dir, "resume-marker")
+		replayCounterPath := filepath.Join(dir, "replay-counter")
+		def, workflowPath := loadWorkflowForRetryTest(t, fmt.Sprintf(`{
+			"env": {"RESUME_MARKER": %q, "REPLAY_COUNTER": %q},
+			"workflows": {"main": {"steps": [{
+				"name": "bounded",
+				"run": "if [ -f \"$RESUME_MARKER\" ]; then printf x >> \"$REPLAY_COUNTER\"; fi; exit 7",
+				"timeout": "1s"
+			}]}}
+		}`, markerPath, replayCounterPath))
+
+		opts := runOpts("main")
+		opts.WorkflowFile = workflowPath
+		opts.StateDir = filepath.Join(dir, "runs")
+		result, err := Run(context.Background(), def, opts)
+		if err == nil || result.Steps[0].FailureReason != "command_failed" {
+			t.Fatalf("result = %+v, err = %v", result, err)
+		}
+		if result.Terminal || result.Recoverable || result.Resume != nil {
+			t.Fatalf("diagnostic-only failure must be nonrecoverable without becoming terminal: %+v", result)
+		}
+		state, loadErr := loadRunState(result.RunFile)
+		if loadErr != nil || len(state.Steps["main[1]"].Attempts) != 1 {
+			t.Fatalf("diagnostic attempt state = %+v, err = %v", state, loadErr)
+		}
+		if state.Steps["main[1]"].RetryEnabled {
+			t.Fatalf("diagnostic-only step persisted retry opt-in: %+v", state.Steps["main[1]"])
+		}
+
+		if writeErr := os.WriteFile(markerPath, []byte("resume"), 0o600); writeErr != nil {
+			t.Fatalf("write resume marker: %v", writeErr)
+		}
+		resumeOpts := runOpts("main")
+		resumeOpts.WorkflowFile = workflowPath
+		resumeOpts.StateDir = opts.StateDir
+		resumeOpts.ResumeRunID = result.RunID
+		resumeResult, resumeErr := Run(context.Background(), def, resumeOpts)
+		if resumeErr == nil || !strings.Contains(resumeErr.Error(), "cannot be resumed") || !strings.Contains(resumeErr.Error(), "checkpoint") {
+			t.Fatalf("resume error = %v, want missing-checkpoint diagnostic", resumeErr)
+		}
+		if resumeResult == nil || len(resumeResult.Steps) != 0 {
+			t.Fatalf("resume result = %+v, want rejection before workflow execution", resumeResult)
+		}
+		if got := readFileOrEmpty(t, replayCounterPath); got != "" {
+			t.Fatalf("resume reran diagnostic-only command: %q", got)
+		}
+	})
+
+	t.Run("completed checkpoint preserves resume", func(t *testing.T) {
+		dir := t.TempDir()
+		markerPath := filepath.Join(dir, "resume-marker")
+		replayCounterPath := filepath.Join(dir, "replay-counter")
+		checkpointCounterPath := filepath.Join(dir, "checkpoint-counter")
+		def, workflowPath := loadWorkflowForRetryTest(t, fmt.Sprintf(`{
+			"env": {
+				"RESUME_MARKER": %q,
+				"REPLAY_COUNTER": %q,
+				"CHECKPOINT_COUNTER": %q
+			},
+			"workflows": {"main": {"steps": [
+				{"name":"checkpoint","run":"printf x >> \"$CHECKPOINT_COUNTER\""},
+				{"name":"bounded","run":"if [ -f \"$RESUME_MARKER\" ]; then printf x >> \"$REPLAY_COUNTER\"; fi; exit 7","timeout":"1s"}
+			]}}
+		}`, markerPath, replayCounterPath, checkpointCounterPath))
+
+		opts := runOpts("main")
+		opts.WorkflowFile = workflowPath
+		opts.StateDir = filepath.Join(dir, "runs")
+		result, err := Run(context.Background(), def, opts)
+		if err == nil || !result.Recoverable || result.Resume == nil || result.Terminal {
+			t.Fatalf("checkpointed result = %+v, err = %v", result, err)
+		}
+		if got := readFileOrEmpty(t, checkpointCounterPath); got != "x" {
+			t.Fatalf("checkpoint executions = %q, want x", got)
+		}
+
+		if writeErr := os.WriteFile(markerPath, []byte("resume"), 0o600); writeErr != nil {
+			t.Fatalf("write resume marker: %v", writeErr)
+		}
+		resumeOpts := runOpts("main")
+		resumeOpts.WorkflowFile = workflowPath
+		resumeOpts.StateDir = opts.StateDir
+		resumeOpts.ResumeRunID = result.RunID
+		resumed, resumeErr := Run(context.Background(), def, resumeOpts)
+		if resumeErr == nil || resumed.Steps[0].Status != "resumed" || resumed.Steps[1].FailureReason != "command_failed" {
+			t.Fatalf("resumed result = %+v, err = %v", resumed, resumeErr)
+		}
+		if got := readFileOrEmpty(t, checkpointCounterPath); got != "x" {
+			t.Fatalf("resume reran checkpoint: %q", got)
+		}
+		if got := readFileOrEmpty(t, replayCounterPath); got != "x" {
+			t.Fatalf("resume did not rerun failed step exactly once: %q", got)
+		}
+	})
 }
 
 func TestRun_CancellationStopsDuringRetryDelay(t *testing.T) {

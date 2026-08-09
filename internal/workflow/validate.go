@@ -29,6 +29,7 @@ const (
 	ErrInvalidOutputExpr           ValidationCode = "invalid_output_expr"
 	ErrStepRetryOnWorkflow         ValidationCode = "step_retry_on_workflow"
 	ErrStepTimeoutOnWorkflow       ValidationCode = "step_timeout_on_workflow"
+	ErrInvalidStepRetry            ValidationCode = "invalid_step_retry"
 	ErrInvalidRetryMaxAttempts     ValidationCode = "invalid_retry_max_attempts"
 	ErrInvalidRetryDelay           ValidationCode = "invalid_retry_delay"
 	ErrInvalidStepTimeout          ValidationCode = "invalid_step_timeout"
@@ -142,7 +143,15 @@ func Validate(def *Definition) []*ValidationError {
 				})
 			}
 
-			if step.Retry != nil {
+			if step.retryExplicitNull {
+				errs = append(errs, &ValidationError{
+					Code:     ErrInvalidStepRetry,
+					Workflow: name,
+					Step:     idx,
+					Path:     stepPath + ".retry",
+					Message:  fmt.Sprintf("%s must be an object, not null", stepPath+".retry"),
+				})
+			} else if step.Retry != nil {
 				if !hasRun {
 					errs = append(errs, &ValidationError{
 						Code:     ErrStepRetryOnWorkflow,
@@ -173,7 +182,15 @@ func Validate(def *Definition) []*ValidationError {
 				}
 			}
 
-			if step.Timeout != nil {
+			if step.timeoutExplicitNull {
+				errs = append(errs, &ValidationError{
+					Code:     ErrInvalidStepTimeout,
+					Workflow: name,
+					Step:     idx,
+					Path:     stepPath + ".timeout",
+					Message:  fmt.Sprintf("%s must be a duration string, not null", stepPath+".timeout"),
+				})
+			} else if step.Timeout != nil {
 				if !hasRun {
 					errs = append(errs, &ValidationError{
 						Code:     ErrStepTimeoutOnWorkflow,

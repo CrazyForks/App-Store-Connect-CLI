@@ -145,6 +145,10 @@ A step with `timeout` but no `retry` becomes terminal if it times out, so
 `--resume` cannot replay a command that may have completed remotely. Combining
 `retry` and `timeout` keeps failures resumable because retry is the explicit
 repeat-safety opt-in.
+Persisted diagnostics from a failed timeout-configured step do not create a
+resume checkpoint by themselves. Recovery still requires a prior successful
+step or hook, or an explicitly retry-enabled failure. Omit either field to
+disable it; explicit `null` is invalid.
 
 ## Environment Variables
 

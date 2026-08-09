@@ -30,6 +30,7 @@ type persistedStepState struct {
 	Status         string            `json:"status,omitempty"`
 	FailureReason  string            `json:"failure_reason,omitempty"`
 	Error          string            `json:"error,omitempty"`
+	RetryEnabled   bool              `json:"retry_enabled,omitempty"`
 	Attempts       []AttemptResult   `json:"attempts,omitempty"`
 	Outputs        map[string]string `json:"outputs,omitempty"`
 }

@@ -277,6 +277,8 @@ func (r *runner) validateResumeState(state *persistedRunState) error {
 		return fmt.Errorf("workflow: resume run %q does not match the current workflow definition", state.RunID)
 	case !maps.Equal(state.Params, r.opts.Params):
 		return fmt.Errorf("workflow: resume run %q does not match the current workflow parameters", state.RunID)
+	case !stateHasResumeCheckpoint(state):
+		return fmt.Errorf("workflow: resume run %q cannot be resumed: no successful checkpoint or retry-enabled failed step", state.RunID)
 	default:
 		return nil
 	}
@@ -477,7 +479,7 @@ func (r *runner) executeSteps(ctx context.Context, workflowName string, steps []
 	return nil
 }
 
-func (r *runner) persistStep(stepKey string, sr StepResult) error {
+func (r *runner) persistStep(stepKey string, sr StepResult, retryEnabled bool) error {
 	if r.state == nil {
 		return nil
 	}
@@ -488,6 +490,7 @@ func (r *runner) persistStep(stepKey string, sr StepResult) error {
 		Status:         sr.Status,
 		FailureReason:  sr.FailureReason,
 		Error:          sr.Error,
+		RetryEnabled:   retryEnabled,
 		Attempts:       cloneAttemptResults(sr.Attempts),
 		Outputs:        cloneStringMap(sr.Outputs),
 	}
@@ -569,10 +572,19 @@ func (r *runner) hasRecoverableState() bool {
 	if terminalReasonForState(r.state) != "" {
 		return false
 	}
-	if len(r.state.Steps) > 0 {
-		return true
+	return stateHasResumeCheckpoint(r.state)
+}
+
+func stateHasResumeCheckpoint(state *persistedRunState) bool {
+	if state == nil {
+		return false
 	}
-	return r.state.Hooks != nil && r.state.Hooks.BeforeAll != nil && r.state.Hooks.BeforeAll.Status == "ok"
+	for _, step := range state.Steps {
+		if step.Status == "ok" || step.RetryEnabled {
+			return true
+		}
+	}
+	return state.Hooks != nil && state.Hooks.BeforeAll != nil && state.Hooks.BeforeAll.Status == "ok"
 }
 
 func terminalReasonForResult(result *RunResult) string {

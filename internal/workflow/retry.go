@@ -106,7 +106,7 @@ func (r *runner) executeRunStep(
 					sr.Status = "error"
 					sr.FailureReason = "output_error"
 					sr.Error = extractErr.Error()
-					if persistErr := r.persistStep(stepKey, *sr); persistErr != nil {
+					if persistErr := r.persistStep(stepKey, *sr, step.Retry != nil); persistErr != nil {
 						return persistErr
 					}
 					return fmt.Errorf("workflow: %s step %d: %w", workflowName, idx, extractErr)
@@ -129,7 +129,7 @@ func (r *runner) executeRunStep(
 			sr.Status = "ok"
 			sr.FailureReason = ""
 			sr.Error = ""
-			return r.persistStep(stepKey, *sr)
+			return r.persistStep(stepKey, *sr, step.Retry != nil)
 		}
 
 		failureReason, attemptError := classifyAttemptFailure(ctx, attemptContextErr, runErr, policy.timeout)
@@ -152,7 +152,7 @@ func (r *runner) executeRunStep(
 
 		if failureReason == "canceled" || attempt == policy.maxAttempts {
 			if recordAttempts {
-				if persistErr := r.persistStep(stepKey, *sr); persistErr != nil {
+				if persistErr := r.persistStep(stepKey, *sr, step.Retry != nil); persistErr != nil {
 					return persistErr
 				}
 			}
@@ -160,7 +160,7 @@ func (r *runner) executeRunStep(
 		}
 
 		sr.Status = "retrying"
-		if persistErr := r.persistStep(stepKey, *sr); persistErr != nil {
+		if persistErr := r.persistStep(stepKey, *sr, step.Retry != nil); persistErr != nil {
 			return persistErr
 		}
 		fmt.Fprintf(
@@ -176,7 +176,7 @@ func (r *runner) executeRunStep(
 			sr.Status = "error"
 			sr.FailureReason = "canceled"
 			sr.Error = "step canceled during retry delay: " + waitErr.Error()
-			if persistErr := r.persistStep(stepKey, *sr); persistErr != nil {
+			if persistErr := r.persistStep(stepKey, *sr, step.Retry != nil); persistErr != nil {
 				return persistErr
 			}
 			return fmt.Errorf("workflow: %s step %d: %s", workflowName, idx, sr.Error)

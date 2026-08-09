@@ -74,11 +74,14 @@ remote mutation was rejected. Configuring `retry` is the explicit repeat-safety
 signal that keeps retry-plus-timeout failures resumable.
 
 Run state records attempt diagnostics for configured steps, including failed
-attempts. Resume continues to skip every persisted successful step, restores
-its outputs, and re-executes only a retry-enabled failed step with a new bounded
-invocation. The previous attempt history remains available in the persisted
-state and the resumed structured result. Terminal output-extraction and
+attempts, and explicitly records whether the step enabled retry. A diagnostic-only
+failed record is not a resume checkpoint. Resume requires a persisted successful
+step or hook, or a retry-enabled failed step; it skips successes, restores their
+outputs, and re-executes the failed step. The previous attempt history remains
+available in state and the resumed result. Terminal output-extraction and
 timeout-only failures reject `--resume` without executing any workflow command.
+Omitted policies remain disabled, while explicit `retry: null` or `timeout: null`
+is rejected with the step field path.
 
 ## RED-GREEN and verification
 

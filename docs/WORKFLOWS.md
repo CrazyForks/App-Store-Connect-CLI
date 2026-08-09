@@ -209,6 +209,9 @@ A timeout-only failure is terminal for the same replay-safety reason: local
 termination cannot prove that a remote mutation was not accepted. A step that
 configures both `retry` and `timeout` remains resumable because `retry` is the
 explicit repeat-safety opt-in.
+Failed-attempt diagnostics from `timeout` alone do not create a resume checkpoint.
+Recovery requires a previously successful step or hook, or a retry-enabled
+failed step. Omit `retry` or `timeout` to disable it; explicit `null` is invalid.
 
 Attempt numbers and retry delays are written to stderr. stdout remains the one
 machine-readable workflow result. Each attempt gets a fresh output buffer, and

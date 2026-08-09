@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // Definition is the top-level .asc/workflow.json schema.
@@ -36,14 +37,16 @@ type RetryPolicy struct {
 // Step is one executable action in a workflow.
 // Bare JSON strings unmarshal to Step{Run: "..."} as shorthand.
 type Step struct {
-	Run      string            `json:"run,omitempty"`
-	Workflow string            `json:"workflow,omitempty"`
-	Name     string            `json:"name,omitempty"`
-	If       string            `json:"if,omitempty"`
-	With     map[string]string `json:"with,omitempty"`
-	Outputs  map[string]string `json:"outputs,omitempty"`
-	Retry    *RetryPolicy      `json:"retry,omitempty"`
-	Timeout  *string           `json:"timeout,omitempty"`
+	Run                 string            `json:"run,omitempty"`
+	Workflow            string            `json:"workflow,omitempty"`
+	Name                string            `json:"name,omitempty"`
+	If                  string            `json:"if,omitempty"`
+	With                map[string]string `json:"with,omitempty"`
+	Outputs             map[string]string `json:"outputs,omitempty"`
+	Retry               *RetryPolicy      `json:"retry,omitempty"`
+	Timeout             *string           `json:"timeout,omitempty"`
+	retryExplicitNull   bool
+	timeoutExplicitNull bool
 }
 
 // UnmarshalJSON handles the flexible step format:
@@ -73,5 +76,20 @@ func (s *Step) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("step must be a single JSON value: trailing data")
 	}
 	*s = Step(alias)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("step must be an object: %w", err)
+	}
+	s.retryExplicitNull = rawFieldExplicitNull(fields, "retry")
+	s.timeoutExplicitNull = rawFieldExplicitNull(fields, "timeout")
 	return nil
+}
+
+func rawFieldExplicitNull(fields map[string]json.RawMessage, name string) bool {
+	for key, data := range fields {
+		if strings.EqualFold(key, name) && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+			return true
+		}
+	}
+	return false
 }

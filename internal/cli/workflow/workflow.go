@@ -175,12 +175,15 @@ Retry is opt-in on run steps. retry.max_attempts counts the initial attempt and
 retry.delay is a fixed delay between failures. timeout applies to each attempt.
 Attempt counts and delays are written to stderr and attempt outcomes are included
 in the structured result and persisted run state.
+Failed-attempt diagnostics alone do not make a run resumable; recovery requires
+a successful checkpoint or a retry-enabled failed step.
 If a successful command produces invalid declared outputs, the run is terminal and
 --resume refuses to repeat the possibly mutating command.
 A timeout without retry is also terminal because the command may have completed
 remotely. A step with retry and timeout remains resumable because retry is the
 explicit repeat-safety opt-in.
 Workflow-call steps and before_all/after_all/error hooks do not accept retry or timeout.
+Omit retry or timeout to disable it; explicit null values are invalid.
 
 Security note:
   Workflows intentionally execute arbitrary shell commands.
