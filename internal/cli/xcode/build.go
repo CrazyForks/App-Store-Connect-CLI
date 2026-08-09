@@ -2,9 +2,11 @@ package xcode
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
@@ -106,9 +108,23 @@ func reportBuildFailure(result *localxcode.BuildResult, buildErr error) {
 	if result.ExitStatus != nil {
 		message = fmt.Sprintf("%s with exit status %d", message, *result.ExitStatus)
 	} else {
-		message = fmt.Sprintf("%s: %v", message, buildErr)
+		message = fmt.Sprintf("%s: %v", message, buildInterruptionReason(buildErr))
 	}
 	fmt.Fprintf(os.Stderr, "Error: %s\n", message)
+}
+
+func buildInterruptionReason(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() < 0 {
+		return exitErr
+	}
+	return err
 }
 
 func printBuildResult(result *localxcode.BuildResult, output string, pretty bool) error {
