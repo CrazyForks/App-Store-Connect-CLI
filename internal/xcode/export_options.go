@@ -187,13 +187,10 @@ func GenerateExportOptions(ctx context.Context, opts ExportOptionsGenerateOption
 	return result, nil
 }
 
-// NormalizeExportOptionsSigningStyle applies the public signing-style default
-// and validates the enum shared by export-options generation callers.
+// NormalizeExportOptionsSigningStyle validates the public signing-style enum
+// shared by export-options generation callers.
 func NormalizeExportOptionsSigningStyle(value string) (string, error) {
 	style := strings.TrimSpace(value)
-	if style == "" {
-		style = exportOptionsSigningStyleAutomatic
-	}
 	switch style {
 	case exportOptionsSigningStyleAutomatic, exportOptionsSigningStyleManual:
 		return style, nil
@@ -213,7 +210,9 @@ func normalizeExportOptionsGenerateOptions(opts ExportOptionsGenerateOptions) Ex
 		opts.Destination = exportOptionsDestinationExport
 	}
 	opts.SigningStyle = strings.ToLower(strings.TrimSpace(opts.SigningStyle))
-	opts.SigningStyle, _ = NormalizeExportOptionsSigningStyle(opts.SigningStyle)
+	if opts.SigningStyle == "" {
+		opts.SigningStyle = exportOptionsSigningStyleAutomatic
+	}
 	opts.TeamID = strings.TrimSpace(opts.TeamID)
 	return opts
 }

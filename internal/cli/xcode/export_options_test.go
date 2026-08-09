@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -92,6 +93,11 @@ func TestXcodeExportOptionsGenerateRejectsInvalidValues(t *testing.T) {
 		{
 			name:    "signing style",
 			args:    []string{"--archive-path", "Demo.xcarchive", "--signing-style", "heuristic"},
+			message: "Error: --signing-style must be one of: automatic, manual",
+		},
+		{
+			name:    "empty signing style",
+			args:    []string{"--archive-path", "Demo.xcarchive", "--signing-style", ""},
 			message: "Error: --signing-style must be one of: automatic, manual",
 		},
 	}
@@ -286,31 +292,35 @@ func TestXcodeExportRejectsGenerationFlagsWithExplicitOptions(t *testing.T) {
 }
 
 func TestXcodeExportRejectsInvalidSigningStyleBeforeSideEffects(t *testing.T) {
-	restore := overrideXcodeCommandTestHooks(t)
-	defer restore()
+	for _, signingStyle := range []string{"heuristic", ""} {
+		t.Run(fmt.Sprintf("value=%q", signingStyle), func(t *testing.T) {
+			restore := overrideXcodeCommandTestHooks(t)
+			defer restore()
 
-	runXcodeExportPreflight = func(context.Context) error {
-		t.Fatal("preflight must not run for an invalid signing style")
-		return nil
-	}
-	runGenerateExportOptions = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
-		t.Fatal("generator must not run for an invalid signing style")
-		return nil, nil
-	}
+			runXcodeExportPreflight = func(context.Context) error {
+				t.Fatal("preflight must not run for an invalid signing style")
+				return nil
+			}
+			runGenerateExportOptions = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+				t.Fatal("generator must not run for an invalid signing style")
+				return nil, nil
+			}
 
-	cmd := XcodeExportCommand()
-	cmd.FlagSet.SetOutput(io.Discard)
-	if err := cmd.FlagSet.Parse([]string{
-		"--archive-path", "Demo.xcarchive",
-		"--ipa-path", filepath.Join(t.TempDir(), "Demo.ipa"),
-		"--signing-style", "heuristic",
-	}); err != nil {
-		t.Fatalf("failed to parse flags: %v", err)
-	}
+			cmd := XcodeExportCommand()
+			cmd.FlagSet.SetOutput(io.Discard)
+			if err := cmd.FlagSet.Parse([]string{
+				"--archive-path", "Demo.xcarchive",
+				"--ipa-path", filepath.Join(t.TempDir(), "Demo.ipa"),
+				"--signing-style", signingStyle,
+			}); err != nil {
+				t.Fatalf("failed to parse flags: %v", err)
+			}
 
-	runErr := cmd.Exec(context.Background(), nil)
-	if !errors.Is(runErr, flag.ErrHelp) || !strings.Contains(runErr.Error(), "--signing-style must be one of: automatic, manual") {
-		t.Fatalf("expected invalid signing-style usage error, got %v", runErr)
+			runErr := cmd.Exec(context.Background(), nil)
+			if !errors.Is(runErr, flag.ErrHelp) || !strings.Contains(runErr.Error(), "--signing-style must be one of: automatic, manual") {
+				t.Fatalf("expected invalid signing-style usage error, got %v", runErr)
+			}
+		})
 	}
 }
 

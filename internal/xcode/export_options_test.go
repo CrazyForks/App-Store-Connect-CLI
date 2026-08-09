@@ -63,7 +63,7 @@ func TestNormalizeExportOptionsSigningStyle(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{input: "", want: "automatic"},
+		{input: "", want: "", wantErr: true},
 		{input: " automatic ", want: "automatic"},
 		{input: "manual", want: "manual"},
 		{input: "heuristic", want: "heuristic", wantErr: true},

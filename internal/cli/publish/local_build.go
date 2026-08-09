@@ -251,6 +251,9 @@ func resolvePublishBuildNumber(ctx context.Context, client *asc.Client, appID, v
 }
 
 func runPublishLocalBuild(ctx context.Context, client *asc.Client, appID, platform, version, buildNumber string, pollInterval, timeout time.Duration, timeoutOverride bool, config publishLocalBuildConfig) (*publishLocalBuildExecutionResult, error) {
+	if strings.TrimSpace(config.SigningStyle) == "" {
+		config.SigningStyle = "automatic"
+	}
 	signingStyle, err := localxcode.NormalizeExportOptionsSigningStyle(config.SigningStyle)
 	if err != nil {
 		return nil, shared.UsageError(err.Error())

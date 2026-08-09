@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -362,25 +363,29 @@ func TestPublishRejectsInvalidSigningStyleBeforeSideEffects(t *testing.T) {
 			},
 		},
 	} {
-		t.Run(command.name, func(t *testing.T) {
-			restore := overridePublishCommandTestHooks(t)
-			defer restore()
+		for _, signingStyle := range []string{"heuristic", ""} {
+			t.Run(command.name+fmt.Sprintf(" value=%q", signingStyle), func(t *testing.T) {
+				restore := overridePublishCommandTestHooks(t)
+				defer restore()
 
-			getPublishASCClientFn = func(time.Duration) (*asc.Client, error) {
-				t.Fatal("ASC client must not be created for an invalid signing style")
-				return nil, nil
-			}
-			cmd := command.cmd()
-			cmd.FlagSet.SetOutput(io.Discard)
-			if err := cmd.FlagSet.Parse(command.args); err != nil {
-				t.Fatalf("parse flags: %v", err)
-			}
+				getPublishASCClientFn = func(time.Duration) (*asc.Client, error) {
+					t.Fatal("ASC client must not be created for an invalid signing style")
+					return nil, nil
+				}
+				cmd := command.cmd()
+				cmd.FlagSet.SetOutput(io.Discard)
+				args := append([]string(nil), command.args...)
+				args[len(args)-1] = signingStyle
+				if err := cmd.FlagSet.Parse(args); err != nil {
+					t.Fatalf("parse flags: %v", err)
+				}
 
-			runErr := cmd.Exec(context.Background(), nil)
-			if !errors.Is(runErr, flag.ErrHelp) || !strings.Contains(runErr.Error(), "--signing-style must be one of: automatic, manual") {
-				t.Fatalf("expected invalid signing-style usage error, got %v", runErr)
-			}
-		})
+				runErr := cmd.Exec(context.Background(), nil)
+				if !errors.Is(runErr, flag.ErrHelp) || !strings.Contains(runErr.Error(), "--signing-style must be one of: automatic, manual") {
+					t.Fatalf("expected invalid signing-style usage error, got %v", runErr)
+				}
+			})
+		}
 	}
 }
 
