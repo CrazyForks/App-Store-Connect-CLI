@@ -608,12 +608,7 @@ func fillBuildsAndTestFlight(ctx context.Context, client *asc.Client, appID stri
 		}
 	}
 
-	reviewSubmissions, err := client.GetBetaAppReviewSubmissions(
-		ctx,
-		asc.WithBetaAppReviewSubmissionsBuildIDs(buildIDs),
-		asc.WithBetaAppReviewSubmissionsIncludeBuild(),
-		asc.WithBetaAppReviewSubmissionsLimit(200),
-	)
+	reviewSubmissions, err := fetchBetaReviewSubmissionsForStatus(ctx, client, appID, platform, buildsResp, buildsByID)
 	if err != nil {
 		return err
 	}
@@ -668,6 +663,114 @@ func fillBuildsAndTestFlight(ctx context.Context, client *asc.Client, appID stri
 
 	resp.TestFlight = section
 	return nil
+}
+
+func fetchBetaReviewSubmissionsForStatus(
+	ctx context.Context,
+	client *asc.Client,
+	appID string,
+	platform string,
+	latestBuilds *asc.BuildsResponse,
+	buildsByID map[string]*betaReviewBuildStatus,
+) (*asc.BetaAppReviewSubmissionsResponse, error) {
+	result := &asc.BetaAppReviewSubmissionsResponse{}
+	seenSubmissions := make(map[string]struct{})
+	appendSubmissions := func(firstPage *asc.BetaAppReviewSubmissionsResponse) error {
+		paginated, err := asc.PaginateAll(ctx, firstPage, func(pageCtx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetBetaAppReviewSubmissions(pageCtx, asc.WithBetaAppReviewSubmissionsNextURL(nextURL))
+		})
+		if err != nil {
+			return err
+		}
+		all, ok := paginated.(*asc.BetaAppReviewSubmissionsResponse)
+		if !ok {
+			return fmt.Errorf("unexpected beta review submissions response type %T", paginated)
+		}
+		for _, submission := range all.Data {
+			if submission.ID != "" {
+				if _, exists := seenSubmissions[submission.ID]; exists {
+					continue
+				}
+				seenSubmissions[submission.ID] = struct{}{}
+			}
+			result.Data = append(result.Data, submission)
+		}
+		return nil
+	}
+
+	latestBuildIDs := make(map[string]struct{}, len(latestBuilds.Data))
+	buildIDs := make([]string, 0, len(latestBuilds.Data))
+	for _, build := range latestBuilds.Data {
+		latestBuildIDs[build.ID] = struct{}{}
+		buildIDs = append(buildIDs, build.ID)
+	}
+	if len(buildIDs) > 0 {
+		firstPage, err := client.GetBetaAppReviewSubmissions(
+			ctx,
+			asc.WithBetaAppReviewSubmissionsBuildIDs(buildIDs),
+			asc.WithBetaAppReviewSubmissionsIncludeBuild(),
+			asc.WithBetaAppReviewSubmissionsLimit(200),
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := appendSubmissions(firstPage); err != nil {
+			return nil, err
+		}
+	}
+
+	activeBuildOpts := []asc.BuildsOption{
+		asc.WithBuildsBetaReviewStates([]string{"WAITING_FOR_REVIEW", "IN_REVIEW"}),
+		asc.WithBuildsLimit(50),
+		asc.WithBuildsInclude([]string{"preReleaseVersion"}),
+	}
+	if platform != "" {
+		activeBuildOpts = append(activeBuildOpts, asc.WithBuildsPreReleaseVersionPlatforms([]string{platform}))
+	}
+	activeBuilds, err := client.GetBuilds(ctx, appID, activeBuildOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	err = asc.PaginateEach(ctx, activeBuilds, func(pageCtx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		return client.GetBuilds(pageCtx, appID, asc.WithBuildsNextURL(nextURL))
+	}, func(page asc.PaginatedResponse) error {
+		buildPage, ok := page.(*asc.BuildsResponse)
+		if !ok {
+			return fmt.Errorf("unexpected active beta review builds response type %T", page)
+		}
+		for buildID, buildContext := range buildReviewContexts(buildPage) {
+			if existing := buildsByID[buildID]; existing == nil || betaReviewBuildContextIncomplete(existing) {
+				buildsByID[buildID] = buildContext
+			}
+		}
+
+		olderActiveBuildIDs := make([]string, 0, len(buildPage.Data))
+		for _, build := range buildPage.Data {
+			if _, alreadyQueried := latestBuildIDs[build.ID]; !alreadyQueried {
+				olderActiveBuildIDs = append(olderActiveBuildIDs, build.ID)
+			}
+		}
+		if len(olderActiveBuildIDs) == 0 {
+			return nil
+		}
+
+		firstPage, err := client.GetBetaAppReviewSubmissions(
+			ctx,
+			asc.WithBetaAppReviewSubmissionsBuildIDs(olderActiveBuildIDs),
+			asc.WithBetaAppReviewSubmissionsIncludeBuild(),
+			asc.WithBetaAppReviewSubmissionsLimit(200),
+		)
+		if err != nil {
+			return err
+		}
+		return appendSubmissions(firstPage)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func buildExternalStatesByBuildID(buildIDs []string, betaDetails *asc.BuildBetaDetailsResponse) map[string]string {
