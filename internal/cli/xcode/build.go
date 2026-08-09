@@ -2,7 +2,6 @@ package xcode
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -106,7 +105,7 @@ func reportBuildFailure(result *localxcode.BuildResult, buildErr error) {
 	message := "xcode build failed"
 	if result.ExitStatus != nil {
 		message = fmt.Sprintf("%s with exit status %d", message, *result.ExitStatus)
-	} else if errors.Is(buildErr, context.Canceled) || errors.Is(buildErr, context.DeadlineExceeded) {
+	} else {
 		message = fmt.Sprintf("%s: %v", message, buildErr)
 	}
 	fmt.Fprintf(os.Stderr, "Error: %s\n", message)
