@@ -113,6 +113,44 @@ func TestApplyRoutingCoverageStepRevalidatesAfterWaitingForMatchingAsset(t *test
 	}
 }
 
+func TestApplyRoutingCoverageStepWaitsWhenMatchingRelationshipOmitsDeliveryState(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+	prepared := prepareReleaseRoutingCoverage(t, coveragePath)
+	requestPaths := []string{}
+
+	client, _ := newReleaseTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requestPaths = append(requestPaths, req.Method+" "+req.URL.Path)
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/routingAppCoverage":
+			writeReleaseTestJSON(w, http.StatusOK, fmt.Sprintf(`{"data":{"type":"routingAppCoverages","id":"COVERAGE_123","attributes":{"sourceFileChecksum":%q}}}`, prepared.Checksum))
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_123":
+			writeReleaseTestJSON(w, http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_123","attributes":{"assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+		}
+	}))
+
+	outcome, err := applyPreparedRoutingCoverageStep(context.Background(), client, "VERSION_123", prepared, false)
+	if err != nil {
+		t.Fatalf("applyPreparedRoutingCoverageStep() error: %v", err)
+	}
+	if outcome.Status != "skipped" || !outcome.Persist {
+		t.Fatalf("expected persisted reuse outcome, got %#v", outcome)
+	}
+	details, ok := outcome.Details.(routingCoverageStepDetails)
+	if !ok || details.Action != "reuse" || details.DeliveryState != "COMPLETE" {
+		t.Fatalf("unexpected reuse details: %#v", outcome.Details)
+	}
+	wantPaths := "GET /v1/appStoreVersions/VERSION_123/routingAppCoverage,GET /v1/routingAppCoverages/COVERAGE_123"
+	if strings.Join(requestPaths, ",") != wantPaths {
+		t.Fatalf("unexpected reconciliation requests: %v", requestPaths)
+	}
+}
+
 func TestApplyRoutingCoverageStepDryRunPlansReplacementWithoutMutation(t *testing.T) {
 	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
 	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {

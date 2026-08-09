@@ -72,7 +72,7 @@ func applyPreparedRoutingCoverageStep(ctx context.Context, client *asc.Client, v
 			}
 			return stepOutcome{Status: status, Message: message, Details: details, Persist: !dryRun}, nil
 		}
-		if sameChecksum && details.DeliveryState == "UPLOAD_COMPLETE" {
+		if sameChecksum && details.DeliveryState != "AWAITING_UPLOAD" && details.DeliveryState != "FAILED" {
 			if err := routingcoveragecli.RevalidatePreparedRoutingCoverageFile(prepared); err != nil {
 				return stepOutcome{Details: details}, err
 			}
