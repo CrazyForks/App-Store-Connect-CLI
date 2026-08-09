@@ -2,7 +2,7 @@
 
 ## Placement and current behavior
 
-`asc xcode build` is a stable leaf beneath the existing local `asc xcode`
+`asc xcode build` is an experimental leaf beneath the existing local `asc xcode`
 group. It wraps the ordinary `xcodebuild ... build` action; it does not archive,
 export, upload, or call App Store Connect.
 
@@ -22,6 +22,8 @@ asc xcode build \
   --output json
 ```
 
+Replace the example destination with a simulator installed on the current host.
+
 Exactly one of `--project` or `--workspace` is required, and `--scheme` is
 required. `--configuration`, `--destination`, `--derived-data-path`, `--clean`,
 and `--no-code-signing` are explicit typed options. Repeatable
@@ -36,8 +38,9 @@ flags so the reported result stays truthful.
 When `--derived-data-path` is omitted, asc derives a stable cache path outside
 the source checkout from the absolute project/workspace path and the selected
 scheme, configuration, and destination. An explicit path always wins. The
-derived-data path and its `Build/Products` directory (when Xcode creates it) are
-reported, but asc does not guess individual product paths or parse human-readable
+derived-data path is always reported. Its `Build/Products` directory is
+reported only when the current invocation creates that previously absent
+directory; asc does not guess individual product paths or parse human-readable
 build logs.
 
 `--no-code-signing` appends `CODE_SIGNING_ALLOWED=NO`. It never turns signing
@@ -49,10 +52,11 @@ configuration and destination when supplied, selected derived-data path, clean
 choice, requested `no_code_signing` override, `success: true`, and
 `duration_ms`. This field does not claim to resolve the project's effective
 code-signing build setting. Table and Markdown render the same stable fields.
-If xcodebuild starts and fails, asc emits the same result with `success: false`
-and the subprocess exit status when available, then returns a non-zero command
-error. Xcode logs and diagnostics remain on stderr so machine-readable stdout
-stays parseable.
+After xcodebuild completes, asc includes `exit_status`: zero for success or the
+subprocess exit status for an ordinary process failure. Preflight and
+cancellation failures omit the field because no meaningful process exit status
+exists. Failed builds return a non-zero command error. Xcode logs and diagnostics
+remain on stderr so machine-readable stdout stays parseable.
 
 The command is discoverable through root/Xcode help, live command search,
 generated command docs, and README/workflow examples. Execution remains
@@ -60,7 +64,7 @@ macOS-only with the existing Xcode availability errors on other hosts.
 
 ## Compatibility and failure modes
 
-This is additive stable behavior. Existing archive/export invocations, error
+This is additive experimental behavior. Existing archive/export invocations, error
 text, error chains, and output schemas do not change. Command-shape and output
 format validation happen before filesystem or subprocess side effects. Missing
 Xcode, unsupported hosts, nonexistent or mis-typed project/workspace paths,

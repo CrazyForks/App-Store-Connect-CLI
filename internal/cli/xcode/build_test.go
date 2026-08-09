@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 	localxcode "github.com/rudrankriyam/App-Store-Connect-CLI/internal/xcode"
 )
 
@@ -19,6 +20,7 @@ func TestXcodeBuildPassesTypedAndRawOptionsAndPrintsJSON(t *testing.T) {
 	var gotOpts localxcode.BuildOptions
 	runBuild = func(_ context.Context, opts localxcode.BuildOptions) (*localxcode.BuildResult, error) {
 		gotOpts = opts
+		exitStatus := 0
 		return &localxcode.BuildResult{
 			ProjectPath:       opts.ProjectPath,
 			Scheme:            opts.Scheme,
@@ -30,6 +32,7 @@ func TestXcodeBuildPassesTypedAndRawOptionsAndPrintsJSON(t *testing.T) {
 			NoCodeSigning:     opts.NoCodeSigning,
 			Success:           true,
 			DurationMS:        1250,
+			ExitStatus:        &exitStatus,
 		}, nil
 	}
 
@@ -75,7 +78,7 @@ func TestXcodeBuildPassesTypedAndRawOptionsAndPrintsJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v\nstdout=%s", err, stdout)
 	}
-	if !payload.Success || payload.DurationMS != 1250 || !payload.NoCodeSigning {
+	if !payload.Success || payload.DurationMS != 1250 || !payload.NoCodeSigning || payload.ExitStatus == nil || *payload.ExitStatus != 0 {
 		t.Fatalf("unexpected JSON payload: %+v", payload)
 	}
 }
@@ -154,6 +157,8 @@ func TestXcodeBuildPrintsStructuredFailureBeforeReturningError(t *testing.T) {
 	t.Cleanup(func() { runBuild = originalRunBuild })
 
 	runBuild = func(_ context.Context, opts localxcode.BuildOptions) (*localxcode.BuildResult, error) {
+		_, _ = io.WriteString(opts.LogWriter, "compile failed\n")
+		exitStatus := 65
 		return &localxcode.BuildResult{
 			ProjectPath:     opts.ProjectPath,
 			Scheme:          opts.Scheme,
@@ -161,8 +166,8 @@ func TestXcodeBuildPrintsStructuredFailureBeforeReturningError(t *testing.T) {
 			NoCodeSigning:   false,
 			Success:         false,
 			DurationMS:      400,
-			ExitStatus:      65,
-		}, errors.New("compile failed")
+			ExitStatus:      &exitStatus,
+		}, errors.New("xcodebuild build failed: compile failed")
 	}
 
 	cmd := XcodeBuildCommand()
@@ -175,17 +180,24 @@ func TestXcodeBuildPrintsStructuredFailureBeforeReturningError(t *testing.T) {
 		runErr = cmd.Exec(context.Background(), nil)
 		return runErr
 	})
-	if runErr == nil || !strings.Contains(runErr.Error(), "xcode build: compile failed") {
+	if runErr == nil || !strings.Contains(runErr.Error(), "xcodebuild build failed: compile failed") {
 		t.Fatalf("Exec() error = %v, want wrapped build failure", runErr)
 	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want subprocess logger to own diagnostics", stderr)
+	var reportedErr shared.ReportedError
+	if !errors.As(runErr, &reportedErr) {
+		t.Fatalf("Exec() error = %T %v, want ReportedError", runErr, runErr)
+	}
+	if got := strings.Count(stderr, "compile failed"); got != 1 {
+		t.Fatalf("stderr = %q, compile diagnostic count = %d, want 1", stderr, got)
+	}
+	if !strings.Contains(stderr, "Error: xcode build failed with exit status 65") {
+		t.Fatalf("stderr = %q, want concise final build error", stderr)
 	}
 	var payload localxcode.BuildResult
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v\nstdout=%s", err, stdout)
 	}
-	if payload.Success || payload.ExitStatus != 65 {
+	if payload.Success || payload.ExitStatus == nil || *payload.ExitStatus != 65 {
 		t.Fatalf("unexpected failure payload: %+v", payload)
 	}
 }
@@ -194,6 +206,7 @@ func TestXcodeBuildRendersTableAndMarkdown(t *testing.T) {
 	originalRunBuild := runBuild
 	t.Cleanup(func() { runBuild = originalRunBuild })
 	runBuild = func(_ context.Context, opts localxcode.BuildOptions) (*localxcode.BuildResult, error) {
+		exitStatus := 0
 		return &localxcode.BuildResult{
 			WorkspacePath:   opts.WorkspacePath,
 			Scheme:          opts.Scheme,
@@ -202,6 +215,7 @@ func TestXcodeBuildRendersTableAndMarkdown(t *testing.T) {
 			NoCodeSigning:   false,
 			Success:         true,
 			DurationMS:      10,
+			ExitStatus:      &exitStatus,
 		}, nil
 	}
 
@@ -223,7 +237,7 @@ func TestXcodeBuildRendersTableAndMarkdown(t *testing.T) {
 			if runErr != nil {
 				t.Fatalf("Exec() error = %v", runErr)
 			}
-			for _, want := range []string{"workspace", "Demo.xcworkspace", "destination", "generic/platform=iOS", "success"} {
+			for _, want := range []string{"workspace", "Demo.xcworkspace", "destination", "generic/platform=iOS", "success", "exit_status", "0"} {
 				if !strings.Contains(stdout, want) {
 					t.Fatalf("%s output = %q, want %q", format, stdout, want)
 				}

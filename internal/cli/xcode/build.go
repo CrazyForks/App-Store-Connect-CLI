@@ -36,8 +36,8 @@ func XcodeBuildCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "build",
 		ShortUsage: "asc xcode build [flags]",
-		ShortHelp:  "Compile an Xcode scheme for a simulator or device.",
-		LongHelp: `Compile an Xcode scheme with an ordinary xcodebuild build action.
+		ShortHelp:  "[experimental] Compile an Xcode scheme for a simulator or device.",
+		LongHelp: `[experimental] Compile an Xcode scheme with an ordinary xcodebuild build action.
 
 Provide exactly one of --workspace or --project, plus --scheme. Use
 --destination to select a simulator or device. Signing follows Xcode defaults;
@@ -82,13 +82,17 @@ Examples:
 			if result != nil {
 				if outputErr := printBuildResult(result, *output.Output, *output.Pretty); outputErr != nil {
 					if buildErr != nil {
-						return errors.Join(fmt.Errorf("xcode build: %w", buildErr), outputErr)
+						return shared.NewErrorWithCause(outputErr, buildErr)
 					}
 					return outputErr
 				}
 			}
 			if buildErr != nil {
-				return fmt.Errorf("xcode build: %w", buildErr)
+				if result == nil {
+					return fmt.Errorf("xcode build: %w", buildErr)
+				}
+				reportBuildFailure(result, buildErr)
+				return shared.NewReportedError(fmt.Errorf("xcode build: %w", buildErr))
 			}
 			if result == nil {
 				return fmt.Errorf("xcode build: builder returned no result")
@@ -96,6 +100,16 @@ Examples:
 			return nil
 		},
 	}
+}
+
+func reportBuildFailure(result *localxcode.BuildResult, buildErr error) {
+	message := "xcode build failed"
+	if result.ExitStatus != nil {
+		message = fmt.Sprintf("%s with exit status %d", message, *result.ExitStatus)
+	} else if errors.Is(buildErr, context.Canceled) || errors.Is(buildErr, context.DeadlineExceeded) {
+		message = fmt.Sprintf("%s: %v", message, buildErr)
+	}
+	fmt.Fprintf(os.Stderr, "Error: %s\n", message)
 }
 
 func printBuildResult(result *localxcode.BuildResult, output string, pretty bool) error {
@@ -140,8 +154,8 @@ func buildResultRows(result *localxcode.BuildResult) [][]string {
 		[]string{"success", fmt.Sprintf("%t", result.Success)},
 		[]string{"duration_ms", fmt.Sprintf("%d", result.DurationMS)},
 	)
-	if result.ExitStatus != 0 {
-		rows = append(rows, []string{"exit_status", fmt.Sprintf("%d", result.ExitStatus)})
+	if result.ExitStatus != nil {
+		rows = append(rows, []string{"exit_status", fmt.Sprintf("%d", *result.ExitStatus)})
 	}
 	return rows
 }

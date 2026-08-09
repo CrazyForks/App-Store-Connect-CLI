@@ -30,6 +30,9 @@ func TestXcodeCommandExists(t *testing.T) {
 		t.Fatal("expected xcode build command")
 		return
 	}
+	if !strings.HasPrefix(buildCmd.ShortHelp, "[experimental]") {
+		t.Fatalf("expected xcode build to be introduced as experimental, got %q", buildCmd.ShortHelp)
+	}
 	for _, name := range []string{"project", "workspace", "scheme", "configuration", "destination", "derived-data-path", "clean", "no-code-signing", "xcodebuild-flag", "output"} {
 		if buildCmd.FlagSet.Lookup(name) == nil {
 			t.Fatalf("expected xcode build to expose --%s", name)

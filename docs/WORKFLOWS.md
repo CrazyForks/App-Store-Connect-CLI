@@ -25,10 +25,13 @@ This pattern was validated against a real app using:
 - `--submit --confirm` on `asc publish testflight` when the target is an
   external group that should trigger beta app review submission
 
-For a simulator compile check without changing the project's signing settings,
-use the typed destination and explicit no-signing flags. Derived data defaults
-to a stable asc cache path outside the checkout; use `--derived-data-path` when
-the workflow needs a specific artifact directory.
+For a simulator compile check without modifying project files, use the typed
+destination and explicit no-signing flag. For that invocation,
+`--no-code-signing` overrides signing with `CODE_SIGNING_ALLOWED=NO`. Derived
+data defaults to a stable asc cache path outside the checkout; use
+`--derived-data-path` when the workflow needs a specific artifact directory.
+
+Replace the example destination below with a simulator installed on the host.
 
 ```bash
 asc xcode build \

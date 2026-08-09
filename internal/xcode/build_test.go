@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestValidateBuildOptions(t *testing.T) {
@@ -213,14 +214,35 @@ func TestResolveBuildDerivedDataPathIsStableAndOutsideProject(t *testing.T) {
 	}
 }
 
+func TestResolveBuildDerivedDataPathMakesExplicitPathAbsolute(t *testing.T) {
+	workingDirectory := t.TempDir()
+	t.Chdir(workingDirectory)
+
+	got, err := resolveBuildDerivedDataPath(BuildOptions{DerivedDataPath: "Derived Data"})
+	if err != nil {
+		t.Fatalf("resolveBuildDerivedDataPath() error = %v", err)
+	}
+	want := filepath.Join(workingDirectory, "Derived Data")
+	if got != want {
+		t.Fatalf("resolveBuildDerivedDataPath() = %q, want %q", got, want)
+	}
+}
+
+func TestSafeBuildPathComponentTruncatesOnRuneBoundary(t *testing.T) {
+	got := safeBuildPathComponent(strings.Repeat("界", 60))
+	if !utf8.ValidString(got) {
+		t.Fatalf("safeBuildPathComponent() returned invalid UTF-8: %q", got)
+	}
+	if gotRunes := utf8.RuneCountInString(got); gotRunes != 48 {
+		t.Fatalf("safeBuildPathComponent() rune count = %d, want 48", gotRunes)
+	}
+}
+
 func TestBuildReturnsStructuredSuccessAndProductsDirectory(t *testing.T) {
 	projectPath := createBuildTestContainer(t)
 	derivedDataPath := filepath.Join(t.TempDir(), "Derived Data")
 	productsPath := filepath.Join(derivedDataPath, "Build", "Products")
-	if err := os.MkdirAll(productsPath, 0o755); err != nil {
-		t.Fatalf("MkdirAll() products error = %v", err)
-	}
-	restore := overrideBuildProcess(t, "success")
+	restore := overrideBuildProcess(t, "success", productsPath)
 	defer restore()
 
 	result, err := Build(context.Background(), BuildOptions{
@@ -244,6 +266,34 @@ func TestBuildReturnsStructuredSuccessAndProductsDirectory(t *testing.T) {
 	if result.DurationMS < 0 {
 		t.Fatalf("DurationMS = %d, want non-negative", result.DurationMS)
 	}
+	if result.ExitStatus == nil || *result.ExitStatus != 0 {
+		t.Fatalf("ExitStatus = %v, want pointer to 0", result.ExitStatus)
+	}
+}
+
+func TestBuildOmitsPreexistingBuildProductsDirectory(t *testing.T) {
+	projectPath := createBuildTestContainer(t)
+	derivedDataPath := filepath.Join(t.TempDir(), "DerivedData")
+	productsPath := filepath.Join(derivedDataPath, "Build", "Products")
+	if err := os.MkdirAll(productsPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll() products error = %v", err)
+	}
+	restore := overrideBuildProcess(t, "success")
+	defer restore()
+
+	result, err := Build(context.Background(), BuildOptions{
+		ProjectPath:     projectPath,
+		Scheme:          "Demo",
+		DerivedDataPath: derivedDataPath,
+		XcodebuildArgs:  []string{"CONFIGURATION_BUILD_DIR=/tmp/redirected"},
+		LogWriter:       io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if result.BuildProductsPath != "" {
+		t.Fatalf("BuildProductsPath = %q, want omitted preexisting directory", result.BuildProductsPath)
+	}
 }
 
 func TestBuildPreservesFailureExitStatus(t *testing.T) {
@@ -263,8 +313,8 @@ func TestBuildPreservesFailureExitStatus(t *testing.T) {
 	if result == nil || result.Success {
 		t.Fatalf("Build() result = %+v, want structured failure", result)
 	}
-	if result.ExitStatus != 65 {
-		t.Fatalf("ExitStatus = %d, want 65", result.ExitStatus)
+	if result.ExitStatus == nil || *result.ExitStatus != 65 {
+		t.Fatalf("ExitStatus = %v, want pointer to 65", result.ExitStatus)
 	}
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) {
@@ -291,6 +341,25 @@ func TestBuildPreservesContextCancellation(t *testing.T) {
 	if result == nil || result.Success {
 		t.Fatalf("Build() result = %+v, want canceled failure", result)
 	}
+	if result.ExitStatus != nil {
+		t.Fatalf("ExitStatus = %v, want nil for cancellation", result.ExitStatus)
+	}
+}
+
+func TestBuildOmitsExitStatusForPreflightFailure(t *testing.T) {
+	result, err := Build(context.Background(), BuildOptions{
+		Scheme:          "Demo",
+		DerivedDataPath: filepath.Join(t.TempDir(), "DerivedData"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "exactly one of --workspace or --project") {
+		t.Fatalf("Build() error = %v, want selector preflight error", err)
+	}
+	if result == nil || result.Success {
+		t.Fatalf("Build() result = %+v, want structured preflight failure", result)
+	}
+	if result.ExitStatus != nil {
+		t.Fatalf("ExitStatus = %v, want nil before xcodebuild starts", result.ExitStatus)
+	}
 }
 
 func TestBuildRejectsUnsupportedHostBeforeStartingProcess(t *testing.T) {
@@ -299,12 +368,19 @@ func TestBuildRejectsUnsupportedHostBeforeStartingProcess(t *testing.T) {
 	runtimeGOOS = "linux"
 	t.Cleanup(func() { runtimeGOOS = originalGOOS })
 
-	result, err := Build(context.Background(), BuildOptions{ProjectPath: projectPath, Scheme: "Demo"})
+	result, err := Build(context.Background(), BuildOptions{
+		ProjectPath:     projectPath,
+		Scheme:          "Demo",
+		DerivedDataPath: filepath.Join(t.TempDir(), "DerivedData"),
+	})
 	if err == nil || !strings.Contains(err.Error(), "supported on macOS only") {
 		t.Fatalf("Build() error = %v, want macOS-only error", err)
 	}
 	if result == nil || result.Success {
 		t.Fatalf("Build() result = %+v, want structured failure", result)
+	}
+	if result.ExitStatus != nil {
+		t.Fatalf("ExitStatus = %v, want nil before xcodebuild starts", result.ExitStatus)
 	}
 }
 
@@ -317,8 +393,12 @@ func createBuildTestContainer(t *testing.T) string {
 	return path
 }
 
-func overrideBuildProcess(t *testing.T, mode string) func() {
+func overrideBuildProcess(t *testing.T, mode string, productsPaths ...string) func() {
 	t.Helper()
+	productsPath := ""
+	if len(productsPaths) > 0 {
+		productsPath = productsPaths[0]
+	}
 	originalGOOS := runtimeGOOS
 	originalLookPath := lookPathFn
 	originalCommandContext := commandContextFn
@@ -328,7 +408,7 @@ func overrideBuildProcess(t *testing.T, mode string) func() {
 		commandArgs := []string{"-test.run=TestBuildHelperProcess", "--"}
 		commandArgs = append(commandArgs, args...)
 		cmd := exec.CommandContext(ctx, os.Args[0], commandArgs...)
-		cmd.Env = append(os.Environ(), "GO_WANT_BUILD_HELPER_PROCESS=1", "ASC_BUILD_HELPER_MODE="+mode)
+		cmd.Env = append(os.Environ(), "GO_WANT_BUILD_HELPER_PROCESS=1", "ASC_BUILD_HELPER_MODE="+mode, "ASC_BUILD_PRODUCTS_PATH="+productsPath)
 		return cmd
 	}
 	return func() {
@@ -359,6 +439,11 @@ func TestBuildHelperProcess(t *testing.T) {
 	}
 	switch os.Getenv("ASC_BUILD_HELPER_MODE") {
 	case "success":
+		if productsPath := os.Getenv("ASC_BUILD_PRODUCTS_PATH"); productsPath != "" {
+			if err := os.MkdirAll(productsPath, 0o755); err != nil {
+				os.Exit(2)
+			}
+		}
 		os.Exit(0)
 	case "failure":
 		_, _ = io.WriteString(os.Stderr, "compile failed\n")

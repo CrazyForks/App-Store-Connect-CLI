@@ -366,6 +366,8 @@ asc workflow run --dry-run testflight_beta VERSION:1.2.3
 asc workflow run testflight_beta VERSION:1.2.3
 ```
 
+Replace the example Xcode destination with a simulator installed on the host.
+
 ### Xcode Cloud workflows and build runs
 
 ```bash

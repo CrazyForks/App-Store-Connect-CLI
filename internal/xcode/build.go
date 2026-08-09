@@ -44,7 +44,7 @@ type BuildResult struct {
 	NoCodeSigning     bool   `json:"no_code_signing"`
 	Success           bool   `json:"success"`
 	DurationMS        int64  `json:"duration_ms"`
-	ExitStatus        int    `json:"exit_status,omitempty"`
+	ExitStatus        *int   `json:"exit_status,omitempty"`
 }
 
 // ValidateBuildOptions checks deterministic command-shape errors without
@@ -90,7 +90,8 @@ func Build(ctx context.Context, opts BuildOptions) (*BuildResult, error) {
 		if err != nil {
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
-				result.ExitStatus = exitErr.ExitCode()
+				exitStatus := exitErr.ExitCode()
+				result.ExitStatus = &exitStatus
 			}
 		}
 		return result, err
@@ -112,12 +113,15 @@ func Build(ctx context.Context, opts BuildOptions) (*BuildResult, error) {
 	if err := validateBuildInputPaths(opts); err != nil {
 		return finish(err)
 	}
+	productsPath := filepath.Join(derivedDataPath, "Build", "Products")
+	productsPathExisted := existingDirectory(productsPath)
 	if err := runXcodebuildForBuild(ctx, buildBuildCommand(opts), opts.LogWriter); err != nil {
 		return finish(err)
 	}
+	exitStatus := 0
+	result.ExitStatus = &exitStatus
 
-	productsPath := filepath.Join(derivedDataPath, "Build", "Products")
-	if info, statErr := os.Stat(productsPath); statErr == nil && info.IsDir() {
+	if !productsPathExisted && existingDirectory(productsPath) {
 		result.BuildProductsPath = productsPath
 	}
 	return finish(nil)
@@ -213,7 +217,11 @@ func reservedBuildPassthroughArgument(args []string) string {
 
 func resolveBuildDerivedDataPath(opts BuildOptions) (string, error) {
 	if opts.DerivedDataPath != "" {
-		return filepath.Clean(opts.DerivedDataPath), nil
+		absolutePath, err := filepath.Abs(opts.DerivedDataPath)
+		if err != nil {
+			return "", fmt.Errorf("resolve derived data path: %w", err)
+		}
+		return filepath.Clean(absolutePath), nil
 	}
 	selector := opts.ProjectPath
 	if selector == "" {
@@ -260,10 +268,15 @@ func safeBuildPathComponent(value string) string {
 	if component == "" {
 		component = "build"
 	}
-	if len(component) > 48 {
-		component = strings.TrimRight(component[:48], "-")
+	if runes := []rune(component); len(runes) > 48 {
+		component = strings.TrimRight(string(runes[:48]), "-")
 	}
 	return component
+}
+
+func existingDirectory(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func buildBuildCommand(opts BuildOptions) []string {
