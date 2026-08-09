@@ -146,6 +146,9 @@ func (r *runner) executeRunStep(
 		sr.Status = "error"
 		sr.FailureReason = failureReason
 		sr.Error = attemptError
+		if failureReason == "timeout" && step.Retry == nil {
+			r.setTerminalReason(terminalTimeoutReason(label))
+		}
 
 		if failureReason == "canceled" || attempt == policy.maxAttempts {
 			if recordAttempts {

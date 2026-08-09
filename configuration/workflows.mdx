@@ -219,6 +219,9 @@ Only successful-attempt output can satisfy declared `outputs`. Retry and timeout
 are rejected on sub-workflow calls and are not configurable on lifecycle hooks.
 If a command exits successfully but output extraction fails, the run is terminal;
 `--resume` reports the reason without re-executing the command.
+A timeout without `retry` is also terminal because the command may have completed
+remotely. A step that configures both fields remains resumable because `retry`
+explicitly opts into repeat execution.
 
 ## Environment variable precedence
 

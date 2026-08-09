@@ -206,7 +206,8 @@ func TestRun_RetryExhaustionRunsErrorHookOnce(t *testing.T) {
 			"main": {"steps": [{
 				"name": "exhausted",
 				"run": "printf x >> \"$COUNTER_PATH\"; exit 7",
-				"retry": {"max_attempts": 3, "delay": "1ms"}
+				"retry": {"max_attempts": 3, "delay": "1ms"},
+				"timeout": "1s"
 			}]}
 		}
 	}`, counterPath, errorHookPath, afterHookPath))
@@ -305,6 +306,90 @@ func TestRun_TimeoutHasStableStructuredFailure(t *testing.T) {
 	}
 	if step.Attempts[0].Status != "timeout" || step.Attempts[0].Error != "step timed out after 25ms" {
 		t.Fatalf("attempt = %+v", step.Attempts[0])
+	}
+	if !result.Terminal || result.TerminalReason == "" || result.Recoverable || result.Resume != nil {
+		t.Fatalf("timeout-only result must be terminal and nonrecoverable: %+v", result)
+	}
+}
+
+func TestRun_TimeoutWithoutRetryIsTerminalAndCannotResume(t *testing.T) {
+	tests := []struct {
+		name          string
+		steps         string
+		hasCheckpoint bool
+	}{
+		{
+			name:  "first step",
+			steps: `[{"name":"bounded","run":"if [ -f \"$RESUME_MARKER\" ]; then printf x >> \"$REPLAY_COUNTER\"; fi; sleep 10","timeout":"250ms"}]`,
+		},
+		{
+			name:          "after completed checkpoint",
+			steps:         `[{"name":"checkpoint","run":"printf x >> \"$CHECKPOINT_COUNTER\""},{"name":"bounded","run":"if [ -f \"$RESUME_MARKER\" ]; then printf x >> \"$REPLAY_COUNTER\"; fi; sleep 10","timeout":"250ms"}]`,
+			hasCheckpoint: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			markerPath := filepath.Join(dir, "resume-marker")
+			replayCounterPath := filepath.Join(dir, "replay-counter")
+			checkpointCounterPath := filepath.Join(dir, "checkpoint-counter")
+			def, workflowPath := loadWorkflowForRetryTest(t, fmt.Sprintf(`{
+				"env": {
+					"RESUME_MARKER": %q,
+					"REPLAY_COUNTER": %q,
+					"CHECKPOINT_COUNTER": %q
+				},
+				"workflows": {"main": {"steps": %s}}
+			}`, markerPath, replayCounterPath, checkpointCounterPath, tt.steps))
+
+			opts := runOpts("main")
+			opts.WorkflowFile = workflowPath
+			opts.StateDir = filepath.Join(dir, "runs")
+			result, err := Run(context.Background(), def, opts)
+			if err == nil {
+				t.Fatal("expected timeout")
+			}
+			failed := result.Steps[len(result.Steps)-1]
+			if failed.FailureReason != "timeout" || len(failed.Attempts) != 1 || failed.Attempts[0].Status != "timeout" {
+				t.Fatalf("timeout step = %+v", failed)
+			}
+			if !result.Terminal || result.TerminalReason == "" || result.Recoverable || result.Resume != nil {
+				t.Fatalf("timeout-only result must be terminal and nonrecoverable: %+v", result)
+			}
+			state, loadErr := loadRunState(result.RunFile)
+			if loadErr != nil {
+				t.Fatalf("loadRunState: %v", loadErr)
+			}
+			if state.Status != "terminal" || state.TerminalReason == "" {
+				t.Fatalf("timeout-only state must be terminal: %+v", state)
+			}
+			if tt.hasCheckpoint && readFileOrEmpty(t, checkpointCounterPath) != "x" {
+				t.Fatalf("checkpoint did not complete before timeout: %q", readFileOrEmpty(t, checkpointCounterPath))
+			}
+
+			if writeErr := os.WriteFile(markerPath, []byte("resume"), 0o600); writeErr != nil {
+				t.Fatalf("write resume marker: %v", writeErr)
+			}
+			resumeOpts := runOpts("main")
+			resumeOpts.WorkflowFile = workflowPath
+			resumeOpts.StateDir = opts.StateDir
+			resumeOpts.ResumeRunID = result.RunID
+			resumeResult, resumeErr := Run(context.Background(), def, resumeOpts)
+			if resumeErr == nil || !strings.Contains(resumeErr.Error(), "cannot be resumed") || !strings.Contains(resumeErr.Error(), "timed out") {
+				t.Fatalf("resume error = %v, want terminal timeout diagnostic", resumeErr)
+			}
+			if resumeResult == nil || len(resumeResult.Steps) != 0 {
+				t.Fatalf("resume result = %+v, want rejection before workflow execution", resumeResult)
+			}
+			if got := readFileOrEmpty(t, replayCounterPath); got != "" {
+				t.Fatalf("resume reran timeout-only command: %q", got)
+			}
+			if tt.hasCheckpoint && readFileOrEmpty(t, checkpointCounterPath) != "x" {
+				t.Fatalf("resume reran completed checkpoint: %q", readFileOrEmpty(t, checkpointCounterPath))
+			}
+		})
 	}
 }
 

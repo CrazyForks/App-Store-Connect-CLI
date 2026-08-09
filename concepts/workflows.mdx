@@ -141,6 +141,11 @@ Workflow-call steps and lifecycle hooks do not accept these fields. Attempt
 diagnostics go to stderr, successful-attempt outputs are persisted, and resume
 continues to skip already successful steps.
 
+A step with `timeout` but no `retry` becomes terminal if it times out, so
+`--resume` cannot replay a command that may have completed remotely. Combining
+`retry` and `timeout` keeps failures resumable because retry is the explicit
+repeat-safety opt-in.
+
 ## Environment Variables
 
 Workflows support environment variable expansion using `$VAR` or `${VAR}` syntax:

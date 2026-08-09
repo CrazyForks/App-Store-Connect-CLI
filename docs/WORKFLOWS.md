@@ -205,6 +205,10 @@ mutation. A successful command with invalid declared output is not retried,
 because its side effect may already have happened. That failure is terminal:
 the structured result sets `terminal: true`, the run state records the terminal
 reason, and `--resume` rejects the run instead of executing the command again.
+A timeout-only failure is terminal for the same replay-safety reason: local
+termination cannot prove that a remote mutation was not accepted. A step that
+configures both `retry` and `timeout` remains resumable because `retry` is the
+explicit repeat-safety opt-in.
 
 Attempt numbers and retry delays are written to stderr. stdout remains the one
 machine-readable workflow result. Each attempt gets a fresh output buffer, and

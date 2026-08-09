@@ -68,14 +68,17 @@ Caller cancellation stops immediately and never waits for or starts another
 attempt. A timeout terminates the shell process tree before the runner records a
 `timeout` attempt. On Unix, each command runs in its own process group; on
 Windows, the runner uses the platform process-tree termination path. Hooks use
-the same cancellation-aware command runner.
+the same cancellation-aware command runner. A timeout-only failure is persisted
+as terminal and cannot be resumed, because local termination does not prove a
+remote mutation was rejected. Configuring `retry` is the explicit repeat-safety
+signal that keeps retry-plus-timeout failures resumable.
 
 Run state records attempt diagnostics for configured steps, including failed
 attempts. Resume continues to skip every persisted successful step, restores
-its outputs, and re-executes only the failed step with a new bounded invocation.
-The previous attempt history remains available in the persisted state and the
-resumed structured result. A terminal output-extraction failure is the exception:
-`--resume` returns a diagnostic without executing any workflow command.
+its outputs, and re-executes only a retry-enabled failed step with a new bounded
+invocation. The previous attempt history remains available in the persisted
+state and the resumed structured result. Terminal output-extraction and
+timeout-only failures reject `--resume` without executing any workflow command.
 
 ## RED-GREEN and verification
 

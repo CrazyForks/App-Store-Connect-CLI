@@ -546,6 +546,19 @@ func (r *runner) markFailure(err error, failedStep string) {
 	}
 }
 
+func (r *runner) setTerminalReason(reason string) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return
+	}
+	r.result.Terminal = true
+	r.result.TerminalReason = reason
+	if r.state != nil {
+		r.state.Status = "terminal"
+		r.state.TerminalReason = reason
+	}
+}
+
 func (r *runner) hasRecoverableState() bool {
 	if r.state == nil {
 		return false
@@ -565,6 +578,9 @@ func (r *runner) hasRecoverableState() bool {
 func terminalReasonForResult(result *RunResult) string {
 	if result == nil {
 		return ""
+	}
+	if reason := strings.TrimSpace(result.TerminalReason); reason != "" {
+		return reason
 	}
 	for _, step := range result.Steps {
 		if step.FailureReason != "output_error" {
@@ -602,6 +618,10 @@ func terminalReasonForState(state *persistedRunState) string {
 
 func terminalOutputReason(label string) string {
 	return fmt.Sprintf("step %q command completed but output extraction failed; automatic resume is disabled to avoid repeating possible side effects", label)
+}
+
+func terminalTimeoutReason(label string) string {
+	return fmt.Sprintf("step %q timed out without retry; automatic resume is disabled because the command may have completed remotely", label)
 }
 
 func (r *runner) resumeCommand() string {

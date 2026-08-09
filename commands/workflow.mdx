@@ -149,6 +149,9 @@ steps and lifecycle hooks do not accept retry or timeout.
 
 If a command exits successfully but declared output extraction fails, the run
 is terminal and `--resume` refuses to repeat the possibly mutating command.
+A timeout-only failure is likewise terminal because the command may have
+completed remotely. Adding `retry` is the explicit repeat-safety signal that
+makes a timed-out step eligible for retry and later resume.
 
 ## Output
 
