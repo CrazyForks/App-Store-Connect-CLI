@@ -9732,10 +9732,17 @@ func TestGetBetaAppReviewSubmissions_WithBuildFilter(t *testing.T) {
 		if values.Get("filter[build]") != "build-1" {
 			t.Fatalf("expected filter[build]=build-1, got %q", values.Get("filter[build]"))
 		}
+		if values.Get("include") != "build" {
+			t.Fatalf("expected include=build, got %q", values.Get("include"))
+		}
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetBetaAppReviewSubmissions(context.Background(), WithBetaAppReviewSubmissionsBuildIDs([]string{"build-1"})); err != nil {
+	if _, err := client.GetBetaAppReviewSubmissions(
+		context.Background(),
+		WithBetaAppReviewSubmissionsBuildIDs([]string{"build-1"}),
+		WithBetaAppReviewSubmissionsIncludeBuild(),
+	); err != nil {
 		t.Fatalf("GetBetaAppReviewSubmissions() error: %v", err)
 	}
 }
