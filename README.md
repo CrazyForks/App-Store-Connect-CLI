@@ -344,7 +344,7 @@ asc bundle-ids list
 ### Workflow automation
 
 ```bash
-asc workflow validate
+asc workflow validate --output json
 asc workflow run --dry-run testflight_beta VERSION:1.2.3
 ```
 
@@ -357,7 +357,7 @@ See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for a copyable `.asc/deployment.json`
 distributing to an external TestFlight group that needs beta app review submission.
 
 ```bash
-asc workflow validate
+asc workflow validate --output json
 asc xcode inject --manifest .asc/deployment.json --set version=1.2.3 --set build_number=42 --dry-run --output json
 asc workflow run --dry-run testflight_beta VERSION:1.2.3
 asc workflow run testflight_beta VERSION:1.2.3
