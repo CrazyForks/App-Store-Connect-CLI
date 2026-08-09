@@ -324,6 +324,35 @@ func TestXcodeExportRejectsInvalidSigningStyleBeforeSideEffects(t *testing.T) {
 	}
 }
 
+func TestXcodeExportRejectsExplicitlyEmptyTeamIDBeforeSideEffects(t *testing.T) {
+	restore := overrideXcodeCommandTestHooks(t)
+	defer restore()
+
+	runXcodeExportPreflight = func(context.Context) error {
+		t.Fatal("preflight must not run for an empty team ID")
+		return nil
+	}
+	runGenerateExportOptions = func(context.Context, localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+		t.Fatal("generator must not run for an empty team ID")
+		return nil, nil
+	}
+
+	cmd := XcodeExportCommand()
+	cmd.FlagSet.SetOutput(io.Discard)
+	if err := cmd.FlagSet.Parse([]string{
+		"--archive-path", "Demo.xcarchive",
+		"--ipa-path", filepath.Join(t.TempDir(), "Demo.ipa"),
+		"--team-id", "",
+	}); err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	runErr := cmd.Exec(context.Background(), nil)
+	if !errors.Is(runErr, flag.ErrHelp) || !strings.Contains(runErr.Error(), "--team-id must not be empty") {
+		t.Fatalf("expected empty team-id usage error, got %v", runErr)
+	}
+}
+
 func TestXcodeExportSigningFlagsAreDiscoverable(t *testing.T) {
 	cmd := XcodeExportCommand()
 	for _, name := range []string{"signing-style", "team-id"} {

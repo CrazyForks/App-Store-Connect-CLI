@@ -153,7 +153,15 @@ func validateLocalBuildFlagUsage(localBuildMode bool, setFlags map[string]bool) 
 }
 
 func validatePublishExportOptionsFlags(values *publishLocalBuildFlagValues, setFlags map[string]bool) error {
-	values.generationFlagsSet = setFlags["signing-style"] || setFlags["team-id"]
+	signingStyleSet := setFlags["signing-style"]
+	teamIDSet := setFlags["team-id"]
+	values.generationFlagsSet = signingStyleSet || teamIDSet
+	if signingStyleSet && strings.TrimSpace(*values.signingStyle) == "" {
+		return shared.UsageError("--signing-style must be one of: automatic, manual")
+	}
+	if teamIDSet && strings.TrimSpace(*values.teamID) == "" {
+		return shared.UsageError("--team-id must not be empty")
+	}
 	if strings.TrimSpace(*values.exportOptionsPath) != "" && values.generationFlagsSet {
 		return shared.UsageError("--export-options cannot be combined with --signing-style or --team-id")
 	}

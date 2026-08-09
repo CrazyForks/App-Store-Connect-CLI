@@ -231,16 +231,29 @@ Examples:
 				return shared.UsageError("--timeout must be zero or greater")
 			}
 			generationFlagsSet := false
+			signingStyleSet := false
+			teamIDSet := false
 			fs.Visit(func(f *flag.Flag) {
-				if f.Name == "signing-style" || f.Name == "team-id" {
+				switch f.Name {
+				case "signing-style":
 					generationFlagsSet = true
+					signingStyleSet = true
+				case "team-id":
+					generationFlagsSet = true
+					teamIDSet = true
 				}
 			})
+			if signingStyleSet && strings.TrimSpace(*signingStyle) == "" {
+				return shared.UsageError("--signing-style must be one of: automatic, manual")
+			}
 			signingStyleValue, err := localxcode.NormalizeExportOptionsSigningStyle(*signingStyle)
 			if err != nil {
 				return shared.UsageError(err.Error())
 			}
 			teamIDValue := strings.TrimSpace(*teamID)
+			if teamIDSet && teamIDValue == "" {
+				return shared.UsageError("--team-id must not be empty")
+			}
 			trimmedArchivePath := strings.TrimSpace(*archivePath)
 			exportOptionsPath := strings.TrimSpace(*exportOptions)
 			if exportOptionsPath != "" && generationFlagsSet {

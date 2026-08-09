@@ -389,6 +389,59 @@ func TestPublishRejectsInvalidSigningStyleBeforeSideEffects(t *testing.T) {
 	}
 }
 
+func TestPublishRejectsExplicitlyEmptyTeamIDBeforeSideEffects(t *testing.T) {
+	for _, command := range []struct {
+		name string
+		cmd  func() *ffcli.Command
+		args []string
+	}{
+		{
+			name: "testflight",
+			cmd:  PublishTestFlightCommand,
+			args: []string{
+				"--app", "app-123", "--workspace", "Demo.xcworkspace", "--scheme", "Demo",
+				"--version", "1.2.3", "--group", "group-1", "--team-id", "",
+			},
+		},
+		{
+			name: "appstore",
+			cmd:  PublishAppStoreCommand,
+			args: []string{
+				"--app", "app-123", "--workspace", "Demo.xcworkspace", "--scheme", "Demo",
+				"--version", "1.2.3", "--team-id", "",
+			},
+		},
+	} {
+		t.Run(command.name, func(t *testing.T) {
+			restore := overridePublishCommandTestHooks(t)
+			defer restore()
+			workDir := t.TempDir()
+			t.Chdir(workDir)
+			if err := os.MkdirAll(filepath.Dir(defaultPublishExportOptionsPath), 0o755); err != nil {
+				t.Fatalf("create conventional export-options directory: %v", err)
+			}
+			if err := os.WriteFile(defaultPublishExportOptionsPath, []byte("conventional"), 0o600); err != nil {
+				t.Fatalf("write conventional export-options plist: %v", err)
+			}
+
+			getPublishASCClientFn = func(time.Duration) (*asc.Client, error) {
+				t.Fatal("ASC client must not be created for an empty team ID")
+				return nil, nil
+			}
+			cmd := command.cmd()
+			cmd.FlagSet.SetOutput(io.Discard)
+			if err := cmd.FlagSet.Parse(command.args); err != nil {
+				t.Fatalf("parse flags: %v", err)
+			}
+
+			runErr := cmd.Exec(context.Background(), nil)
+			if !errors.Is(runErr, flag.ErrHelp) || !strings.Contains(runErr.Error(), "--team-id must not be empty") {
+				t.Fatalf("expected empty team-id usage error, got %v", runErr)
+			}
+		})
+	}
+}
+
 func TestPublishLocalBuildPreflightsIPADestinationBeforeSideEffects(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
