@@ -118,10 +118,13 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --internal and --external are mutually exclusive")
 				return flag.ErrHelp
 			}
+			appIDSet := false
 			buildIDSet := false
 			membershipPageControlSet := false
 			fs.Visit(func(value *flag.Flag) {
 				switch value.Name {
+				case "app":
+					appIDSet = true
 				case "build-id":
 					buildIDSet = true
 				case "global", "limit", "next", "paginate":
@@ -132,12 +135,20 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --build-id cannot be empty")
 				return flag.ErrHelp
 			}
+			if resolvedBuildID != "" && appIDSet && strings.TrimSpace(*appID) == "" {
+				fmt.Fprintln(os.Stderr, "Error: --app cannot be empty when used with --build-id")
+				return flag.ErrHelp
+			}
 			if resolvedBuildID != "" && membershipPageControlSet {
 				fmt.Fprintln(os.Stderr, "Error: --global, --limit, --next, and --paginate cannot be used with --build-id; membership lookup always fetches all required pages")
 				return flag.ErrHelp
 			}
 
 			if resolvedBuildID != "" {
+				expectedAppID := ""
+				if appIDSet {
+					expectedAppID = strings.TrimSpace(*appID)
+				}
 				client, err := shared.GetASCClient()
 				if err != nil {
 					return fmt.Errorf("beta-groups list: %w", err)
@@ -159,7 +170,7 @@ Examples:
 					requestCtx,
 					client,
 					resolvedBuildID,
-					resolvedAppID,
+					expectedAppID,
 					internalFilter,
 				)
 				if usedFallback {

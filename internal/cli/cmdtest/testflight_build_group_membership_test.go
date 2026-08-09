@@ -40,6 +40,7 @@ type buildGroupMembershipFailure struct {
 func TestTestFlightGroupsListBuildMembershipUsesOfficialFilterAndPaginates(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	t.Setenv("ASC_APP_ID", "ambient-app-must-not-be-an-assertion")
 
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
@@ -146,7 +147,7 @@ func TestTestFlightGroupsListBuildMembershipUsesOfficialFilterAndPaginates(t *te
 	}
 }
 
-func TestTestFlightGroupsListBuildMembershipRejectsExplicitBlankBuildID(t *testing.T) {
+func TestTestFlightGroupsListBuildMembershipRejectsExplicitBlankIDs(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
@@ -157,23 +158,36 @@ func TestTestFlightGroupsListBuildMembershipRejectsExplicitBlankBuildID(t *testi
 		return nil, nil
 	})
 
-	root := RootCommand("1.2.3")
-	root.FlagSet.SetOutput(io.Discard)
-	var runErr error
-	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"testflight", "groups", "list", "--app", "app-1", "--build-id", " "}); err != nil {
-			t.Fatalf("parse error: %v", err)
-		}
-		runErr = root.Run(context.Background())
-	})
-	if !errors.Is(runErr, flag.ErrHelp) {
-		t.Fatalf("expected usage error, got %v", runErr)
+	tests := []struct {
+		name       string
+		args       []string
+		diagnostic string
+	}{
+		{name: "build ID", args: []string{"--app", "app-1", "--build-id", " "}, diagnostic: "--build-id cannot be empty"},
+		{name: "app assertion", args: []string{"--build-id", "build-1", "--app", " "}, diagnostic: "--app cannot be empty"},
 	}
-	if stdout != "" {
-		t.Fatalf("expected empty stdout, got %q", stdout)
-	}
-	if !strings.Contains(stderr, "--build-id cannot be empty") {
-		t.Fatalf("expected blank build ID diagnostic, got %q", stderr)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+			var runErr error
+			args := append([]string{"testflight", "groups", "list"}, test.args...)
+			stdout, stderr := captureOutput(t, func() {
+				if err := root.Parse(args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				runErr = root.Run(context.Background())
+			})
+			if !errors.Is(runErr, flag.ErrHelp) {
+				t.Fatalf("expected usage error, got %v", runErr)
+			}
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.diagnostic) {
+				t.Fatalf("expected %q diagnostic, got %q", test.diagnostic, stderr)
+			}
+		})
 	}
 }
 
