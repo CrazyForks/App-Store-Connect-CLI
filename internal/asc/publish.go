@@ -69,6 +69,10 @@ type AppStorePublishStageResult struct {
 
 // Result types for the publish workflow.
 type TestFlightPublishResult struct {
+	Status                 string                            `json:"status,omitempty"`
+	FailureStage           string                            `json:"failureStage,omitempty"`
+	Failure                string                            `json:"failure,omitempty"`
+	CompletedStages        []string                          `json:"completedStages,omitempty"`
 	Mode                   PublishMode                       `json:"mode,omitempty"`
 	BuildID                string                            `json:"buildId"`
 	BuildVersion           string                            `json:"buildVersion,omitempty"`
