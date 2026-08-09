@@ -344,7 +344,7 @@ asc bundle-ids list
 ### Workflow automation
 
 ```bash
-asc workflow validate
+asc workflow validate --output json
 asc workflow run --dry-run testflight_beta VERSION:1.2.3
 ```
 
@@ -359,7 +359,7 @@ Add `--submit --confirm` when
 distributing to an external TestFlight group that needs beta app review submission.
 
 ```bash
-asc workflow validate
+asc workflow validate --output json
 asc xcode inject --manifest .asc/deployment.json --set version=1.2.3 --set build_number=42 --dry-run --output json
 asc xcode build --project App.xcodeproj --scheme App --destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0' --no-code-signing --output json
 asc workflow run --dry-run testflight_beta VERSION:1.2.3
