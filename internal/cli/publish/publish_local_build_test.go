@@ -544,12 +544,24 @@ func TestPublishTestFlightUploadReportsStructuredRecoveryResultAfterBetaReviewFa
 		requestCount++
 		switch requestCount {
 		case 1:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-123/betaGroups" {
+				t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
+			}
 			return publishCommandJSONResponse(http.StatusOK, `{"data":[{"type":"betaGroups","id":"group-1","attributes":{"name":"External","isInternalGroup":false}}]}`)
 		case 2:
+			if req.Method != http.MethodPost || req.URL.Path != "/v1/builds/build-123/relationships/betaGroups" {
+				t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
+			}
 			return publishCommandJSONResponse(http.StatusNoContent, "")
 		case 3:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/builds/build-123/betaAppReviewSubmission" {
+				t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
+			}
 			return publishCommandJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
 		case 4:
+			if req.Method != http.MethodPost || req.URL.Path != "/v1/betaAppReviewSubmissions" {
+				t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
+			}
 			return publishCommandJSONResponse(http.StatusUnprocessableEntity, `{"errors":[{"status":"422","code":"STATE_ERROR","title":"Submission rejected","detail":"review state is not ready"}]}`)
 		default:
 			t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
