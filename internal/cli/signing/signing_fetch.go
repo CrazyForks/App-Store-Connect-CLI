@@ -223,6 +223,15 @@ type signingAssetsOptions struct {
 var errNoMatchingProfileCertificates = errors.New("profile has no matching associated certificates")
 
 func resolveSigningAssets(ctx context.Context, client *asc.Client, options signingAssetsOptions) (*asc.ProfileResponse, *asc.CertificatesResponse, bool, error) {
+	certificateType := strings.TrimSpace(options.CertificateType)
+	if certificateType == "" {
+		var err error
+		certificateType, err = inferCertificateType(options.ProfileType)
+		if err != nil {
+			return nil, nil, false, err
+		}
+	}
+
 	profiles, err := findActiveProfiles(ctx, client, options.BundleIDResourceID, options.ProfileType)
 	if err != nil {
 		return nil, nil, false, err
@@ -230,7 +239,7 @@ func resolveSigningAssets(ctx context.Context, client *asc.Client, options signi
 	var certificateMatchErr error
 	for _, profileResource := range profiles {
 		profile := &asc.ProfileResponse{Data: profileResource}
-		certificates, err := findProfileCertificates(ctx, client, profile.Data.ID, options.CertificateType)
+		certificates, err := findProfileCertificates(ctx, client, profile.Data.ID, certificateType)
 		if err == nil {
 			return profile, certificates, false, nil
 		}
@@ -251,7 +260,7 @@ func resolveSigningAssets(ctx context.Context, client *asc.Client, options signi
 		)
 	}
 
-	certificates, err := findCertificates(ctx, client, options.ProfileType, options.CertificateType)
+	certificates, err := findCertificates(ctx, client, options.ProfileType, certificateType)
 	if err != nil {
 		return nil, nil, false, err
 	}

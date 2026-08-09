@@ -362,7 +362,7 @@ func TestResolveSigningAssetsFiltersExistingProfileCertificatesByRequestedType(t
 	}
 }
 
-func TestResolveSigningAssetsChecksEveryActiveProfileForRequestedCertificate(t *testing.T) {
+func TestResolveSigningAssetsChecksEveryActiveProfileForInferredCertificateType(t *testing.T) {
 	requestPaths := []string{}
 	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
 		requestPaths = append(requestPaths, req.URL.Path)
@@ -386,7 +386,6 @@ func TestResolveSigningAssetsChecksEveryActiveProfileForRequestedCertificate(t *
 			BundleIDResourceID: "bundle-main",
 			BundleIdentifier:   "com.example.signing.profile",
 			ProfileType:        "IOS_APP_STORE",
-			CertificateType:    "IOS_DISTRIBUTION",
 		},
 	)
 	if err != nil {
@@ -405,7 +404,9 @@ func TestResolveSigningAssetsChecksEveryActiveProfileForRequestedCertificate(t *
 }
 
 func TestResolveSigningAssetsCreatesWhenActiveProfilesLackRequestedCertificate(t *testing.T) {
+	requestPaths := []string{}
 	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+		requestPaths = append(requestPaths, req.Method+" "+req.URL.Path)
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
 			return signingFetchJSONResponse(http.StatusOK, `{"data":[{"type":"profiles","id":"profile-first","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}},{"type":"profiles","id":"profile-second","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}]}`)
@@ -440,6 +441,10 @@ func TestResolveSigningAssetsCreatesWhenActiveProfilesLackRequestedCertificate(t
 	}
 	if got := extractIDs(certificates.Data); len(got) != 1 || got[0] != "cert-ios" {
 		t.Fatalf("expected creation certificate cert-ios, got %v", got)
+	}
+	wantPaths := "GET /v1/bundleIds/bundle-main/profiles,GET /v1/profiles/profile-first/certificates,GET /v1/profiles/profile-second/certificates,GET /v1/certificates,POST /v1/profiles"
+	if strings.Join(requestPaths, ",") != wantPaths {
+		t.Fatalf("unexpected lookup and creation order: %v", requestPaths)
 	}
 }
 
