@@ -199,6 +199,82 @@ func TestAddUploadedBuildBetaGroupsDoesNotRetryMalformedBuildConfirmation(t *tes
 	}
 }
 
+func TestAddUploadedBuildBetaGroupsStopsWhenConfirmedBuildProcessingFailed(t *testing.T) {
+	for _, state := range []string{asc.BuildProcessingStateFailed, asc.BuildProcessingStateInvalid} {
+		t.Run(state, func(t *testing.T) {
+			fake := &postUploadBuildDistributionFake{
+				addErrors: []error{postUploadBuildMissingError("build-1")},
+				getResponses: []*asc.BuildResponse{{Data: asc.Resource[asc.BuildAttributes]{
+					ID: "build-1",
+					Attributes: asc.BuildAttributes{
+						ProcessingState: state,
+					},
+				}}},
+			}
+			waits := 0
+
+			_, err := addUploadedBuildBetaGroupsWithPolicy(
+				context.Background(),
+				fake,
+				"build-1",
+				postUploadBuildGroups(),
+				shared.AddBuildBetaGroupsOptions{},
+				postUploadBuildPropagationRetryPolicy{
+					Backoffs: []time.Duration{time.Minute},
+					Wait: func(context.Context, time.Duration) error {
+						waits++
+						return nil
+					},
+				},
+			)
+			if err == nil || !strings.Contains(err.Error(), "build processing failed: "+state) {
+				t.Fatalf("expected terminal processing failure, got %v", err)
+			}
+			if fake.addCalls != 1 || fake.getCalls != 1 || waits != 0 {
+				t.Fatalf("calls = add:%d get:%d wait:%d, want 1/1/0", fake.addCalls, fake.getCalls, waits)
+			}
+		})
+	}
+}
+
+func TestAddUploadedBuildBetaGroupsKeepsRetryingForNonterminalBuildStates(t *testing.T) {
+	for _, state := range []string{asc.BuildProcessingStateProcessing, asc.BuildProcessingStateValid} {
+		t.Run(state, func(t *testing.T) {
+			fake := &postUploadBuildDistributionFake{
+				addErrors: []error{postUploadBuildMissingError("build-1"), nil},
+				getResponses: []*asc.BuildResponse{{Data: asc.Resource[asc.BuildAttributes]{
+					ID: "build-1",
+					Attributes: asc.BuildAttributes{
+						ProcessingState: state,
+					},
+				}}},
+			}
+			waits := 0
+
+			_, err := addUploadedBuildBetaGroupsWithPolicy(
+				context.Background(),
+				fake,
+				"build-1",
+				postUploadBuildGroups(),
+				shared.AddBuildBetaGroupsOptions{},
+				postUploadBuildPropagationRetryPolicy{
+					Backoffs: []time.Duration{0},
+					Wait: func(context.Context, time.Duration) error {
+						waits++
+						return nil
+					},
+				},
+			)
+			if err != nil {
+				t.Fatalf("expected propagation retry success, got %v", err)
+			}
+			if fake.addCalls != 2 || fake.getCalls != 1 || waits != 1 {
+				t.Fatalf("calls = add:%d get:%d wait:%d, want 2/1/1", fake.addCalls, fake.getCalls, waits)
+			}
+		})
+	}
+}
+
 func TestAddUploadedBuildBetaGroupsDoesNotRetryUnrelatedErrors(t *testing.T) {
 	tests := []struct {
 		name string

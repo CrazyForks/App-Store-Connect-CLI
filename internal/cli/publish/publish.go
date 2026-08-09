@@ -384,6 +384,12 @@ Examples:
 			}
 			if err != nil {
 				failureStage := publishFailureStageBetaDistribution
+				var processingFailure *postUploadBuildProcessingFailure
+				if errors.As(err, &processingFailure) {
+					buildResp = processingFailure.build
+					result.ProcessingState = buildResp.Data.Attributes.ProcessingState
+					return reportPartialFailure(publishFailureStageBuildProcessing, fmt.Errorf("publish testflight: %w", err))
+				}
 				var partialErr *asc.BuildBetaGroupsPartialError
 				if errors.As(err, &partialErr) {
 					completedStages = append(completedStages, publishCompletedStageBetaDistribution)

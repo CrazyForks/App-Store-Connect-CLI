@@ -37,6 +37,15 @@ type postUploadBuildPropagationRetryPolicy struct {
 	DiagnosticWriter io.Writer
 }
 
+type postUploadBuildProcessingFailure struct {
+	build *asc.BuildResponse
+	state string
+}
+
+func (e *postUploadBuildProcessingFailure) Error() string {
+	return fmt.Sprintf("build processing failed: %s", e.state)
+}
+
 func addUploadedBuildBetaGroups(
 	ctx context.Context,
 	client postUploadBuildDistributionClient,
@@ -78,6 +87,10 @@ func addUploadedBuildBetaGroupsWithPolicy(
 		}
 		if confirmedBuild == nil || strings.TrimSpace(confirmedBuild.Data.ID) != strings.TrimSpace(buildID) {
 			return nil, fmt.Errorf("build %q could not be confirmed after beta-group relationship returned build-not-found: response did not contain the requested build", buildID)
+		}
+		confirmedState := strings.ToUpper(strings.TrimSpace(confirmedBuild.Data.Attributes.ProcessingState))
+		if confirmedState == asc.BuildProcessingStateFailed || confirmedState == asc.BuildProcessingStateInvalid {
+			return nil, &postUploadBuildProcessingFailure{build: confirmedBuild, state: confirmedState}
 		}
 		if retryIndex >= len(policy.Backoffs) {
 			return nil, fmt.Errorf("beta-group relationship still reported uploaded build %q missing after %d attempts: %w", buildID, retryIndex+1, err)
