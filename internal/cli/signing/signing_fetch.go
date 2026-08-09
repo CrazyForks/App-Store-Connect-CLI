@@ -222,14 +222,31 @@ type signingAssetsOptions struct {
 
 var errNoMatchingProfileCertificates = errors.New("profile has no matching associated certificates")
 
+var supportedSigningCertificateTypes = map[string]struct{}{
+	"APPLE_PAY":                   {},
+	"APPLE_PAY_MERCHANT_IDENTITY": {},
+	"APPLE_PAY_PSP_IDENTITY":      {},
+	"APPLE_PAY_RSA":               {},
+	"DEVELOPER_ID_KEXT":           {},
+	"DEVELOPER_ID_KEXT_G2":        {},
+	"DEVELOPER_ID_APPLICATION":    {},
+	"DEVELOPER_ID_APPLICATION_G2": {},
+	"DEVELOPMENT":                 {},
+	"DISTRIBUTION":                {},
+	"IDENTITY_ACCESS":             {},
+	"IOS_DEVELOPMENT":             {},
+	"IOS_DISTRIBUTION":            {},
+	"MAC_APP_DISTRIBUTION":        {},
+	"MAC_INSTALLER_DISTRIBUTION":  {},
+	"MAC_APP_DEVELOPMENT":         {},
+	"PASS_TYPE_ID":                {},
+	"PASS_TYPE_ID_WITH_NFC":       {},
+}
+
 func resolveSigningAssets(ctx context.Context, client *asc.Client, options signingAssetsOptions) (*asc.ProfileResponse, *asc.CertificatesResponse, bool, error) {
-	certificateType := strings.TrimSpace(options.CertificateType)
-	if certificateType == "" {
-		var err error
-		certificateType, err = inferCertificateType(options.ProfileType)
-		if err != nil {
-			return nil, nil, false, err
-		}
+	certificateType, err := resolveSigningCertificateTypes(options.ProfileType, options.CertificateType)
+	if err != nil {
+		return nil, nil, false, err
 	}
 
 	profiles, err := findActiveProfiles(ctx, client, options.BundleIDResourceID, options.ProfileType)
@@ -291,6 +308,24 @@ func resolveSigningAssets(ctx context.Context, client *asc.Client, options signi
 		return nil, nil, false, err
 	}
 	return profile, certificates, true, nil
+}
+
+func resolveSigningCertificateTypes(profileType, raw string) (string, error) {
+	certificateTypes := shared.SplitCSVUpper(raw)
+	if len(certificateTypes) == 0 {
+		inferred, err := inferCertificateType(profileType)
+		if err != nil {
+			return "", err
+		}
+		certificateTypes = []string{inferred}
+	}
+
+	for _, certificateType := range certificateTypes {
+		if _, ok := supportedSigningCertificateTypes[certificateType]; !ok {
+			return "", fmt.Errorf("unsupported certificate type %s", certificateType)
+		}
+	}
+	return strings.Join(certificateTypes, ","), nil
 }
 
 func findActiveProfiles(ctx context.Context, client *asc.Client, bundleIDResourceID, profileType string) ([]asc.Resource[asc.ProfileAttributes], error) {

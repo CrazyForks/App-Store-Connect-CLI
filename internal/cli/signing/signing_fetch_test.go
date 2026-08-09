@@ -362,6 +362,32 @@ func TestResolveSigningAssetsFiltersExistingProfileCertificatesByRequestedType(t
 	}
 }
 
+func TestResolveSigningAssetsRejectsUnknownCertificateTypesBeforeLookup(t *testing.T) {
+	requests := 0
+	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+		requests++
+		t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+	})
+
+	_, _, _, err := resolveSigningAssets(
+		context.Background(),
+		client,
+		signingAssetsOptions{
+			BundleIDResourceID: "bundle-main",
+			BundleIdentifier:   "com.example.signing.profile",
+			ProfileType:        "IOS_APP_STORE",
+			CertificateType:    "IOS_DISTRIBUTION,BOGUS",
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "unsupported certificate type BOGUS") {
+		t.Fatalf("resolveSigningAssets() error = %v, want unsupported certificate type", err)
+	}
+	if requests != 0 {
+		t.Fatalf("expected validation before lookup, got %d requests", requests)
+	}
+}
+
 func TestResolveSigningAssetsChecksEveryActiveProfileForInferredCertificateType(t *testing.T) {
 	requestPaths := []string{}
 	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
