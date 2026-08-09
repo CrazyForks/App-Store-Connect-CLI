@@ -28,24 +28,21 @@ func TestUploadScreenshotsReplaceValidatesRootBeforeDeletingExistingScreenshots(
 	filePath := filepath.Join(root, "linked", "01-home.png")
 
 	deleted := false
-	origTransport := http.DefaultTransport
-	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersionLocalizations/LOC_123/appScreenshotSets":
-			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshotSets","id":"set-1","attributes":{"screenshotDisplayType":"APP_IPHONE_65"}}],"links":{}}`)
+			writeAssetsTestJSON(w, http.StatusOK, `{"data":[{"type":"appScreenshotSets","id":"set-1","attributes":{"screenshotDisplayType":"APP_IPHONE_65"}}],"links":{}}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshotSets/set-1/appScreenshots":
-			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshots","id":"existing-1","attributes":{"fileName":"old.png"}}],"links":{}}`)
+			writeAssetsTestJSON(w, http.StatusOK, `{"data":[{"type":"appScreenshots","id":"existing-1","attributes":{"fileName":"old.png"}}],"links":{}}`)
 		case req.Method == http.MethodDelete && req.URL.Path == "/v1/appScreenshots/existing-1":
 			deleted = true
-			return assetsJSONResponse(http.StatusNoContent, "")
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-			return nil, nil
 		}
-	})
-	t.Cleanup(func() { http.DefaultTransport = origTransport })
+	}))
 
-	_, err := uploadScreenshots(context.Background(), newAssetsUploadTestClient(t), "LOC_123", "APP_IPHONE_65", []string{filePath}, false, true, false)
+	_, err := uploadScreenshots(context.Background(), client, "LOC_123", "APP_IPHONE_65", []string{filePath}, false, true, false)
 	if !errors.Is(err, rootfs.ErrSymlink) {
 		t.Fatalf("uploadScreenshots() error = %v, want rootfs.ErrSymlink", err)
 	}
