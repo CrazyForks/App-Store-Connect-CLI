@@ -8,7 +8,10 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
+
+const shellWaitDelay = 5 * time.Second
 
 var (
 	lookPathFn       = exec.LookPath
@@ -117,6 +120,7 @@ func runShellCommand(ctx context.Context, command string, env map[string]string,
 
 	cmd := commandContextFn(ctx, shell, args...)
 	configureProcessTree(cmd)
+	cmd.WaitDelay = shellWaitDelay
 	cmd.Env = buildEnvSlice(env)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

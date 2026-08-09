@@ -3,12 +3,16 @@
 package workflow
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"strconv"
 	"syscall"
+	"time"
 )
+
+const taskkillTimeout = 5 * time.Second
 
 func configureProcessTree(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{
@@ -20,7 +24,9 @@ func configureProcessTree(command *exec.Cmd) {
 			return os.ErrProcessDone
 		}
 
-		killer := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(command.Process.Pid))
+		ctx, cancel := context.WithTimeout(context.Background(), taskkillTimeout)
+		defer cancel()
+		killer := exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(command.Process.Pid))
 		killer.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		if err := killer.Run(); err == nil {
 			return nil

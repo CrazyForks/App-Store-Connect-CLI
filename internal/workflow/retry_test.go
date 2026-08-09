@@ -220,6 +220,24 @@ func TestRun_FirstFailureWithoutPolicyKeepsExistingRecoveryBehavior(t *testing.T
 	}
 }
 
+func TestRun_WorkflowCallPolicyIsRejectedAtRuntime(t *testing.T) {
+	def := &Definition{Workflows: map[string]Workflow{
+		"main": {Steps: []Step{{
+			Name:     "invalid_call",
+			Workflow: "child",
+			Retry:    &RetryPolicy{MaxAttempts: 2, Delay: "1s"},
+		}}},
+		"child": {Private: true, Steps: []Step{{Run: "echo child"}}},
+	}}
+	result, err := Run(context.Background(), def, runOpts("main"))
+	if err == nil {
+		t.Fatal("expected workflow-call policy rejection")
+	}
+	if len(result.Steps) != 1 || result.Steps[0].FailureReason != "invalid_policy" {
+		t.Fatalf("result = %+v, want invalid_policy failure", result)
+	}
+}
+
 func TestRun_TimeoutHasStableStructuredFailure(t *testing.T) {
 	def, _ := loadWorkflowForRetryTest(t, `{
 		"workflows": {
