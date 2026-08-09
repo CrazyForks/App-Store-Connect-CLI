@@ -220,20 +220,30 @@ type signingAssetsOptions struct {
 	CreateContext      func() (context.Context, context.CancelFunc)
 }
 
+var errNoMatchingProfileCertificates = errors.New("profile has no matching associated certificates")
+
 func resolveSigningAssets(ctx context.Context, client *asc.Client, options signingAssetsOptions) (*asc.ProfileResponse, *asc.CertificatesResponse, bool, error) {
-	profile, err := findActiveProfile(ctx, client, options.BundleIDResourceID, options.ProfileType)
+	profiles, err := findActiveProfiles(ctx, client, options.BundleIDResourceID, options.ProfileType)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	if profile != nil {
+	var certificateMatchErr error
+	for _, profileResource := range profiles {
+		profile := &asc.ProfileResponse{Data: profileResource}
 		certificates, err := findProfileCertificates(ctx, client, profile.Data.ID, options.CertificateType)
-		if err != nil {
+		if err == nil {
+			return profile, certificates, false, nil
+		}
+		if !errors.Is(err, errNoMatchingProfileCertificates) {
 			return nil, nil, false, err
 		}
-		return profile, certificates, false, nil
+		certificateMatchErr = err
 	}
 
 	if !options.CreateMissing {
+		if certificateMatchErr != nil {
+			return nil, nil, false, certificateMatchErr
+		}
 		return nil, nil, false, fmt.Errorf(
 			"no active %s profile found for bundle ID %s; use --create-missing to create one",
 			options.ProfileType,
@@ -259,7 +269,7 @@ func resolveSigningAssets(ctx context.Context, client *asc.Client, options signi
 			return nil, nil, false, fmt.Errorf("profile create context is nil")
 		}
 	}
-	profile, err = createProfile(
+	profile, err := createProfile(
 		createCtx,
 		client,
 		options.BundleIDResourceID,
@@ -274,7 +284,8 @@ func resolveSigningAssets(ctx context.Context, client *asc.Client, options signi
 	return profile, certificates, true, nil
 }
 
-func findActiveProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, profileType string) (*asc.ProfileResponse, error) {
+func findActiveProfiles(ctx context.Context, client *asc.Client, bundleIDResourceID, profileType string) ([]asc.Resource[asc.ProfileAttributes], error) {
+	var matches []asc.Resource[asc.ProfileAttributes]
 	next := ""
 	for {
 		profiles, err := client.GetBundleIDProfiles(
@@ -291,12 +302,12 @@ func findActiveProfile(ctx context.Context, client *asc.Client, bundleIDResource
 				continue
 			}
 			if strings.EqualFold(strings.TrimSpace(profile.Attributes.ProfileType), profileType) {
-				return &asc.ProfileResponse{Data: profile}, nil
+				matches = append(matches, profile)
 			}
 		}
 
 		if strings.TrimSpace(profiles.Links.Next) == "" {
-			return nil, nil
+			return matches, nil
 		}
 		next = profiles.Links.Next
 	}
@@ -342,9 +353,9 @@ func findProfileCertificates(ctx context.Context, client *asc.Client, profileID,
 	}
 	if len(all) == 0 {
 		if len(requestedTypes) > 0 {
-			return nil, fmt.Errorf("profile %s has no associated certificates of type %s", profileID, strings.Join(requestedTypes, ","))
+			return nil, fmt.Errorf("profile %s has no associated certificates of type %s: %w", profileID, strings.Join(requestedTypes, ","), errNoMatchingProfileCertificates)
 		}
-		return nil, fmt.Errorf("profile %s has no associated certificates", profileID)
+		return nil, fmt.Errorf("profile %s has no associated certificates: %w", profileID, errNoMatchingProfileCertificates)
 	}
 	return &asc.CertificatesResponse{Data: all, Links: links}, nil
 }
