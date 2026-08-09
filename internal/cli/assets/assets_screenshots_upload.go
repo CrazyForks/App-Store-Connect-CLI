@@ -10,6 +10,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 func normalizeScreenshotDisplayType(input string) (string, error) {
@@ -330,6 +331,24 @@ func sameScreenshotIDOrder(a, b []string) bool {
 
 func computeFileChecksum(filePath string) (string, error) {
 	file, err := shared.OpenExistingNoFollow(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	checksum, err := asc.ComputeChecksumFromReader(file, asc.ChecksumAlgorithmMD5)
+	if err != nil {
+		return "", err
+	}
+	return checksum.Hash, nil
+}
+
+func computeFileChecksumInRoot(rootPath, filePath string) (string, error) {
+	root, err := rootfs.New(rootPath)
+	if err != nil {
+		return "", err
+	}
+	file, err := root.OpenFile(filePath)
 	if err != nil {
 		return "", err
 	}

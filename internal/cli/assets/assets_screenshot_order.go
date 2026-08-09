@@ -71,7 +71,7 @@ func uploadScreenshotsWithOrderState(ctx context.Context, client *asc.Client, se
 	return progress, nil
 }
 
-func resumeScreenshotsWithOrderState(ctx context.Context, client *asc.Client, setID string, orderedIDs, files []string, pendingAssets []screenshotPendingAsset, syncIfNoNew, syncAfterUpload bool) (screenshotUploadProgress, error) {
+func resumeScreenshotsWithOrderState(ctx context.Context, client *asc.Client, setID string, orderedIDs, files []string, pendingAssets []screenshotPendingAsset, sourceRootPath string, syncIfNoNew, syncAfterUpload bool) (screenshotUploadProgress, error) {
 	progress := screenshotUploadProgress{
 		Results:    make([]asc.AssetUploadResultItem, 0, len(files)),
 		OrderedIDs: append([]string(nil), orderedIDs...),
@@ -97,7 +97,7 @@ func resumeScreenshotsWithOrderState(ctx context.Context, client *asc.Client, se
 			return progress, fmt.Errorf("pending screenshot asset does not match the first pending file")
 		}
 
-		result, updatedPending, retryUpload, err := reconcilePendingScreenshotAsset(ctx, client, pending)
+		result, updatedPending, retryUpload, err := reconcilePendingScreenshotAsset(ctx, client, pending, sourceRootPath)
 		if err != nil {
 			progress.PendingFiles = remainingFiles
 			progress.PendingAssets = []screenshotPendingAsset{updatedPending}
@@ -120,7 +120,7 @@ func resumeScreenshotsWithOrderState(ctx context.Context, client *asc.Client, se
 	return progress, err
 }
 
-func reconcilePendingScreenshotAsset(ctx context.Context, client *asc.Client, pending screenshotPendingAsset) (asc.AssetUploadResultItem, screenshotPendingAsset, bool, error) {
+func reconcilePendingScreenshotAsset(ctx context.Context, client *asc.Client, pending screenshotPendingAsset, sourceRootPath string) (asc.AssetUploadResultItem, screenshotPendingAsset, bool, error) {
 	remote, err := client.GetAppScreenshot(ctx, pending.AssetID)
 	if err != nil {
 		if asc.IsNotFound(err) {
@@ -135,6 +135,9 @@ func reconcilePendingScreenshotAsset(ctx context.Context, client *asc.Client, pe
 	}
 	switch remoteState {
 	case "COMPLETE":
+		if err := validatePendingScreenshotChecksum(sourceRootPath, pending); err != nil {
+			return asc.AssetUploadResultItem{}, pending, false, err
+		}
 		return completedPendingScreenshotResult(pending), screenshotPendingAsset{}, false, nil
 	case "FAILED":
 		if err := client.DeleteAppScreenshot(ctx, pending.AssetID); err != nil {
@@ -142,16 +145,15 @@ func reconcilePendingScreenshotAsset(ctx context.Context, client *asc.Client, pe
 		}
 		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, true, nil
 	case "UPLOAD_COMPLETE":
+		if err := validatePendingScreenshotChecksum(sourceRootPath, pending); err != nil {
+			return asc.AssetUploadResultItem{}, pending, false, err
+		}
 		return waitForPendingScreenshotDelivery(ctx, client, pending)
 	case "AWAITING_UPLOAD", "":
 		pendingState := strings.ToUpper(strings.TrimSpace(pending.State))
 		if pendingState == "UPLOADED" || pendingState == "UPLOAD_COMPLETE" || pendingState == "COMPLETE" {
-			checksum, err := computeFileChecksum(pending.FilePath)
-			if err != nil {
+			if err := validatePendingScreenshotChecksum(sourceRootPath, pending); err != nil {
 				return asc.AssetUploadResultItem{}, pending, false, err
-			}
-			if !strings.EqualFold(strings.TrimSpace(checksum), strings.TrimSpace(pending.Checksum)) {
-				return asc.AssetUploadResultItem{}, pending, false, fmt.Errorf("pending screenshot file changed after upload: %q", pending.FilePath)
 			}
 			updated, err := client.UpdateAppScreenshot(ctx, pending.AssetID, true, pending.Checksum)
 			if err != nil {
@@ -172,6 +174,17 @@ func reconcilePendingScreenshotAsset(ctx context.Context, client *asc.Client, pe
 		pending.State = remoteState
 		return asc.AssetUploadResultItem{}, pending, false, fmt.Errorf("screenshot %s has unrecognized delivery state %q", pending.AssetID, remoteState)
 	}
+}
+
+func validatePendingScreenshotChecksum(sourceRootPath string, pending screenshotPendingAsset) error {
+	checksum, err := computeFileChecksumInRoot(sourceRootPath, pending.FilePath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(strings.TrimSpace(checksum), strings.TrimSpace(pending.Checksum)) {
+		return fmt.Errorf("pending screenshot file changed after upload: %q", pending.FilePath)
+	}
+	return nil
 }
 
 func waitForPendingScreenshotDelivery(ctx context.Context, client *asc.Client, pending screenshotPendingAsset) (asc.AssetUploadResultItem, screenshotPendingAsset, bool, error) {

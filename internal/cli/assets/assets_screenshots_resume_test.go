@@ -258,6 +258,109 @@ func TestResumeAppScreenshotUploadReusesCreatedAssetAfterCommitFailure(t *testin
 	}
 }
 
+func TestResumeAppScreenshotUploadRejectsChangedFileForCompletedReservation(t *testing.T) {
+	workDir := t.TempDir()
+	filePath := writeAssetsTestPNG(t, workDir, "01-home.png")
+	checksum, err := computeFileChecksum(filePath)
+	if err != nil {
+		t.Fatalf("computeFileChecksum() error: %v", err)
+	}
+	artifactPath := filepath.Join(workDir, "resume-artifact.json")
+	_, err = persistScreenshotUploadFailureArtifact(artifactPath, screenshotUploadFailureArtifact{
+		RootPath:     workDir,
+		SetID:        "set-1",
+		PendingFiles: []string{filePath},
+		PendingAssets: []screenshotPendingAsset{{
+			FileName: filepath.Base(filePath),
+			FilePath: filePath,
+			AssetID:  "pending-1",
+			Checksum: checksum,
+			State:    "UPLOAD_COMPLETE",
+		}},
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("persistScreenshotUploadFailureArtifact() error: %v", err)
+	}
+	writeAssetsTestPNGWithSize(t, workDir, filepath.Base(filePath), 9, 8)
+
+	orderPatched := false
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshots/pending-1":
+			return assetsJSONResponse(http.StatusOK, `{"data":{"type":"appScreenshots","id":"pending-1","attributes":{"assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appScreenshotSets/set-1/relationships/appScreenshots":
+			orderPatched = true
+			return assetsJSONResponse(http.StatusNoContent, "")
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = origTransport })
+
+	result, err := resumeAppScreenshotUpload(context.Background(), newAssetsUploadTestClient(t), artifactPath)
+	if err == nil {
+		t.Fatal("expected changed-file error")
+	}
+	if len(result.Failures) != 1 || !strings.Contains(result.Failures[0].Error, "pending screenshot file changed after upload") {
+		t.Fatalf("expected changed-file failure detail, got %#v", result.Failures)
+	}
+	if orderPatched {
+		t.Fatal("did not expect ordering to be updated for a stale completed reservation")
+	}
+}
+
+func TestResumeAppScreenshotUploadRejectsSymlinkedParentBelowRecordedRoot(t *testing.T) {
+	rootDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := writeAssetsTestPNG(t, outsideDir, "01-home.png")
+	linkDir := filepath.Join(rootDir, "linked")
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Fatalf("create parent symlink: %v", err)
+	}
+	linkedPath := filepath.Join(linkDir, filepath.Base(outsidePath))
+	checksum, err := computeFileChecksum(linkedPath)
+	if err != nil {
+		t.Fatalf("computeFileChecksum() error: %v", err)
+	}
+	artifactPath := filepath.Join(rootDir, "resume-artifact.json")
+	_, err = persistScreenshotUploadFailureArtifact(artifactPath, screenshotUploadFailureArtifact{
+		RootPath:     rootDir,
+		SetID:        "set-1",
+		PendingFiles: []string{linkedPath},
+		PendingAssets: []screenshotPendingAsset{{
+			FileName: filepath.Base(linkedPath),
+			FilePath: linkedPath,
+			AssetID:  "pending-1",
+			Checksum: checksum,
+			State:    "UPLOAD_COMPLETE",
+		}},
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("persistScreenshotUploadFailureArtifact() error: %v", err)
+	}
+
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/appScreenshots/pending-1" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+		return assetsJSONResponse(http.StatusOK, `{"data":{"type":"appScreenshots","id":"pending-1","attributes":{"assetDeliveryState":{"state":"COMPLETE"}}}}`)
+	})
+	t.Cleanup(func() { http.DefaultTransport = origTransport })
+
+	result, err := resumeAppScreenshotUpload(context.Background(), newAssetsUploadTestClient(t), artifactPath)
+	if err == nil {
+		t.Fatal("expected rooted parent-symlink rejection")
+	}
+	if len(result.Failures) != 1 || !strings.Contains(strings.ToLower(result.Failures[0].Error), "symlink") {
+		t.Fatalf("expected rooted parent-symlink failure detail, got %#v", result.Failures)
+	}
+}
+
 func TestResumeScreenshotsDeletesIncompleteReservationBeforeRecreating(t *testing.T) {
 	filePath := writeAssetsTestPNG(t, t.TempDir(), "01-home.png")
 	fileSizeBytes := fileSize(t, filePath)
@@ -310,6 +413,7 @@ func TestResumeScreenshotsDeletesIncompleteReservationBeforeRecreating(t *testin
 			Checksum: checksum,
 			State:    "AWAITING_UPLOAD",
 		}},
+		filepath.Dir(filePath),
 		true,
 		true,
 	)
@@ -348,6 +452,7 @@ func TestResumeScreenshotsDoesNotCreateWhenPendingLookupFails(t *testing.T) {
 		nil,
 		[]string{filePath},
 		[]screenshotPendingAsset{{FileName: filepath.Base(filePath), FilePath: filePath, AssetID: "pending-1", State: "UPLOAD_COMPLETE"}},
+		filepath.Dir(filePath),
 		true,
 		true,
 	)
