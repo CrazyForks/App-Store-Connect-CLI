@@ -342,65 +342,81 @@ func computeFileChecksum(filePath string) (string, error) {
 	return checksum.Hash, nil
 }
 
-func uploadScreenshotAsset(ctx context.Context, client *asc.Client, setID, filePath string) (asc.AssetUploadResultItem, error) {
+func uploadScreenshotAsset(ctx context.Context, client *asc.Client, setID, filePath string) (asc.AssetUploadResultItem, screenshotPendingAsset, error) {
 	if err := asc.ValidateImageFile(filePath); err != nil {
-		return asc.AssetUploadResultItem{}, err
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
 	}
 
 	file, err := shared.OpenExistingNoFollow(filePath)
 	if err != nil {
-		return asc.AssetUploadResultItem{}, err
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
 	}
 	defer file.Close()
 	return uploadScreenshotAssetFromFile(ctx, client, setID, filePath, file)
 }
 
-func uploadScreenshotAssetFromFile(ctx context.Context, client *asc.Client, setID, filePath string, file *os.File) (asc.AssetUploadResultItem, error) {
+func uploadScreenshotAssetFromFile(ctx context.Context, client *asc.Client, setID, filePath string, file *os.File) (asc.AssetUploadResultItem, screenshotPendingAsset, error) {
 	if file == nil {
-		return asc.AssetUploadResultItem{}, fmt.Errorf("screenshot file is required")
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, fmt.Errorf("screenshot file is required")
 	}
 	info, err := file.Stat()
 	if err != nil {
-		return asc.AssetUploadResultItem{}, err
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
 	}
 	if !info.Mode().IsRegular() {
-		return asc.AssetUploadResultItem{}, fmt.Errorf("expected regular file: %q", filePath)
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, fmt.Errorf("expected regular file: %q", filePath)
 	}
 	if info.Size() <= 0 {
-		return asc.AssetUploadResultItem{}, fmt.Errorf("file is empty: %q", filePath)
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, fmt.Errorf("file is empty: %q", filePath)
 	}
 	const maxScreenshotUploadFileSize = int64(1024 * 1024 * 1024)
 	if info.Size() > maxScreenshotUploadFileSize {
-		return asc.AssetUploadResultItem{}, fmt.Errorf("file size exceeds %d bytes: %q", maxScreenshotUploadFileSize, filePath)
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, fmt.Errorf("file size exceeds %d bytes: %q", maxScreenshotUploadFileSize, filePath)
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return asc.AssetUploadResultItem{}, err
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
 	}
 
 	checksum, err := asc.ComputeChecksumFromReader(file, asc.ChecksumAlgorithmMD5)
 	if err != nil {
-		return asc.AssetUploadResultItem{}, err
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
 	}
 
 	created, err := client.CreateAppScreenshot(ctx, setID, info.Name(), info.Size())
 	if err != nil {
-		return asc.AssetUploadResultItem{}, err
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
+	}
+	pending := screenshotPendingAsset{
+		FileName: info.Name(),
+		FilePath: filePath,
+		AssetID:  created.Data.ID,
+		Checksum: checksum.Hash,
+		State:    "AWAITING_UPLOAD",
 	}
 	if len(created.Data.Attributes.UploadOperations) == 0 {
-		return asc.AssetUploadResultItem{}, fmt.Errorf("no upload operations returned for %q", info.Name())
+		return asc.AssetUploadResultItem{}, pending, fmt.Errorf("no upload operations returned for %q", info.Name())
 	}
 
 	if err := asc.UploadAssetFromFile(ctx, file, info.Size(), created.Data.Attributes.UploadOperations); err != nil {
-		return asc.AssetUploadResultItem{}, err
+		return asc.AssetUploadResultItem{}, pending, err
 	}
+	pending.State = "UPLOADED"
 
-	if _, err := client.UpdateAppScreenshot(ctx, created.Data.ID, true, checksum.Hash); err != nil {
-		return asc.AssetUploadResultItem{}, err
+	updated, err := client.UpdateAppScreenshot(ctx, created.Data.ID, true, checksum.Hash)
+	if err != nil {
+		return asc.AssetUploadResultItem{}, pending, err
+	}
+	pending.State = "UPLOAD_COMPLETE"
+	if updated.Data.Attributes.AssetDeliveryState != nil && strings.TrimSpace(updated.Data.Attributes.AssetDeliveryState.State) != "" {
+		pending.State = strings.ToUpper(strings.TrimSpace(updated.Data.Attributes.AssetDeliveryState.State))
 	}
 
 	state, err := waitForScreenshotDelivery(ctx, client, created.Data.ID)
+	if strings.TrimSpace(state) != "" {
+		pending.State = strings.ToUpper(strings.TrimSpace(state))
+	}
 	if err != nil {
-		return asc.AssetUploadResultItem{}, err
+		return asc.AssetUploadResultItem{}, pending, err
 	}
 
 	return asc.AssetUploadResultItem{
@@ -408,19 +424,21 @@ func uploadScreenshotAssetFromFile(ctx context.Context, client *asc.Client, setI
 		FilePath: filePath,
 		AssetID:  created.Data.ID,
 		State:    state,
-	}, nil
+	}, screenshotPendingAsset{}, nil
 }
 
 // UploadScreenshotAsset uploads a screenshot file to a set.
 func UploadScreenshotAsset(ctx context.Context, client *asc.Client, setID, filePath string) (asc.AssetUploadResultItem, error) {
-	return uploadScreenshotAsset(ctx, client, setID, filePath)
+	result, _, err := uploadScreenshotAsset(ctx, client, setID, filePath)
+	return result, err
 }
 
 // UploadScreenshotAssetFromFile uploads from an already-open, validated source
 // handle. Callers that discover files under a rooted filesystem can retain the
 // handle so a later pathname replacement cannot redirect the upload.
 func UploadScreenshotAssetFromFile(ctx context.Context, client *asc.Client, setID, filePath string, file *os.File) (asc.AssetUploadResultItem, error) {
-	return uploadScreenshotAssetFromFile(ctx, client, setID, filePath, file)
+	result, _, err := uploadScreenshotAssetFromFile(ctx, client, setID, filePath, file)
+	return result, err
 }
 
 func waitForScreenshotDelivery(ctx context.Context, client *asc.Client, screenshotID string) (string, error) {

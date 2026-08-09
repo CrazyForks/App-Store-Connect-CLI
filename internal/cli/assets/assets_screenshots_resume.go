@@ -24,10 +24,19 @@ type screenshotUploadFailureArtifact struct {
 	Files                 []string                     `json:"files,omitempty"`
 	OrderedIDs            []string                     `json:"orderedIds,omitempty"`
 	PendingFiles          []string                     `json:"pendingFiles,omitempty"`
+	PendingAssets         []screenshotPendingAsset     `json:"pendingAssets,omitempty"`
 	Results               []asc.AssetUploadResultItem  `json:"results,omitempty"`
 	Failures              []asc.AssetUploadFailureItem `json:"failures,omitempty"`
 	Error                 string                       `json:"error,omitempty"`
 	GeneratedAt           string                       `json:"generatedAt"`
+}
+
+type screenshotPendingAsset struct {
+	FileName string `json:"fileName"`
+	FilePath string `json:"filePath"`
+	AssetID  string `json:"assetId"`
+	Checksum string `json:"checksum"`
+	State    string `json:"state"`
 }
 
 type screenshotUploadPreparedState struct {
@@ -273,6 +282,7 @@ func executeAppScreenshotUpload(ctx context.Context, cfg screenshotUploadConfig[
 		Files:                 append([]string(nil), cfg.Files...),
 		OrderedIDs:            orderedIDs,
 		PendingFiles:          append([]string(nil), progress.PendingFiles...),
+		PendingAssets:         append([]screenshotPendingAsset(nil), progress.PendingAssets...),
 		Results:               append([]asc.AssetUploadResultItem(nil), result.Results...),
 		Failures:              append([]asc.AssetUploadFailureItem(nil), result.Failures...),
 		Error:                 uploadErr.Error(),
@@ -307,7 +317,7 @@ func resumeAppScreenshotUpload(ctx context.Context, client *asc.Client, artifact
 	defer cancel()
 
 	syncAfterUpload := !artifact.SkipExisting || len(artifact.Files) == 0
-	progress, uploadErr := uploadScreenshotsWithOrderState(uploadCtx, client, artifact.SetID, artifact.OrderedIDs, artifact.PendingFiles, true, syncAfterUpload)
+	progress, uploadErr := resumeScreenshotsWithOrderState(uploadCtx, client, artifact.SetID, artifact.OrderedIDs, artifact.PendingFiles, artifact.PendingAssets, true, syncAfterUpload)
 
 	result := asc.AppScreenshotUploadResult{
 		VersionLocalizationID: artifact.VersionLocalizationID,
@@ -353,6 +363,7 @@ func resumeAppScreenshotUpload(ctx context.Context, client *asc.Client, artifact
 		Files:                 append([]string(nil), artifact.Files...),
 		OrderedIDs:            append([]string(nil), progress.OrderedIDs...),
 		PendingFiles:          append([]string(nil), progress.PendingFiles...),
+		PendingAssets:         append([]screenshotPendingAsset(nil), progress.PendingAssets...),
 		Results:               append([]asc.AssetUploadResultItem(nil), result.Results...),
 		Failures:              append([]asc.AssetUploadFailureItem(nil), result.Failures...),
 		Error:                 uploadErr.Error(),
@@ -419,6 +430,14 @@ func normalizeScreenshotUploadFailureArtifactPaths(artifact screenshotUploadFail
 			return screenshotUploadFailureArtifact{}, err
 		}
 		artifact.PendingFiles[i] = normalized
+	}
+
+	for i := range artifact.PendingAssets {
+		normalized, err := normalizeScreenshotUploadArtifactFilePath(artifact.PendingAssets[i].FilePath)
+		if err != nil {
+			return screenshotUploadFailureArtifact{}, err
+		}
+		artifact.PendingAssets[i].FilePath = normalized
 	}
 
 	for i := range artifact.Results {
