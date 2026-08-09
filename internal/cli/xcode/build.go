@@ -28,6 +28,7 @@ func XcodeBuildCommand() *ffcli.Command {
 	configuration := fs.String("configuration", "", "Build configuration (for example Debug or Release)")
 	destination := fs.String("destination", "", "Xcode destination specifier")
 	derivedDataPath := fs.String("derived-data-path", "", "DerivedData directory (defaults to a stable asc cache path)")
+	resultBundlePath := fs.String("result-bundle-path", "", "Destination for a new Xcode result bundle (must not already exist)")
 	clean := fs.Bool("clean", false, "Run clean before build")
 	noCodeSigning := fs.Bool("no-code-signing", false, "Set CODE_SIGNING_ALLOWED=NO explicitly")
 	var xcodebuildFlags shared.MultiStringFlag
@@ -45,13 +46,14 @@ Provide exactly one of --workspace or --project, plus --scheme. Use
 --no-code-signing explicitly sets CODE_SIGNING_ALLOWED=NO for validation builds.
 
 When --derived-data-path is omitted, asc uses a stable cache path outside the
-source checkout. Xcode logs are written to stderr and the selected structured
-result format is written to stdout.
+source checkout. Use --result-bundle-path to write a new .xcresult bundle; the
+destination must not already exist. Xcode logs are written to stderr and the
+selected structured result format is written to stdout.
 
 Examples:
   asc xcode build --project App.xcodeproj --scheme App
   asc xcode build --project App.xcodeproj --scheme App --destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0' --no-code-signing --output json
-  asc xcode build --workspace App.xcworkspace --scheme App --configuration Release --destination 'generic/platform=iOS' --derived-data-path /tmp/AppDerivedData
+  asc xcode build --workspace App.xcworkspace --scheme App --configuration Release --destination 'generic/platform=iOS' --derived-data-path /tmp/AppDerivedData --result-bundle-path /tmp/App.xcresult
   asc xcode build --project App.xcodeproj --scheme App --xcodebuild-flag=-quiet --xcodebuild-flag=SWIFT_ACTIVE_COMPILATION_CONDITIONS=CI`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -61,16 +63,17 @@ Examples:
 				return flag.ErrHelp
 			}
 			opts := localxcode.BuildOptions{
-				WorkspacePath:   strings.TrimSpace(*workspacePath),
-				ProjectPath:     strings.TrimSpace(*projectPath),
-				Scheme:          strings.TrimSpace(*scheme),
-				Configuration:   strings.TrimSpace(*configuration),
-				Destination:     strings.TrimSpace(*destination),
-				DerivedDataPath: strings.TrimSpace(*derivedDataPath),
-				Clean:           *clean,
-				NoCodeSigning:   *noCodeSigning,
-				XcodebuildArgs:  []string(xcodebuildFlags),
-				LogWriter:       os.Stderr,
+				WorkspacePath:    strings.TrimSpace(*workspacePath),
+				ProjectPath:      strings.TrimSpace(*projectPath),
+				Scheme:           strings.TrimSpace(*scheme),
+				Configuration:    strings.TrimSpace(*configuration),
+				Destination:      strings.TrimSpace(*destination),
+				DerivedDataPath:  strings.TrimSpace(*derivedDataPath),
+				ResultBundlePath: strings.TrimSpace(*resultBundlePath),
+				Clean:            *clean,
+				NoCodeSigning:    *noCodeSigning,
+				XcodebuildArgs:   []string(xcodebuildFlags),
+				LogWriter:        os.Stderr,
 			}
 			if err := localxcode.ValidateBuildOptions(opts); err != nil {
 				return shared.UsageError(err.Error())
@@ -144,7 +147,7 @@ func printBuildResult(result *localxcode.BuildResult, output string, pretty bool
 }
 
 func buildResultRows(result *localxcode.BuildResult) [][]string {
-	rows := make([][]string, 0, 14)
+	rows := make([][]string, 0, 15)
 	if result.WorkspacePath != "" {
 		rows = append(rows, []string{"workspace", result.WorkspacePath})
 	}
@@ -159,6 +162,9 @@ func buildResultRows(result *localxcode.BuildResult) [][]string {
 		rows = append(rows, []string{"destination", result.Destination})
 	}
 	rows = append(rows, []string{"derived_data_path", result.DerivedDataPath})
+	if result.ResultBundlePath != "" {
+		rows = append(rows, []string{"result_bundle_path", result.ResultBundlePath})
+	}
 	if result.BuildProductsPath != "" {
 		rows = append(rows, []string{"build_products_path", result.BuildProductsPath})
 	}

@@ -30,6 +30,7 @@ func TestXcodeBuildPassesTypedAndRawOptionsAndPrintsJSON(t *testing.T) {
 			Configuration:     opts.Configuration,
 			Destination:       opts.Destination,
 			DerivedDataPath:   opts.DerivedDataPath,
+			ResultBundlePath:  opts.ResultBundlePath,
 			BuildProductsPath: "/tmp/Derived Data/Build/Products",
 			Clean:             opts.Clean,
 			NoCodeSigning:     opts.NoCodeSigning,
@@ -47,6 +48,7 @@ func TestXcodeBuildPassesTypedAndRawOptionsAndPrintsJSON(t *testing.T) {
 		"--configuration", "Debug",
 		"--destination", "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
 		"--derived-data-path", "/tmp/Derived Data",
+		"--result-bundle-path", "/tmp/Results/Demo.xcresult",
 		"--clean",
 		"--no-code-signing",
 		"--xcodebuild-flag=-quiet",
@@ -73,6 +75,9 @@ func TestXcodeBuildPassesTypedAndRawOptionsAndPrintsJSON(t *testing.T) {
 	if !gotOpts.Clean || !gotOpts.NoCodeSigning {
 		t.Fatalf("expected clean and no-code-signing: %+v", gotOpts)
 	}
+	if gotOpts.ResultBundlePath != "/tmp/Results/Demo.xcresult" {
+		t.Fatalf("ResultBundlePath = %q, want typed result bundle path", gotOpts.ResultBundlePath)
+	}
 	wantRaw := []string{"-quiet", "OTHER_SWIFT_FLAGS=-D ASC_BUILD"}
 	if len(gotOpts.XcodebuildArgs) != len(wantRaw) || gotOpts.XcodebuildArgs[0] != wantRaw[0] || gotOpts.XcodebuildArgs[1] != wantRaw[1] {
 		t.Fatalf("XcodebuildArgs = %#v, want %#v", gotOpts.XcodebuildArgs, wantRaw)
@@ -83,6 +88,9 @@ func TestXcodeBuildPassesTypedAndRawOptionsAndPrintsJSON(t *testing.T) {
 	}
 	if !payload.Success || payload.DurationMS != 1250 || !payload.NoCodeSigning || payload.ExitStatus == nil || *payload.ExitStatus != 0 {
 		t.Fatalf("unexpected JSON payload: %+v", payload)
+	}
+	if payload.ResultBundlePath != "/tmp/Results/Demo.xcresult" {
+		t.Fatalf("unexpected result bundle path: %+v", payload)
 	}
 }
 
@@ -98,7 +106,9 @@ func TestXcodeBuildValidationErrorsAreUsageErrors(t *testing.T) {
 		{name: "missing scheme", args: []string{"--project", "Demo.xcodeproj"}, want: "--scheme is required"},
 		{name: "bad project suffix", args: []string{"--project", "Demo.txt", "--scheme", "Demo"}, want: "--project must end with .xcodeproj"},
 		{name: "reserved raw flag", args: []string{"--project", "Demo.xcodeproj", "--scheme", "Demo", "--xcodebuild-flag=-derivedDataPath"}, want: "cannot override asc-managed argument"},
+		{name: "reserved result bundle raw flag", args: []string{"--project", "Demo.xcodeproj", "--scheme", "Demo", "--xcodebuild-flag=-resultBundlePath=/tmp/elsewhere.xcresult"}, want: "cannot override asc-managed argument"},
 		{name: "conditional signing override", args: []string{"--project", "Demo.xcodeproj", "--scheme", "Demo", "--no-code-signing", "--xcodebuild-flag=CODE_SIGNING_ALLOWED[sdk=iphoneos*]=YES"}, want: `cannot override asc-managed argument "CODE_SIGNING_ALLOWED"`},
+		{name: "action build setting override", args: []string{"--project", "Demo.xcodeproj", "--scheme", "Demo", "--xcodebuild-flag=ACTION=archive"}, want: `cannot override asc-managed argument "ACTION"`},
 		{name: "positional", args: []string{"--project", "Demo.xcodeproj", "--scheme", "Demo"}, positional: []string{"build"}, want: "does not accept positional arguments"},
 	}
 

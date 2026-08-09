@@ -19,16 +19,17 @@ var userCacheDirFn = os.UserCacheDir
 
 // BuildOptions describes an ordinary local xcodebuild compile.
 type BuildOptions struct {
-	WorkspacePath   string
-	ProjectPath     string
-	Scheme          string
-	Configuration   string
-	Destination     string
-	DerivedDataPath string
-	Clean           bool
-	NoCodeSigning   bool
-	XcodebuildArgs  []string
-	LogWriter       io.Writer
+	WorkspacePath    string
+	ProjectPath      string
+	Scheme           string
+	Configuration    string
+	Destination      string
+	DerivedDataPath  string
+	ResultBundlePath string
+	Clean            bool
+	NoCodeSigning    bool
+	XcodebuildArgs   []string
+	LogWriter        io.Writer
 }
 
 // BuildResult is the stable structured result for an ordinary Xcode build.
@@ -39,6 +40,7 @@ type BuildResult struct {
 	Configuration     string `json:"configuration,omitempty"`
 	Destination       string `json:"destination,omitempty"`
 	DerivedDataPath   string `json:"derived_data_path"`
+	ResultBundlePath  string `json:"result_bundle_path,omitempty"`
 	BuildProductsPath string `json:"build_products_path,omitempty"`
 	Clean             bool   `json:"clean"`
 	NoCodeSigning     bool   `json:"no_code_signing"`
@@ -104,6 +106,15 @@ func Build(ctx context.Context, opts BuildOptions) (*BuildResult, error) {
 	}
 	opts.DerivedDataPath = derivedDataPath
 	result.DerivedDataPath = derivedDataPath
+	resultBundlePath, err := resolveBuildResultBundlePath(opts.ResultBundlePath)
+	if err != nil {
+		return finish(err)
+	}
+	opts.ResultBundlePath = resultBundlePath
+	result.ResultBundlePath = resultBundlePath
+	if err := validateBuildResultBundleDestination(resultBundlePath); err != nil {
+		return finish(err)
+	}
 
 	if err := ensureXcodeAvailable(ctx); err != nil {
 		return finish(err)
@@ -139,6 +150,7 @@ func normalizeBuildOptions(opts BuildOptions) BuildOptions {
 	opts.Configuration = strings.TrimSpace(opts.Configuration)
 	opts.Destination = strings.TrimSpace(opts.Destination)
 	opts.DerivedDataPath = normalizeDirectoryPath(opts.DerivedDataPath)
+	opts.ResultBundlePath = normalizeDirectoryPath(opts.ResultBundlePath)
 	return opts
 }
 
@@ -160,6 +172,7 @@ func reservedBuildPassthroughArgument(args []string) string {
 		"-configuration",
 		"-destination",
 		"-deriveddatapath",
+		"-resultbundlepath",
 		"-archivepath",
 		"-exportarchive",
 		"-usage",
@@ -204,6 +217,7 @@ func reservedBuildPassthroughArgument(args []string) string {
 		"clean":                 {},
 	}
 	managedBuildSettings := []string{
+		"action",
 		"code_signing_allowed",
 	}
 	for _, arg := range args {
@@ -261,6 +275,29 @@ func resolveBuildDerivedDataPath(opts BuildOptions) (string, error) {
 	return filepath.Join(cacheDir, "asc", "xcode-build", safeBuildPathComponent(opts.Scheme)+"-"+hash), nil
 }
 
+func resolveBuildResultBundlePath(pathValue string) (string, error) {
+	if pathValue == "" {
+		return "", nil
+	}
+	absolutePath, err := filepath.Abs(pathValue)
+	if err != nil {
+		return "", fmt.Errorf("resolve result bundle path: %w", err)
+	}
+	return filepath.Clean(absolutePath), nil
+}
+
+func validateBuildResultBundleDestination(pathValue string) error {
+	if pathValue == "" {
+		return nil
+	}
+	if _, err := os.Lstat(pathValue); err == nil {
+		return fmt.Errorf("--result-bundle-path already exists: %s", pathValue)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect --result-bundle-path: %w", err)
+	}
+	return nil
+}
+
 func safeBuildPathComponent(value string) string {
 	var builder strings.Builder
 	lastWasSeparator := false
@@ -306,6 +343,9 @@ func buildBuildCommand(opts BuildOptions) []string {
 		args = append(args, "-destination", opts.Destination)
 	}
 	args = append(args, "-derivedDataPath", opts.DerivedDataPath)
+	if opts.ResultBundlePath != "" {
+		args = append(args, "-resultBundlePath", opts.ResultBundlePath)
+	}
 	args = append(args, cloneStrings(opts.XcodebuildArgs)...)
 	if opts.NoCodeSigning {
 		args = append(args, "CODE_SIGNING_ALLOWED=NO")

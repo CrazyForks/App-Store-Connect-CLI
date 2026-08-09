@@ -30,6 +30,8 @@ destination and explicit no-signing flag. For that invocation,
 `--no-code-signing` overrides signing with `CODE_SIGNING_ALLOWED=NO`. Derived
 data defaults to a stable asc cache path outside the checkout; use
 `--derived-data-path` when the workflow needs a specific artifact directory.
+Use `--result-bundle-path` to produce a new `.xcresult` bundle at an explicit
+path; the destination must not already exist and asc does not overwrite it.
 
 Replace the example destination below with a simulator installed on the host.
 

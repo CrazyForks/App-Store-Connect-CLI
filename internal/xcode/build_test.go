@@ -36,10 +36,14 @@ func TestValidateBuildOptions(t *testing.T) {
 		{name: "wrong workspace suffix", opts: BuildOptions{WorkspacePath: "Demo.txt", Scheme: "Demo"}, wantErr: "--workspace must end with .xcworkspace"},
 		{name: "reserved typed flag passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-destination"}}, wantErr: `cannot override asc-managed argument "-destination"`},
 		{name: "reserved equals flag passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-derivedDataPath=/tmp/elsewhere"}}, wantErr: `cannot override asc-managed argument "-derivedDataPath"`},
+		{name: "reserved result bundle flag passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-resultBundlePath"}}, wantErr: `cannot override asc-managed argument "-resultBundlePath"`},
+		{name: "reserved result bundle passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-resultBundlePath=/tmp/elsewhere.xcresult"}}, wantErr: `cannot override asc-managed argument "-resultBundlePath"`},
 		{name: "reserved equals selector passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-PROJECT=Other.xcodeproj"}}, wantErr: `cannot override asc-managed argument "-PROJECT"`},
 		{name: "reserved signing passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"CODE_SIGNING_ALLOWED=NO"}}, wantErr: `cannot override asc-managed argument "CODE_SIGNING_ALLOWED"`},
 		{name: "reserved conditional signing passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"CODE_SIGNING_ALLOWED[sdk=iphoneos*]=YES"}}, wantErr: `cannot override asc-managed argument "CODE_SIGNING_ALLOWED"`},
 		{name: "reserved conditional signing passthrough case insensitive", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"code_signing_allowed[config=Debug]=YES"}}, wantErr: `cannot override asc-managed argument "code_signing_allowed"`},
+		{name: "reserved action build setting", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"ACTION=archive"}}, wantErr: `cannot override asc-managed argument "ACTION"`},
+		{name: "reserved conditional action build setting", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"ACTION[sdk=macosx*]=install"}}, wantErr: `cannot override asc-managed argument "ACTION"`},
 	}
 
 	for _, test := range tests {
@@ -138,14 +142,15 @@ func TestValidateBuildOptionsRejectsXcodebuildOperationModes(t *testing.T) {
 
 func TestBuildCommandUsesTypedOptionsAndPreservesRawArguments(t *testing.T) {
 	opts := BuildOptions{
-		WorkspacePath:   "Demo App.xcworkspace",
-		Scheme:          "Demo App",
-		Configuration:   "Release Candidate",
-		Destination:     "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
-		DerivedDataPath: "/tmp/Derived Data/Demo",
-		Clean:           true,
-		NoCodeSigning:   true,
-		XcodebuildArgs:  []string{"-quiet", "OTHER_SWIFT_FLAGS=-D ASC_BUILD"},
+		WorkspacePath:    "Demo App.xcworkspace",
+		Scheme:           "Demo App",
+		Configuration:    "Release Candidate",
+		Destination:      "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
+		DerivedDataPath:  "/tmp/Derived Data/Demo",
+		ResultBundlePath: "/tmp/Results/Demo.xcresult",
+		Clean:            true,
+		NoCodeSigning:    true,
+		XcodebuildArgs:   []string{"-quiet", "OTHER_SWIFT_FLAGS=-D ASC_BUILD"},
 	}
 
 	want := []string{
@@ -154,6 +159,7 @@ func TestBuildCommandUsesTypedOptionsAndPreservesRawArguments(t *testing.T) {
 		"-configuration", "Release Candidate",
 		"-destination", "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
 		"-derivedDataPath", "/tmp/Derived Data/Demo",
+		"-resultBundlePath", "/tmp/Results/Demo.xcresult",
 		"-quiet", "OTHER_SWIFT_FLAGS=-D ASC_BUILD",
 		"CODE_SIGNING_ALLOWED=NO",
 		"clean", "build",
@@ -235,6 +241,20 @@ func TestResolveBuildDerivedDataPathMakesExplicitPathAbsolute(t *testing.T) {
 	}
 }
 
+func TestResolveBuildResultBundlePathMakesExplicitPathAbsolute(t *testing.T) {
+	workingDirectory := t.TempDir()
+	t.Chdir(workingDirectory)
+
+	got, err := resolveBuildResultBundlePath("Results/Demo.xcresult")
+	if err != nil {
+		t.Fatalf("resolveBuildResultBundlePath() error = %v", err)
+	}
+	want := filepath.Join(workingDirectory, "Results", "Demo.xcresult")
+	if got != want {
+		t.Fatalf("resolveBuildResultBundlePath() = %q, want %q", got, want)
+	}
+}
+
 func TestSafeBuildPathComponentTruncatesOnRuneBoundary(t *testing.T) {
 	got := safeBuildPathComponent(strings.Repeat("界", 60))
 	if !utf8.ValidString(got) {
@@ -253,13 +273,14 @@ func TestBuildReturnsStructuredSuccessAndProductsDirectory(t *testing.T) {
 	defer restore()
 
 	result, err := Build(context.Background(), BuildOptions{
-		ProjectPath:     projectPath,
-		Scheme:          "Demo",
-		Configuration:   "Debug",
-		Destination:     "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
-		DerivedDataPath: derivedDataPath,
-		NoCodeSigning:   true,
-		LogWriter:       io.Discard,
+		ProjectPath:      projectPath,
+		Scheme:           "Demo",
+		Configuration:    "Debug",
+		Destination:      "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
+		DerivedDataPath:  derivedDataPath,
+		ResultBundlePath: filepath.Join(t.TempDir(), "Demo.xcresult"),
+		NoCodeSigning:    true,
+		LogWriter:        io.Discard,
 	})
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
@@ -275,6 +296,9 @@ func TestBuildReturnsStructuredSuccessAndProductsDirectory(t *testing.T) {
 	}
 	if result.ExitStatus == nil || *result.ExitStatus != 0 {
 		t.Fatalf("ExitStatus = %v, want pointer to 0", result.ExitStatus)
+	}
+	if !filepath.IsAbs(result.ResultBundlePath) || !strings.HasSuffix(result.ResultBundlePath, "Demo.xcresult") {
+		t.Fatalf("ResultBundlePath = %q, want resolved requested path", result.ResultBundlePath)
 	}
 }
 
@@ -395,6 +419,62 @@ func TestBuildOmitsExitStatusForPreflightFailure(t *testing.T) {
 	}
 	if result.ExitStatus != nil {
 		t.Fatalf("ExitStatus = %v, want nil before xcodebuild starts", result.ExitStatus)
+	}
+}
+
+func TestBuildRejectsExistingResultBundleBeforeStartingProcess(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, path string)
+	}{
+		{name: "directory", setup: func(t *testing.T, path string) {
+			t.Helper()
+			if err := os.MkdirAll(path, 0o755); err != nil {
+				t.Fatalf("MkdirAll() result bundle error = %v", err)
+			}
+		}},
+		{name: "dangling symlink", setup: func(t *testing.T, path string) {
+			t.Helper()
+			if err := os.Symlink(filepath.Join(filepath.Dir(path), "missing-target"), path); err != nil {
+				t.Fatalf("Symlink() result bundle error = %v", err)
+			}
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			projectPath := createBuildTestContainer(t)
+			resultBundlePath := filepath.Join(t.TempDir(), "Existing.xcresult")
+			test.setup(t, resultBundlePath)
+
+			originalGOOS := runtimeGOOS
+			originalLookPath := lookPathFn
+			runtimeGOOS = "darwin"
+			lookPathFn = func(string) (string, error) {
+				t.Fatal("xcodebuild lookup must not run for an existing result bundle path")
+				return "", nil
+			}
+			t.Cleanup(func() {
+				runtimeGOOS = originalGOOS
+				lookPathFn = originalLookPath
+			})
+
+			result, err := Build(context.Background(), BuildOptions{
+				ProjectPath:      projectPath,
+				Scheme:           "Demo",
+				DerivedDataPath:  filepath.Join(t.TempDir(), "DerivedData"),
+				ResultBundlePath: resultBundlePath,
+			})
+			if err == nil || !strings.Contains(err.Error(), "--result-bundle-path already exists") {
+				t.Fatalf("Build() error = %v, want existing result bundle error", err)
+			}
+			if result == nil || result.ResultBundlePath != resultBundlePath {
+				t.Fatalf("Build() result = %+v, want resolved result bundle path", result)
+			}
+			if result.ExitStatus != nil {
+				t.Fatalf("ExitStatus = %v, want nil before xcodebuild starts", result.ExitStatus)
+			}
+		})
 	}
 }
 

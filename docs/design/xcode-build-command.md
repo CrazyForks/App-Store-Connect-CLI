@@ -25,11 +25,12 @@ asc xcode build \
 Replace the example destination with a simulator installed on the current host.
 
 Exactly one of `--project` or `--workspace` is required, and `--scheme` is
-required. `--configuration`, `--destination`, `--derived-data-path`, `--clean`,
-and `--no-code-signing` are explicit typed options. Repeatable
+required. `--configuration`, `--destination`, `--derived-data-path`,
+`--result-bundle-path`, `--clean`, and `--no-code-signing` are explicit typed
+options. Repeatable
 `--xcodebuild-flag` values are appended as individual process arguments, using
 the same no-shell passthrough model as archive and export. Passthrough cannot
-override asc-managed selector, destination, derived-data,
+override asc-managed selector, destination, derived-data, result-bundle,
 `CODE_SIGNING_ALLOWED`, or build-action arguments; those must use the typed
 flags so the reported result stays truthful.
 
@@ -37,8 +38,10 @@ flags so the reported result stays truthful.
 
 When `--derived-data-path` is omitted, asc derives a stable cache path outside
 the source checkout from the absolute project/workspace path and the selected
-scheme, configuration, and destination. An explicit path always wins. The
-derived-data path is always reported. Its `Build/Products` directory is
+scheme, configuration, and destination. An explicit path always wins. An
+optional result-bundle path is resolved to an absolute path and must not already
+exist; asc never deletes or overwrites it. The derived-data path and requested
+result-bundle path are reported. The derived-data `Build/Products` directory is
 reported only when the current invocation creates that previously absent
 directory; asc does not guess individual product paths or parse human-readable
 build logs.
@@ -48,10 +51,11 @@ off merely because a destination looks like a simulator, so device builds keep
 Xcode's normal signing behavior unless the operator opts out explicitly.
 
 Successful JSON includes the requested project/workspace, scheme, explicit
-configuration and destination when supplied, selected derived-data path, clean
-choice, requested `no_code_signing` override, `success: true`, and
-`duration_ms`. This field does not claim to resolve the project's effective
-code-signing build setting. Table and Markdown render the same stable fields.
+configuration and destination when supplied, selected derived-data path,
+requested result-bundle path when supplied, clean choice, requested
+`no_code_signing` override, `success: true`, and `duration_ms`.
+`no_code_signing` does not claim to resolve the project's effective code-signing
+build setting. Table and Markdown render the same stable fields.
 After xcodebuild completes, asc includes `exit_status`: zero for success or the
 subprocess exit status for an ordinary process failure. Preflight and
 cancellation failures omit the field because no meaningful process exit status
