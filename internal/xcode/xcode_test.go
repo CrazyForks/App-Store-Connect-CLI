@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"howett.net/plist"
 
@@ -1182,6 +1183,21 @@ func TestRunXcodebuildWithLogWriterKeepsOnlyTailInErrorMessage(t *testing.T) {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		t.Fatalf("legacy archive/export runner unexpectedly exposes process error: %v", err)
+	}
+}
+
+func TestTailBufferStringRemainsValidUTF8AfterByteTruncation(t *testing.T) {
+	buffer := newTailBuffer(4)
+	if _, err := buffer.Write([]byte("界界")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if !utf8.ValidString(got) {
+		t.Fatalf("String() returned invalid UTF-8 after truncation: %q", got)
+	}
+	if !strings.Contains(got, "界") {
+		t.Fatalf("String() = %q, want intact trailing diagnostic", got)
 	}
 }
 

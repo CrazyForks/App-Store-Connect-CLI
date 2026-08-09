@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"howett.net/plist"
 
@@ -1163,7 +1164,13 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *tailBuffer) String() string {
-	return string(b.data)
+	data := b.data
+	if b.truncated {
+		for len(data) > 0 && !utf8.RuneStart(data[0]) {
+			data = data[1:]
+		}
+	}
+	return string(data)
 }
 
 func (b *tailBuffer) Truncated() bool {
