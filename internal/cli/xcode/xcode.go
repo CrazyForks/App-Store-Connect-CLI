@@ -177,6 +177,8 @@ func XcodeExportCommand() *ffcli.Command {
 
 	archivePath := fs.String("archive-path", "", "Path to the .xcarchive input (required)")
 	exportOptions := fs.String("export-options", "", "Path to ExportOptions.plist (generated automatically when omitted)")
+	signingStyle := fs.String("signing-style", "automatic", "Signing style for generated options: automatic or manual")
+	teamID := fs.String("team-id", "", "Apple Developer team ID for generated options (overrides archive metadata)")
 	ipaPath := fs.String("ipa-path", "", "Destination path for a local .ipa when one is produced (required)")
 	overwrite := fs.Bool("overwrite", false, "Replace an existing IPA at --ipa-path")
 	wait := fs.Bool("wait", false, "Wait for App Store Connect build discovery and processing when export uploads directly")
@@ -193,8 +195,10 @@ func XcodeExportCommand() *ffcli.Command {
 		LongHelp: `Export an archive to a deterministic IPA path or direct upload.
 
 This command runs xcodebuild -exportArchive into a temporary directory.
-When --export-options is omitted, asc generates archive-adjacent options with
-automatic signing. It uses destination=upload with --wait, otherwise export.
+When --export-options is omitted, asc generates archive-adjacent options. It
+uses automatic signing by default and destination=upload with --wait, otherwise
+destination=export. Use --signing-style manual to match locally installed
+certificates and profiles; --team-id optionally overrides archive metadata.
 When ExportOptions.plist produces a local IPA, asc moves it to --ipa-path.
 When ExportOptions.plist uses destination=upload, xcodebuild uploads directly
 to App Store Connect and asc returns archive metadata without writing a local
@@ -203,6 +207,7 @@ finishes processing.
 
 Examples:
   asc xcode export --archive-path .asc/artifacts/App.xcarchive --ipa-path .asc/artifacts/App.ipa
+  asc xcode export --archive-path .asc/artifacts/App.xcarchive --ipa-path .asc/artifacts/App.ipa --signing-style manual --team-id TEAM_ID
   asc xcode export --archive-path .asc/artifacts/App.xcarchive --ipa-path .asc/artifacts/App.ipa --timeout 10m
   asc xcode export --archive-path .asc/artifacts/App.xcarchive --export-options UploadExportOptions.plist --ipa-path .asc/artifacts/App.ipa --wait
   asc xcode export --archive-path .asc/artifacts/App.xcarchive --export-options ExportOptions.plist --ipa-path .asc/artifacts/App.ipa --xcodebuild-flag=-allowProvisioningUpdates --output json`,
@@ -227,8 +232,35 @@ Examples:
 			if *timeout < 0 {
 				return shared.UsageError("--timeout must be zero or greater")
 			}
+			generationFlagsSet := false
+			signingStyleSet := false
+			teamIDSet := false
+			fs.Visit(func(f *flag.Flag) {
+				switch f.Name {
+				case "signing-style":
+					generationFlagsSet = true
+					signingStyleSet = true
+				case "team-id":
+					generationFlagsSet = true
+					teamIDSet = true
+				}
+			})
+			if signingStyleSet && strings.TrimSpace(*signingStyle) == "" {
+				return shared.UsageError("--signing-style must be one of: automatic, manual")
+			}
+			signingStyleValue, err := localxcode.NormalizeExportOptionsSigningStyle(*signingStyle)
+			if err != nil {
+				return shared.UsageError(err.Error())
+			}
+			teamIDValue := strings.TrimSpace(*teamID)
+			if teamIDSet && teamIDValue == "" {
+				return shared.UsageError("--team-id must not be empty")
+			}
 			trimmedArchivePath := strings.TrimSpace(*archivePath)
 			exportOptionsPath := strings.TrimSpace(*exportOptions)
+			if exportOptionsPath != "" && generationFlagsSet {
+				return shared.UsageError("--export-options cannot be combined with --signing-style or --team-id")
+			}
 			if exportOptionsPath == "" {
 				destination := "export"
 				if *wait {
@@ -257,7 +289,8 @@ Examples:
 					ArchivePath:  trimmedArchivePath,
 					OutputPath:   generatedPath,
 					Destination:  destination,
-					SigningStyle: "automatic",
+					SigningStyle: signingStyleValue,
+					TeamID:       teamIDValue,
 					Overwrite:    false,
 				})
 				if err != nil {

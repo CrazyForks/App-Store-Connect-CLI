@@ -65,6 +65,36 @@ cross-platform and only reads archive metadata. Manual signing resolution is
 Darwin-only because it inspects local Xcode signing identities and provisioning
 profiles.
 
+For a PCC-capable app, or another multi-target app that needs manual signing,
+pass the signing policy directly to export. ASC reads the archive and matches
+installed profiles for the app and its embedded targets, so the command does
+not need profile UUID flags or a checked-in plist:
+
+```bash
+asc xcode export \
+  --archive-path .asc/artifacts/App.xcarchive \
+  --ipa-path .asc/artifacts/App.ipa \
+  --signing-style manual \
+  --team-id TEAM_ID
+```
+
+The same flags work when the archive and export are owned by a local publish
+flow:
+
+```bash
+asc publish testflight \
+  --app APP_ID \
+  --workspace App.xcworkspace \
+  --scheme App \
+  --version 1.2.3 \
+  --group GROUP_ID \
+  --signing-style manual \
+  --team-id TEAM_ID
+```
+
+An explicit `--export-options` plist cannot be combined with
+`--signing-style` or `--team-id`; the plist remains authoritative when supplied.
+
 Create `.asc/deployment.json`:
 
 ```json
@@ -191,6 +221,56 @@ Notes:
 - Output-producing step names only need to stay unique within workflows that
   can execute together in the same run graph. Independent workflows can reuse
   names like `archive` or `publish`.
+
+## Bounded retry and timeout
+
+Long-form `run` steps can opt into a fixed-delay retry policy and a per-attempt
+timeout. This replaces shell retry loops for operations such as Apple's
+eventually consistent build-to-beta-group relationship:
+
+```jsonc
+{
+  "name": "add_build_to_group",
+  "run": "asc builds add-groups --build-id $BUILD_ID --group $GROUP_ID",
+  "retry": {
+    "max_attempts": 6,
+    "delay": "10s"
+  },
+  "timeout": "2m"
+}
+```
+
+`max_attempts` includes the initial execution and must be between 2 and 100.
+`delay` and `timeout` use positive Go duration strings up to `24h`; examples
+include `250ms`, `10s`, and `2m`. The delay is fixed and has no jitter. Timeout
+applies separately to each attempt. With the example above, the total policy is
+bounded by six two-minute attempts plus five ten-second delays.
+
+Retry and timeout are supported only on `run` steps. Workflow-call steps and the
+`before_all`, `after_all`, and `error` string hooks remain single-execution.
+Caller cancellation stops a running process tree or retry delay immediately.
+The error hook runs only after the final attempt fails; `after_all` still runs
+only after success.
+
+Use retry only when you have explicitly decided the command is safe to repeat.
+The runner does not infer whether a shell command is read-only, idempotent, or a
+mutation. A successful command with invalid declared output is not retried,
+because its side effect may already have happened. That failure is terminal:
+the structured result sets `terminal: true`, the run state records the terminal
+reason, and `--resume` rejects the run instead of executing the command again.
+A timeout-only failure is terminal for the same replay-safety reason: local
+termination cannot prove that a remote mutation was not accepted. A step that
+configures both `retry` and `timeout` remains resumable because `retry` is the
+explicit repeat-safety opt-in.
+Failed-attempt diagnostics from `timeout` alone do not create a resume checkpoint.
+Recovery requires a previously successful step or hook, or a retry-enabled
+failed step. Omit `retry` or `timeout` to disable it; explicit `null` is invalid.
+
+Attempt numbers and retry delays are written to stderr. stdout remains the one
+machine-readable workflow result. Each attempt gets a fresh output buffer, and
+declared outputs are extracted and persisted only from the successful attempt.
+Persisted attempt diagnostics remain available across `--resume`; already
+successful steps are never rerun.
 
 Example:
 

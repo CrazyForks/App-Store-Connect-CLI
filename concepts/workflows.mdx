@@ -107,6 +107,8 @@ Steps can be **short form** (bare string) or **long form** (object):
   "name": "list_apps",
   "run": "asc apps list --output json",
   "if": "VARIABLE_NAME",
+  "retry": {"max_attempts": 4, "delay": "5s"},
+  "timeout": "1m",
   "with": {"KEY": "value"},
   "workflow": "sub_workflow_name"
 }
@@ -119,10 +121,34 @@ Steps can be **short form** (bare string) or **long form** (object):
 | `name`     | string | No          | Step identifier (for debugging and JSON output)                  |
 | `if`       | string | No          | Only run if the environment variable exists and is non-empty     |
 | `with`     | object | No          | Additional environment variables for this step only              |
+| `retry`    | object | No          | Explicit fixed-delay retry policy for `run` steps                 |
+| `timeout`  | string | No          | Positive per-attempt timeout for `run` steps                      |
 
 <Warning>
   A step must have **either** `run` or `workflow`, but not both.
 </Warning>
+
+### Bounded retry and timeout
+
+Long-form `run` steps can opt into bounded retries with `retry.max_attempts`
+(2-100) and a fixed positive `retry.delay`, plus a positive per-attempt
+`timeout`. Durations use values such as `250ms`, `10s`, or `2m` and are capped
+at `24h`.
+
+Retry is never implicit. Choose it only for a command that is safe to repeat;
+the runner does not infer whether a command is read-only or a mutation.
+Workflow-call steps and lifecycle hooks do not accept these fields. Attempt
+diagnostics go to stderr, successful-attempt outputs are persisted, and resume
+continues to skip already successful steps.
+
+A step with `timeout` but no `retry` becomes terminal if it times out, so
+`--resume` cannot replay a command that may have completed remotely. Combining
+`retry` and `timeout` keeps failures resumable because retry is the explicit
+repeat-safety opt-in.
+Persisted diagnostics from a failed timeout-configured step do not create a
+resume checkpoint by themselves. Recovery still requires a prior successful
+step or hook, or an explicitly retry-enabled failure. Omit either field to
+disable it; explicit `null` is invalid.
 
 ## Environment Variables
 
