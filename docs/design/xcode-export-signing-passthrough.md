@@ -52,14 +52,13 @@ overwriting that file. All implicit generation continues to use a unique,
 archive-adjacent output path. Publish always uses `destination=export`; `xcode
 export --wait` continues to use `destination=upload`.
 
-## Output and sensitive values
+## Output compatibility
 
-Generated plists necessarily contain the certificate selector and profile
-mappings required by Xcode. Command output reports only the plist path and
-non-sensitive generation metadata. Existing certificate/profile output fields
-are preserved but their values are replaced with `[redacted]` in JSON,
-table, and Markdown output. The implementation does not log plist contents or
-the upstream matcher's captured stdout.
+This change adds no signing-material fields to xcode export or publish output.
+Those commands continue to report the export-options path they used. The
+existing standalone export-options generator keeps its structured output
+contract unchanged, including its certificate selector and profile mappings.
+No command logs plist contents or adds output beyond its existing result shape.
 
 ## RED-GREEN and verification
 
@@ -72,7 +71,6 @@ Focused coverage establishes:
 - explicit-plist conflicts, invalid styles, and non-local publish use fail as
   usage errors before side effects;
 - generation flags bypass, but never overwrite, a conventional publish plist;
-- manual generator results never print certificate selectors or profile values;
 - generated plist payloads retain automatic/manual behavior.
 
 Verification uses focused package tests, a built CLI for help and early-error

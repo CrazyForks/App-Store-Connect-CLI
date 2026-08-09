@@ -113,40 +113,22 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("xcode export-options generate: %w", err)
 			}
-			outputResult := redactExportOptionsResult(result)
 
 			return shared.PrintOutputWithRenderers(
-				outputResult,
+				result,
 				*output.Output,
 				*output.Pretty,
 				func() error {
-					asc.RenderTable([]string{"field", "value"}, exportOptionsResultRows(outputResult))
+					asc.RenderTable([]string{"field", "value"}, exportOptionsResultRows(result))
 					return nil
 				},
 				func() error {
-					asc.RenderMarkdown([]string{"field", "value"}, exportOptionsResultRows(outputResult))
+					asc.RenderMarkdown([]string{"field", "value"}, exportOptionsResultRows(result))
 					return nil
 				},
 			)
 		},
 	}
-}
-
-func redactExportOptionsResult(result *localxcode.ExportOptionsGenerateResult) *localxcode.ExportOptionsGenerateResult {
-	if result == nil {
-		return nil
-	}
-	redacted := *result
-	if strings.TrimSpace(redacted.SigningCertificate) != "" {
-		redacted.SigningCertificate = "[redacted]"
-	}
-	if len(redacted.ProvisioningProfiles) > 0 {
-		redacted.ProvisioningProfiles = make(map[string]string, len(redacted.ProvisioningProfiles))
-		for bundleID := range result.ProvisioningProfiles {
-			redacted.ProvisioningProfiles[bundleID] = "[redacted]"
-		}
-	}
-	return &redacted
 }
 
 func exportOptionsResultRows(result *localxcode.ExportOptionsGenerateResult) [][]string {

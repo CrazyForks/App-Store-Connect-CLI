@@ -71,9 +71,6 @@ asc publish testflight \
 
 An explicit `--export-options` plist cannot be combined with
 `--signing-style` or `--team-id`; the plist remains authoritative when supplied.
-Generated plists contain the signing selectors required by Xcode, but command
-output replaces certificate selectors and provisioning profile values with
-`[redacted]`.
 
 Create `.asc/deployment.json`:
 
