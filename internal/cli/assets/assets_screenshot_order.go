@@ -24,7 +24,10 @@ func UploadScreenshotsToSet(ctx context.Context, client *asc.Client, setID strin
 	if err != nil {
 		return nil, err
 	}
+	return uploadScreenshotsToSetFromRoot(ctx, client, setID, files, sourceRootPath, preserveExistingOrder)
+}
 
+func uploadScreenshotsToSetFromRoot(ctx context.Context, client *asc.Client, setID string, files []string, sourceRootPath string, preserveExistingOrder bool) ([]asc.AssetUploadResultItem, error) {
 	orderedIDs := make([]string, 0, len(files))
 	if preserveExistingOrder {
 		existingIDs, err := GetOrderedAppScreenshotIDs(ctx, client, setID)

@@ -120,6 +120,15 @@ func uploadScreenshotsWithConfig[T any](ctx context.Context, cfg screenshotUploa
 		cfg.UploadContext = contextWithAssetUploadTimeout
 	}
 
+	sourceRootPath := ""
+	if !cfg.DryRun && len(cfg.Files) > 0 {
+		var err error
+		sourceRootPath, err = resolveScreenshotUploadRoot(cfg.RootPath, cfg.Files)
+		if err != nil {
+			return zero, fmt.Errorf("resolve screenshot source root: %w", err)
+		}
+	}
+
 	requestCtx, reqCancel := cfg.RequestContext(ctx)
 	var (
 		set asc.Resource[asc.AppScreenshotSetAttributes]
@@ -193,7 +202,7 @@ func uploadScreenshotsWithConfig[T any](ctx context.Context, cfg screenshotUploa
 
 	results := make([]asc.AssetUploadResultItem, 0, len(skippedResults)+len(files))
 	if len(files) > 0 {
-		uploadedResults, err := UploadScreenshotsToSet(uploadCtx, cfg.Client, set.ID, files, !cfg.Replace)
+		uploadedResults, err := uploadScreenshotsToSetFromRoot(uploadCtx, cfg.Client, set.ID, files, sourceRootPath, !cfg.Replace)
 		if err != nil {
 			return zero, err
 		}

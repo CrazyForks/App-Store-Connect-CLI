@@ -3,9 +3,11 @@ package assets
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -13,7 +15,44 @@ import (
 	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
+
+func TestUploadScreenshotsReplaceValidatesRootBeforeDeletingExistingScreenshots(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeAssetsTestPNG(t, outside, "01-home.png")
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Fatalf("create source symlink: %v", err)
+	}
+	filePath := filepath.Join(root, "linked", "01-home.png")
+
+	deleted := false
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersionLocalizations/LOC_123/appScreenshotSets":
+			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshotSets","id":"set-1","attributes":{"screenshotDisplayType":"APP_IPHONE_65"}}],"links":{}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshotSets/set-1/appScreenshots":
+			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshots","id":"existing-1","attributes":{"fileName":"old.png"}}],"links":{}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/appScreenshots/existing-1":
+			deleted = true
+			return assetsJSONResponse(http.StatusNoContent, "")
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = origTransport })
+
+	_, err := uploadScreenshots(context.Background(), newAssetsUploadTestClient(t), "LOC_123", "APP_IPHONE_65", []string{filePath}, false, true, false)
+	if !errors.Is(err, rootfs.ErrSymlink) {
+		t.Fatalf("uploadScreenshots() error = %v, want rootfs.ErrSymlink", err)
+	}
+	if deleted {
+		t.Fatal("existing screenshot was deleted before the upload source root was validated")
+	}
+}
 
 func TestUploadScreenshotsSkipExistingStartsUploadTimeoutAfterChecksumFiltering(t *testing.T) {
 	t.Setenv("ASC_TIMEOUT", "200ms")
