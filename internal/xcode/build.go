@@ -146,6 +146,7 @@ func validateBuildInputPaths(opts BuildOptions) error {
 
 func reservedBuildPassthroughArgument(args []string) string {
 	managedFlags := []string{
+		"-dry-run",
 		"-project",
 		"-workspace",
 		"-scheme",

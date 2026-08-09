@@ -80,6 +80,7 @@ func TestValidateBuildOptionsRejectsEveryXcodebuildAction(t *testing.T) {
 
 func TestValidateBuildOptionsRejectsXcodebuildOperationModes(t *testing.T) {
 	operations := []string{
+		"-dry-run",
 		"-usage",
 		"-help",
 		"-license",
