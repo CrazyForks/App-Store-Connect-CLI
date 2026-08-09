@@ -3,6 +3,7 @@ package xcode
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -22,6 +23,7 @@ func TestValidateBuildOptions(t *testing.T) {
 		{name: "project", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo"}},
 		{name: "workspace", opts: BuildOptions{WorkspacePath: "Demo.xcworkspace", Scheme: "Demo"}},
 		{name: "non-managed prefix remains available", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-destination-timeout", "60"}}},
+		{name: "ordinary build setting remains available", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"test=YES"}}},
 		{name: "missing selector", opts: BuildOptions{Scheme: "Demo"}, wantErr: "exactly one of --workspace or --project"},
 		{name: "both selectors", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", WorkspacePath: "Demo.xcworkspace", Scheme: "Demo"}, wantErr: "exactly one of --workspace or --project"},
 		{name: "missing scheme", opts: BuildOptions{ProjectPath: "Demo.xcodeproj"}, wantErr: "--scheme is required"},
@@ -41,6 +43,35 @@ func TestValidateBuildOptions(t *testing.T) {
 			}
 			if test.wantErr != "" && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
 				t.Fatalf("ValidateBuildOptions() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateBuildOptionsRejectsEveryXcodebuildAction(t *testing.T) {
+	actions := []string{
+		"build",
+		"build-for-testing",
+		"analyze",
+		"archive",
+		"test",
+		"test-without-building",
+		"docbuild",
+		"installsrc",
+		"installhdrs",
+		"install",
+		"clean",
+	}
+
+	for _, action := range actions {
+		t.Run(action, func(t *testing.T) {
+			err := ValidateBuildOptions(BuildOptions{
+				ProjectPath:    "Demo.xcodeproj",
+				Scheme:         "Demo",
+				XcodebuildArgs: []string{action},
+			})
+			if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("cannot override asc-managed argument %q", action)) {
+				t.Fatalf("ValidateBuildOptions() error = %v, want rejected action %q", err, action)
 			}
 		})
 	}

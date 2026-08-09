@@ -141,26 +141,39 @@ func validateBuildInputPaths(opts BuildOptions) error {
 }
 
 func reservedBuildPassthroughArgument(args []string) string {
-	reserved := []string{
+	managedFlags := []string{
 		"-project",
 		"-workspace",
 		"-scheme",
 		"-configuration",
 		"-destination",
 		"-deriveddatapath",
-		"clean",
-		"build",
-		"archive",
 		"-archivepath",
 		"-exportarchive",
+	}
+	xcodebuildActions := map[string]struct{}{
+		"build":                 {},
+		"build-for-testing":     {},
+		"analyze":               {},
+		"archive":               {},
+		"test":                  {},
+		"test-without-building": {},
+		"docbuild":              {},
+		"installsrc":            {},
+		"installhdrs":           {},
+		"install":               {},
+		"clean":                 {},
 	}
 	for _, arg := range args {
 		trimmed := strings.TrimSpace(arg)
 		normalized := strings.ToLower(trimmed)
-		for _, managed := range reserved {
+		for _, managed := range managedFlags {
 			if normalized == managed || strings.HasPrefix(normalized, managed+"=") {
 				return strings.SplitN(trimmed, "=", 2)[0]
 			}
+		}
+		if _, isAction := xcodebuildActions[normalized]; isAction {
+			return trimmed
 		}
 		if strings.HasPrefix(normalized, "code_signing_allowed=") {
 			return strings.SplitN(trimmed, "=", 2)[0]
