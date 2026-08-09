@@ -33,6 +33,7 @@ func TestPrepareRoutingCoverageFileValidatesGeoJSON(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
 				t.Fatalf("write fixture: %v", err)
 			}
+			t.Chdir(filepath.Dir(path))
 
 			_, err := PrepareRoutingCoverageFile(path)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -54,6 +55,23 @@ func TestPrepareRoutingCoverageFileRejectsSymlinkedParent(t *testing.T) {
 	t.Chdir(root)
 
 	_, err := PrepareRoutingCoverageFile(filepath.Join("linked", "coverage.geojson"))
+	if !errors.Is(err, rootfs.ErrSymlink) {
+		t.Fatalf("PrepareRoutingCoverageFile() error = %v, want rootfs.ErrSymlink", err)
+	}
+}
+
+func TestPrepareRoutingCoverageFileRejectsAbsoluteSymlinkedParent(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "coverage.geojson"), []byte(validRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Fatalf("create parent symlink: %v", err)
+	}
+	t.Chdir(root)
+
+	_, err := PrepareRoutingCoverageFile(filepath.Join(root, "linked", "coverage.geojson"))
 	if !errors.Is(err, rootfs.ErrSymlink) {
 		t.Fatalf("PrepareRoutingCoverageFile() error = %v, want rootfs.ErrSymlink", err)
 	}

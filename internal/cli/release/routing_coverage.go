@@ -102,13 +102,12 @@ func applyPreparedRoutingCoverageStep(ctx context.Context, client *asc.Client, v
 		return stepOutcome{Status: "dry-run", Message: message, Details: details}, nil
 	}
 
+	var committed *asc.RoutingAppCoverageResponse
 	if existing != nil {
-		if err := client.DeleteRoutingAppCoverage(ctx, existing.Data.ID); err != nil {
-			return stepOutcome{Details: details}, fmt.Errorf("delete current routing coverage %s: %w", existing.Data.ID, err)
-		}
+		committed, err = routingcoveragecli.ReplaceRoutingCoverageWithPreparedFile(ctx, client, versionID, existing.Data.ID, prepared)
+	} else {
+		committed, err = routingcoveragecli.UploadPreparedRoutingCoverageFile(ctx, client, versionID, prepared)
 	}
-
-	committed, err := routingcoveragecli.UploadPreparedRoutingCoverageFile(ctx, client, versionID, prepared)
 	if err != nil {
 		return stepOutcome{Details: details}, err
 	}

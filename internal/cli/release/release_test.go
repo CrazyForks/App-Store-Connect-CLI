@@ -142,6 +142,7 @@ func TestReleaseStageCommandValidatesRoutingCoverageBeforePipeline(t *testing.T)
 	if err := os.WriteFile(coveragePath, []byte(`{"type":"MultiPolygon","coordinates":`), 0o600); err != nil {
 		t.Fatalf("write routing coverage fixture: %v", err)
 	}
+	t.Chdir(filepath.Dir(coveragePath))
 
 	cmd := ReleaseStageCommand()
 	if err := cmd.FlagSet.Parse([]string{
@@ -567,6 +568,7 @@ func TestExecuteStageAppliesRoutingCoverageBeforeReadiness(t *testing.T) {
 	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
 		t.Fatalf("write routing coverage fixture: %v", err)
 	}
+	t.Chdir(filepath.Dir(coveragePath))
 
 	metadataCopyExecutor = func(context.Context, *asc.Client, metadataCopyOptions) (*asc.AppStoreVersionMetadataCopySummary, error) {
 		return &asc.AppStoreVersionMetadataCopySummary{CopiedLocales: 1}, nil

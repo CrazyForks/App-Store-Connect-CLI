@@ -17,6 +17,7 @@ const validReleaseRoutingCoverageGeoJSON = `{"type":"MultiPolygon","coordinates"
 
 func prepareReleaseRoutingCoverage(t *testing.T, path string) routingcoveragecli.PreparedRoutingCoverageFile {
 	t.Helper()
+	t.Chdir(filepath.Dir(path))
 	prepared, err := routingcoveragecli.PrepareRoutingCoverageFile(path)
 	if err != nil {
 		t.Fatalf("PrepareRoutingCoverageFile() error: %v", err)
@@ -138,6 +139,75 @@ func TestApplyRoutingCoverageStepCleansFailedReservation(t *testing.T) {
 	}
 	if !deleted {
 		t.Fatal("expected failed routing coverage reservation to be deleted")
+	}
+}
+
+func TestApplyRoutingCoverageStepRevalidatesBeforeDeletingExistingCoverage(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+	prepared := prepareReleaseRoutingCoverage(t, coveragePath)
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON+"\n"), 0o600); err != nil {
+		t.Fatalf("change routing coverage fixture: %v", err)
+	}
+
+	originalTransport := http.DefaultTransport
+	deleted := false
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/routingAppCoverage":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_OLD","attributes":{"sourceFileChecksum":"old-checksum","assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_OLD":
+			deleted = true
+			return releaseJSONResponse(http.StatusNoContent, "")
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	_, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepared, false)
+	if err == nil || !strings.Contains(err.Error(), "file changed after validation") {
+		t.Fatalf("applyPreparedRoutingCoverageStep() error = %v, want changed-file diagnostic", err)
+	}
+	if deleted {
+		t.Fatal("existing routing coverage was deleted before the prepared file was revalidated")
+	}
+}
+
+func TestUploadPreparedRoutingCoverageFileDoesNotDeleteAfterAmbiguousCommitResponse(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+	prepared := prepareReleaseRoutingCoverage(t, coveragePath)
+
+	originalTransport := http.DefaultTransport
+	deleted := false
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/routingAppCoverages":
+			return releaseJSONResponse(http.StatusCreated, fmt.Sprintf(`{"data":{"type":"routingAppCoverages","id":"COVERAGE_NEW","attributes":{"uploadOperations":[{"method":"PUT","url":"https://upload.example/coverage","length":%d,"offset":0}]}}}`, len(validReleaseRoutingCoverageGeoJSON)))
+		case req.Method == http.MethodPut && req.URL.Host == "upload.example":
+			return releaseJSONResponse(http.StatusOK, `{}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_NEW":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"","attributes":{"assetDeliveryState":{"state":"UPLOAD_COMPLETE"}}}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_NEW":
+			deleted = true
+			return releaseJSONResponse(http.StatusNoContent, "")
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	_, err := routingcoveragecli.UploadPreparedRoutingCoverageFile(context.Background(), newReleaseTestClient(t), "VERSION_123", prepared)
+	if err == nil || !strings.Contains(err.Error(), "committed routing coverage response is missing an ID") {
+		t.Fatalf("UploadPreparedRoutingCoverageFile() error = %v, want missing-ID diagnostic", err)
+	}
+	if deleted {
+		t.Fatal("routing coverage was deleted after an ambiguous successful commit response")
 	}
 }
 

@@ -77,12 +77,6 @@ func resolveRoutingCoverageSource(path string) (string, string, string, error) {
 		return "", "", "", fmt.Errorf("file is required")
 	}
 
-	if filepath.IsAbs(path) {
-		absolutePath := filepath.Clean(path)
-		rootPath := filepath.Dir(absolutePath)
-		return rootPath, filepath.Base(absolutePath), absolutePath, nil
-	}
-
 	rootPath, err := os.Getwd()
 	if err != nil {
 		return "", "", "", fmt.Errorf("resolve current directory: %w", err)
@@ -91,10 +85,13 @@ func resolveRoutingCoverageSource(path string) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", err
 	}
-	relativePath := filepath.Clean(path)
-	absolutePath, err := root.Resolve(relativePath)
+	absolutePath, err := root.Resolve(path)
 	if err != nil {
 		return "", "", "", err
+	}
+	relativePath, err := filepath.Rel(root.Path(), absolutePath)
+	if err != nil {
+		return "", "", "", fmt.Errorf("resolve file relative to current directory: %w", err)
 	}
 	return root.Path(), relativePath, absolutePath, nil
 }
@@ -174,6 +171,21 @@ func checksumOpenedFile(file *os.File, size int64) (*asc.Checksum, error) {
 
 // UploadPreparedRoutingCoverageFile creates, uploads, and commits routing coverage.
 func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, versionID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
+	return uploadPreparedRoutingCoverageFile(ctx, client, versionID, "", file)
+}
+
+// ReplaceRoutingCoverageWithPreparedFile revalidates the upload source before
+// deleting the current routing coverage, then creates, uploads, and commits its
+// replacement from the same open source handle.
+func ReplaceRoutingCoverageWithPreparedFile(ctx context.Context, client *asc.Client, versionID, currentCoverageID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
+	currentCoverageID = strings.TrimSpace(currentCoverageID)
+	if currentCoverageID == "" {
+		return nil, fmt.Errorf("current routing coverage ID is required")
+	}
+	return uploadPreparedRoutingCoverageFile(ctx, client, versionID, currentCoverageID, file)
+}
+
+func uploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, versionID, currentCoverageID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	}
@@ -199,6 +211,14 @@ func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, 
 	}
 	if !strings.EqualFold(strings.TrimSpace(currentChecksum.Hash), strings.TrimSpace(file.Checksum)) {
 		return nil, fmt.Errorf("file changed after validation: %q", file.Path)
+	}
+	if currentCoverageID != "" {
+		deleteCtx, deleteCancel := shared.ContextWithTimeout(ctx)
+		deleteErr := client.DeleteRoutingAppCoverage(deleteCtx, currentCoverageID)
+		deleteCancel()
+		if deleteErr != nil {
+			return nil, fmt.Errorf("delete current routing coverage %s: %w", currentCoverageID, deleteErr)
+		}
 	}
 
 	requestCtx, cancel := shared.ContextWithTimeout(ctx)
@@ -258,10 +278,10 @@ func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, 
 	committed, err := client.UpdateRoutingAppCoverage(commitCtx, coverageID, attributes)
 	commitCancel()
 	if err != nil {
-		return nil, cleanupFailure(fmt.Errorf("failed to commit upload: %w", err))
+		return nil, fmt.Errorf("failed to commit upload: %w", err)
 	}
 	if committed == nil || strings.TrimSpace(committed.Data.ID) == "" {
-		return nil, cleanupFailure(fmt.Errorf("committed routing coverage response is missing an ID"))
+		return nil, fmt.Errorf("committed routing coverage response is missing an ID")
 	}
 	return committed, nil
 }
