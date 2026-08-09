@@ -187,6 +187,21 @@ func GenerateExportOptions(ctx context.Context, opts ExportOptionsGenerateOption
 	return result, nil
 }
 
+// NormalizeExportOptionsSigningStyle applies the public signing-style default
+// and validates the enum shared by export-options generation callers.
+func NormalizeExportOptionsSigningStyle(value string) (string, error) {
+	style := strings.TrimSpace(value)
+	if style == "" {
+		style = exportOptionsSigningStyleAutomatic
+	}
+	switch style {
+	case exportOptionsSigningStyleAutomatic, exportOptionsSigningStyleManual:
+		return style, nil
+	default:
+		return style, fmt.Errorf("--signing-style must be one of: automatic, manual")
+	}
+}
+
 func normalizeExportOptionsGenerateOptions(opts ExportOptionsGenerateOptions) ExportOptionsGenerateOptions {
 	opts.ArchivePath = normalizeDirectoryPath(opts.ArchivePath)
 	opts.OutputPath = strings.TrimSpace(opts.OutputPath)
@@ -198,9 +213,7 @@ func normalizeExportOptionsGenerateOptions(opts ExportOptionsGenerateOptions) Ex
 		opts.Destination = exportOptionsDestinationExport
 	}
 	opts.SigningStyle = strings.ToLower(strings.TrimSpace(opts.SigningStyle))
-	if opts.SigningStyle == "" {
-		opts.SigningStyle = exportOptionsSigningStyleAutomatic
-	}
+	opts.SigningStyle, _ = NormalizeExportOptionsSigningStyle(opts.SigningStyle)
 	opts.TeamID = strings.TrimSpace(opts.TeamID)
 	return opts
 }
@@ -220,10 +233,8 @@ func validateExportOptionsGenerateOptions(opts ExportOptionsGenerateOptions) err
 	default:
 		return fmt.Errorf("--destination must be one of: export, upload")
 	}
-	switch opts.SigningStyle {
-	case exportOptionsSigningStyleAutomatic, exportOptionsSigningStyleManual:
-	default:
-		return fmt.Errorf("--signing-style must be one of: automatic, manual")
+	if _, err := NormalizeExportOptionsSigningStyle(opts.SigningStyle); err != nil {
+		return err
 	}
 	return nil
 }

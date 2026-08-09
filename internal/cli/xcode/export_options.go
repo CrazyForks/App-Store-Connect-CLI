@@ -86,9 +86,9 @@ Examples:
 			if trimmedDestination != "export" && trimmedDestination != "upload" {
 				return shared.UsageError("--destination must be one of: export, upload")
 			}
-			trimmedSigningStyle := strings.TrimSpace(*signingStyle)
-			if trimmedSigningStyle != "automatic" && trimmedSigningStyle != "manual" {
-				return shared.UsageError("--signing-style must be one of: automatic, manual")
+			trimmedSigningStyle, err := localxcode.NormalizeExportOptionsSigningStyle(*signingStyle)
+			if err != nil {
+				return shared.UsageError(err.Error())
 			}
 
 			trimmedArchivePath := strings.TrimSpace(*archivePath)
@@ -113,22 +113,40 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("xcode export-options generate: %w", err)
 			}
+			outputResult := redactExportOptionsResult(result)
 
 			return shared.PrintOutputWithRenderers(
-				result,
+				outputResult,
 				*output.Output,
 				*output.Pretty,
 				func() error {
-					asc.RenderTable([]string{"field", "value"}, exportOptionsResultRows(result))
+					asc.RenderTable([]string{"field", "value"}, exportOptionsResultRows(outputResult))
 					return nil
 				},
 				func() error {
-					asc.RenderMarkdown([]string{"field", "value"}, exportOptionsResultRows(result))
+					asc.RenderMarkdown([]string{"field", "value"}, exportOptionsResultRows(outputResult))
 					return nil
 				},
 			)
 		},
 	}
+}
+
+func redactExportOptionsResult(result *localxcode.ExportOptionsGenerateResult) *localxcode.ExportOptionsGenerateResult {
+	if result == nil {
+		return nil
+	}
+	redacted := *result
+	if strings.TrimSpace(redacted.SigningCertificate) != "" {
+		redacted.SigningCertificate = "[redacted]"
+	}
+	if len(redacted.ProvisioningProfiles) > 0 {
+		redacted.ProvisioningProfiles = make(map[string]string, len(redacted.ProvisioningProfiles))
+		for bundleID := range result.ProvisioningProfiles {
+			redacted.ProvisioningProfiles[bundleID] = "[redacted]"
+		}
+	}
+	return &redacted
 }
 
 func exportOptionsResultRows(result *localxcode.ExportOptionsGenerateResult) [][]string {
@@ -145,7 +163,6 @@ func exportOptionsResultRows(result *localxcode.ExportOptionsGenerateResult) [][
 	if signingCertificate := strings.TrimSpace(result.SigningCertificate); signingCertificate != "" {
 		rows = append(rows, []string{"signing_certificate", signingCertificate})
 	}
-
 	bundleIDs := make([]string, 0, len(result.ProvisioningProfiles))
 	for bundleID := range result.ProvisioningProfiles {
 		bundleIDs = append(bundleIDs, bundleID)

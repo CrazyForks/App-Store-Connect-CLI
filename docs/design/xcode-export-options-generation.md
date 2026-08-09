@@ -66,12 +66,11 @@ The generator result contains:
 - `path` and `archive_path`;
 - `method`, `destination`, and `signing_style`;
 - inferred or explicit `team_id` when available;
-- `signing_certificate` and a stable bundle-ID-to-profile map for manual
-  signing;
 - `overwritten`.
 
-JSON uses those field names. Table and Markdown render the same values with one
-stable row per provisioning-profile mapping. Existing xcode export and publish
+JSON uses those field names. Table and Markdown render the same values.
+Certificate selectors and provisioning-profile values stay in the generated
+plist and are rendered as `[redacted]`. Existing xcode export and publish
 results remain compatible; their export-options path records the actual
 generated or explicit artifact.
 

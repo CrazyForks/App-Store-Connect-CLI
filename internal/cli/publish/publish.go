@@ -95,6 +95,7 @@ Steps:
 Examples:
   asc publish testflight --app "123" --ipa app.ipa --group "GROUP_ID"
   asc publish testflight --app "123" --workspace App.xcworkspace --scheme App --version 1.2.3 --group "GROUP_ID"
+  asc publish testflight --app "123" --workspace App.xcworkspace --scheme App --version 1.2.3 --group "GROUP_ID" --signing-style manual --team-id TEAM_ID
   asc publish testflight --app "123" --ipa app.ipa --group "External Testers"
   asc publish testflight --app "123" --ipa app.ipa --group "G1,G2" --wait --notify
   asc publish testflight --app "123" --ipa app.ipa --group "External Testers" --submit --confirm
@@ -118,6 +119,11 @@ Examples:
 			localBuildMode := localBuild.localBuildMode()
 			if err := validateLocalBuildFlagUsage(localBuildMode, setFlags); err != nil {
 				return err
+			}
+			if localBuildMode {
+				if err := validatePublishExportOptionsFlags(localBuild, setFlags); err != nil {
+					return err
+				}
 			}
 
 			uploadMode := ipaValue != ""
@@ -435,6 +441,7 @@ Examples:
   asc publish appstore --app "123" --ipa app.ipa --version 1.2.3 --metadata-dir ./metadata --submit --confirm
   asc publish appstore --app "123" --ipa app.ipa --version 1.2.3 --submit --dry-run
   asc publish appstore --app "123" --workspace App.xcworkspace --scheme App --version 1.2.3
+  asc publish appstore --app "123" --workspace App.xcworkspace --scheme App --version 1.2.3 --signing-style manual --team-id TEAM_ID
   asc publish appstore --app "123" --ipa app.ipa --version 1.2.3 --submit --confirm`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -458,6 +465,11 @@ Examples:
 			localBuildMode := localBuild.localBuildMode()
 			if err := validateLocalBuildFlagUsage(localBuildMode, setFlags); err != nil {
 				return err
+			}
+			if localBuildMode {
+				if err := validatePublishExportOptionsFlags(localBuild, setFlags); err != nil {
+					return err
+				}
 			}
 			if setFlags["metadata-dir"] && metadataDirValue == "" {
 				return shared.UsageError("--metadata-dir cannot be empty")

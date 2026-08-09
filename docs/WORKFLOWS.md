@@ -42,6 +42,39 @@ cross-platform and only reads archive metadata. Manual signing resolution is
 Darwin-only because it inspects local Xcode signing identities and provisioning
 profiles.
 
+For a PCC-capable app, or another multi-target app that needs manual signing,
+pass the signing policy directly to export. ASC reads the archive and matches
+installed profiles for the app and its embedded targets, so the command does
+not need profile UUID flags or a checked-in plist:
+
+```bash
+asc xcode export \
+  --archive-path .asc/artifacts/App.xcarchive \
+  --ipa-path .asc/artifacts/App.ipa \
+  --signing-style manual \
+  --team-id TEAM_ID
+```
+
+The same flags work when the archive and export are owned by a local publish
+flow:
+
+```bash
+asc publish testflight \
+  --app APP_ID \
+  --workspace App.xcworkspace \
+  --scheme App \
+  --version 1.2.3 \
+  --group GROUP_ID \
+  --signing-style manual \
+  --team-id TEAM_ID
+```
+
+An explicit `--export-options` plist cannot be combined with
+`--signing-style` or `--team-id`; the plist remains authoritative when supplied.
+Generated plists contain the signing selectors required by Xcode, but command
+output replaces certificate selectors and provisioning profile values with
+`[redacted]`.
+
 Create `.asc/deployment.json`:
 
 ```json
