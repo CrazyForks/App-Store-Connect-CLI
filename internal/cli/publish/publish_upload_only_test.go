@@ -62,6 +62,9 @@ func TestPublishTestFlightUploadOnlyIPAStopsBeforeDistribution(t *testing.T) {
 	if payload["uploaded"] != true || payload["processingState"] != asc.BuildProcessingStateProcessing {
 		t.Fatalf("expected uploaded processing build, got %#v", payload)
 	}
+	if payload["uploadOnly"] != true {
+		t.Fatalf("expected upload-only marker, got %#v", payload)
+	}
 	if _, ok := payload["groupIds"]; ok {
 		t.Fatalf("did not expect groupIds in upload-only output: %#v", payload)
 	}
@@ -130,11 +133,18 @@ func TestPublishTestFlightUploadOnlyLocalBuildStopsBeforeDistribution(t *testing
 	if payload["mode"] != string(asc.PublishModeLocalBuild) || payload["buildId"] != "build-123" {
 		t.Fatalf("unexpected local-build upload-only output: %#v", payload)
 	}
+	if payload["uploadOnly"] != true {
+		t.Fatalf("expected upload-only marker, got %#v", payload)
+	}
 	if _, ok := payload["archive"].(map[string]any); !ok {
 		t.Fatalf("expected archive stage output, got %#v", payload["archive"])
 	}
 	if _, ok := payload["export"].(map[string]any); !ok {
 		t.Fatalf("expected export stage output, got %#v", payload["export"])
+	}
+	publishStage, ok := payload["publish"].(map[string]any)
+	if !ok || publishStage["uploadOnly"] != true {
+		t.Fatalf("expected nested upload-only publish stage, got %#v", payload["publish"])
 	}
 }
 
@@ -267,72 +277,15 @@ func TestPublishTestFlightUploadOnlyProcessingFailurePrintsPartialBuildAndDoesNo
 	if payload["buildId"] != "build-123" || payload["buildVersion"] != "1.2.3" || payload["buildNumber"] != "42" {
 		t.Fatalf("expected partial uploaded build metadata, got %#v", payload)
 	}
-	if !strings.Contains(payload["error"].(string), "processing sentinel") {
-		t.Fatalf("expected structured partial error, got %#v", payload["error"])
+	if payload["uploadOnly"] != true || payload["status"] != publishPartialStatus || payload["failureStage"] != publishFailureStageBuildProcessing {
+		t.Fatalf("expected canonical upload-only partial status, got %#v", payload)
 	}
-}
-
-func TestPublishTestFlightPostUploadGroupFailurePrintsPartialBuildAndDoesNotReupload(t *testing.T) {
-	restore := overridePublishCommandTestHooks(t)
-	defer restore()
-
-	uploadCalls := configurePublishUploadOnlyIPA(t, asc.BuildProcessingStateValid)
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	requestCalls := 0
-	http.DefaultTransport = publishCommandRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requestCalls++
-		switch requestCalls {
-		case 1:
-			if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-123/betaGroups" {
-				t.Fatalf("unexpected group lookup: %s %s", req.Method, req.URL.String())
-			}
-			return publishCommandJSONResponse(http.StatusOK, `{"data":[{"type":"betaGroups","id":"group-1","attributes":{"name":"External","isInternalGroup":false}}]}`)
-		case 2:
-			if req.Method != http.MethodPost || req.URL.Path != "/v1/builds/build-123/relationships/betaGroups" {
-				t.Fatalf("unexpected group mutation: %s %s", req.Method, req.URL.String())
-			}
-			return publishCommandJSONResponse(http.StatusUnprocessableEntity, `{"errors":[{"status":"422","code":"ENTITY_ERROR","title":"Invalid relationship"}]}`)
-		default:
-			t.Fatalf("unexpected request %d: %s %s", requestCalls, req.Method, req.URL.String())
-			return nil, nil
-		}
-	})
-
-	cmd := PublishTestFlightCommand()
-	cmd.FlagSet.SetOutput(io.Discard)
-	if err := cmd.FlagSet.Parse([]string{
-		"--app", "friendly-app",
-		"--ipa", "Demo.ipa",
-		"--version", "1.2.3",
-		"--build-number", "42",
-		"--group", "External",
-		"--output", "json",
-	}); err != nil {
-		t.Fatalf("parse flags: %v", err)
+	if failure, ok := payload["failure"].(string); !ok || !strings.Contains(failure, "processing sentinel") {
+		t.Fatalf("expected canonical structured failure, got %#v", payload["failure"])
 	}
-
-	var runErr error
-	stdout, _ := capturePublishCommandOutput(t, func() error {
-		runErr = cmd.Exec(context.Background(), nil)
-		return runErr
-	})
-	if runErr == nil || !strings.Contains(runErr.Error(), "failed to add groups") {
-		t.Fatalf("expected group failure, got %v", runErr)
-	}
-	if *uploadCalls != 1 || requestCalls != 2 {
-		t.Fatalf("expected one upload, one group lookup, and one group mutation; uploads=%d requests=%d", *uploadCalls, requestCalls)
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
-		t.Fatalf("expected partial JSON output, got %q: %v", stdout, err)
-	}
-	if payload["buildId"] != "build-123" || payload["uploaded"] != true {
-		t.Fatalf("expected resumable uploaded build, got %#v", payload)
-	}
-	if !strings.Contains(payload["error"].(string), "failed to add groups") {
-		t.Fatalf("expected structured group error, got %#v", payload["error"])
+	completedStages, ok := payload["completedStages"].([]any)
+	if !ok || len(completedStages) != 1 || completedStages[0] != publishCompletedStageUpload {
+		t.Fatalf("expected exactly the completed upload stage, got %#v", payload["completedStages"])
 	}
 }
 

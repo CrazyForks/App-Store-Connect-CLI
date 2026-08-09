@@ -28,6 +28,19 @@ const (
 	publishPlanStepApplyMetadata          = "apply_metadata"
 	publishPlanStepAttachBuild            = "attach_build"
 	publishPlanStepSubmitReview           = "submit_review"
+
+	publishPartialStatus                  = "partial"
+	publishCompletedStageArchive          = "archive"
+	publishCompletedStageExport           = "export"
+	publishCompletedStageUpload           = "upload"
+	publishCompletedStageBuildProcessing  = "build_processing"
+	publishCompletedStageTestNotes        = "test_notes"
+	publishCompletedStageBetaDistribution = "beta_group_distribution"
+	publishFailureStageBuildProcessing    = "build_processing"
+	publishFailureStageTestNotes          = "test_notes"
+	publishFailureStageBetaDistribution   = "beta_group_distribution"
+	publishFailureStageNotification       = "notification"
+	publishFailureStageBetaReview         = "beta_review_submission"
 )
 
 // PublishCommand returns the publish command with subcommands.
@@ -328,73 +341,112 @@ Examples:
 			}
 
 			result := &asc.TestFlightPublishResult{
-				Mode:         mode,
-				BuildVersion: resolvedVersionValue,
-				BuildNumber:  resolvedBuildNumberValue,
-				GroupIDs:     resolvedPublishBetaGroupIDs(resolvedGroups),
-				Uploaded:     uploaded,
-				UploadOnly:   *uploadOnly,
+				Mode:            mode,
+				BuildID:         buildResp.Data.ID,
+				BuildVersion:    resolvedVersionValue,
+				BuildNumber:     resolvedBuildNumberValue,
+				GroupIDs:        resolvedPublishBetaGroupIDs(resolvedGroups),
+				Uploaded:        uploaded,
+				UploadOnly:      *uploadOnly,
+				ProcessingState: buildResp.Data.Attributes.ProcessingState,
 			}
-			if *notify {
-				notified := false
-				result.Notified = &notified
+			completedStages := make([]string, 0, 6)
+			if uploaded {
+				if localBuildResult != nil {
+					completedStages = append(completedStages, publishCompletedStageArchive, publishCompletedStageExport)
+				}
+				completedStages = append(completedStages, publishCompletedStageUpload)
 			}
-			if *submit {
-				betaReviewSubmitted := false
-				result.BetaReviewSubmitted = &betaReviewSubmitted
+			reportPartialFailure := func(stage string, failure error) error {
+				if !uploaded {
+					return failure
+				}
+				result.Status = publishPartialStatus
+				result.FailureStage = stage
+				result.Failure = shared.SanitizeTerminal(failure.Error())
+				result.CompletedStages = append([]string(nil), completedStages...)
+				result.ProcessingState = buildResp.Data.Attributes.ProcessingState
+				attachTestFlightLocalPublishResult(result, localBuildResult)
+				if printErr := shared.PrintOutput(result, *output.Output, *output.Pretty); printErr != nil {
+					return errors.Join(failure, fmt.Errorf("print partial publish result: %w", printErr))
+				}
+				return failure
 			}
-			if localBuildResult != nil {
-				result.Archive = localBuildResult.Archive
-				result.Export = localBuildResult.Export
-				result.Publish = &asc.TestFlightPublishStageResult{}
-			}
-			updateTestFlightPublishResultBuild(result, buildResp)
 
 			if *wait || testNotesValue != "" || (*submit && !isPublishBuildProcessed(buildResp)) {
 				processedBuildResp, waitErr := waitForPublishBuildProcessingFn(requestCtx, client, buildResp.Data.ID, *pollInterval)
-				if waitErr != nil {
-					return printTestFlightPublishPartialResult(result, *output.Output, *output.Pretty, fmt.Errorf("publish testflight: %w", waitErr))
+				if processedBuildResp != nil && strings.TrimSpace(processedBuildResp.Data.ID) == strings.TrimSpace(buildResp.Data.ID) {
+					buildResp = processedBuildResp
+					result.ProcessingState = buildResp.Data.Attributes.ProcessingState
 				}
-				buildResp = processedBuildResp
-				updateTestFlightPublishResultBuild(result, buildResp)
+				if waitErr != nil {
+					return reportPartialFailure(publishFailureStageBuildProcessing, fmt.Errorf("publish testflight: %w", waitErr))
+				}
+				completedStages = append(completedStages, publishCompletedStageBuildProcessing)
 			}
 
 			if *uploadOnly {
+				attachTestFlightLocalPublishResult(result, localBuildResult)
 				return shared.PrintOutput(result, *output.Output, *output.Pretty)
 			}
 
 			if testNotesValue != "" {
 				if _, err := shared.UpsertBetaBuildLocalization(requestCtx, client, buildResp.Data.ID, localeValue, testNotesValue); err != nil {
-					return printTestFlightPublishPartialResult(result, *output.Output, *output.Pretty, fmt.Errorf("publish testflight: %w", err))
+					return reportPartialFailure(publishFailureStageTestNotes, fmt.Errorf("publish testflight: %w", err))
 				}
+				completedStages = append(completedStages, publishCompletedStageTestNotes)
 			}
 
-			addResult, err := shared.AddBuildBetaGroups(requestCtx, client, buildResp.Data.ID, resolvedGroups, shared.AddBuildBetaGroupsOptions{
+			addOptions := shared.AddBuildBetaGroupsOptions{
 				// Apple requires Xcode Cloud builds to be added to internal groups manually,
 				// so only skip redundant internal-group adds for builds uploaded by this command.
 				SkipInternalWithAllBuilds: uploaded,
 				Notify:                    *notify,
-			})
+			}
+			var addResult *shared.AddBuildBetaGroupsResult
+			if uploaded {
+				addResult, err = addUploadedBuildBetaGroupsFn(requestCtx, client, buildResp.Data.ID, resolvedGroups, addOptions)
+			} else {
+				addResult, err = shared.AddBuildBetaGroups(requestCtx, client, buildResp.Data.ID, resolvedGroups, addOptions)
+			}
 			if err != nil {
-				return printTestFlightPublishPartialResult(result, *output.Output, *output.Pretty, wrapPublishTestFlightAddGroupsError(err))
+				failureStage := publishFailureStageBetaDistribution
+				var processingFailure *postUploadBuildProcessingFailure
+				if errors.As(err, &processingFailure) {
+					buildResp = processingFailure.build
+					result.ProcessingState = buildResp.Data.Attributes.ProcessingState
+					return reportPartialFailure(publishFailureStageBuildProcessing, fmt.Errorf("publish testflight: %w", err))
+				}
+				var partialErr *asc.BuildBetaGroupsPartialError
+				if errors.As(err, &partialErr) {
+					completedStages = append(completedStages, publishCompletedStageBetaDistribution)
+					failureStage = publishFailureStageNotification
+				}
+				return reportPartialFailure(failureStage, wrapPublishTestFlightAddGroupsError(err))
 			}
+			completedStages = append(completedStages, publishCompletedStageBetaDistribution)
+
+			var notified *bool
+			if *notify {
+				value := addResult.NotificationAction == asc.BuildBetaGroupsNotificationActionManual
+				notified = &value
+			}
+			result.Notified = notified
 			result.NotificationAction = addResult.NotificationAction
-			if result.Notified != nil {
-				*result.Notified = addResult.NotificationAction == asc.BuildBetaGroupsNotificationActionManual
-			}
 
 			submissionResult, err := shared.SubmitBuildBetaReviewIfNeeded(requestCtx, client, buildResp.Data.ID, resolvedGroups, addResult.AddedGroupIDs, *submit, "publish testflight")
 			if err != nil {
-				return printTestFlightPublishPartialResult(result, *output.Output, *output.Pretty, err)
+				return reportPartialFailure(publishFailureStageBetaReview, err)
 			}
 			if submissionResult.Message != "" {
 				fmt.Fprintln(os.Stderr, submissionResult.Message)
 			}
-			if result.BetaReviewSubmitted != nil {
-				*result.BetaReviewSubmitted = submissionResult.Submitted
+
+			var betaReviewSubmitted *bool
+			if *submit {
+				value := submissionResult.Submitted
+				betaReviewSubmitted = &value
 			}
-			result.BetaReviewSubmissionID = submissionResult.SubmissionID
-			syncTestFlightPublishStageResult(result)
 
 			for _, group := range addResult.SkippedInternalAllBuildsGroups {
 				fmt.Fprintf(
@@ -404,48 +456,13 @@ Examples:
 					group.ID,
 				)
 			}
+			result.BetaReviewSubmitted = betaReviewSubmitted
+			result.BetaReviewSubmissionID = submissionResult.SubmissionID
+			attachTestFlightLocalPublishResult(result, localBuildResult)
 
 			return shared.PrintOutput(result, *output.Output, *output.Pretty)
 		},
 	}
-}
-
-func updateTestFlightPublishResultBuild(result *asc.TestFlightPublishResult, buildResp *asc.BuildResponse) {
-	if result == nil || buildResp == nil {
-		return
-	}
-	result.BuildID = buildResp.Data.ID
-	result.ProcessingState = buildResp.Data.Attributes.ProcessingState
-	syncTestFlightPublishStageResult(result)
-}
-
-func syncTestFlightPublishStageResult(result *asc.TestFlightPublishResult) {
-	if result == nil || result.Publish == nil {
-		return
-	}
-	result.Publish.BuildID = result.BuildID
-	result.Publish.BuildVersion = result.BuildVersion
-	result.Publish.BuildNumber = result.BuildNumber
-	result.Publish.GroupIDs = append([]string(nil), result.GroupIDs...)
-	result.Publish.Uploaded = result.Uploaded
-	result.Publish.UploadOnly = result.UploadOnly
-	result.Publish.ProcessingState = result.ProcessingState
-	result.Publish.Notified = result.Notified
-	result.Publish.NotificationAction = result.NotificationAction
-	result.Publish.BetaReviewSubmitted = result.BetaReviewSubmitted
-	result.Publish.BetaReviewSubmissionID = result.BetaReviewSubmissionID
-}
-
-func printTestFlightPublishPartialResult(result *asc.TestFlightPublishResult, outputFormat string, pretty bool, publishErr error) error {
-	if result == nil || publishErr == nil {
-		return publishErr
-	}
-	result.Error = publishErr.Error()
-	syncTestFlightPublishStageResult(result)
-	if err := shared.PrintOutput(result, outputFormat, pretty); err != nil {
-		return errors.Join(publishErr, fmt.Errorf("publish testflight: print partial result: %w", err))
-	}
-	return publishErr
 }
 
 // PublishAppStoreCommand uploads an IPA, attaches it to an App Store version, and optionally submits it.
@@ -1004,4 +1021,25 @@ func wrapPublishTestFlightAddGroupsError(err error) error {
 		return fmt.Errorf("publish testflight: %w", err)
 	}
 	return fmt.Errorf("publish testflight: failed to add groups: %w", err)
+}
+
+func attachTestFlightLocalPublishResult(result *asc.TestFlightPublishResult, localBuildResult *publishLocalBuildExecutionResult) {
+	if result == nil || localBuildResult == nil {
+		return
+	}
+	result.Archive = localBuildResult.Archive
+	result.Export = localBuildResult.Export
+	result.Publish = &asc.TestFlightPublishStageResult{
+		BuildID:                result.BuildID,
+		BuildVersion:           result.BuildVersion,
+		BuildNumber:            result.BuildNumber,
+		GroupIDs:               append([]string(nil), result.GroupIDs...),
+		Uploaded:               result.Uploaded,
+		UploadOnly:             result.UploadOnly,
+		ProcessingState:        result.ProcessingState,
+		Notified:               result.Notified,
+		NotificationAction:     result.NotificationAction,
+		BetaReviewSubmitted:    result.BetaReviewSubmitted,
+		BetaReviewSubmissionID: result.BetaReviewSubmissionID,
+	}
 }

@@ -27,15 +27,15 @@ func testFlightPublishResultRows(result *TestFlightPublishResult) ([]string, [][
 		betaReviewSubmitted,
 		result.BetaReviewSubmissionID,
 	}
+	rows := [][]string{row}
 	if result.UploadOnly {
 		headers = append(headers, "Upload Only")
-		row = append(row, "true")
+		rows[0] = append(rows[0], "true")
 	}
-	if strings.TrimSpace(result.Error) != "" {
-		headers = append(headers, "Error")
-		row = append(row, result.Error)
+	if strings.TrimSpace(result.Status) != "" {
+		headers = append(headers, "Status", "Failure Stage", "Completed Stages", "Failure")
+		rows[0] = append(rows[0], result.Status, result.FailureStage, strings.Join(result.CompletedStages, ", "), result.Failure)
 	}
-	rows := [][]string{row}
 	return headers, rows
 }
 

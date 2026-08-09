@@ -16,7 +16,6 @@ type publishTestFlightSubmitOutput struct {
 	GroupIDs               []string `json:"groupIds"`
 	BetaReviewSubmitted    *bool    `json:"betaReviewSubmitted,omitempty"`
 	BetaReviewSubmissionID string   `json:"betaReviewSubmissionId,omitempty"`
-	Error                  string   `json:"error,omitempty"`
 }
 
 func TestPublishTestflightSubmitCreatesBetaReviewSubmissionForExternalGroups(t *testing.T) {
@@ -413,15 +412,11 @@ func TestPublishTestflightSubmitPreservesPartialSuccessWhenSubmissionFails(t *te
 	if runErr == nil {
 		t.Fatal("expected error")
 	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
-	}
-	partial := decodePublishTestFlightSubmitOutput(t, stdout)
-	if partial.BuildID != "build-1" || !slices.Equal(partial.GroupIDs, []string{"group-external"}) {
-		t.Fatalf("expected resumable build and group IDs, got %+v", partial)
-	}
-	if partial.BetaReviewSubmitted == nil || *partial.BetaReviewSubmitted || !strings.Contains(partial.Error, "beta app review submission failed") {
-		t.Fatalf("expected structured partial beta review failure, got %+v", partial)
 	}
 	if !strings.Contains(runErr.Error(), `publish testflight: beta groups were added to build "build-1", but beta app review submission failed`) {
 		t.Fatalf("expected partial-success submission error, got %v", runErr)
