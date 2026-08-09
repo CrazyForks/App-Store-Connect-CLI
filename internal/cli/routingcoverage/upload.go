@@ -169,6 +169,68 @@ func checksumOpenedFile(file *os.File, size int64) (*asc.Checksum, error) {
 	return asc.ComputeChecksumFromReader(io.NewSectionReader(file, 0, size), asc.ChecksumAlgorithmMD5)
 }
 
+func verifyPreparedRoutingCoverageSource(source *os.File, file PreparedRoutingCoverageFile) error {
+	info, err := source.Stat()
+	if err != nil {
+		return fmt.Errorf("stat file: %w", err)
+	}
+	if info.Size() != file.FileSize {
+		return fmt.Errorf("file changed after validation: %q", file.Path)
+	}
+	currentChecksum, err := checksumOpenedFile(source, info.Size())
+	if err != nil {
+		return fmt.Errorf("checksum failed: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(currentChecksum.Hash), strings.TrimSpace(file.Checksum)) {
+		return fmt.Errorf("file changed after validation: %q", file.Path)
+	}
+	return nil
+}
+
+// RevalidatePreparedRoutingCoverageFile verifies that the prepared source has
+// not changed since it was initially validated.
+func RevalidatePreparedRoutingCoverageFile(file PreparedRoutingCoverageFile) error {
+	source, err := file.openSource()
+	if err != nil {
+		return fmt.Errorf("open file: %w", err)
+	}
+	defer source.Close()
+	return verifyPreparedRoutingCoverageSource(source, file)
+}
+
+func snapshotPreparedRoutingCoverageFile(file PreparedRoutingCoverageFile) (*os.File, error) {
+	source, err := file.openSource()
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+	defer source.Close()
+
+	snapshot, err := os.CreateTemp("", "asc-routing-coverage-*.geojson")
+	if err != nil {
+		return nil, fmt.Errorf("create upload snapshot: %w", err)
+	}
+	cleanup := func() {
+		name := snapshot.Name()
+		_ = snapshot.Close()
+		_ = os.Remove(name)
+	}
+
+	written, err := io.Copy(snapshot, io.LimitReader(source, file.FileSize+1))
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("snapshot file: %w", err)
+	}
+	if written != file.FileSize {
+		cleanup()
+		return nil, fmt.Errorf("file changed after validation: %q", file.Path)
+	}
+	if err := verifyPreparedRoutingCoverageSource(snapshot, file); err != nil {
+		cleanup()
+		return nil, err
+	}
+	return snapshot, nil
+}
+
 // UploadPreparedRoutingCoverageFile creates, uploads, and commits routing coverage.
 func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, versionID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
 	return uploadPreparedRoutingCoverageFile(ctx, client, versionID, "", file)
@@ -189,29 +251,23 @@ func uploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, 
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
 	}
+	versionID = strings.TrimSpace(versionID)
+	if versionID == "" {
+		return nil, fmt.Errorf("version ID is required")
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	source, err := file.openSource()
+	source, err := snapshotPreparedRoutingCoverageFile(file)
 	if err != nil {
-		return nil, fmt.Errorf("open file: %w", err)
+		return nil, err
 	}
-	defer source.Close()
-	info, err := source.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stat file: %w", err)
-	}
-	if info.Size() != file.FileSize {
-		return nil, fmt.Errorf("file changed after validation: %q", file.Path)
-	}
-	currentChecksum, err := checksumOpenedFile(source, info.Size())
-	if err != nil {
-		return nil, fmt.Errorf("checksum failed: %w", err)
-	}
-	if !strings.EqualFold(strings.TrimSpace(currentChecksum.Hash), strings.TrimSpace(file.Checksum)) {
-		return nil, fmt.Errorf("file changed after validation: %q", file.Path)
-	}
+	defer func() {
+		name := source.Name()
+		_ = source.Close()
+		_ = os.Remove(name)
+	}()
 	if currentCoverageID != "" {
 		deleteCtx, deleteCancel := shared.ContextWithTimeout(ctx)
 		deleteErr := client.DeleteRoutingAppCoverage(deleteCtx, currentCoverageID)

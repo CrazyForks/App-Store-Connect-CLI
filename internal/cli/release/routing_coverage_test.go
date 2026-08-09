@@ -3,6 +3,7 @@ package release
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -54,6 +55,60 @@ func TestApplyRoutingCoverageStepReusesMatchingCompleteAsset(t *testing.T) {
 	details, ok := outcome.Details.(routingCoverageStepDetails)
 	if !ok || details.Action != "reuse" || details.CoverageID != "COVERAGE_123" {
 		t.Fatalf("unexpected reuse details: %#v", outcome.Details)
+	}
+}
+
+func TestApplyRoutingCoverageStepRevalidatesBeforeReusingCompleteAsset(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+	prepared := prepareReleaseRoutingCoverage(t, coveragePath)
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON+"\n"), 0o600); err != nil {
+		t.Fatalf("change routing coverage fixture: %v", err)
+	}
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/appStoreVersions/VERSION_123/routingAppCoverage" {
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+		return releaseJSONResponse(http.StatusOK, fmt.Sprintf(`{"data":{"type":"routingAppCoverages","id":"COVERAGE_123","attributes":{"sourceFileChecksum":%q,"assetDeliveryState":{"state":"COMPLETE"}}}}`, prepared.Checksum))
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	_, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepared, false)
+	if err == nil || !strings.Contains(err.Error(), "file changed after validation") {
+		t.Fatalf("applyPreparedRoutingCoverageStep() error = %v, want changed-file diagnostic", err)
+	}
+}
+
+func TestApplyRoutingCoverageStepRevalidatesAfterWaitingForMatchingAsset(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+	prepared := prepareReleaseRoutingCoverage(t, coveragePath)
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/routingAppCoverage":
+			return releaseJSONResponse(http.StatusOK, fmt.Sprintf(`{"data":{"type":"routingAppCoverages","id":"COVERAGE_123","attributes":{"sourceFileChecksum":%q,"assetDeliveryState":{"state":"UPLOAD_COMPLETE"}}}}`, prepared.Checksum))
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_123":
+			if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON+"\n"), 0o600); err != nil {
+				return nil, err
+			}
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_123","attributes":{"assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	_, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepared, false)
+	if err == nil || !strings.Contains(err.Error(), "file changed after validation") {
+		t.Fatalf("applyPreparedRoutingCoverageStep() error = %v, want changed-file diagnostic", err)
 	}
 }
 
@@ -173,6 +228,78 @@ func TestApplyRoutingCoverageStepRevalidatesBeforeDeletingExistingCoverage(t *te
 	}
 	if deleted {
 		t.Fatal("existing routing coverage was deleted before the prepared file was revalidated")
+	}
+}
+
+func TestReplaceRoutingCoverageRejectsEmptyVersionBeforeDeletingExistingCoverage(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+	prepared := prepareReleaseRoutingCoverage(t, coveragePath)
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	_, err := routingcoveragecli.ReplaceRoutingCoverageWithPreparedFile(context.Background(), newReleaseTestClient(t), " \t ", "COVERAGE_OLD", prepared)
+	if err == nil || !strings.Contains(err.Error(), "version ID is required") {
+		t.Fatalf("ReplaceRoutingCoverageWithPreparedFile() error = %v, want version ID diagnostic", err)
+	}
+}
+
+func TestApplyRoutingCoverageStepUploadsSnapshotAfterDeletingExistingCoverage(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	originalContent := []byte(validReleaseRoutingCoverageGeoJSON)
+	changedContent := []byte(strings.Replace(validReleaseRoutingCoverageGeoJSON, "77.5", "78.5", 1))
+	if len(changedContent) != len(originalContent) {
+		t.Fatalf("fixture sizes differ: changed=%d original=%d", len(changedContent), len(originalContent))
+	}
+	if err := os.WriteFile(coveragePath, originalContent, 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+	prepared := prepareReleaseRoutingCoverage(t, coveragePath)
+
+	var uploaded []byte
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/routingAppCoverage":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_OLD","attributes":{"sourceFileChecksum":"old-checksum","assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_OLD":
+			if err := os.WriteFile(coveragePath, changedContent, 0o600); err != nil {
+				return nil, err
+			}
+			return releaseJSONResponse(http.StatusNoContent, "")
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/routingAppCoverages":
+			return releaseJSONResponse(http.StatusCreated, fmt.Sprintf(`{"data":{"type":"routingAppCoverages","id":"COVERAGE_NEW","attributes":{"uploadOperations":[{"method":"PUT","url":"https://upload.example/coverage","length":%d,"offset":0}]}}}`, len(originalContent)))
+		case req.Method == http.MethodPut && req.URL.Host == "upload.example":
+			var err error
+			uploaded, err = io.ReadAll(req.Body)
+			if err != nil {
+				return nil, err
+			}
+			return releaseJSONResponse(http.StatusOK, `{}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_NEW":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_NEW","attributes":{"assetDeliveryState":{"state":"UPLOAD_COMPLETE"}}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_NEW":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_NEW","attributes":{"assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_NEW":
+			return releaseJSONResponse(http.StatusNoContent, "")
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	_, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepared, false)
+	if err != nil {
+		t.Fatalf("applyPreparedRoutingCoverageStep() error: %v", err)
+	}
+	if string(uploaded) != string(originalContent) {
+		t.Fatalf("uploaded content = %q, want prepared snapshot %q", uploaded, originalContent)
 	}
 }
 

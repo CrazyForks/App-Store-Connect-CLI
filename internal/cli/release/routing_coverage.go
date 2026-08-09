@@ -60,6 +60,9 @@ func applyPreparedRoutingCoverageStep(ctx context.Context, client *asc.Client, v
 			strings.TrimSpace(prepared.Checksum),
 		)
 		if sameChecksum && details.DeliveryState == "COMPLETE" {
+			if err := routingcoveragecli.RevalidatePreparedRoutingCoverageFile(prepared); err != nil {
+				return stepOutcome{Details: details}, err
+			}
 			details.Action = "reuse"
 			status := "skipped"
 			message := "routing coverage already in sync"
@@ -70,6 +73,9 @@ func applyPreparedRoutingCoverageStep(ctx context.Context, client *asc.Client, v
 			return stepOutcome{Status: status, Message: message, Details: details, Persist: !dryRun}, nil
 		}
 		if sameChecksum && details.DeliveryState == "UPLOAD_COMPLETE" {
+			if err := routingcoveragecli.RevalidatePreparedRoutingCoverageFile(prepared); err != nil {
+				return stepOutcome{Details: details}, err
+			}
 			details.Action = "wait"
 			if dryRun {
 				return stepOutcome{
@@ -82,6 +88,9 @@ func applyPreparedRoutingCoverageStep(ctx context.Context, client *asc.Client, v
 			details.DeliveryState = state
 			if waitErr != nil {
 				return stepOutcome{Details: details}, waitErr
+			}
+			if err := routingcoveragecli.RevalidatePreparedRoutingCoverageFile(prepared); err != nil {
+				return stepOutcome{Details: details}, err
 			}
 			details.Action = "reuse"
 			return stepOutcome{
