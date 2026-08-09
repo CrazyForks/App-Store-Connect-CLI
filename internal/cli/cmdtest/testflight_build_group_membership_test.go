@@ -146,6 +146,37 @@ func TestTestFlightGroupsListBuildMembershipUsesOfficialFilterAndPaginates(t *te
 	}
 }
 
+func TestTestFlightGroupsListBuildMembershipRejectsExplicitBlankBuildID(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("blank build ID must fail before HTTP request: %s", req.URL.String())
+		return nil, nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"testflight", "groups", "list", "--app", "app-1", "--build-id", " "}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if !errors.Is(runErr, flag.ErrHelp) {
+		t.Fatalf("expected usage error, got %v", runErr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "--build-id cannot be empty") {
+		t.Fatalf("expected blank build ID diagnostic, got %q", stderr)
+	}
+}
+
 func TestTestFlightGroupsListBuildMembershipEmptyIsSuccessful(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))

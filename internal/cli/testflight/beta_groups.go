@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
+
+const buildGroupMembershipTimeout = 5 * time.Minute
 
 // BetaGroupsCommand returns the beta groups command with subcommands.
 func BetaGroupsCommand() *ffcli.Command {
@@ -115,13 +118,20 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --internal and --external are mutually exclusive")
 				return flag.ErrHelp
 			}
+			buildIDSet := false
 			membershipPageControlSet := false
 			fs.Visit(func(value *flag.Flag) {
 				switch value.Name {
+				case "build-id":
+					buildIDSet = true
 				case "global", "limit", "next", "paginate":
 					membershipPageControlSet = true
 				}
 			})
+			if buildIDSet && resolvedBuildID == "" {
+				fmt.Fprintln(os.Stderr, "Error: --build-id cannot be empty")
+				return flag.ErrHelp
+			}
 			if resolvedBuildID != "" && membershipPageControlSet {
 				fmt.Fprintln(os.Stderr, "Error: --global, --limit, --next, and --paginate cannot be used with --build-id; membership lookup always fetches all required pages")
 				return flag.ErrHelp
@@ -133,7 +143,7 @@ Examples:
 					return fmt.Errorf("beta-groups list: %w", err)
 				}
 
-				requestCtx, cancel := shared.ContextWithTimeout(ctx)
+				requestCtx, cancel := contextWithBuildGroupMembershipTimeout(ctx)
 				defer cancel()
 
 				var internalFilter *bool
@@ -317,6 +327,10 @@ Examples:
 			return shared.PrintOutput(groups, *output.Output, *output.Pretty)
 		},
 	}
+}
+
+func contextWithBuildGroupMembershipTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return shared.ContextWithResolvedTimeout(ctx, buildGroupMembershipTimeout)
 }
 
 // BetaGroupsCreateCommand returns the beta groups create subcommand.
