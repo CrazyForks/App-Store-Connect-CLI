@@ -213,7 +213,7 @@ func TestXcodeBuildPrintsPreflightFailureReason(t *testing.T) {
 			DerivedDataPath: "/tmp/derived",
 			Success:         false,
 			DurationMS:      1,
-		}, errors.New("xcodebuild is not available")
+		}, errors.New("xcodebuild not usable: xcodebuild version failed: exit status 72")
 	}
 
 	cmd := XcodeBuildCommand()
@@ -230,8 +230,11 @@ func TestXcodeBuildPrintsPreflightFailureReason(t *testing.T) {
 	if !errors.As(runErr, &reportedErr) {
 		t.Fatalf("Exec() error = %T %v, want ReportedError", runErr, runErr)
 	}
-	if got := strings.Count(stderr, "xcodebuild is not available"); got != 1 {
+	if got := strings.Count(stderr, "xcodebuild not usable"); got != 1 {
 		t.Fatalf("stderr = %q, preflight reason count = %d, want 1", stderr, got)
+	}
+	if strings.Contains(stderr, "xcode build failed with exit status 72") {
+		t.Fatalf("stderr = %q, version-probe status must not be reported as build status", stderr)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {

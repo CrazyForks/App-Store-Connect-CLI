@@ -363,6 +363,28 @@ func TestBuildOmitsExitStatusForPreflightFailure(t *testing.T) {
 	}
 }
 
+func TestBuildOmitsExitStatusForSilentVersionProbeFailure(t *testing.T) {
+	projectPath := createBuildTestContainer(t)
+	restore := overrideBuildProcess(t, "version-failure")
+	defer restore()
+
+	result, err := Build(context.Background(), BuildOptions{
+		ProjectPath:     projectPath,
+		Scheme:          "Demo",
+		DerivedDataPath: filepath.Join(t.TempDir(), "DerivedData"),
+		LogWriter:       io.Discard,
+	})
+	if err == nil || !strings.Contains(err.Error(), "xcodebuild not usable") {
+		t.Fatalf("Build() error = %v, want unusable xcodebuild preflight error", err)
+	}
+	if result == nil || result.Success {
+		t.Fatalf("Build() result = %+v, want structured preflight failure", result)
+	}
+	if result.ExitStatus != nil {
+		t.Fatalf("ExitStatus = %v, want nil for version probe failure", result.ExitStatus)
+	}
+}
+
 func TestBuildRejectsUnsupportedHostBeforeStartingProcess(t *testing.T) {
 	projectPath := createBuildTestContainer(t)
 	originalGOOS := runtimeGOOS
@@ -436,6 +458,9 @@ func TestBuildHelperProcess(t *testing.T) {
 	}
 	commandArgs := args[separator+1:]
 	if len(commandArgs) == 1 && commandArgs[0] == "-version" {
+		if os.Getenv("ASC_BUILD_HELPER_MODE") == "version-failure" {
+			os.Exit(72)
+		}
 		os.Exit(0)
 	}
 	switch os.Getenv("ASC_BUILD_HELPER_MODE") {

@@ -87,13 +87,6 @@ func Build(ctx context.Context, opts BuildOptions) (*BuildResult, error) {
 	finish := func(err error) (*BuildResult, error) {
 		result.DurationMS = max(int64(0), time.Since(startedAt).Milliseconds())
 		result.Success = err == nil
-		if err != nil {
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
-				exitStatus := exitErr.ExitCode()
-				result.ExitStatus = &exitStatus
-			}
-		}
 		return result, err
 	}
 
@@ -115,8 +108,13 @@ func Build(ctx context.Context, opts BuildOptions) (*BuildResult, error) {
 	}
 	productsPath := filepath.Join(derivedDataPath, "Build", "Products")
 	productsPathExisted := existingDirectory(productsPath)
-	if err := runXcodebuildForBuild(ctx, buildBuildCommand(opts), opts.LogWriter); err != nil {
-		return finish(err)
+	if buildErr := runXcodebuildForBuild(ctx, buildBuildCommand(opts), opts.LogWriter); buildErr != nil {
+		var exitErr *exec.ExitError
+		if errors.As(buildErr, &exitErr) {
+			exitStatus := exitErr.ExitCode()
+			result.ExitStatus = &exitStatus
+		}
+		return finish(buildErr)
 	}
 	exitStatus := 0
 	result.ExitStatus = &exitStatus
