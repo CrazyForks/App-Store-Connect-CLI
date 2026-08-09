@@ -13,8 +13,9 @@ func TestContextWithBuildGroupMembershipTimeoutUsesBulkDefault(t *testing.T) {
 	ctx, cancel := contextWithBuildGroupMembershipTimeout(context.Background())
 	defer cancel()
 	deadline, ok := ctx.Deadline()
-	if !ok || time.Until(deadline) < 4*time.Minute {
-		t.Fatalf("expected five-minute bulk timeout, deadline=%v, present=%t", deadline, ok)
+	remaining := time.Until(deadline)
+	if !ok || remaining < 299*time.Second || remaining > 301*time.Second {
+		t.Fatalf("expected five-minute bulk timeout, remaining=%v, present=%t", remaining, ok)
 	}
 }
 
