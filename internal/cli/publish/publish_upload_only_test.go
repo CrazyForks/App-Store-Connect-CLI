@@ -214,8 +214,11 @@ func TestPublishTestFlightUploadOnlyRejectsContradictoryFlagsDeterministically(t
 			if stdout != "" {
 				t.Fatalf("expected empty stdout, got %q", stdout)
 			}
-			if !strings.Contains(stderr, test.wantErr) {
-				t.Fatalf("expected %q, got %q", test.wantErr, stderr)
+			if got := runErr.Error(); got != test.wantErr {
+				t.Fatalf("expected returned error %q, got %q", test.wantErr, got)
+			}
+			if wantStderr := "Error: " + test.wantErr + "\n"; stderr != wantStderr {
+				t.Fatalf("expected stderr %q, got %q", wantStderr, stderr)
 			}
 		})
 	}
@@ -240,7 +243,11 @@ func TestPublishTestFlightUploadOnlyRequiresUploadSource(t *testing.T) {
 	if !errors.Is(runErr, flag.ErrHelp) {
 		t.Fatalf("expected usage error, got %v", runErr)
 	}
-	if stdout != "" || !strings.Contains(stderr, "--upload-only requires --ipa, --workspace, or --project") {
+	const wantErr = "--upload-only requires --ipa, --workspace, or --project"
+	if got := runErr.Error(); got != wantErr {
+		t.Fatalf("expected returned error %q, got %q", wantErr, got)
+	}
+	if stdout != "" || stderr != "Error: "+wantErr+"\n" {
 		t.Fatalf("unexpected validation output: stdout=%q stderr=%q", stdout, stderr)
 	}
 }

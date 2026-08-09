@@ -42,7 +42,7 @@ This workflow:
 2. Waits for processing
 3. Distributes to specified beta groups
 
-For archive/export/upload/wait without distribution, use the explicit
+For archive/export/upload/wait without distribution, use the experimental
 upload-only mode. It returns the uploaded build ID without requiring or
 modifying a beta group:
 
@@ -86,11 +86,11 @@ This workflow:
   App ID for the build
 </ParamField>
 
-<ParamField path="--file" type="string" required>
+<ParamField path="--ipa" type="string">
   Path to IPA file
 </ParamField>
 
-<ParamField path="--groups" type="string">
+<ParamField path="--group" type="string">
   Comma-separated beta group names or IDs
 
   Example: `"External Testers,Internal Team"`
@@ -99,11 +99,11 @@ This workflow:
 <ParamField path="--wait" type="boolean">
   Wait for build processing to complete
 
-  Default: `true`
+  Default: `false`
 </ParamField>
 
 <ParamField path="--upload-only" type="boolean">
-  Upload and optionally wait for the build without group distribution or beta review
+  Experimental. Upload and optionally wait for the build without group distribution or beta review
 </ParamField>
 
 ## 1.0 migration note

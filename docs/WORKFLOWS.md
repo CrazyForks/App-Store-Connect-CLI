@@ -158,10 +158,10 @@ asc workflow run testflight_beta VERSION:1.2.3
 
 ### Resumable upload and distribution steps
 
-When upload and external distribution need separate retry boundaries, make the
-upload-only command its own output-producing step. The successful step is
-persisted with `BUILD_ID`; if the distribution step fails, `--resume` skips the
-upload and reuses that exact build ID.
+When upload and external distribution need separate retry boundaries, the
+experimental upload-only flag can make the upload its own output-producing
+step. The successful step is persisted with `BUILD_ID`; if the distribution
+step fails, `--resume` skips the upload and reuses that exact build ID.
 
 ```json
 {
