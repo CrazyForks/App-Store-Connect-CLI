@@ -77,6 +77,57 @@ func TestValidateBuildOptionsRejectsEveryXcodebuildAction(t *testing.T) {
 	}
 }
 
+func TestValidateBuildOptionsRejectsXcodebuildOperationModes(t *testing.T) {
+	operations := []string{
+		"-usage",
+		"-help",
+		"-license",
+		"-checkFirstLaunchStatus",
+		"-runFirstLaunch",
+		"-prepareDeviceSupport",
+		"-downloadPlatform",
+		"-downloadAllPlatforms",
+		"-importPlatform",
+		"-downloadComponent",
+		"-importComponent",
+		"-deleteComponent",
+		"-showComponent",
+		"-showsdks",
+		"-showdestinations",
+		"-showTestPlans",
+		"-showBuildSettings",
+		"-showBuildSettingsForIndex",
+		"-list",
+		"-find-executable",
+		"-find-library",
+		"-version",
+		"-exportArchive",
+		"-exportNotarizedApp",
+		"-exportLocalizations",
+		"-importLocalizations",
+		"-resolvePackageDependencies",
+		"-create-xcframework",
+		"-target",
+		"-alltargets",
+	}
+
+	for _, operation := range operations {
+		for _, raw := range []string{operation, operation + "=value"} {
+			t.Run(raw, func(t *testing.T) {
+				err := ValidateBuildOptions(BuildOptions{
+					ProjectPath:    "Demo.xcodeproj",
+					Scheme:         "Demo",
+					XcodebuildArgs: []string{raw},
+				})
+				want := strings.SplitN(raw, "=", 2)[0]
+				if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("cannot override asc-managed argument %q", want)) {
+					t.Fatalf("ValidateBuildOptions() error = %v, want rejected operation %q", err, raw)
+				}
+			})
+		}
+	}
+}
+
 func TestBuildCommandUsesTypedOptionsAndPreservesRawArguments(t *testing.T) {
 	opts := BuildOptions{
 		WorkspacePath:   "Demo App.xcworkspace",
