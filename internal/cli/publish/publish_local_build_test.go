@@ -369,7 +369,7 @@ func TestPublishTestFlightLocalBuildRetriesPostUploadBuildPropagationWithoutRepe
 	}
 }
 
-func TestPublishTestFlightLocalBuildReportsStructuredRecoveryResultAfterDistributionFailure(t *testing.T) {
+func TestPublishTestFlightLocalBuildReportsStructuredRecoveryResultAfterNotificationFailure(t *testing.T) {
 	restore := overridePublishCommandTestHooks(t)
 	defer restore()
 
@@ -485,7 +485,7 @@ func TestPublishTestFlightLocalBuildReportsStructuredRecoveryResultAfterDistribu
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode partial publish result: %v\nstdout=%s", err, stdout)
 	}
-	if result.Status != publishPartialStatus || result.FailureStage != publishFailureStageBetaDistribution {
+	if result.Status != publishPartialStatus || result.FailureStage != publishFailureStageNotification {
 		t.Fatalf("unexpected partial status: status=%q stage=%q", result.Status, result.FailureStage)
 	}
 	if result.BuildID != "build-123" || !result.Uploaded {
@@ -554,11 +554,21 @@ func TestPublishTestFlightUploadReportsStructuredRecoveryResultAfterBetaReviewFa
 			}
 			return publishCommandJSONResponse(http.StatusNoContent, "")
 		case 3:
+			if req.Method != http.MethodGet || req.URL.Path != "/v1/builds/build-123/buildBetaDetail" {
+				t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
+			}
+			return publishCommandJSONResponse(http.StatusOK, `{"data":{"type":"buildBetaDetails","id":"detail-1","attributes":{"autoNotifyEnabled":false}}}`)
+		case 4:
+			if req.Method != http.MethodPost || req.URL.Path != "/v1/buildBetaNotifications" {
+				t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
+			}
+			return publishCommandJSONResponse(http.StatusCreated, `{"data":{"type":"buildBetaNotifications","id":"notification-1"}}`)
+		case 5:
 			if req.Method != http.MethodGet || req.URL.Path != "/v1/builds/build-123/betaAppReviewSubmission" {
 				t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
 			}
 			return publishCommandJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
-		case 4:
+		case 6:
 			if req.Method != http.MethodPost || req.URL.Path != "/v1/betaAppReviewSubmissions" {
 				t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
 			}
@@ -577,6 +587,7 @@ func TestPublishTestFlightUploadReportsStructuredRecoveryResultAfterBetaReviewFa
 		"--version", "1.2.3",
 		"--build-number", "42",
 		"--group", "External",
+		"--notify",
 		"--submit",
 		"--confirm",
 		"--output", "json",
@@ -609,6 +620,89 @@ func TestPublishTestFlightUploadReportsStructuredRecoveryResultAfterBetaReviewFa
 	wantCompleted := []string{publishCompletedStageUpload, publishCompletedStageBetaDistribution}
 	if !slices.Equal(result.CompletedStages, wantCompleted) {
 		t.Fatalf("completed stages = %v, want %v", result.CompletedStages, wantCompleted)
+	}
+	if result.Notified == nil || !*result.Notified || result.NotificationAction != asc.BuildBetaGroupsNotificationActionManual {
+		t.Fatalf("notification result = notified:%v action:%q, want true/%q", result.Notified, result.NotificationAction, asc.BuildBetaGroupsNotificationActionManual)
+	}
+}
+
+func TestPublishTestFlightUploadReportsTerminalProcessingStateAfterWaitFailure(t *testing.T) {
+	restore := overridePublishCommandTestHooks(t)
+	defer restore()
+
+	getPublishASCClientFn = func(time.Duration) (*asc.Client, error) { return newPublishCommandTestClient(t), nil }
+	resolvePublishAppIDWithLookupFn = func(_ context.Context, _ *asc.Client, _ string) (string, error) {
+		return "app-123", nil
+	}
+	validatePublishIPAPathFn = func(string) (os.FileInfo, error) {
+		return newPublishTestFileInfo(t)
+	}
+	uploadBuildAndWaitForIDFn = func(_ context.Context, _ *asc.Client, _ string, _ string, _ os.FileInfo, version, buildNumber string, _ asc.Platform, _ time.Duration, _ time.Duration, _ bool) (*publishUploadResult, error) {
+		return &publishUploadResult{
+			Build: &asc.BuildResponse{Data: asc.Resource[asc.BuildAttributes]{
+				ID: "build-123",
+				Attributes: asc.BuildAttributes{
+					Version:         buildNumber,
+					ProcessingState: asc.BuildProcessingStateProcessing,
+				},
+			}},
+			Version:     version,
+			BuildNumber: buildNumber,
+		}, nil
+	}
+	waitForPublishBuildProcessingFn = func(context.Context, *asc.Client, string, time.Duration) (*asc.BuildResponse, error) {
+		return &asc.BuildResponse{Data: asc.Resource[asc.BuildAttributes]{
+			ID: "build-123",
+			Attributes: asc.BuildAttributes{
+				Version:         "42",
+				ProcessingState: asc.BuildProcessingStateFailed,
+			},
+		}}, errors.New("build processing failed: FAILED")
+	}
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	http.DefaultTransport = publishCommandRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/app-123/betaGroups" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+		return publishCommandJSONResponse(http.StatusOK, `{"data":[{"type":"betaGroups","id":"group-1","attributes":{"name":"External","isInternalGroup":false}}]}`)
+	})
+
+	cmd := PublishTestFlightCommand()
+	cmd.FlagSet.SetOutput(io.Discard)
+	if err := cmd.FlagSet.Parse([]string{
+		"--app", "app-123",
+		"--ipa", "Demo.ipa",
+		"--version", "1.2.3",
+		"--build-number", "42",
+		"--group", "External",
+		"--wait",
+		"--output", "json",
+	}); err != nil {
+		t.Fatalf("parse flags: %v", err)
+	}
+
+	var runErr error
+	stdout, _ := capturePublishCommandOutput(t, func() error {
+		runErr = cmd.Exec(context.Background(), nil)
+		return runErr
+	})
+	if runErr == nil || !strings.Contains(runErr.Error(), "build processing failed: FAILED") {
+		t.Fatalf("expected build processing failure, got %v", runErr)
+	}
+
+	var result asc.TestFlightPublishResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode partial publish result: %v\nstdout=%s", err, stdout)
+	}
+	if result.ProcessingState != asc.BuildProcessingStateFailed {
+		t.Fatalf("processingState = %q, want %q", result.ProcessingState, asc.BuildProcessingStateFailed)
+	}
+	if result.FailureStage != publishFailureStageBuildProcessing {
+		t.Fatalf("failureStage = %q, want %q", result.FailureStage, publishFailureStageBuildProcessing)
+	}
+	if !slices.Equal(result.CompletedStages, []string{publishCompletedStageUpload}) {
+		t.Fatalf("completedStages = %v, want [%s]", result.CompletedStages, publishCompletedStageUpload)
 	}
 }
 

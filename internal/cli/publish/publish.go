@@ -39,6 +39,7 @@ const (
 	publishFailureStageBuildProcessing    = "build_processing"
 	publishFailureStageTestNotes          = "test_notes"
 	publishFailureStageBetaDistribution   = "beta_group_distribution"
+	publishFailureStageNotification       = "notification"
 	publishFailureStageBetaReview         = "beta_review_submission"
 )
 
@@ -352,11 +353,13 @@ Examples:
 
 			if *wait || testNotesValue != "" || (*submit && !isPublishBuildProcessed(buildResp)) {
 				processedBuildResp, waitErr := waitForPublishBuildProcessingFn(requestCtx, client, buildResp.Data.ID, *pollInterval)
+				if processedBuildResp != nil && strings.TrimSpace(processedBuildResp.Data.ID) == strings.TrimSpace(buildResp.Data.ID) {
+					buildResp = processedBuildResp
+					result.ProcessingState = buildResp.Data.Attributes.ProcessingState
+				}
 				if waitErr != nil {
 					return reportPartialFailure(publishFailureStageBuildProcessing, fmt.Errorf("publish testflight: %w", waitErr))
 				}
-				buildResp = processedBuildResp
-				result.ProcessingState = buildResp.Data.Attributes.ProcessingState
 				completedStages = append(completedStages, publishCompletedStageBuildProcessing)
 			}
 
@@ -380,13 +383,23 @@ Examples:
 				addResult, err = shared.AddBuildBetaGroups(requestCtx, client, buildResp.Data.ID, resolvedGroups, addOptions)
 			}
 			if err != nil {
+				failureStage := publishFailureStageBetaDistribution
 				var partialErr *asc.BuildBetaGroupsPartialError
 				if errors.As(err, &partialErr) {
 					completedStages = append(completedStages, publishCompletedStageBetaDistribution)
+					failureStage = publishFailureStageNotification
 				}
-				return reportPartialFailure(publishFailureStageBetaDistribution, wrapPublishTestFlightAddGroupsError(err))
+				return reportPartialFailure(failureStage, wrapPublishTestFlightAddGroupsError(err))
 			}
 			completedStages = append(completedStages, publishCompletedStageBetaDistribution)
+
+			var notified *bool
+			if *notify {
+				value := addResult.NotificationAction == asc.BuildBetaGroupsNotificationActionManual
+				notified = &value
+			}
+			result.Notified = notified
+			result.NotificationAction = addResult.NotificationAction
 
 			submissionResult, err := shared.SubmitBuildBetaReviewIfNeeded(requestCtx, client, buildResp.Data.ID, resolvedGroups, addResult.AddedGroupIDs, *submit, "publish testflight")
 			if err != nil {
@@ -396,11 +409,6 @@ Examples:
 				fmt.Fprintln(os.Stderr, submissionResult.Message)
 			}
 
-			var notified *bool
-			if *notify {
-				value := addResult.NotificationAction == asc.BuildBetaGroupsNotificationActionManual
-				notified = &value
-			}
 			var betaReviewSubmitted *bool
 			if *submit {
 				value := submissionResult.Submitted
@@ -416,8 +424,6 @@ Examples:
 				)
 			}
 
-			result.Notified = notified
-			result.NotificationAction = addResult.NotificationAction
 			result.BetaReviewSubmitted = betaReviewSubmitted
 			result.BetaReviewSubmissionID = submissionResult.SubmissionID
 			attachTestFlightLocalPublishResult(result, localBuildResult)
