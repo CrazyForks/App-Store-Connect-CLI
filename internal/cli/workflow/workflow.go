@@ -253,7 +253,7 @@ Examples:
 func workflowValidateCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("workflow validate", flag.ExitOnError)
 	filePath := fs.String("file", wf.DefaultPath, "Path to workflow.json")
-	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
+	output := shared.BindOutputFlagsWithAllowed(fs, "output", "json", "Output format: json", "json")
 
 	return &ffcli.Command{
 		Name:       "validate",
@@ -264,7 +264,8 @@ This checks schema and wiring only; it does not assess shell-command safety.
 
 Examples:
   asc workflow validate
-  asc workflow validate --file ./.asc/workflow.json`,
+  asc workflow validate --output json
+  asc workflow validate --file ./.asc/workflow.json --output json --pretty`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(_ context.Context, args []string) error {
@@ -293,7 +294,7 @@ Examples:
 				Errors: errs,
 			}
 
-			if printErr := printJSON(os.Stdout, result, *pretty); printErr != nil {
+			if printErr := shared.PrintOutput(result, *output.Output, *output.Pretty); printErr != nil {
 				return printErr
 			}
 
