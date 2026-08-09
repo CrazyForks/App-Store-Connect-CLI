@@ -10,11 +10,23 @@ import (
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	routingcoveragecli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/routingcoverage"
 )
+
+const validReleaseRoutingCoverageGeoJSON = `{"type":"MultiPolygon","coordinates":[[[[77.5,12.9],[77.7,12.9],[77.7,13.1],[77.5,12.9]]]]}`
+
+func prepareReleaseRoutingCoverage(t *testing.T, path string) routingcoveragecli.PreparedRoutingCoverageFile {
+	t.Helper()
+	prepared, err := routingcoveragecli.PrepareRoutingCoverageFile(path)
+	if err != nil {
+		t.Fatalf("PrepareRoutingCoverageFile() error: %v", err)
+	}
+	return prepared
+}
 
 func TestApplyRoutingCoverageStepReusesMatchingCompleteAsset(t *testing.T) {
 	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
-	if err := os.WriteFile(coveragePath, []byte(`{"type":"MultiPolygon","coordinates":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
 		t.Fatalf("write routing coverage fixture: %v", err)
 	}
 	checksum, err := asc.ComputeFileChecksum(coveragePath, asc.ChecksumAlgorithmMD5)
@@ -31,7 +43,7 @@ func TestApplyRoutingCoverageStepReusesMatchingCompleteAsset(t *testing.T) {
 	})
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	outcome, err := applyRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", coveragePath, false)
+	outcome, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepareReleaseRoutingCoverage(t, coveragePath), false)
 	if err != nil {
 		t.Fatalf("applyRoutingCoverageStep() error: %v", err)
 	}
@@ -46,7 +58,7 @@ func TestApplyRoutingCoverageStepReusesMatchingCompleteAsset(t *testing.T) {
 
 func TestApplyRoutingCoverageStepDryRunPlansReplacementWithoutMutation(t *testing.T) {
 	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
-	if err := os.WriteFile(coveragePath, []byte(`{"type":"MultiPolygon","coordinates":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
 		t.Fatalf("write routing coverage fixture: %v", err)
 	}
 
@@ -59,7 +71,7 @@ func TestApplyRoutingCoverageStepDryRunPlansReplacementWithoutMutation(t *testin
 	})
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	outcome, err := applyRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", coveragePath, true)
+	outcome, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepareReleaseRoutingCoverage(t, coveragePath), true)
 	if err != nil {
 		t.Fatalf("applyRoutingCoverageStep() error: %v", err)
 	}
@@ -74,7 +86,7 @@ func TestApplyRoutingCoverageStepDryRunPlansReplacementWithoutMutation(t *testin
 
 func TestApplyRoutingCoverageStepTreatsNullRelationshipAsMissing(t *testing.T) {
 	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
-	if err := os.WriteFile(coveragePath, []byte(`{"type":"MultiPolygon","coordinates":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
 		t.Fatalf("write routing coverage fixture: %v", err)
 	}
 
@@ -87,13 +99,45 @@ func TestApplyRoutingCoverageStepTreatsNullRelationshipAsMissing(t *testing.T) {
 	})
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 
-	outcome, err := applyRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", coveragePath, true)
+	outcome, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepareReleaseRoutingCoverage(t, coveragePath), true)
 	if err != nil {
 		t.Fatalf("applyRoutingCoverageStep() error: %v", err)
 	}
 	details, ok := outcome.Details.(routingCoverageStepDetails)
 	if !ok || details.Action != "create" || details.CoverageID != "" {
 		t.Fatalf("unexpected null-relationship plan: %#v", outcome.Details)
+	}
+}
+
+func TestApplyRoutingCoverageStepCleansFailedReservation(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+
+	originalTransport := http.DefaultTransport
+	deleted := false
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/routingAppCoverage":
+			return releaseJSONResponse(http.StatusOK, `{"data":null}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/routingAppCoverages":
+			return releaseJSONResponse(http.StatusCreated, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_NEW","attributes":{"uploadOperations":[]}}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_NEW":
+			deleted = true
+			return releaseJSONResponse(http.StatusNoContent, "")
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	_, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepareReleaseRoutingCoverage(t, coveragePath), false)
+	if err == nil || !strings.Contains(err.Error(), "no upload operations returned") {
+		t.Fatalf("applyRoutingCoverageStep() error = %v, want missing upload operations", err)
+	}
+	if !deleted {
+		t.Fatal("expected failed routing coverage reservation to be deleted")
 	}
 }
 

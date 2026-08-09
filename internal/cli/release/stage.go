@@ -9,6 +9,7 @@ import (
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 
+	routingcoveragecli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/routingcoverage"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
@@ -110,11 +111,14 @@ Examples:
 			}
 
 			trimmedRoutingCoverageFile := strings.TrimSpace(*routingCoverageFile)
+			var preparedRoutingCoverageFile *routingcoveragecli.PreparedRoutingCoverageFile
 			if trimmedRoutingCoverageFile != "" {
-				trimmedRoutingCoverageFile, err = filepath.Abs(trimmedRoutingCoverageFile)
-				if err != nil {
-					return fmt.Errorf("release stage: resolve routing coverage path: %w", err)
+				prepared, prepareErr := routingcoveragecli.PrepareRoutingCoverageFile(trimmedRoutingCoverageFile)
+				if prepareErr != nil {
+					return shared.UsageError(fmt.Sprintf("--routing-coverage-file is not usable: %v", prepareErr))
 				}
+				trimmedRoutingCoverageFile = prepared.Path
+				preparedRoutingCoverageFile = &prepared
 			}
 
 			checkpointPath := strings.TrimSpace(*checkpointFile)
@@ -127,19 +131,20 @@ Examples:
 			}
 
 			result, runErr := executeStage(ctx, runOptions{
-				AppID:               resolvedAppID,
-				Version:             trimmedVersion,
-				BuildID:             trimmedBuildID,
-				MetadataDir:         trimmedMetadataDir,
-				CopyMetadataFrom:    trimmedCopyMetadataFrom,
-				SelectedCopyFields:  selectedCopyFields,
-				RoutingCoverageFile: trimmedRoutingCoverageFile,
-				Platform:            normalizedPlatform,
-				Timeout:             *timeout,
-				DryRun:              *dryRun,
-				Confirm:             *confirm,
-				StrictValidate:      *strictValidate,
-				CheckpointFile:      absCheckpointPath,
+				AppID:                       resolvedAppID,
+				Version:                     trimmedVersion,
+				BuildID:                     trimmedBuildID,
+				MetadataDir:                 trimmedMetadataDir,
+				CopyMetadataFrom:            trimmedCopyMetadataFrom,
+				SelectedCopyFields:          selectedCopyFields,
+				RoutingCoverageFile:         trimmedRoutingCoverageFile,
+				PreparedRoutingCoverageFile: preparedRoutingCoverageFile,
+				Platform:                    normalizedPlatform,
+				Timeout:                     *timeout,
+				DryRun:                      *dryRun,
+				Confirm:                     *confirm,
+				StrictValidate:              *strictValidate,
+				CheckpointFile:              absCheckpointPath,
 			})
 			if printErr := shared.PrintOutput(result, *output.Output, *output.Pretty); printErr != nil {
 				return printErr

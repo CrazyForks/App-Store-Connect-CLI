@@ -2,13 +2,16 @@ package routingcoverage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 // PreparedRoutingCoverageFile is a validated routing coverage upload source.
@@ -17,44 +20,185 @@ type PreparedRoutingCoverageFile struct {
 	FileName string
 	FileSize int64
 	Checksum string
+
+	rootPath     string
+	relativePath string
+}
+
+type routingCoverageGeoJSON struct {
+	Type        string          `json:"type"`
+	Coordinates [][][][]float64 `json:"coordinates"`
 }
 
 // PrepareRoutingCoverageFile validates and fingerprints a routing coverage file.
 func PrepareRoutingCoverageFile(path string) (PreparedRoutingCoverageFile, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return PreparedRoutingCoverageFile{}, fmt.Errorf("file is required")
-	}
-	info, err := os.Lstat(path)
+	rootPath, relativePath, absolutePath, err := resolveRoutingCoverageSource(path)
 	if err != nil {
 		return PreparedRoutingCoverageFile{}, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return PreparedRoutingCoverageFile{}, fmt.Errorf("refusing to read symlink %q", path)
+	root, err := rootfs.New(rootPath)
+	if err != nil {
+		return PreparedRoutingCoverageFile{}, err
 	}
-	if !info.Mode().IsRegular() {
-		return PreparedRoutingCoverageFile{}, fmt.Errorf("expected regular file: %q", path)
+	file, err := root.OpenFile(relativePath)
+	if err != nil {
+		return PreparedRoutingCoverageFile{}, err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return PreparedRoutingCoverageFile{}, fmt.Errorf("stat file: %w", err)
 	}
 	if info.Size() <= 0 {
 		return PreparedRoutingCoverageFile{}, fmt.Errorf("file size must be greater than 0")
 	}
+	if err := validateRoutingCoverageGeoJSON(io.NewSectionReader(file, 0, info.Size())); err != nil {
+		return PreparedRoutingCoverageFile{}, fmt.Errorf("invalid routing coverage GeoJSON: %w", err)
+	}
 
-	checksum, err := asc.ComputeFileChecksum(path, asc.ChecksumAlgorithmMD5)
+	checksum, err := asc.ComputeChecksumFromReader(io.NewSectionReader(file, 0, info.Size()), asc.ChecksumAlgorithmMD5)
 	if err != nil {
 		return PreparedRoutingCoverageFile{}, fmt.Errorf("checksum failed: %w", err)
 	}
 	return PreparedRoutingCoverageFile{
-		Path:     filepath.Clean(path),
-		FileName: filepath.Base(path),
-		FileSize: info.Size(),
-		Checksum: checksum.Hash,
+		Path:         absolutePath,
+		FileName:     filepath.Base(absolutePath),
+		FileSize:     info.Size(),
+		Checksum:     checksum.Hash,
+		rootPath:     root.Path(),
+		relativePath: relativePath,
 	}, nil
+}
+
+func resolveRoutingCoverageSource(path string) (string, string, string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", "", "", fmt.Errorf("file is required")
+	}
+
+	if filepath.IsAbs(path) {
+		absolutePath := filepath.Clean(path)
+		rootPath := filepath.Dir(absolutePath)
+		return rootPath, filepath.Base(absolutePath), absolutePath, nil
+	}
+
+	rootPath, err := os.Getwd()
+	if err != nil {
+		return "", "", "", fmt.Errorf("resolve current directory: %w", err)
+	}
+	root, err := rootfs.New(rootPath)
+	if err != nil {
+		return "", "", "", err
+	}
+	relativePath := filepath.Clean(path)
+	absolutePath, err := root.Resolve(relativePath)
+	if err != nil {
+		return "", "", "", err
+	}
+	return root.Path(), relativePath, absolutePath, nil
+}
+
+func validateRoutingCoverageGeoJSON(reader io.Reader) error {
+	decoder := json.NewDecoder(reader)
+	var document routingCoverageGeoJSON
+	if err := decoder.Decode(&document); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("invalid JSON: multiple top-level values")
+		}
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	if document.Type != "MultiPolygon" {
+		return fmt.Errorf("top-level type must be MultiPolygon")
+	}
+	if len(document.Coordinates) == 0 {
+		return fmt.Errorf("MultiPolygon must contain at least one Polygon")
+	}
+	for polygonIndex, polygon := range document.Coordinates {
+		if len(polygon) == 0 {
+			return fmt.Errorf("polygon %d must contain at least one linear ring", polygonIndex)
+		}
+		for ringIndex, ring := range polygon {
+			if len(ring) < 4 {
+				return fmt.Errorf("polygon %d ring %d must contain at least four coordinate points", polygonIndex, ringIndex)
+			}
+			for pointIndex, point := range ring {
+				if len(point) < 2 {
+					return fmt.Errorf("polygon %d ring %d point %d must contain longitude and latitude", polygonIndex, ringIndex, pointIndex)
+				}
+			}
+			if !equalCoordinates(ring[0], ring[len(ring)-1]) {
+				return fmt.Errorf("polygon %d ring %d start and end coordinate points must be the same", polygonIndex, ringIndex)
+			}
+		}
+	}
+	return nil
+}
+
+func equalCoordinates(left, right []float64) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (file PreparedRoutingCoverageFile) openSource() (*os.File, error) {
+	rootPath := file.rootPath
+	relativePath := file.relativePath
+	if rootPath == "" || relativePath == "" {
+		var err error
+		rootPath, relativePath, _, err = resolveRoutingCoverageSource(file.Path)
+		if err != nil {
+			return nil, err
+		}
+	}
+	root, err := rootfs.New(rootPath)
+	if err != nil {
+		return nil, err
+	}
+	return root.OpenFile(relativePath)
+}
+
+func checksumOpenedFile(file *os.File, size int64) (*asc.Checksum, error) {
+	return asc.ComputeChecksumFromReader(io.NewSectionReader(file, 0, size), asc.ChecksumAlgorithmMD5)
 }
 
 // UploadPreparedRoutingCoverageFile creates, uploads, and commits routing coverage.
 func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, versionID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
 	if client == nil {
 		return nil, fmt.Errorf("client is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	source, err := file.openSource()
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
+	}
+	defer source.Close()
+	info, err := source.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+	if info.Size() != file.FileSize {
+		return nil, fmt.Errorf("file changed after validation: %q", file.Path)
+	}
+	currentChecksum, err := checksumOpenedFile(source, info.Size())
+	if err != nil {
+		return nil, fmt.Errorf("checksum failed: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(currentChecksum.Hash), strings.TrimSpace(file.Checksum)) {
+		return nil, fmt.Errorf("file changed after validation: %q", file.Path)
 	}
 
 	requestCtx, cancel := shared.ContextWithTimeout(ctx)
@@ -63,26 +207,46 @@ func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create: %w", err)
 	}
-	if response == nil || len(response.Data.Attributes.UploadOperations) == 0 {
-		return nil, fmt.Errorf("no upload operations returned")
+	if response == nil {
+		return nil, fmt.Errorf("created routing coverage response is empty")
 	}
-	if strings.TrimSpace(response.Data.ID) == "" {
+	coverageID := strings.TrimSpace(response.Data.ID)
+	if coverageID == "" {
 		return nil, fmt.Errorf("created routing coverage response is missing an ID")
+	}
+	cleanupFailure := func(original error) error {
+		cleanupCtx, cleanupCancel := shared.ContextWithTimeout(context.WithoutCancel(ctx))
+		cleanupErr := client.DeleteRoutingAppCoverage(cleanupCtx, coverageID)
+		cleanupCancel()
+		if cleanupErr != nil && !asc.IsNotFound(cleanupErr) {
+			return fmt.Errorf("%w (also failed to delete routing coverage reservation %s: %w)", original, coverageID, cleanupErr)
+		}
+		return original
+	}
+	if len(response.Data.Attributes.UploadOperations) == 0 {
+		return nil, cleanupFailure(fmt.Errorf("no upload operations returned"))
 	}
 
 	uploadCtx, uploadCancel := shared.ContextWithUploadTimeout(ctx)
-	err = asc.ExecuteUploadOperations(uploadCtx, file.Path, response.Data.Attributes.UploadOperations)
+	err = asc.ExecuteUploadOperationsFromFile(uploadCtx, source, response.Data.Attributes.UploadOperations)
 	uploadCancel()
 	if err != nil {
-		return nil, fmt.Errorf("upload failed: %w", err)
+		return nil, cleanupFailure(fmt.Errorf("upload failed: %w", err))
 	}
 
-	uploadedChecksum, err := asc.ComputeFileChecksum(file.Path, asc.ChecksumAlgorithmMD5)
+	uploadedInfo, err := source.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("checksum failed: %w", err)
+		return nil, cleanupFailure(fmt.Errorf("stat file: %w", err))
+	}
+	if uploadedInfo.Size() != file.FileSize {
+		return nil, cleanupFailure(fmt.Errorf("file changed during upload: %q", file.Path))
+	}
+	uploadedChecksum, err := checksumOpenedFile(source, uploadedInfo.Size())
+	if err != nil {
+		return nil, cleanupFailure(fmt.Errorf("checksum failed: %w", err))
 	}
 	if !strings.EqualFold(strings.TrimSpace(uploadedChecksum.Hash), strings.TrimSpace(file.Checksum)) {
-		return nil, fmt.Errorf("file changed during upload: %q", file.Path)
+		return nil, cleanupFailure(fmt.Errorf("file changed during upload: %q", file.Path))
 	}
 
 	uploaded := true
@@ -91,13 +255,13 @@ func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, 
 		Uploaded:           &uploaded,
 	}
 	commitCtx, commitCancel := shared.ContextWithUploadTimeout(ctx)
-	committed, err := client.UpdateRoutingAppCoverage(commitCtx, response.Data.ID, attributes)
+	committed, err := client.UpdateRoutingAppCoverage(commitCtx, coverageID, attributes)
 	commitCancel()
 	if err != nil {
-		return nil, fmt.Errorf("failed to commit upload: %w", err)
+		return nil, cleanupFailure(fmt.Errorf("failed to commit upload: %w", err))
 	}
 	if committed == nil || strings.TrimSpace(committed.Data.ID) == "" {
-		return nil, fmt.Errorf("committed routing coverage response is missing an ID")
+		return nil, cleanupFailure(fmt.Errorf("committed routing coverage response is missing an ID"))
 	}
 	return committed, nil
 }

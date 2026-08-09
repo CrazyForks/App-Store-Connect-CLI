@@ -12,6 +12,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/metadata"
+	routingcoveragecli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/routingcoverage"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 	submitcli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/submit"
 	validatecli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/validate"
@@ -41,21 +42,22 @@ var (
 type metadataCopyOptions = shared.VersionMetadataCopyOptions
 
 type runOptions struct {
-	AppID               string
-	Version             string
-	BuildID             string
-	MetadataDir         string
-	CopyMetadataFrom    string
-	SelectedCopyFields  []string
-	RoutingCoverageFile string
-	Platform            string
-	Timeout             time.Duration
-	DryRun              bool
-	Confirm             bool
-	StrictValidate      bool
-	CheckpointFile      string
-	Mode                string
-	SubmitForReview     bool
+	AppID                       string
+	Version                     string
+	BuildID                     string
+	MetadataDir                 string
+	CopyMetadataFrom            string
+	SelectedCopyFields          []string
+	RoutingCoverageFile         string
+	PreparedRoutingCoverageFile *routingcoveragecli.PreparedRoutingCoverageFile
+	Platform                    string
+	Timeout                     time.Duration
+	DryRun                      bool
+	Confirm                     bool
+	StrictValidate              bool
+	CheckpointFile              string
+	Mode                        string
+	SubmitForReview             bool
 }
 
 type stepResult struct {
@@ -148,6 +150,19 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 	}
 	if opts.DryRun {
 		result.Status = "dry-run"
+	}
+	if strings.TrimSpace(opts.RoutingCoverageFile) != "" {
+		if opts.PreparedRoutingCoverageFile == nil {
+			prepared, err := routingcoveragecli.PrepareRoutingCoverageFile(opts.RoutingCoverageFile)
+			if err != nil {
+				result.Status = "error"
+				result.Error = err.Error()
+				return result, err
+			}
+			opts.PreparedRoutingCoverageFile = &prepared
+		}
+		opts.RoutingCoverageFile = opts.PreparedRoutingCoverageFile.Path
+		result.RoutingCoverageFile = opts.RoutingCoverageFile
 	}
 
 	checkpoint := runCheckpoint{
@@ -456,7 +471,7 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 
 	if strings.TrimSpace(opts.RoutingCoverageFile) != "" {
 		if err := runStep(stepApplyRoutingCoverage, "Fix the routing coverage file or remove --routing-coverage-file and rerun.", func() (stepOutcome, error) {
-			outcome, err := applyRoutingCoverageStep(requestCtx, client, versionID, opts.RoutingCoverageFile, opts.DryRun)
+			outcome, err := applyPreparedRoutingCoverageStep(requestCtx, client, versionID, *opts.PreparedRoutingCoverageFile, opts.DryRun)
 			if err != nil {
 				return outcome, fmt.Errorf("apply routing coverage: %w", err)
 			}

@@ -129,6 +129,47 @@ func TestReleaseStageCommandExposesRoutingCoverageFile(t *testing.T) {
 	}
 }
 
+func TestReleaseStageCommandValidatesRoutingCoverageBeforePipeline(t *testing.T) {
+	originalClientFactory := releaseClientFactory
+	t.Cleanup(func() { releaseClientFactory = originalClientFactory })
+	clientCalled := false
+	releaseClientFactory = func() (*asc.Client, error) {
+		clientCalled = true
+		return nil, errors.New("client must not be created")
+	}
+
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(`{"type":"MultiPolygon","coordinates":`), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+
+	cmd := ReleaseStageCommand()
+	if err := cmd.FlagSet.Parse([]string{
+		"--app", "APP_123",
+		"--version", "2.4.0",
+		"--build", "BUILD_123",
+		"--copy-metadata-from", "2.3.2",
+		"--routing-coverage-file", coveragePath,
+		"--dry-run",
+	}); err != nil {
+		t.Fatalf("parse flags: %v", err)
+	}
+
+	var execErr error
+	stderr := captureReleaseStderr(t, func() {
+		execErr = cmd.Exec(context.Background(), nil)
+	})
+	if !errors.Is(execErr, flag.ErrHelp) {
+		t.Fatalf("expected usage error, got %v", execErr)
+	}
+	if !strings.Contains(stderr, "--routing-coverage-file is not usable") || !strings.Contains(stderr, "invalid JSON") {
+		t.Fatalf("unexpected stderr: %q", stderr)
+	}
+	if clientCalled {
+		t.Fatal("release pipeline started before routing coverage validation")
+	}
+}
+
 func TestDefaultCheckpointPathSanitizesValues(t *testing.T) {
 	path := defaultCheckpointPath("app/123", "1.2.3-beta", "build#12", "IOS")
 	want := filepath.Join(".asc", "release", "checkpoints", "app_123_1.2.3-beta_build_12_IOS.json")
@@ -523,7 +564,7 @@ func TestExecuteStageAppliesRoutingCoverageBeforeReadiness(t *testing.T) {
 	})
 
 	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
-	if err := os.WriteFile(coveragePath, []byte(`{"type":"MultiPolygon","coordinates":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
 		t.Fatalf("write routing coverage fixture: %v", err)
 	}
 
@@ -552,7 +593,7 @@ func TestExecuteStageAppliesRoutingCoverageBeforeReadiness(t *testing.T) {
 			if !oldCoverageDeleted {
 				t.Fatal("new routing coverage was created before the old asset was deleted")
 			}
-			return releaseJSONResponse(http.StatusCreated, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_123","attributes":{"uploadOperations":[{"method":"PUT","url":"https://upload.example/coverage","length":40,"offset":0}]}}}`)
+			return releaseJSONResponse(http.StatusCreated, fmt.Sprintf(`{"data":{"type":"routingAppCoverages","id":"COVERAGE_123","attributes":{"uploadOperations":[{"method":"PUT","url":"https://upload.example/coverage","length":%d,"offset":0}]}}}`, len(validReleaseRoutingCoverageGeoJSON)))
 		case req.Method == http.MethodPut && req.URL.Host == "upload.example":
 			return releaseJSONResponse(http.StatusOK, `{}`)
 		case req.Method == http.MethodPatch && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_123":

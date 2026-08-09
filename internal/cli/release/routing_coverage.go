@@ -20,11 +20,7 @@ type routingCoverageStepDetails struct {
 	DeliveryState string `json:"deliveryState,omitempty"`
 }
 
-func applyRoutingCoverageStep(ctx context.Context, client *asc.Client, versionID, filePath string, dryRun bool) (stepOutcome, error) {
-	prepared, err := routingcoveragecli.PrepareRoutingCoverageFile(filePath)
-	if err != nil {
-		return stepOutcome{}, err
-	}
+func applyPreparedRoutingCoverageStep(ctx context.Context, client *asc.Client, versionID string, prepared routingcoveragecli.PreparedRoutingCoverageFile, dryRun bool) (stepOutcome, error) {
 	if strings.TrimSpace(versionID) == "" {
 		if dryRun {
 			return stepOutcome{
