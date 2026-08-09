@@ -230,7 +230,7 @@ func TestBuildsNextBuildNumberExplainsUnavailableUploadHistory(t *testing.T) {
 			for _, want := range []string{
 				`build upload history is unavailable for app "100000001"`,
 				"refusing to guess because an in-flight upload may already use the next number",
-				`asc builds uploads list --app "100000001"`,
+				`asc builds uploads list --app "100000001" --paginate`,
 			} {
 				if !strings.Contains(runErr.Error(), want) {
 					t.Fatalf("expected error to contain %q, got %v", want, runErr)

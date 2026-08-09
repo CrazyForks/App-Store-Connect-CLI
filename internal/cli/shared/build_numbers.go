@@ -545,7 +545,7 @@ func buildUploadHistoryError(appID, operation string, err error) error {
 	}
 
 	return fmt.Errorf(
-		"build upload history is unavailable for app %q; refusing to guess because an in-flight upload may already use the next number. Verify access with asc builds uploads list --app %q: %w",
+		"build upload history is unavailable for app %q; refusing to guess because an in-flight upload may already use the next number. Verify access with asc builds uploads list --app %q --paginate: %w",
 		appID,
 		appID,
 		err,
