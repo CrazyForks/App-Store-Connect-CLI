@@ -161,6 +161,7 @@ func registerAllOutputRenderers() {
 	registerRowsWithSingleResourceAdapter(appPreviewSetsRows)
 	registerRowsWithSingleResourceAdapter(appPreviewsRows)
 	registerRowsWithSingleResourceAdapter(betaGroupsRows)
+	registerRows(buildBetaGroupMembershipRows)
 	registerRowsWithSingleResourceAdapter(betaTestersRows)
 	registerRowsWithSingleResourceAdapter(usersRows)
 	registerRowsWithSingleResourceAdapter(actorsRows)

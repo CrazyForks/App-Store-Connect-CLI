@@ -18,10 +18,38 @@ Create and manage internal or external beta groups:
 
 ```bash  theme={null}
 asc testflight groups list --app APP_ID
+asc testflight groups list --build-id BUILD_ID
 asc testflight groups create --app APP_ID --name "Beta Testers"
 asc testflight groups create --app APP_ID --name "Internal Testers" --internal
 asc testflight groups view --id GROUP_ID
 ```
+
+### Find the groups that contain a build
+
+Use an App Store Connect build ID to list explicit group membership and implicit
+access from groups configured for all builds:
+
+```bash  theme={null}
+asc testflight groups list --build-id BUILD_ID --output table
+asc testflight groups list --build-id BUILD_ID --output json
+```
+
+The result includes stable group IDs, names, `internal` or `external` type,
+`hasAccessToAllBuilds`, and a membership value of `explicit`, `all-builds`, or
+`explicit-and-all-builds`. A complete lookup with no matches exits `0` and
+returns an empty `groups` array.
+
+App Store Connect has no `GET /v1/builds/{id}/relationships/betaGroups`.
+The command resolves the build's app and prefers Apple's documented
+`filter[builds]` beta-group collection filter. It automatically paginates every
+required collection. Because Apple can omit an explicit relationship for a
+group that also has all-build access, any such group omitted by the filter is
+verified through `GET /v1/betaGroups/{id}/relationships/builds`. If Apple rejects
+the collection filter, the command transparently falls back to the same inverse
+relationship for every group. It downloads relationship IDs rather than full
+build resources, but can require one or more requests per checked group and
+build page. A partial lookup prints the matches and per-group failures with
+`complete: false`, then exits nonzero.
 
 ### Testers
 

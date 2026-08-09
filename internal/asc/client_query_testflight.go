@@ -62,6 +62,9 @@ type betaTesterUsagesQuery struct {
 type betaGroupsQuery struct {
 	listQuery
 	isInternalGroup *bool
+	appIDs          []string
+	buildIDs        []string
+	fields          []string
 }
 
 type betaGroupBuildsQuery struct {
@@ -172,6 +175,9 @@ func buildCrashQuery(query *crashQuery) string {
 
 func buildBetaGroupsQuery(query *betaGroupsQuery) string {
 	values := url.Values{}
+	addCSV(values, "filter[app]", query.appIDs)
+	addCSV(values, "filter[builds]", query.buildIDs)
+	addCSV(values, "fields[betaGroups]", query.fields)
 	addLimit(values, query.limit)
 	if query.isInternalGroup != nil {
 		values.Set("filter[isInternalGroup]", strconv.FormatBool(*query.isInternalGroup))
@@ -544,6 +550,27 @@ func WithBetaGroupsNextURL(next string) BetaGroupsOption {
 func WithBetaGroupsIsInternal(isInternal bool) BetaGroupsOption {
 	return func(q *betaGroupsQuery) {
 		q.isInternalGroup = &isInternal
+	}
+}
+
+// WithBetaGroupsApps filters beta groups by related app IDs.
+func WithBetaGroupsApps(appIDs []string) BetaGroupsOption {
+	return func(q *betaGroupsQuery) {
+		q.appIDs = normalizeList(appIDs)
+	}
+}
+
+// WithBetaGroupsBuilds filters beta groups by related build IDs.
+func WithBetaGroupsBuilds(buildIDs []string) BetaGroupsOption {
+	return func(q *betaGroupsQuery) {
+		q.buildIDs = normalizeList(buildIDs)
+	}
+}
+
+// WithBetaGroupsFields selects a sparse beta group fieldset.
+func WithBetaGroupsFields(fields []string) BetaGroupsOption {
+	return func(q *betaGroupsQuery) {
+		q.fields = normalizeList(fields)
 	}
 }
 
