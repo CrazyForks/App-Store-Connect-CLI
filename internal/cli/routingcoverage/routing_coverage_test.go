@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
@@ -40,6 +42,37 @@ func TestPrepareRoutingCoverageFileValidatesGeoJSON(t *testing.T) {
 				t.Fatalf("PrepareRoutingCoverageFile() error = %v, want substring %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestPrepareRoutingCoverageFileFingerprintsValidatedSnapshot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "coverage.geojson")
+	originalContent := validRoutingCoverageGeoJSON
+	changedContent := strings.Replace(originalContent, "MultiPolygon", "InvalidShape", 1)
+	if len(changedContent) != len(originalContent) {
+		t.Fatalf("fixture sizes differ: changed=%d original=%d", len(changedContent), len(originalContent))
+	}
+	if err := os.WriteFile(path, []byte(originalContent), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	t.Chdir(root)
+
+	prepared, err := prepareRoutingCoverageFile(path, func(reader io.Reader, algorithm asc.ChecksumAlgorithm) (*asc.Checksum, error) {
+		if err := os.WriteFile(path, []byte(changedContent), 0o600); err != nil {
+			return nil, err
+		}
+		return asc.ComputeChecksumFromReader(reader, algorithm)
+	})
+	if err != nil {
+		t.Fatalf("PrepareRoutingCoverageFile() error: %v", err)
+	}
+	expected, err := asc.ComputeChecksumFromReader(strings.NewReader(originalContent), asc.ChecksumAlgorithmMD5)
+	if err != nil {
+		t.Fatalf("compute expected checksum: %v", err)
+	}
+	if prepared.Checksum != expected.Hash {
+		t.Fatalf("prepared checksum = %q, want validated snapshot checksum %q", prepared.Checksum, expected.Hash)
 	}
 }
 

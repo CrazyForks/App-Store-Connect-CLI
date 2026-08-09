@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +71,53 @@ func captureReleaseStderr(t *testing.T, fn func()) string {
 
 func newReleaseTestClient(t *testing.T) *asc.Client {
 	t.Helper()
+	pemBytes := newReleaseTestPrivateKeyPEM(t)
+
+	client, err := asc.NewClientFromPEM("KEY_ID", "ISSUER_ID", string(pemBytes))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	return client
+}
+
+func newReleaseTestServerClient(t *testing.T, handler http.Handler) (*asc.Client, string) {
+	t.Helper()
+
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	serverTransport := server.Client().Transport
+	httpClient := &http.Client{Transport: releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = target.Scheme
+		cloned.URL.Host = target.Host
+		cloned.Host = target.Host
+		return serverTransport.RoundTrip(cloned)
+	})}
+
+	pemBytes := newReleaseTestPrivateKeyPEM(t)
+	keyPath := filepath.Join(t.TempDir(), "AuthKey_TEST.p8")
+	if err := os.WriteFile(keyPath, pemBytes, 0o600); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+	client, err := asc.NewClientWithHTTPClient("KEY_ID", "ISSUER_ID", keyPath, httpClient)
+	if err != nil {
+		t.Fatalf("new client with test server: %v", err)
+	}
+	return client, server.URL
+}
+
+func writeReleaseTestJSON(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, body)
+}
+
+func newReleaseTestPrivateKeyPEM(t *testing.T) []byte {
+	t.Helper()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -82,12 +131,7 @@ func newReleaseTestClient(t *testing.T) *asc.Client {
 	if pemBytes == nil {
 		t.Fatal("encode pem: nil")
 	}
-
-	client, err := asc.NewClientFromPEM("KEY_ID", "ISSUER_ID", string(pemBytes))
-	if err != nil {
-		t.Fatalf("new client: %v", err)
-	}
-	return client
+	return pemBytes
 }
 
 func TestReleaseCommandShape(t *testing.T) {
