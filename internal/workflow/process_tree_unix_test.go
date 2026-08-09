@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func TestRun_TimeoutTerminatesProcessTree(t *testing.T) {
+func TestRun_CancellationTerminatesProcessTree(t *testing.T) {
 	dir := t.TempDir()
 	pidPath := dir + "/child.pid"
 	def, _ := loadWorkflowForRetryTest(t, fmt.Sprintf(`{
@@ -23,16 +23,41 @@ func TestRun_TimeoutTerminatesProcessTree(t *testing.T) {
 			"main": {"steps": [{
 				"name": "tree",
 				"run": "sleep 10 & child=$!; printf '%%s' \"$child\" > \"$PID_PATH\"; wait \"$child\"",
-				"timeout": "50ms"
+				"timeout": "1h"
 			}]}
 		}
 	}`, pidPath))
 
-	result, err := Run(context.Background(), def, runOpts("main"))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pidReady := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(5 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			data, readErr := os.ReadFile(pidPath)
+			if readErr == nil && strings.TrimSpace(string(data)) != "" {
+				pidReady <- nil
+				cancel()
+				return
+			}
+			select {
+			case <-ctx.Done():
+				pidReady <- fmt.Errorf("wait for child pid: %w", ctx.Err())
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+
+	result, err := Run(ctx, def, runOpts("main"))
 	if err == nil {
-		t.Fatal("expected timeout")
+		t.Fatal("expected cancellation")
 	}
-	if result.Steps[0].FailureReason != "timeout" {
+	if readyErr := <-pidReady; readyErr != nil {
+		t.Fatal(readyErr)
+	}
+	if result.Steps[0].FailureReason != "canceled" {
 		t.Fatalf("step = %+v", result.Steps[0])
 	}
 	data, readErr := os.ReadFile(pidPath)

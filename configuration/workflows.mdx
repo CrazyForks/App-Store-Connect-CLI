@@ -171,9 +171,10 @@ Steps can be defined in two formats:
 </ParamField>
 
 <ParamField path="if" type="string">
-  Condition expression (evaluated as shell command)
+  Name of an environment variable that controls whether the step runs
 
-  Step runs only if the command exits with code 0.
+  The step runs only when the variable has a truthy value such as `1`, `true`,
+  `yes`, or `on` (case-insensitive).
 </ParamField>
 
 <ParamField path="with" type="object">
