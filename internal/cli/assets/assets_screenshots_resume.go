@@ -212,7 +212,7 @@ func executeAppScreenshotUpload(ctx context.Context, cfg screenshotUploadConfig[
 	if cfg.UploadContext == nil {
 		cfg.UploadContext = contextWithAssetUploadTimeout
 	}
-	if !cfg.DryRun && len(cfg.Files) > 0 {
+	if len(cfg.Files) > 0 {
 		sourceRootPath, err := resolveScreenshotUploadRoot(cfg.RootPath, cfg.Files)
 		if err != nil {
 			return asc.AppScreenshotUploadResult{}, fmt.Errorf("resolve screenshot source root: %w", err)
@@ -538,7 +538,7 @@ func resolveScreenshotUploadRoot(rootPath string, filePaths []string) (string, e
 			if err != nil {
 				return "", err
 			}
-			if _, err := root.Resolve(fileAbsolute); err != nil {
+			if err := root.CheckContained(fileAbsolute); err != nil {
 				return "", err
 			}
 		}
@@ -586,7 +586,7 @@ func resolveScreenshotUploadRoot(rootPath string, filePaths []string) (string, e
 		return "", err
 	}
 	for _, filePath := range cleaned {
-		if _, err := trustedRoot.Resolve(filePath); err != nil {
+		if err := trustedRoot.CheckContained(filePath); err != nil {
 			return "", err
 		}
 	}

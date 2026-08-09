@@ -121,7 +121,7 @@ func uploadScreenshotsWithConfig[T any](ctx context.Context, cfg screenshotUploa
 	}
 
 	sourceRootPath := ""
-	if !cfg.DryRun && len(cfg.Files) > 0 {
+	if len(cfg.Files) > 0 {
 		var err error
 		sourceRootPath, err = resolveScreenshotUploadRoot(cfg.RootPath, cfg.Files)
 		if err != nil {

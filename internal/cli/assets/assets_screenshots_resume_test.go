@@ -16,7 +16,43 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
+
+func TestExecuteAppScreenshotUploadDryRunValidatesSourceRootBeforePreview(t *testing.T) {
+	rootDir := t.TempDir()
+	outsideDir := t.TempDir()
+	writeAssetsTestPNG(t, outsideDir, "01-home.png")
+	linkDir := filepath.Join(rootDir, "linked")
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Fatalf("create source symlink: %v", err)
+	}
+	filePath := filepath.Join(linkDir, "01-home.png")
+
+	requests := 0
+	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests++
+		writeAssetsTestJSON(w, http.StatusOK, `{"data":[],"links":{}}`)
+	}))
+
+	_, err := executeAppScreenshotUpload(context.Background(), screenshotUploadConfig[asc.AppScreenshotUploadResult]{
+		Client:         client,
+		LocalizationID: "LOC_123",
+		DisplayType:    "APP_IPHONE_65",
+		RootPath:       rootDir,
+		Files:          []string{filePath},
+		DryRun:         true,
+		RequestContext: contextWithAssetUploadTimeout,
+		UploadContext:  contextWithAssetUploadTimeout,
+		Access:         appStoreVersionScreenshotSetAccess,
+	}, "")
+	if !errors.Is(err, rootfs.ErrSymlink) {
+		t.Fatalf("executeAppScreenshotUpload() error = %v, want rootfs.ErrSymlink", err)
+	}
+	if requests != 0 {
+		t.Fatalf("expected source validation before API lookup, got %d requests", requests)
+	}
+}
 
 func TestExecuteAppScreenshotUploadSkipExistingDoesNotPatchOrderingWhenAlreadyMatched(t *testing.T) {
 	filePath := writeAssetsTestPNG(t, t.TempDir(), "01-home.png")
@@ -318,7 +354,7 @@ func TestResumeAppScreenshotUploadRejectsSymlinkedParentBelowRecordedRoot(t *tes
 		t.Fatalf("computeFileChecksum() error: %v", err)
 	}
 	artifactPath := filepath.Join(rootDir, "resume-artifact.json")
-	_, err = persistScreenshotUploadFailureArtifact(artifactPath, screenshotUploadFailureArtifact{
+	artifactData, err := json.MarshalIndent(screenshotUploadFailureArtifact{
 		RootPath:     rootDir,
 		SetID:        "set-1",
 		PendingFiles: []string{linkedPath},
@@ -330,24 +366,30 @@ func TestResumeAppScreenshotUploadRejectsSymlinkedParentBelowRecordedRoot(t *tes
 			State:    "UPLOAD_COMPLETE",
 		}},
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-	})
+	}, "", "  ")
 	if err != nil {
-		t.Fatalf("persistScreenshotUploadFailureArtifact() error: %v", err)
+		t.Fatalf("marshal screenshot artifact: %v", err)
+	}
+	root, err := rootfs.New(rootDir)
+	if err != nil {
+		t.Fatalf("rootfs.New() error: %v", err)
+	}
+	if err := root.WriteFile(filepath.Base(artifactPath), append(artifactData, '\n'), 0o600); err != nil {
+		t.Fatalf("write screenshot artifact: %v", err)
 	}
 
+	requests := 0
 	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != http.MethodGet || req.URL.Path != "/v1/appScreenshots/pending-1" {
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-		}
+		requests++
 		writeAssetsTestJSON(w, http.StatusOK, `{"data":{"type":"appScreenshots","id":"pending-1","attributes":{"assetDeliveryState":{"state":"COMPLETE"}}}}`)
 	}))
 
-	result, err := resumeAppScreenshotUpload(context.Background(), client, artifactPath)
-	if err == nil {
-		t.Fatal("expected rooted parent-symlink rejection")
+	_, err = resumeAppScreenshotUpload(context.Background(), client, artifactPath)
+	if !errors.Is(err, rootfs.ErrSymlink) {
+		t.Fatalf("resumeAppScreenshotUpload() error = %v, want rootfs.ErrSymlink", err)
 	}
-	if len(result.Failures) != 1 || !strings.Contains(strings.ToLower(result.Failures[0].Error), "symlink") {
-		t.Fatalf("expected rooted parent-symlink failure detail, got %#v", result.Failures)
+	if requests != 0 {
+		t.Fatalf("expected source validation before API lookup, got %d requests", requests)
 	}
 }
 

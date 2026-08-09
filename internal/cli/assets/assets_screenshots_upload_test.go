@@ -51,6 +51,31 @@ func TestUploadScreenshotsReplaceValidatesRootBeforeDeletingExistingScreenshots(
 	}
 }
 
+func TestUploadScreenshotsDryRunValidatesSourceRootBeforePreview(t *testing.T) {
+	rootDir := t.TempDir()
+	outsideDir := t.TempDir()
+	writeAssetsTestPNG(t, outsideDir, "01-home.png")
+	linkDir := filepath.Join(rootDir, "linked")
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Fatalf("create source symlink: %v", err)
+	}
+	filePath := filepath.Join(linkDir, "01-home.png")
+
+	requests := 0
+	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests++
+		writeAssetsTestJSON(w, http.StatusOK, `{"data":[],"links":{}}`)
+	}))
+
+	_, err := uploadScreenshots(context.Background(), client, "LOC_123", "APP_IPHONE_65", []string{filePath}, false, false, true)
+	if !errors.Is(err, rootfs.ErrSymlink) {
+		t.Fatalf("uploadScreenshots() error = %v, want rootfs.ErrSymlink", err)
+	}
+	if requests != 0 {
+		t.Fatalf("expected source validation before API lookup, got %d requests", requests)
+	}
+}
+
 func TestUploadScreenshotsSkipExistingStartsUploadTimeoutAfterChecksumFiltering(t *testing.T) {
 	t.Setenv("ASC_TIMEOUT", "200ms")
 	t.Setenv("ASC_UPLOAD_TIMEOUT", "30s")
