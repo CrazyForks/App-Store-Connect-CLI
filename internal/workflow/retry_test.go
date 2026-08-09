@@ -98,6 +98,88 @@ func TestValidate_RetryAndTimeoutPaths(t *testing.T) {
 	}
 }
 
+func TestValidate_RetryAndTimeoutCaseVariantLastValueWins(t *testing.T) {
+	tests := []struct {
+		name     string
+		stepJSON string
+		wantCode ValidationCode
+	}{
+		{
+			name:     "retry null then policy",
+			stepJSON: `{"run":"echo ok","retry":null,"Retry":{"max_attempts":2,"delay":"1s"}}`,
+		},
+		{
+			name:     "retry policy then null",
+			stepJSON: `{"run":"echo ok","Retry":{"max_attempts":2,"delay":"1s"},"retry":null}`,
+			wantCode: ErrInvalidStepRetry,
+		},
+		{
+			name:     "timeout null then duration",
+			stepJSON: `{"run":"echo ok","timeout":null,"Timeout":"1s"}`,
+		},
+		{
+			name:     "timeout duration then null",
+			stepJSON: `{"run":"echo ok","Timeout":"1s","timeout":null}`,
+			wantCode: ErrInvalidStepTimeout,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := writeWorkflowFile(t, dir, fmt.Sprintf(`{
+				"workflows": {"main": {"steps": [%s]}}
+			}`, tt.stepJSON))
+			def, err := LoadUnvalidated(path)
+			if err != nil {
+				t.Fatalf("LoadUnvalidated: %v", err)
+			}
+			errs := Validate(def)
+			if tt.wantCode == "" {
+				if len(errs) != 0 {
+					t.Fatalf("validation errors = %+v, want none", errs)
+				}
+				return
+			}
+			for _, validationErr := range errs {
+				if validationErr.Code == tt.wantCode {
+					return
+				}
+			}
+			t.Fatalf("validation errors = %+v, want code %q", errs, tt.wantCode)
+		})
+	}
+}
+
+func TestValidate_RetryPathEncodesUnsafeWorkflowName(t *testing.T) {
+	dir := t.TempDir()
+	path := writeWorkflowFile(t, dir, `{
+		"workflows": {
+			"unsafe\n.name]": {
+				"steps": [{"run":"echo ok","retry":null}]
+			}
+		}
+	}`)
+	def, err := LoadUnvalidated(path)
+	if err != nil {
+		t.Fatalf("LoadUnvalidated: %v", err)
+	}
+	for _, validationErr := range Validate(def) {
+		if validationErr.Code != ErrInvalidStepRetry {
+			continue
+		}
+		const wantPath = `workflows["unsafe\n.name]"].steps[0].retry`
+		if validationErr.Path != wantPath {
+			t.Fatalf("path = %q, want %q", validationErr.Path, wantPath)
+		}
+		if strings.ContainsRune(validationErr.Message, '\n') {
+			t.Fatalf("message contains raw newline: %q", validationErr.Message)
+		}
+		return
+	}
+	t.Fatalf("validation errors = %+v, want code %q", Validate(def), ErrInvalidStepRetry)
+}
+
 func TestRun_RetryEventuallySucceedsAndCapturesOnlySuccessfulOutput(t *testing.T) {
 	dir := t.TempDir()
 	counterPath := filepath.Join(dir, "counter")

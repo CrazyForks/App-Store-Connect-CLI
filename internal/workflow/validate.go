@@ -5,6 +5,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -102,7 +103,7 @@ func Validate(def *Definition) []*ValidationError {
 
 		for i, step := range wf.Steps {
 			idx := i + 1
-			stepPath := fmt.Sprintf("workflows.%s.steps[%d]", name, i)
+			stepPath := fmt.Sprintf("%s.steps[%d]", workflowValidationPath(name), i)
 			hasRun := strings.TrimSpace(step.Run) != ""
 			hasWorkflow := strings.TrimSpace(step.Workflow) != ""
 			hasRawRun := step.Run != ""
@@ -278,6 +279,13 @@ func Validate(def *Definition) []*ValidationError {
 	}
 
 	return errs
+}
+
+func workflowValidationPath(name string) string {
+	if validWorkflowName.MatchString(name) {
+		return "workflows." + name
+	}
+	return "workflows[" + strconv.Quote(name) + "]"
 }
 
 func parsePositivePolicyDuration(value string) (time.Duration, error) {

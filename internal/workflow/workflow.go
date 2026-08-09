@@ -76,20 +76,49 @@ func (s *Step) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("step must be a single JSON value: trailing data")
 	}
 	*s = Step(alias)
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
+	retryNull, timeoutNull, err := explicitNullPolicyFields(data)
+	if err != nil {
 		return fmt.Errorf("step must be an object: %w", err)
 	}
-	s.retryExplicitNull = rawFieldExplicitNull(fields, "retry")
-	s.timeoutExplicitNull = rawFieldExplicitNull(fields, "timeout")
+	s.retryExplicitNull = retryNull
+	s.timeoutExplicitNull = timeoutNull
 	return nil
 }
 
-func rawFieldExplicitNull(fields map[string]json.RawMessage, name string) bool {
-	for key, data := range fields {
-		if strings.EqualFold(key, name) && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-			return true
+func explicitNullPolicyFields(data []byte) (bool, bool, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	start, err := dec.Token()
+	if err != nil {
+		return false, false, err
+	}
+	if delim, ok := start.(json.Delim); !ok || delim != '{' {
+		return false, false, fmt.Errorf("expected object")
+	}
+
+	var retryNull, timeoutNull bool
+	for dec.More() {
+		keyToken, err := dec.Token()
+		if err != nil {
+			return false, false, err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return false, false, fmt.Errorf("expected object field name")
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return false, false, err
+		}
+		isNull := bytes.Equal(bytes.TrimSpace(value), []byte("null"))
+		switch {
+		case strings.EqualFold(key, "retry"):
+			retryNull = isNull
+		case strings.EqualFold(key, "timeout"):
+			timeoutNull = isNull
 		}
 	}
-	return false
+	if _, err := dec.Token(); err != nil {
+		return false, false, err
+	}
+	return retryNull, timeoutNull, nil
 }
