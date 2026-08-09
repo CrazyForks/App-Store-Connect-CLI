@@ -623,7 +623,8 @@ func fillBuildsAndTestFlight(ctx context.Context, client *asc.Client, appID stri
 		reviewBuild := reviewBuildForSubmission(submission, buildsByID)
 		if reviewBuild != nil {
 			reviewBuildsBySubmissionID[submission.ID] = reviewBuild
-		} else if isInProgressBetaReviewState(submission.Attributes.BetaReviewState) {
+		}
+		if isInProgressBetaReviewState(submission.Attributes.BetaReviewState) && betaReviewBuildContextIncomplete(reviewBuild) {
 			missingActiveBuilds = append(missingActiveBuilds, submission)
 		}
 	}
@@ -764,10 +765,10 @@ func resolveBetaReviewBuildContext(
 	buildsByID map[string]*betaReviewBuildStatus,
 ) *betaReviewBuildStatus {
 	reviewBuild := reviewBuildForSubmission(submission, buildsByID)
-	if reviewBuild == nil {
+	if reviewBuild == nil || reviewBuild.BuildNumber == "" {
 		relatedBuild, err := client.GetBetaAppReviewSubmissionBuild(ctx, submission.ID)
 		if err != nil || relatedBuild == nil || strings.TrimSpace(relatedBuild.Data.ID) == "" {
-			return nil
+			return reviewBuild
 		}
 		reviewBuild = buildsByID[relatedBuild.Data.ID]
 		if reviewBuild == nil {
@@ -786,6 +787,10 @@ func resolveBetaReviewBuildContext(
 		}
 	}
 	return reviewBuild
+}
+
+func betaReviewBuildContextIncomplete(build *betaReviewBuildStatus) bool {
+	return build == nil || build.BuildNumber == "" || build.Version == "" || build.Platform == ""
 }
 
 func betaReviewBuildRelation(latest, review *betaReviewBuildStatus) string {
