@@ -202,7 +202,9 @@ only after success.
 Use retry only when you have explicitly decided the command is safe to repeat.
 The runner does not infer whether a shell command is read-only, idempotent, or a
 mutation. A successful command with invalid declared output is not retried,
-because its side effect may already have happened.
+because its side effect may already have happened. That failure is terminal:
+the structured result sets `terminal: true`, the run state records the terminal
+reason, and `--resume` rejects the run instead of executing the command again.
 
 Attempt numbers and retry delays are written to stderr. stdout remains the one
 machine-readable workflow result. Each attempt gets a fresh output buffer, and

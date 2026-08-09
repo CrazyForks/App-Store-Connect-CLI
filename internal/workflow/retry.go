@@ -95,23 +95,19 @@ func (r *runner) executeRunStep(
 			if len(step.Outputs) > 0 {
 				extracted, extractErr := extractDeclaredOutputs(step.Outputs, captured.Bytes())
 				if extractErr != nil {
-					if recordAttempts {
-						sr.Attempts = append(sr.Attempts, AttemptResult{
-							Invocation:    invocation,
-							Attempt:       attempt,
-							Status:        "error",
-							DurationMS:    attemptDuration,
-							FailureReason: "output_error",
-							Error:         extractErr.Error(),
-						})
-					}
+					sr.Attempts = append(sr.Attempts, AttemptResult{
+						Invocation:    invocation,
+						Attempt:       attempt,
+						Status:        "error",
+						DurationMS:    attemptDuration,
+						FailureReason: "output_error",
+						Error:         extractErr.Error(),
+					})
 					sr.Status = "error"
 					sr.FailureReason = "output_error"
 					sr.Error = extractErr.Error()
-					if recordAttempts {
-						if persistErr := r.persistStep(stepKey, *sr); persistErr != nil {
-							return persistErr
-						}
+					if persistErr := r.persistStep(stepKey, *sr); persistErr != nil {
+						return persistErr
 					}
 					return fmt.Errorf("workflow: %s step %d: %w", workflowName, idx, extractErr)
 				}

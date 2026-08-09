@@ -216,6 +216,8 @@ The retry delay is fixed and deterministic. `timeout` applies to each attempt.
 Attempt counts and delays stream to stderr; stdout remains structured JSON.
 Only successful-attempt output can satisfy declared `outputs`. Retry and timeout
 are rejected on sub-workflow calls and are not configurable on lifecycle hooks.
+If a command exits successfully but output extraction fails, the run is terminal;
+`--resume` reports the reason without re-executing the command.
 
 ## Environment variable precedence
 

@@ -60,7 +60,9 @@ callers to parse platform-specific process errors.
 Each attempt receives a fresh output buffer. Declared outputs are extracted and
 persisted only after a command exits successfully; output from failed attempts
 cannot become step output. Output-extraction failures are not retried because a
-successful command may already have performed a mutation.
+successful command may already have performed a mutation. They are also marked
+terminal and cannot be resumed automatically; the operator must inspect any
+side effects before deciding whether to start a new run.
 
 Caller cancellation stops immediately and never waits for or starts another
 attempt. A timeout terminates the shell process tree before the runner records a
@@ -72,7 +74,8 @@ Run state records attempt diagnostics for configured steps, including failed
 attempts. Resume continues to skip every persisted successful step, restores
 its outputs, and re-executes only the failed step with a new bounded invocation.
 The previous attempt history remains available in the persisted state and the
-resumed structured result.
+resumed structured result. A terminal output-extraction failure is the exception:
+`--resume` returns a diagnostic without executing any workflow command.
 
 ## RED-GREEN and verification
 

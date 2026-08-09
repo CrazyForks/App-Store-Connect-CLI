@@ -73,19 +73,21 @@ type ResumeInfo struct {
 
 // RunResult is the structured output of a workflow execution.
 type RunResult struct {
-	Workflow    string                       `json:"workflow"`
-	Status      string                       `json:"status"`
-	Error       string                       `json:"error,omitempty"`
-	FailedStep  string                       `json:"failed_step,omitempty"`
-	Recoverable bool                         `json:"recoverable,omitempty"`
-	RunID       string                       `json:"run_id,omitempty"`
-	RunFile     string                       `json:"run_file,omitempty"`
-	Resumed     bool                         `json:"resumed,omitempty"`
-	Resume      *ResumeInfo                  `json:"resume,omitempty"`
-	Outputs     map[string]map[string]string `json:"outputs,omitempty"`
-	Hooks       *HooksResult                 `json:"hooks,omitempty"`
-	Steps       []StepResult                 `json:"steps"`
-	DurationMS  int64                        `json:"duration_ms"`
+	Workflow       string                       `json:"workflow"`
+	Status         string                       `json:"status"`
+	Error          string                       `json:"error,omitempty"`
+	FailedStep     string                       `json:"failed_step,omitempty"`
+	Recoverable    bool                         `json:"recoverable,omitempty"`
+	Terminal       bool                         `json:"terminal,omitempty"`
+	TerminalReason string                       `json:"terminal_reason,omitempty"`
+	RunID          string                       `json:"run_id,omitempty"`
+	RunFile        string                       `json:"run_file,omitempty"`
+	Resumed        bool                         `json:"resumed,omitempty"`
+	Resume         *ResumeInfo                  `json:"resume,omitempty"`
+	Outputs        map[string]map[string]string `json:"outputs,omitempty"`
+	Hooks          *HooksResult                 `json:"hooks,omitempty"`
+	Steps          []StepResult                 `json:"steps"`
+	DurationMS     int64                        `json:"duration_ms"`
 }
 
 type runner struct {
@@ -263,7 +265,10 @@ func newRunner(def *Definition, opts RunOptions, result *RunResult) (*runner, er
 }
 
 func (r *runner) validateResumeState(state *persistedRunState) error {
+	terminalReason := terminalReasonForState(state)
 	switch {
+	case terminalReason != "":
+		return fmt.Errorf("workflow: resume run %q cannot be resumed: %s", state.RunID, terminalReason)
 	case state.Workflow != r.opts.WorkflowName:
 		return fmt.Errorf("workflow: resume run %q belongs to workflow %q, not %q", state.RunID, state.Workflow, r.opts.WorkflowName)
 	case state.WorkflowFile != r.opts.WorkflowFile:
@@ -514,10 +519,24 @@ func (r *runner) markFailure(err error, failedStep string) {
 		r.result.FailedStep = failedStep
 	}
 
+	terminalReason := terminalReasonForState(r.state)
+	if terminalReason == "" {
+		terminalReason = terminalReasonForResult(r.result)
+	}
+	if terminalReason != "" {
+		r.result.Terminal = true
+		r.result.TerminalReason = terminalReason
+	}
+
 	if r.state == nil {
 		return
 	}
-	r.state.Status = "error"
+	if terminalReason != "" {
+		r.state.Status = "terminal"
+		r.state.TerminalReason = terminalReason
+	} else {
+		r.state.Status = "error"
+	}
 	r.state.FailedStep = r.result.FailedStep
 	_ = saveRunState(r.statePath, *r.state)
 
@@ -531,10 +550,58 @@ func (r *runner) hasRecoverableState() bool {
 	if r.state == nil {
 		return false
 	}
+	if r.result != nil && r.result.Terminal {
+		return false
+	}
+	if terminalReasonForState(r.state) != "" {
+		return false
+	}
 	if len(r.state.Steps) > 0 {
 		return true
 	}
 	return r.state.Hooks != nil && r.state.Hooks.BeforeAll != nil && r.state.Hooks.BeforeAll.Status == "ok"
+}
+
+func terminalReasonForResult(result *RunResult) string {
+	if result == nil {
+		return ""
+	}
+	for _, step := range result.Steps {
+		if step.FailureReason != "output_error" {
+			continue
+		}
+		label := strings.TrimSpace(step.Name)
+		if label == "" {
+			label = fmt.Sprintf("%d", step.Index)
+		}
+		return terminalOutputReason(label)
+	}
+	return ""
+}
+
+func terminalReasonForState(state *persistedRunState) string {
+	if state == nil {
+		return ""
+	}
+	if strings.TrimSpace(state.TerminalReason) != "" {
+		return state.TerminalReason
+	}
+	for _, stepKey := range slices.Sorted(maps.Keys(state.Steps)) {
+		step := state.Steps[stepKey]
+		if step.FailureReason != "output_error" {
+			continue
+		}
+		label := strings.TrimSpace(step.Name)
+		if label == "" {
+			label = stepKey
+		}
+		return terminalOutputReason(label)
+	}
+	return ""
+}
+
+func terminalOutputReason(label string) string {
+	return fmt.Sprintf("step %q command completed but output extraction failed; automatic resume is disabled to avoid repeating possible side effects", label)
 }
 
 func (r *runner) resumeCommand() string {

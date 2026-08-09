@@ -287,6 +287,7 @@ func TestRun_CancellationStopsRunningAttempt(t *testing.T) {
 func TestRun_OutputExtractionFailureIsNotRetried(t *testing.T) {
 	dir := t.TempDir()
 	counterPath := filepath.Join(dir, "counter")
+	workflowPath := filepath.Join(dir, "workflow.json")
 	def, _ := loadWorkflowForRetryTest(t, fmt.Sprintf(`{
 		"env": {"COUNTER_PATH": %q},
 		"workflows": {
@@ -299,7 +300,10 @@ func TestRun_OutputExtractionFailureIsNotRetried(t *testing.T) {
 		}
 	}`, counterPath))
 
-	result, err := Run(context.Background(), def, runOpts("main"))
+	opts := runOpts("main")
+	opts.WorkflowFile = workflowPath
+	opts.StateDir = filepath.Join(dir, "runs")
+	result, err := Run(context.Background(), def, opts)
 	if err == nil {
 		t.Fatal("expected output extraction failure")
 	}
@@ -309,6 +313,94 @@ func TestRun_OutputExtractionFailureIsNotRetried(t *testing.T) {
 	}
 	if got := readFileOrEmpty(t, counterPath); got != "x" {
 		t.Fatalf("successful command was retried after output failure: %q", got)
+	}
+	if !result.Terminal || result.TerminalReason == "" {
+		t.Fatalf("output failure result must be terminal: %+v", result)
+	}
+	if result.Recoverable || result.Resume != nil {
+		t.Fatalf("output failure must not expose automatic resume: %+v", result)
+	}
+
+	state, loadErr := loadRunState(result.RunFile)
+	if loadErr != nil {
+		t.Fatalf("loadRunState: %v", loadErr)
+	}
+	if state.Status != "terminal" || state.TerminalReason == "" {
+		t.Fatalf("output failure state must be terminal: %+v", state)
+	}
+	if got := state.Steps["main[1]"].FailureReason; got != "output_error" {
+		t.Fatalf("persisted failure reason = %q, want output_error", got)
+	}
+
+	resumeOpts := runOpts("main")
+	resumeOpts.WorkflowFile = workflowPath
+	resumeOpts.StateDir = opts.StateDir
+	resumeOpts.ResumeRunID = result.RunID
+	resumeResult, resumeErr := Run(context.Background(), def, resumeOpts)
+	if resumeErr == nil {
+		t.Fatal("expected terminal run resume to fail")
+	}
+	if !strings.Contains(resumeErr.Error(), "cannot be resumed") || !strings.Contains(resumeErr.Error(), "output extraction failed") {
+		t.Fatalf("resume error = %q, want terminal output diagnostic", resumeErr)
+	}
+	if resumeResult == nil || resumeResult.Status != "error" {
+		t.Fatalf("resume result = %+v, want structured error", resumeResult)
+	}
+	if got := readFileOrEmpty(t, counterPath); got != "x" {
+		t.Fatalf("resume reran command after output failure: %q", got)
+	}
+}
+
+func TestRun_OutputExtractionFailureWithoutPolicyIsTerminal(t *testing.T) {
+	dir := t.TempDir()
+	counterPath := filepath.Join(dir, "counter")
+	workflowPath := filepath.Join(dir, "workflow.json")
+	def := &Definition{Workflows: map[string]Workflow{
+		"main": {Steps: []Step{{
+			Name:    "ambiguous_mutation",
+			Run:     fmt.Sprintf("printf x >> %q; printf not-json", counterPath),
+			Outputs: map[string]string{"VALUE": "$.value"},
+		}}},
+	}}
+	opts := runOpts("main")
+	opts.WorkflowFile = workflowPath
+	opts.StateDir = filepath.Join(dir, "runs")
+	result, err := Run(context.Background(), def, opts)
+	if err == nil || !result.Terminal || result.Recoverable || result.Resume != nil {
+		t.Fatalf("output failure result = %+v, err = %v", result, err)
+	}
+	state, loadErr := loadRunState(result.RunFile)
+	if loadErr != nil || state.Status != "terminal" || state.Steps["main[1]"].FailureReason != "output_error" {
+		t.Fatalf("output failure state = %+v, err = %v", state, loadErr)
+	}
+
+	resumeOpts := runOpts("main")
+	resumeOpts.WorkflowFile = workflowPath
+	resumeOpts.StateDir = opts.StateDir
+	resumeOpts.ResumeRunID = result.RunID
+	_, resumeErr := Run(context.Background(), def, resumeOpts)
+	if resumeErr == nil || !strings.Contains(resumeErr.Error(), "cannot be resumed") {
+		t.Fatalf("resume error = %v, want terminal diagnostic", resumeErr)
+	}
+	if got := readFileOrEmpty(t, counterPath); got != "x" {
+		t.Fatalf("resume reran command after output failure: %q", got)
+	}
+}
+
+func TestRun_OutputExtractionFailureWithoutStateIsTerminal(t *testing.T) {
+	def := &Definition{Workflows: map[string]Workflow{
+		"main": {Steps: []Step{{
+			Name:    "invalid_output",
+			Run:     "printf not-json",
+			Outputs: map[string]string{"VALUE": "$.value"},
+		}}},
+	}}
+	result, err := Run(context.Background(), def, runOpts("main"))
+	if err == nil || !result.Terminal || result.TerminalReason == "" {
+		t.Fatalf("output failure result = %+v, err = %v", result, err)
+	}
+	if result.Recoverable || result.Resume != nil {
+		t.Fatalf("terminal output failure exposed resume: %+v", result)
 	}
 }
 

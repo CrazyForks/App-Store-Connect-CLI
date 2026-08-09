@@ -42,6 +42,7 @@ type persistedRunState struct {
 	Params         map[string]string             `json:"params,omitempty"`
 	Status         string                        `json:"status,omitempty"`
 	FailedStep     string                        `json:"failed_step,omitempty"`
+	TerminalReason string                        `json:"terminal_reason,omitempty"`
 	Hooks          *persistedRunHooks            `json:"hooks,omitempty"`
 	Steps          map[string]persistedStepState `json:"steps,omitempty"`
 	CreatedAt      string                        `json:"created_at,omitempty"`

@@ -147,6 +147,9 @@ or automatically retry mutations. Attempt diagnostics stream to stderr, while
 the structured result and resume state retain attempt outcomes. Workflow-call
 steps and lifecycle hooks do not accept retry or timeout.
 
+If a command exits successfully but declared output extraction fails, the run
+is terminal and `--resume` refuses to repeat the possibly mutating command.
+
 ## Output
 
 All workflow commands emit JSON to stdout. Step and hook output streams to stderr so stdout stays machine-parseable.
