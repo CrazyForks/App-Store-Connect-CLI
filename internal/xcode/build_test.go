@@ -25,6 +25,9 @@ func TestValidateBuildOptions(t *testing.T) {
 		{name: "workspace", opts: BuildOptions{WorkspacePath: "Demo.xcworkspace", Scheme: "Demo"}},
 		{name: "non-managed prefix remains available", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-destination-timeout", "60"}}},
 		{name: "ordinary build setting remains available", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"test=YES"}}},
+		{name: "ordinary conditional build setting remains available", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"OTHER_SWIFT_FLAGS[sdk=iphonesimulator*]=-DASC_BUILD"}}},
+		{name: "blank passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{""}}, wantErr: "--xcodebuild-flag cannot be empty"},
+		{name: "whitespace passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{" \t"}}, wantErr: "--xcodebuild-flag cannot be empty"},
 		{name: "missing selector", opts: BuildOptions{Scheme: "Demo"}, wantErr: "exactly one of --workspace or --project"},
 		{name: "both selectors", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", WorkspacePath: "Demo.xcworkspace", Scheme: "Demo"}, wantErr: "exactly one of --workspace or --project"},
 		{name: "missing scheme", opts: BuildOptions{ProjectPath: "Demo.xcodeproj"}, wantErr: "--scheme is required"},
@@ -34,6 +37,8 @@ func TestValidateBuildOptions(t *testing.T) {
 		{name: "reserved equals flag passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-derivedDataPath=/tmp/elsewhere"}}, wantErr: `cannot override asc-managed argument "-derivedDataPath"`},
 		{name: "reserved equals selector passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-PROJECT=Other.xcodeproj"}}, wantErr: `cannot override asc-managed argument "-PROJECT"`},
 		{name: "reserved signing passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"CODE_SIGNING_ALLOWED=NO"}}, wantErr: `cannot override asc-managed argument "CODE_SIGNING_ALLOWED"`},
+		{name: "reserved conditional signing passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"CODE_SIGNING_ALLOWED[sdk=iphoneos*]=YES"}}, wantErr: `cannot override asc-managed argument "CODE_SIGNING_ALLOWED"`},
+		{name: "reserved conditional signing passthrough case insensitive", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"code_signing_allowed[config=Debug]=YES"}}, wantErr: `cannot override asc-managed argument "code_signing_allowed"`},
 	}
 
 	for _, test := range tests {

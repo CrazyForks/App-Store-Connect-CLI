@@ -95,6 +95,7 @@ func TestXcodeBuildValidationErrorsAreUsageErrors(t *testing.T) {
 		{name: "missing scheme", args: []string{"--project", "Demo.xcodeproj"}, want: "--scheme is required"},
 		{name: "bad project suffix", args: []string{"--project", "Demo.txt", "--scheme", "Demo"}, want: "--project must end with .xcodeproj"},
 		{name: "reserved raw flag", args: []string{"--project", "Demo.xcodeproj", "--scheme", "Demo", "--xcodebuild-flag=-derivedDataPath"}, want: "cannot override asc-managed argument"},
+		{name: "conditional signing override", args: []string{"--project", "Demo.xcodeproj", "--scheme", "Demo", "--no-code-signing", "--xcodebuild-flag=CODE_SIGNING_ALLOWED[sdk=iphoneos*]=YES"}, want: `cannot override asc-managed argument "CODE_SIGNING_ALLOWED"`},
 		{name: "positional", args: []string{"--project", "Demo.xcodeproj", "--scheme", "Demo"}, positional: []string{"build"}, want: "does not accept positional arguments"},
 	}
 

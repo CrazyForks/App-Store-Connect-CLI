@@ -122,6 +122,14 @@ func TestXcodeCommandExists(t *testing.T) {
 	}
 }
 
+func TestXcodeBuildRejectsBlankPassthroughValue(t *testing.T) {
+	assertUsageExit(
+		t,
+		[]string{"xcode", "build", "--project", "Demo.xcodeproj", "--scheme", "Demo", "--xcodebuild-flag="},
+		`invalid value "" for flag -xcodebuild-flag: value cannot be empty`,
+	)
+}
+
 func TestXcodeVersionHelpShowsCanonicalSubcommands(t *testing.T) {
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)

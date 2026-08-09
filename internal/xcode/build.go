@@ -63,6 +63,11 @@ func ValidateBuildOptions(opts BuildOptions) error {
 	if opts.WorkspacePath != "" && !strings.EqualFold(filepath.Ext(opts.WorkspacePath), ".xcworkspace") {
 		return fmt.Errorf("--workspace must end with .xcworkspace")
 	}
+	for _, arg := range opts.XcodebuildArgs {
+		if strings.TrimSpace(arg) == "" {
+			return fmt.Errorf("--xcodebuild-flag cannot be empty")
+		}
+	}
 	if reserved := reservedBuildPassthroughArgument(opts.XcodebuildArgs); reserved != "" {
 		return fmt.Errorf("--xcodebuild-flag cannot override asc-managed argument %q", reserved)
 	}
@@ -196,6 +201,9 @@ func reservedBuildPassthroughArgument(args []string) string {
 		"install":               {},
 		"clean":                 {},
 	}
+	managedBuildSettings := []string{
+		"code_signing_allowed",
+	}
 	for _, arg := range args {
 		trimmed := strings.TrimSpace(arg)
 		normalized := strings.ToLower(trimmed)
@@ -207,8 +215,10 @@ func reservedBuildPassthroughArgument(args []string) string {
 		if _, isAction := xcodebuildActions[normalized]; isAction {
 			return trimmed
 		}
-		if strings.HasPrefix(normalized, "code_signing_allowed=") {
-			return strings.SplitN(trimmed, "=", 2)[0]
+		for _, managed := range managedBuildSettings {
+			if strings.HasPrefix(normalized, managed+"=") || strings.HasPrefix(normalized, managed+"[") {
+				return trimmed[:len(managed)]
+			}
 		}
 	}
 	return ""
