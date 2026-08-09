@@ -88,7 +88,8 @@ type betaAppReviewDetailsQuery struct {
 
 type betaAppReviewSubmissionsQuery struct {
 	listQuery
-	buildIDs []string
+	buildIDs     []string
+	includeBuild bool
 }
 
 type buildBetaDetailsQuery struct {
@@ -232,6 +233,9 @@ func buildBetaAppReviewDetailsQuery(appID string, query *betaAppReviewDetailsQue
 func buildBetaAppReviewSubmissionsQuery(query *betaAppReviewSubmissionsQuery) string {
 	values := url.Values{}
 	addCSV(values, "filter[build]", query.buildIDs)
+	if query.includeBuild {
+		values.Set("include", "build")
+	}
 	addLimit(values, query.limit)
 	return values.Encode()
 }
@@ -743,6 +747,13 @@ func WithBetaAppReviewSubmissionsNextURL(next string) BetaAppReviewSubmissionsOp
 func WithBetaAppReviewSubmissionsBuildIDs(ids []string) BetaAppReviewSubmissionsOption {
 	return func(q *betaAppReviewSubmissionsQuery) {
 		q.buildIDs = normalizeList(ids)
+	}
+}
+
+// WithBetaAppReviewSubmissionsIncludeBuild includes each submission's related build.
+func WithBetaAppReviewSubmissionsIncludeBuild() BetaAppReviewSubmissionsOption {
+	return func(q *betaAppReviewSubmissionsQuery) {
+		q.includeBuild = true
 	}
 }
 

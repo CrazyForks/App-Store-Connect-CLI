@@ -1410,6 +1410,34 @@ func TestGetBuilds_WithProcessingStateFilter(t *testing.T) {
 	}
 }
 
+func TestGetBuilds_WithBetaReviewStateFilter(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":[{"type":"builds","id":"build-review","attributes":{"version":"42"}}]}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Fatalf("expected GET, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/builds" {
+			t.Fatalf("expected path /v1/builds, got %s", req.URL.Path)
+		}
+		values := req.URL.Query()
+		if values.Get("filter[app]") != "123" {
+			t.Fatalf("expected filter[app]=123, got %q", values.Get("filter[app]"))
+		}
+		if got := values.Get("filter[betaAppReviewSubmission.betaReviewState]"); got != "WAITING_FOR_REVIEW,IN_REVIEW" {
+			t.Fatalf("expected active beta review states, got %q", got)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	builds, err := client.GetBuilds(context.Background(), "123", WithBuildsBetaReviewStates([]string{"waiting_for_review", "IN_REVIEW"}))
+	if err != nil {
+		t.Fatalf("GetBuilds() error: %v", err)
+	}
+	if len(builds.Data) != 1 || builds.Data[0].ID != "build-review" {
+		t.Fatalf("expected active review build, got %+v", builds.Data)
+	}
+}
+
 func TestGetBuilds_WithPreReleaseVersion(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":[{"type":"builds","id":"build-1","attributes":{"version":"1.0","uploadedDate":"2026-01-20T00:00:00Z"}}]}`)
 	client := newTestClient(t, func(req *http.Request) {
@@ -9720,7 +9748,15 @@ func TestUpdateBetaAppReviewDetail_SendsRequest(t *testing.T) {
 }
 
 func TestGetBetaAppReviewSubmissions_WithBuildFilter(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaAppReviewSubmissions","id":"submission-1","attributes":{"betaReviewState":"IN_REVIEW"}}]}`)
+	response := jsonResponse(http.StatusOK, `{
+		"data":[{
+			"type":"betaAppReviewSubmissions",
+			"id":"submission-1",
+			"attributes":{"betaReviewState":"IN_REVIEW"},
+			"relationships":{"build":{"data":{"type":"builds","id":"build-1"}}}
+		}],
+		"included":[{"type":"builds","id":"build-1","attributes":{"version":"42"}}]
+	}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -9732,11 +9768,38 @@ func TestGetBetaAppReviewSubmissions_WithBuildFilter(t *testing.T) {
 		if values.Get("filter[build]") != "build-1" {
 			t.Fatalf("expected filter[build]=build-1, got %q", values.Get("filter[build]"))
 		}
+		if values.Get("include") != "build" {
+			t.Fatalf("expected include=build, got %q", values.Get("include"))
+		}
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetBetaAppReviewSubmissions(context.Background(), WithBetaAppReviewSubmissionsBuildIDs([]string{"build-1"})); err != nil {
+	submissions, err := client.GetBetaAppReviewSubmissions(
+		context.Background(),
+		WithBetaAppReviewSubmissionsBuildIDs([]string{"build-1"}),
+		WithBetaAppReviewSubmissionsIncludeBuild(),
+	)
+	if err != nil {
 		t.Fatalf("GetBetaAppReviewSubmissions() error: %v", err)
+	}
+	if len(submissions.Data) != 1 {
+		t.Fatalf("expected one submission, got %d", len(submissions.Data))
+	}
+	var relationships struct {
+		Build Relationship `json:"build"`
+	}
+	if err := json.Unmarshal(submissions.Data[0].Relationships, &relationships); err != nil {
+		t.Fatalf("decode build relationship: %v", err)
+	}
+	if relationships.Build.Data.Type != ResourceTypeBuilds || relationships.Build.Data.ID != "build-1" {
+		t.Fatalf("expected build-1 relationship, got %+v", relationships.Build.Data)
+	}
+	var included []Resource[BuildAttributes]
+	if err := json.Unmarshal(submissions.Included, &included); err != nil {
+		t.Fatalf("decode included build: %v", err)
+	}
+	if len(included) != 1 || included[0].ID != "build-1" || included[0].Attributes.Version != "42" {
+		t.Fatalf("expected included build-1 version 42, got %+v", included)
 	}
 }
 
