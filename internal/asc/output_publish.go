@@ -27,6 +27,10 @@ func testFlightPublishResultRows(result *TestFlightPublishResult) ([]string, [][
 		betaReviewSubmitted,
 		result.BetaReviewSubmissionID,
 	}}
+	if strings.TrimSpace(result.Status) != "" {
+		headers = append(headers, "Status", "Failure Stage", "Completed Stages", "Failure")
+		rows[0] = append(rows[0], result.Status, result.FailureStage, strings.Join(result.CompletedStages, ", "), result.Failure)
+	}
 	return headers, rows
 }
 
