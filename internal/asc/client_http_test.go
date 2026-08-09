@@ -9748,7 +9748,15 @@ func TestUpdateBetaAppReviewDetail_SendsRequest(t *testing.T) {
 }
 
 func TestGetBetaAppReviewSubmissions_WithBuildFilter(t *testing.T) {
-	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaAppReviewSubmissions","id":"submission-1","attributes":{"betaReviewState":"IN_REVIEW"}}]}`)
+	response := jsonResponse(http.StatusOK, `{
+		"data":[{
+			"type":"betaAppReviewSubmissions",
+			"id":"submission-1",
+			"attributes":{"betaReviewState":"IN_REVIEW"},
+			"relationships":{"build":{"data":{"type":"builds","id":"build-1"}}}
+		}],
+		"included":[{"type":"builds","id":"build-1","attributes":{"version":"42"}}]
+	}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodGet {
 			t.Fatalf("expected GET, got %s", req.Method)
@@ -9766,12 +9774,32 @@ func TestGetBetaAppReviewSubmissions_WithBuildFilter(t *testing.T) {
 		assertAuthorized(t, req)
 	}, response)
 
-	if _, err := client.GetBetaAppReviewSubmissions(
+	submissions, err := client.GetBetaAppReviewSubmissions(
 		context.Background(),
 		WithBetaAppReviewSubmissionsBuildIDs([]string{"build-1"}),
 		WithBetaAppReviewSubmissionsIncludeBuild(),
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("GetBetaAppReviewSubmissions() error: %v", err)
+	}
+	if len(submissions.Data) != 1 {
+		t.Fatalf("expected one submission, got %d", len(submissions.Data))
+	}
+	var relationships struct {
+		Build Relationship `json:"build"`
+	}
+	if err := json.Unmarshal(submissions.Data[0].Relationships, &relationships); err != nil {
+		t.Fatalf("decode build relationship: %v", err)
+	}
+	if relationships.Build.Data.Type != ResourceTypeBuilds || relationships.Build.Data.ID != "build-1" {
+		t.Fatalf("expected build-1 relationship, got %+v", relationships.Build.Data)
+	}
+	var included []Resource[BuildAttributes]
+	if err := json.Unmarshal(submissions.Included, &included); err != nil {
+		t.Fatalf("decode included build: %v", err)
+	}
+	if len(included) != 1 || included[0].ID != "build-1" || included[0].Attributes.Version != "42" {
+		t.Fatalf("expected included build-1 version 42, got %+v", included)
 	}
 }
 
