@@ -16,12 +16,20 @@ import (
 	localxcode "github.com/rudrankriyam/App-Store-Connect-CLI/internal/xcode"
 )
 
-func TestPublishTestFlightUploadOnlyIPAStopsBeforeDistribution(t *testing.T) {
+func TestPublishTestFlightUploadOnlyIPAWaitsThenStopsBeforeDistribution(t *testing.T) {
 	restore := overridePublishCommandTestHooks(t)
 	defer restore()
 
 	uploadCalls := configurePublishUploadOnlyIPA(t, asc.BuildProcessingStateProcessing)
 	requestCalls := rejectPublishUploadOnlyHTTP(t)
+	waitCalls := 0
+	waitForPublishBuildProcessingFn = func(_ context.Context, _ *asc.Client, buildID string, _ time.Duration) (*asc.BuildResponse, error) {
+		waitCalls++
+		if buildID != "build-123" {
+			t.Fatalf("expected build-123, got %q", buildID)
+		}
+		return publishUploadOnlyResult("1.2.3", "42", asc.BuildProcessingStateValid).Build, nil
+	}
 
 	cmd := PublishTestFlightCommand()
 	cmd.FlagSet.SetOutput(io.Discard)
@@ -31,6 +39,7 @@ func TestPublishTestFlightUploadOnlyIPAStopsBeforeDistribution(t *testing.T) {
 		"--version", "1.2.3",
 		"--build-number", "42",
 		"--upload-only",
+		"--wait",
 		"--output", "json",
 	}); err != nil {
 		t.Fatalf("parse flags: %v", err)
@@ -44,6 +53,9 @@ func TestPublishTestFlightUploadOnlyIPAStopsBeforeDistribution(t *testing.T) {
 	}
 	if *uploadCalls != 1 {
 		t.Fatalf("expected exactly one upload, got %d", *uploadCalls)
+	}
+	if waitCalls != 1 {
+		t.Fatalf("expected exactly one processing wait, got %d", waitCalls)
 	}
 	if *requestCalls != 0 {
 		t.Fatalf("expected no group or review client calls, got %d", *requestCalls)
@@ -59,8 +71,8 @@ func TestPublishTestFlightUploadOnlyIPAStopsBeforeDistribution(t *testing.T) {
 	if payload["buildId"] != "build-123" || payload["buildVersion"] != "1.2.3" || payload["buildNumber"] != "42" {
 		t.Fatalf("expected uploaded build metadata, got %#v", payload)
 	}
-	if payload["uploaded"] != true || payload["processingState"] != asc.BuildProcessingStateProcessing {
-		t.Fatalf("expected uploaded processing build, got %#v", payload)
+	if payload["uploaded"] != true || payload["processingState"] != asc.BuildProcessingStateValid {
+		t.Fatalf("expected uploaded valid build, got %#v", payload)
 	}
 	if payload["uploadOnly"] != true {
 		t.Fatalf("expected upload-only marker, got %#v", payload)
@@ -82,13 +94,17 @@ func TestPublishTestFlightUploadOnlyLocalBuildStopsBeforeDistribution(t *testing
 		return "app-123", nil
 	}
 	validatePublishIPAPathFn = func(string) (os.FileInfo, error) { return newPublishTestFileInfo(t) }
+	archiveCalls := 0
 	runPublishArchiveFn = func(_ context.Context, _ localxcode.ArchiveOptions) (*localxcode.ArchiveResult, error) {
+		archiveCalls++
 		return &localxcode.ArchiveResult{
 			ArchivePath: ".asc/artifacts/Demo.xcarchive",
 			BundleID:    "com.example.demo", Version: "1.2.3", BuildNumber: "42", Scheme: "Demo", Configuration: "Release",
 		}, nil
 	}
+	exportCalls := 0
 	runPublishExportFn = func(_ context.Context, _ localxcode.ExportOptions) (*localxcode.ExportResult, error) {
+		exportCalls++
 		return &localxcode.ExportResult{
 			ArchivePath: ".asc/artifacts/Demo.xcarchive", IPAPath: ".asc/artifacts/Demo.ipa",
 			BundleID: "com.example.demo", Version: "1.2.3", BuildNumber: "42",
@@ -122,8 +138,8 @@ func TestPublishTestFlightUploadOnlyLocalBuildStopsBeforeDistribution(t *testing
 	if strings.TrimSpace(stderr) != "" {
 		t.Fatalf("expected no stderr output, got %q", stderr)
 	}
-	if uploadCalls != 1 || *requestCalls != 0 {
-		t.Fatalf("expected one upload and no distribution calls, uploads=%d requests=%d", uploadCalls, *requestCalls)
+	if archiveCalls != 1 || exportCalls != 1 || uploadCalls != 1 || *requestCalls != 0 {
+		t.Fatalf("expected one archive, export, and upload with no distribution calls; archives=%d exports=%d uploads=%d requests=%d", archiveCalls, exportCalls, uploadCalls, *requestCalls)
 	}
 
 	var payload map[string]any
