@@ -72,6 +72,20 @@ func resolvePassword(flagValue string) (string, error) {
 	return "", shared.UsageError("--password is required (or set ASC_MATCH_PASSWORD)")
 }
 
+func onceAfterSuccess(operation func() error) func() error {
+	done := false
+	return func() error {
+		if done {
+			return nil
+		}
+		if err := operation(); err != nil {
+			return err
+		}
+		done = true
+		return nil
+	}
+}
+
 func syncPushCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("push", flag.ExitOnError)
 
@@ -145,18 +159,13 @@ func syncPushCommand() *ffcli.Command {
 			}
 			defer func() { _ = store.Cleanup() }()
 
-			repositoryReady := false
-			prepareRepository := func() error {
-				if repositoryReady {
-					return nil
-				}
+			prepareRepository := onceAfterSuccess(func() error {
 				fmt.Fprintln(os.Stderr, "Cloning signing repo...")
 				if err := store.Clone(ctx, true); err != nil {
 					return err
 				}
-				repositoryReady = true
 				return nil
-			}
+			})
 
 			profile, certs, created, err := resolveSigningAssets(
 				requestCtx,
@@ -169,6 +178,9 @@ func syncPushCommand() *ffcli.Command {
 					DeviceIDs:          shared.SplitCSV(*deviceIDs),
 					CreateMissing:      *createMissing,
 					BeforeCreate:       prepareRepository,
+					CreateContext: func() (context.Context, context.CancelFunc) {
+						return shared.ContextWithTimeout(ctx)
+					},
 				},
 			)
 			if err != nil {

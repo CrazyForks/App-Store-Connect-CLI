@@ -217,6 +217,7 @@ type signingAssetsOptions struct {
 	DeviceIDs          []string
 	CreateMissing      bool
 	BeforeCreate       func() error
+	CreateContext      func() (context.Context, context.CancelFunc)
 }
 
 func resolveSigningAssets(ctx context.Context, client *asc.Client, options signingAssetsOptions) (*asc.ProfileResponse, *asc.CertificatesResponse, bool, error) {
@@ -250,14 +251,23 @@ func resolveSigningAssets(ctx context.Context, client *asc.Client, options signi
 		}
 	}
 
+	createCtx := ctx
+	cancelCreate := func() {}
+	if options.CreateContext != nil {
+		createCtx, cancelCreate = options.CreateContext()
+		if createCtx == nil {
+			return nil, nil, false, fmt.Errorf("profile create context is nil")
+		}
+	}
 	profile, err = createProfile(
-		ctx,
+		createCtx,
 		client,
 		options.BundleIDResourceID,
 		options.ProfileType,
 		extractIDs(certificates.Data),
 		options.DeviceIDs,
 	)
+	cancelCreate()
 	if err != nil {
 		return nil, nil, false, err
 	}

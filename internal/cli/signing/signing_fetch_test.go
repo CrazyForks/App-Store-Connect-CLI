@@ -292,6 +292,71 @@ func TestResolveSigningAssetsUsesOnlyExistingProfileCertificates(t *testing.T) {
 	}
 }
 
+func TestResolveSigningAssetsFiltersExistingProfileCertificatesByRequestedType(t *testing.T) {
+	tests := []struct {
+		name            string
+		certificateType string
+		wantID          string
+		wantErr         string
+	}{
+		{
+			name:            "matching associated certificate",
+			certificateType: "ios_distribution",
+			wantID:          "cert-ios",
+		},
+		{
+			name:            "no associated certificate matches",
+			certificateType: "DEVELOPER_ID_APPLICATION",
+			wantErr:         "profile profile-main has no associated certificates of type DEVELOPER_ID_APPLICATION",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+				switch req.URL.Path {
+				case "/v1/bundleIds/bundle-main/profiles":
+					return signingFetchJSONResponse(
+						http.StatusOK,
+						`{"data":[{"type":"profiles","id":"profile-main","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}]}`,
+					)
+				case "/v1/profiles/profile-main/certificates":
+					return signingFetchJSONResponse(
+						http.StatusOK,
+						`{"data":[{"type":"certificates","id":"cert-mac","attributes":{"certificateType":"MAC_APP_DISTRIBUTION"}},{"type":"certificates","id":"cert-ios","attributes":{"certificateType":"IOS_DISTRIBUTION"}}]}`,
+					)
+				default:
+					t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+					return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+				}
+			})
+
+			_, certificates, _, err := resolveSigningAssets(
+				context.Background(),
+				client,
+				signingAssetsOptions{
+					BundleIDResourceID: "bundle-main",
+					BundleIdentifier:   "com.example.signing.profile",
+					ProfileType:        "IOS_APP_STORE",
+					CertificateType:    tt.certificateType,
+				},
+			)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveSigningAssets() error: %v", err)
+			}
+			if got := extractIDs(certificates.Data); len(got) != 1 || got[0] != tt.wantID {
+				t.Fatalf("expected only %s, got %v", tt.wantID, got)
+			}
+		})
+	}
+}
+
 func TestResolveSigningAssetsPreflightsBeforeCreatingProfile(t *testing.T) {
 	certificateContent := base64.StdEncoding.EncodeToString([]byte("certificate"))
 	profileContent := base64.StdEncoding.EncodeToString([]byte("profile"))
@@ -351,6 +416,61 @@ func TestResolveSigningAssetsPreflightsBeforeCreatingProfile(t *testing.T) {
 		"GET /v1/bundleIds/bundle-main/profiles",
 		"GET /v1/certificates",
 		"repository preflight",
+		"POST /v1/profiles",
+	}
+	if strings.Join(events, ",") != strings.Join(wantEvents, ",") {
+		t.Fatalf("unexpected operation order: got %v, want %v", events, wantEvents)
+	}
+}
+
+func TestResolveSigningAssetsRefreshesCreateTimeoutAfterPreflight(t *testing.T) {
+	requestCtx, expireRequest := context.WithCancel(context.Background())
+	events := []string{}
+	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+		events = append(events, req.Method+" "+req.URL.Path)
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
+			return signingFetchJSONResponse(http.StatusOK, `{"data":[]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
+			return signingFetchJSONResponse(http.StatusOK, `{"data":[{"type":"certificates","id":"cert-1","attributes":{"certificateType":"IOS_DISTRIBUTION"}}]}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
+			return signingFetchJSONResponse(http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+		}
+	})
+
+	profile, _, created, err := resolveSigningAssets(
+		requestCtx,
+		client,
+		signingAssetsOptions{
+			BundleIDResourceID: "bundle-main",
+			BundleIdentifier:   "com.example.signing.profile",
+			ProfileType:        "IOS_APP_STORE",
+			CreateMissing:      true,
+			BeforeCreate: func() error {
+				events = append(events, "repository preflight")
+				expireRequest()
+				return nil
+			},
+			CreateContext: func() (context.Context, context.CancelFunc) {
+				events = append(events, "refresh request timeout")
+				return context.WithCancel(context.Background())
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveSigningAssets() error: %v", err)
+	}
+	if !created || profile.Data.ID != "profile-created" {
+		t.Fatalf("expected created profile, got created=%v profile=%#v", created, profile)
+	}
+	wantEvents := []string{
+		"GET /v1/bundleIds/bundle-main/profiles",
+		"GET /v1/certificates",
+		"repository preflight",
+		"refresh request timeout",
 		"POST /v1/profiles",
 	}
 	if strings.Join(events, ",") != strings.Join(wantEvents, ",") {
