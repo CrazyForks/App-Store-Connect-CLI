@@ -24,10 +24,11 @@ asc testflight groups create --app APP_ID --name "Internal Testers" --internal
 asc testflight groups view --id GROUP_ID
 ```
 
-### Find the groups that contain a build
+### Find the groups that contain a build (experimental)
 
-Use an App Store Connect build ID to list explicit group membership and implicit
-access from groups configured for all builds:
+The `--build-id` lookup is experimental. Use an App Store Connect build ID to
+list explicit group membership and implicit access from groups configured for
+all builds:
 
 ```bash  theme={null}
 asc testflight groups list --build-id BUILD_ID --output table

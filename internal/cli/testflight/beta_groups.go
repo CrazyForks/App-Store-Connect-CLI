@@ -62,7 +62,7 @@ func BetaGroupsListCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 
 	appID := fs.String("app", "", "App Store Connect app ID (or ASC_APP_ID env)")
-	buildID := fs.String("build-id", "", "List groups that contain this build ID")
+	buildID := fs.String("build-id", "", "[experimental] List groups that contain this build ID")
 	global := fs.Bool("global", false, "List beta groups across all apps (top-level endpoint)")
 	internal := fs.Bool("internal", false, "Filter to internal groups only")
 	external := fs.Bool("external", false, "Filter to external groups only")
@@ -77,11 +77,12 @@ func BetaGroupsListCommand() *ffcli.Command {
 		ShortHelp:  "List TestFlight beta groups for an app or globally.",
 		LongHelp: `List TestFlight beta groups for an app or globally.
 
-With --build-id, the command resolves the build's app, automatically paginates
-the app's groups, and returns both explicit build relationships and groups with
-all-build access. App Store Connect does not expose a build-side GET for beta
-groups, so the command prefers the documented betaGroups build filter. If Apple
-rejects that filter, it falls back to the inverse group-to-build relationship.
+The --build-id lookup is experimental. It resolves the build's app and
+automatically paginates the app's groups, returning both explicit build
+relationships and groups with all-build access. App Store Connect does not
+expose a build-side GET for beta groups, so the command prefers the documented
+betaGroups build filter. If that filter is rejected, the command falls back to
+the inverse group-to-build relationship.
 All-build groups omitted by the filter are also checked through that inverse
 linkage because Apple can omit their explicit relationships. These checks scan
 linkage IDs only; cost scales with the checked groups and their build page count.
