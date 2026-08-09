@@ -1173,10 +1173,10 @@ func resolveHealth(resp *dashboardResponse, blockers []string) string {
 }
 
 func resolveNextAction(resp *dashboardResponse, blockers []string) string {
-	if action := betaReviewBlockerNextAction(resp); action != "" {
-		return action
-	}
 	if len(blockers) > 0 {
+		if action := betaReviewBlockerNextAction(resp); action != "" && len(blockers) == 1 {
+			return action
+		}
 		return fmt.Sprintf("Resolve blocker: %s", blockers[0])
 	}
 	if resp == nil {

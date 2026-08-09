@@ -586,6 +586,28 @@ func TestBuildStatusSummary_BetaReviewCorrelation(t *testing.T) {
 	}
 }
 
+func TestBuildStatusSummary_AppStoreBlockerPrecedesBetaReviewAction(t *testing.T) {
+	latest := &betaReviewBuildStatus{ID: "build-326", Version: "1.2.3", BuildNumber: "326", Platform: "IOS"}
+	resp := &dashboardResponse{
+		Review: &reviewSection{State: "REJECTED"},
+		TestFlight: &testFlightSection{
+			latestBuild: latest,
+			BetaReviewSubmission: &betaReviewSubmissionStatus{
+				ID: "review-325", State: "WAITING_FOR_REVIEW", RelationToLatestBuild: "sameVersionTrain",
+				Build: &betaReviewBuildStatus{ID: "build-325", Version: "1.2.3", BuildNumber: "325", Platform: "IOS"},
+			},
+		},
+	}
+
+	summary := buildStatusSummary(resp)
+	if len(summary.Blockers) != 2 {
+		t.Fatalf("expected both App Store and beta review blockers, got %v", summary.Blockers)
+	}
+	if summary.NextAction != "Resolve blocker: App Store review is rejected" {
+		t.Fatalf("expected App Store blocker precedence, got %q", summary.NextAction)
+	}
+}
+
 func TestRenderDashboardLabelsBetaReviewBuildExplicitly(t *testing.T) {
 	resp := &dashboardResponse{
 		Summary: statusSummary{Health: "yellow", NextAction: "Wait.", Blockers: []string{}},
