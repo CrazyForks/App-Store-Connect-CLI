@@ -246,6 +246,49 @@ func TestXcodeBuildPrintsPreflightFailureReason(t *testing.T) {
 	}
 }
 
+func TestXcodeBuildPrintsSignaledFailureReason(t *testing.T) {
+	originalRunBuild := runBuild
+	t.Cleanup(func() { runBuild = originalRunBuild })
+
+	runBuild = func(_ context.Context, opts localxcode.BuildOptions) (*localxcode.BuildResult, error) {
+		return &localxcode.BuildResult{
+			ProjectPath:     opts.ProjectPath,
+			Scheme:          opts.Scheme,
+			DerivedDataPath: "/tmp/derived",
+			Success:         false,
+			DurationMS:      2,
+		}, errors.New("xcodebuild build failed: signal: killed")
+	}
+
+	cmd := XcodeBuildCommand()
+	cmd.FlagSet.SetOutput(io.Discard)
+	if err := cmd.FlagSet.Parse([]string{"--project", "Demo.xcodeproj", "--scheme", "Demo", "--output", "json"}); err != nil {
+		t.Fatalf("FlagSet.Parse() error = %v", err)
+	}
+	var runErr error
+	stdout, stderr := captureCommandOutput(t, func() error {
+		runErr = cmd.Exec(context.Background(), nil)
+		return runErr
+	})
+	var reportedErr shared.ReportedError
+	if !errors.As(runErr, &reportedErr) {
+		t.Fatalf("Exec() error = %T %v, want ReportedError", runErr, runErr)
+	}
+	if got := strings.Count(stderr, "signal: killed"); got != 1 {
+		t.Fatalf("stderr = %q, signal reason count = %d, want 1", stderr, got)
+	}
+	if strings.Contains(stderr, "exit status -1") {
+		t.Fatalf("stderr = %q, signaled process must not report a numeric exit status", stderr)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\nstdout=%s", err, stdout)
+	}
+	if _, exists := payload["exit_status"]; exists {
+		t.Fatalf("unexpected exit_status for signaled failure: %s", stdout)
+	}
+}
+
 func TestXcodeBuildRendersTableAndMarkdown(t *testing.T) {
 	originalRunBuild := runBuild
 	t.Cleanup(func() { runBuild = originalRunBuild })

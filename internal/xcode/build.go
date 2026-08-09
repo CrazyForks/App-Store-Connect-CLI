@@ -117,7 +117,9 @@ func Build(ctx context.Context, opts BuildOptions) (*BuildResult, error) {
 		var exitErr *exec.ExitError
 		if errors.As(buildErr, &exitErr) {
 			exitStatus := exitErr.ExitCode()
-			result.ExitStatus = &exitStatus
+			if exitStatus >= 0 {
+				result.ExitStatus = &exitStatus
+			}
 		}
 		return finish(buildErr)
 	}

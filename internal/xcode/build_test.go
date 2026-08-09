@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -328,6 +329,35 @@ func TestBuildPreservesFailureExitStatus(t *testing.T) {
 	}
 }
 
+func TestBuildOmitsExitStatusForSignaledFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows process termination does not expose Unix signal status")
+	}
+	projectPath := createBuildTestContainer(t)
+	restore := overrideBuildProcess(t, "signal")
+	defer restore()
+
+	result, err := Build(context.Background(), BuildOptions{
+		ProjectPath:     projectPath,
+		Scheme:          "Demo",
+		DerivedDataPath: filepath.Join(t.TempDir(), "DerivedData"),
+		LogWriter:       io.Discard,
+	})
+	if err == nil || !strings.Contains(err.Error(), "signal:") {
+		t.Fatalf("Build() error = %v, want signal failure", err)
+	}
+	if result == nil || result.Success {
+		t.Fatalf("Build() result = %+v, want structured failure", result)
+	}
+	if result.ExitStatus != nil {
+		t.Fatalf("ExitStatus = %v, want nil for signaled process", result.ExitStatus)
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != -1 {
+		t.Fatalf("Build() error = %T %v, want signaled *exec.ExitError", err, err)
+	}
+}
+
 func TestBuildPreservesContextCancellation(t *testing.T) {
 	projectPath := createBuildTestContainer(t)
 	restore := overrideBuildProcess(t, "wait")
@@ -479,6 +509,12 @@ func TestBuildHelperProcess(t *testing.T) {
 	case "failure":
 		_, _ = io.WriteString(os.Stderr, "compile failed\n")
 		os.Exit(65)
+	case "signal":
+		process, err := os.FindProcess(os.Getpid())
+		if err != nil || process.Kill() != nil {
+			os.Exit(2)
+		}
+		os.Exit(2)
 	case "wait":
 		time.Sleep(2 * time.Second)
 		os.Exit(0)
