@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestWorkflowRun_RetryKeepsStdoutStructured(t *testing.T) {
+	requireWorkflowShell(t)
 	dir := t.TempDir()
 	counterPath := filepath.Join(dir, "attempts")
 	path := writeWorkflowJSON(t, dir, fmt.Sprintf(`{
@@ -66,4 +68,14 @@ func TestWorkflowRun_RetryKeepsStdoutStructured(t *testing.T) {
 	if !strings.Contains(stderr, "transient-404") || !strings.Contains(stderr, "linked") {
 		t.Fatalf("step output must stream to stderr, got %q", stderr)
 	}
+}
+
+func requireWorkflowShell(t *testing.T) {
+	t.Helper()
+	for _, shell := range []string{"bash", "sh"} {
+		if _, err := exec.LookPath(shell); err == nil {
+			return
+		}
+	}
+	t.Skip("asc workflow run requires bash or sh in PATH")
 }

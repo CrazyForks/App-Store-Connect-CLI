@@ -8,9 +8,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+type retrySignalWriter struct {
+	bytes.Buffer
+	needle string
+	ready  chan struct{}
+	once   sync.Once
+}
+
+func (w *retrySignalWriter) Write(p []byte) (int, error) {
+	n, err := w.Buffer.Write(p)
+	if strings.Contains(w.String(), w.needle) {
+		w.once.Do(func() { close(w.ready) })
+	}
+	return n, err
+}
 
 func loadWorkflowForRetryTest(t *testing.T, content string) (*Definition, string) {
 	t.Helper()
@@ -246,11 +262,29 @@ func TestRun_CancellationStopsDuringRetryDelay(t *testing.T) {
 		}
 	}`, counterPath))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	stderr := &retrySignalWriter{
+		needle: "retrying in 1h0m0s",
+		ready:  make(chan struct{}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := Run(ctx, def, runOpts("main"))
+	go func() {
+		select {
+		case <-stderr.ready:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	opts := runOpts("main")
+	opts.Stderr = stderr
+	result, err := Run(ctx, def, opts)
 	if err == nil {
 		t.Fatal("expected cancellation")
+	}
+	select {
+	case <-stderr.ready:
+	default:
+		t.Fatalf("runner never entered retry delay; stderr = %q", stderr.String())
 	}
 	step := result.Steps[0]
 	if step.FailureReason != "canceled" || len(step.Attempts) != 1 {

@@ -91,6 +91,14 @@ and the user did not authorize mutating the documented Apple relationship.
 Read-only verification is limited to current CLI help and the checked-in
 OpenAPI contract.
 
+## Residual risk
+
+A timeout proves only that the local process tree was terminated. A remote
+service may have accepted a mutating request before the deadline even though
+the command returned no success result. A configured retry can therefore replay
+that mutation. Operators must limit retry policies to commands whose duplicate
+execution is acceptable or whose remote operation is idempotent.
+
 ## Alternatives
 
 An exponential multiplier, jitter, exit-code filters, or HTTP-aware policy
