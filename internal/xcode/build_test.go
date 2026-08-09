@@ -1,0 +1,290 @@
+package xcode
+
+import (
+	"context"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestValidateBuildOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    BuildOptions
+		wantErr string
+	}{
+		{name: "project", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo"}},
+		{name: "workspace", opts: BuildOptions{WorkspacePath: "Demo.xcworkspace", Scheme: "Demo"}},
+		{name: "non-managed prefix remains available", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-destination-timeout", "60"}}},
+		{name: "missing selector", opts: BuildOptions{Scheme: "Demo"}, wantErr: "exactly one of --workspace or --project"},
+		{name: "both selectors", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", WorkspacePath: "Demo.xcworkspace", Scheme: "Demo"}, wantErr: "exactly one of --workspace or --project"},
+		{name: "missing scheme", opts: BuildOptions{ProjectPath: "Demo.xcodeproj"}, wantErr: "--scheme is required"},
+		{name: "wrong project suffix", opts: BuildOptions{ProjectPath: "Demo.txt", Scheme: "Demo"}, wantErr: "--project must end with .xcodeproj"},
+		{name: "wrong workspace suffix", opts: BuildOptions{WorkspacePath: "Demo.txt", Scheme: "Demo"}, wantErr: "--workspace must end with .xcworkspace"},
+		{name: "reserved typed flag passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-destination"}}, wantErr: `cannot override asc-managed argument "-destination"`},
+		{name: "reserved equals flag passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-derivedDataPath=/tmp/elsewhere"}}, wantErr: `cannot override asc-managed argument "-derivedDataPath"`},
+		{name: "reserved equals selector passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"-PROJECT=Other.xcodeproj"}}, wantErr: `cannot override asc-managed argument "-PROJECT"`},
+		{name: "reserved signing passthrough", opts: BuildOptions{ProjectPath: "Demo.xcodeproj", Scheme: "Demo", XcodebuildArgs: []string{"CODE_SIGNING_ALLOWED=NO"}}, wantErr: `cannot override asc-managed argument "CODE_SIGNING_ALLOWED"`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateBuildOptions(test.opts)
+			if test.wantErr == "" && err != nil {
+				t.Fatalf("ValidateBuildOptions() error = %v", err)
+			}
+			if test.wantErr != "" && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
+				t.Fatalf("ValidateBuildOptions() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestBuildCommandUsesTypedOptionsAndPreservesRawArguments(t *testing.T) {
+	opts := BuildOptions{
+		WorkspacePath:   "Demo App.xcworkspace",
+		Scheme:          "Demo App",
+		Configuration:   "Release Candidate",
+		Destination:     "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
+		DerivedDataPath: "/tmp/Derived Data/Demo",
+		Clean:           true,
+		NoCodeSigning:   true,
+		XcodebuildArgs:  []string{"-quiet", "OTHER_SWIFT_FLAGS=-D ASC_BUILD"},
+	}
+
+	want := []string{
+		"-workspace", "Demo App.xcworkspace",
+		"-scheme", "Demo App",
+		"-configuration", "Release Candidate",
+		"-destination", "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
+		"-derivedDataPath", "/tmp/Derived Data/Demo",
+		"-quiet", "OTHER_SWIFT_FLAGS=-D ASC_BUILD",
+		"CODE_SIGNING_ALLOWED=NO",
+		"clean", "build",
+	}
+	if got := buildBuildCommand(opts); !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildBuildCommand() = %#v\nwant %#v", got, want)
+	}
+}
+
+func TestBuildCommandDoesNotChangeSigningByDefault(t *testing.T) {
+	opts := BuildOptions{
+		ProjectPath:     "Demo.xcodeproj",
+		Scheme:          "Demo",
+		Destination:     "generic/platform=iOS",
+		DerivedDataPath: "/tmp/DemoDerivedData",
+	}
+	args := buildBuildCommand(opts)
+	if containsArg(args, "CODE_SIGNING_ALLOWED=NO") {
+		t.Fatalf("default build unexpectedly disabled signing: %#v", args)
+	}
+	if got, want := args[len(args)-1], "build"; got != want {
+		t.Fatalf("last argument = %q, want %q", got, want)
+	}
+}
+
+func TestResolveBuildDerivedDataPathIsStableAndOutsideProject(t *testing.T) {
+	cacheDir := t.TempDir()
+	originalUserCacheDir := userCacheDirFn
+	userCacheDirFn = func() (string, error) { return cacheDir, nil }
+	t.Cleanup(func() { userCacheDirFn = originalUserCacheDir })
+
+	projectDir := t.TempDir()
+	projectPath := filepath.Join(projectDir, "Demo.xcodeproj")
+	opts := BuildOptions{
+		ProjectPath:   projectPath,
+		Scheme:        "Demo App",
+		Configuration: "Debug",
+		Destination:   "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
+	}
+	first, err := resolveBuildDerivedDataPath(opts)
+	if err != nil {
+		t.Fatalf("resolveBuildDerivedDataPath() error = %v", err)
+	}
+	second, err := resolveBuildDerivedDataPath(opts)
+	if err != nil {
+		t.Fatalf("resolveBuildDerivedDataPath() second error = %v", err)
+	}
+	if first != second {
+		t.Fatalf("derived-data path is not stable: %q != %q", first, second)
+	}
+	if !strings.HasPrefix(first, filepath.Join(cacheDir, "asc", "xcode-build")+string(os.PathSeparator)) {
+		t.Fatalf("derived-data path %q is not in asc cache %q", first, cacheDir)
+	}
+	if strings.HasPrefix(first, projectDir+string(os.PathSeparator)) {
+		t.Fatalf("derived-data path %q is inside source checkout %q", first, projectDir)
+	}
+
+	opts.Destination = "generic/platform=iOS"
+	third, err := resolveBuildDerivedDataPath(opts)
+	if err != nil {
+		t.Fatalf("resolveBuildDerivedDataPath() changed destination error = %v", err)
+	}
+	if third == first {
+		t.Fatalf("destination change did not change derived-data path: %q", third)
+	}
+}
+
+func TestBuildReturnsStructuredSuccessAndProductsDirectory(t *testing.T) {
+	projectPath := createBuildTestContainer(t)
+	derivedDataPath := filepath.Join(t.TempDir(), "Derived Data")
+	productsPath := filepath.Join(derivedDataPath, "Build", "Products")
+	if err := os.MkdirAll(productsPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll() products error = %v", err)
+	}
+	restore := overrideBuildProcess(t, "success")
+	defer restore()
+
+	result, err := Build(context.Background(), BuildOptions{
+		ProjectPath:     projectPath,
+		Scheme:          "Demo",
+		Configuration:   "Debug",
+		Destination:     "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0",
+		DerivedDataPath: derivedDataPath,
+		NoCodeSigning:   true,
+		LogWriter:       io.Discard,
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("Build() result = %+v, want success", result)
+	}
+	if result.BuildProductsPath != productsPath {
+		t.Fatalf("BuildProductsPath = %q, want %q", result.BuildProductsPath, productsPath)
+	}
+	if result.DurationMS < 0 {
+		t.Fatalf("DurationMS = %d, want non-negative", result.DurationMS)
+	}
+}
+
+func TestBuildPreservesFailureExitStatus(t *testing.T) {
+	projectPath := createBuildTestContainer(t)
+	restore := overrideBuildProcess(t, "failure")
+	defer restore()
+
+	result, err := Build(context.Background(), BuildOptions{
+		ProjectPath:     projectPath,
+		Scheme:          "Demo",
+		DerivedDataPath: filepath.Join(t.TempDir(), "DerivedData"),
+		LogWriter:       io.Discard,
+	})
+	if err == nil {
+		t.Fatal("Build() error = nil, want subprocess failure")
+	}
+	if result == nil || result.Success {
+		t.Fatalf("Build() result = %+v, want structured failure", result)
+	}
+	if result.ExitStatus != 65 {
+		t.Fatalf("ExitStatus = %d, want 65", result.ExitStatus)
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("Build() error = %T %v, want wrapped *exec.ExitError", err, err)
+	}
+}
+
+func TestBuildPreservesContextCancellation(t *testing.T) {
+	projectPath := createBuildTestContainer(t)
+	restore := overrideBuildProcess(t, "wait")
+	defer restore()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	result, err := Build(ctx, BuildOptions{
+		ProjectPath:     projectPath,
+		Scheme:          "Demo",
+		DerivedDataPath: filepath.Join(t.TempDir(), "DerivedData"),
+		LogWriter:       io.Discard,
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Build() error = %v, want context deadline exceeded", err)
+	}
+	if result == nil || result.Success {
+		t.Fatalf("Build() result = %+v, want canceled failure", result)
+	}
+}
+
+func TestBuildRejectsUnsupportedHostBeforeStartingProcess(t *testing.T) {
+	projectPath := createBuildTestContainer(t)
+	originalGOOS := runtimeGOOS
+	runtimeGOOS = "linux"
+	t.Cleanup(func() { runtimeGOOS = originalGOOS })
+
+	result, err := Build(context.Background(), BuildOptions{ProjectPath: projectPath, Scheme: "Demo"})
+	if err == nil || !strings.Contains(err.Error(), "supported on macOS only") {
+		t.Fatalf("Build() error = %v, want macOS-only error", err)
+	}
+	if result == nil || result.Success {
+		t.Fatalf("Build() result = %+v, want structured failure", result)
+	}
+}
+
+func createBuildTestContainer(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "Demo.xcodeproj")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	return path
+}
+
+func overrideBuildProcess(t *testing.T, mode string) func() {
+	t.Helper()
+	originalGOOS := runtimeGOOS
+	originalLookPath := lookPathFn
+	originalCommandContext := commandContextFn
+	runtimeGOOS = "darwin"
+	lookPathFn = func(string) (string, error) { return "/usr/bin/xcodebuild", nil }
+	commandContextFn = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		commandArgs := []string{"-test.run=TestBuildHelperProcess", "--"}
+		commandArgs = append(commandArgs, args...)
+		cmd := exec.CommandContext(ctx, os.Args[0], commandArgs...)
+		cmd.Env = append(os.Environ(), "GO_WANT_BUILD_HELPER_PROCESS=1", "ASC_BUILD_HELPER_MODE="+mode)
+		return cmd
+	}
+	return func() {
+		runtimeGOOS = originalGOOS
+		lookPathFn = originalLookPath
+		commandContextFn = originalCommandContext
+	}
+}
+
+func TestBuildHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_BUILD_HELPER_PROCESS") != "1" {
+		return
+	}
+	args := os.Args
+	separator := -1
+	for index, arg := range args {
+		if arg == "--" {
+			separator = index
+			break
+		}
+	}
+	if separator == -1 {
+		os.Exit(2)
+	}
+	commandArgs := args[separator+1:]
+	if len(commandArgs) == 1 && commandArgs[0] == "-version" {
+		os.Exit(0)
+	}
+	switch os.Getenv("ASC_BUILD_HELPER_MODE") {
+	case "success":
+		os.Exit(0)
+	case "failure":
+		_, _ = io.WriteString(os.Stderr, "compile failed\n")
+		os.Exit(65)
+	case "wait":
+		time.Sleep(2 * time.Second)
+		os.Exit(0)
+	default:
+		os.Exit(2)
+	}
+}

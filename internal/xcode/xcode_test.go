@@ -1176,6 +1176,13 @@ func TestRunXcodebuildWithLogWriterKeepsOnlyTailInErrorMessage(t *testing.T) {
 	if !strings.Contains(errorText, "LATE-MARKER") {
 		t.Fatalf("expected late marker in error tail, got %v", err)
 	}
+	if strings.Contains(errorText, "exit status 1") {
+		t.Fatalf("legacy archive/export runner error text changed: %v", err)
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		t.Fatalf("legacy archive/export runner unexpectedly exposes process error: %v", err)
+	}
 }
 
 func TestRunXcodebuildDoesNotWaitForDescendantHoldingOutputPipes(t *testing.T) {

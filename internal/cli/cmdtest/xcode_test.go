@@ -25,6 +25,16 @@ func TestXcodeCommandExists(t *testing.T) {
 	if strings.HasPrefix(xcodeCmd.ShortHelp, "[experimental]") {
 		t.Fatalf("expected xcode command not to be experimental, got %q", xcodeCmd.ShortHelp)
 	}
+	buildCmd := findSubcommand(root, "xcode", "build")
+	if buildCmd == nil {
+		t.Fatal("expected xcode build command")
+		return
+	}
+	for _, name := range []string{"project", "workspace", "scheme", "configuration", "destination", "derived-data-path", "clean", "no-code-signing", "xcodebuild-flag", "output"} {
+		if buildCmd.FlagSet.Lookup(name) == nil {
+			t.Fatalf("expected xcode build to expose --%s", name)
+		}
+	}
 	if findSubcommand(root, "xcode", "archive") == nil {
 		t.Fatal("expected xcode archive command")
 	}

@@ -1,0 +1,251 @@
+package xcode
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode"
+)
+
+var userCacheDirFn = os.UserCacheDir
+
+// BuildOptions describes an ordinary local xcodebuild compile.
+type BuildOptions struct {
+	WorkspacePath   string
+	ProjectPath     string
+	Scheme          string
+	Configuration   string
+	Destination     string
+	DerivedDataPath string
+	Clean           bool
+	NoCodeSigning   bool
+	XcodebuildArgs  []string
+	LogWriter       io.Writer
+}
+
+// BuildResult is the stable structured result for an ordinary Xcode build.
+type BuildResult struct {
+	WorkspacePath     string `json:"workspace,omitempty"`
+	ProjectPath       string `json:"project,omitempty"`
+	Scheme            string `json:"scheme"`
+	Configuration     string `json:"configuration,omitempty"`
+	Destination       string `json:"destination,omitempty"`
+	DerivedDataPath   string `json:"derived_data_path"`
+	BuildProductsPath string `json:"build_products_path,omitempty"`
+	Clean             bool   `json:"clean"`
+	NoCodeSigning     bool   `json:"no_code_signing"`
+	Success           bool   `json:"success"`
+	DurationMS        int64  `json:"duration_ms"`
+	ExitStatus        int    `json:"exit_status,omitempty"`
+}
+
+// ValidateBuildOptions checks deterministic command-shape errors without
+// reading the filesystem or starting a subprocess.
+func ValidateBuildOptions(opts BuildOptions) error {
+	opts = normalizeBuildOptions(opts)
+	if err := validateWorkspaceProjectPair(opts.WorkspacePath, opts.ProjectPath); err != nil {
+		return err
+	}
+	if opts.Scheme == "" {
+		return fmt.Errorf("--scheme is required")
+	}
+	if opts.ProjectPath != "" && !strings.EqualFold(filepath.Ext(opts.ProjectPath), ".xcodeproj") {
+		return fmt.Errorf("--project must end with .xcodeproj")
+	}
+	if opts.WorkspacePath != "" && !strings.EqualFold(filepath.Ext(opts.WorkspacePath), ".xcworkspace") {
+		return fmt.Errorf("--workspace must end with .xcworkspace")
+	}
+	if reserved := reservedBuildPassthroughArgument(opts.XcodebuildArgs); reserved != "" {
+		return fmt.Errorf("--xcodebuild-flag cannot override asc-managed argument %q", reserved)
+	}
+	return nil
+}
+
+// Build runs an ordinary local xcodebuild compile. If xcodebuild starts and
+// fails, the returned result records failure details while the error preserves
+// the subprocess or context error chain.
+func Build(ctx context.Context, opts BuildOptions) (*BuildResult, error) {
+	startedAt := time.Now()
+	opts = normalizeBuildOptions(opts)
+	result := &BuildResult{
+		WorkspacePath: opts.WorkspacePath,
+		ProjectPath:   opts.ProjectPath,
+		Scheme:        opts.Scheme,
+		Configuration: opts.Configuration,
+		Destination:   opts.Destination,
+		Clean:         opts.Clean,
+		NoCodeSigning: opts.NoCodeSigning,
+	}
+	finish := func(err error) (*BuildResult, error) {
+		result.DurationMS = max(int64(0), time.Since(startedAt).Milliseconds())
+		result.Success = err == nil
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				result.ExitStatus = exitErr.ExitCode()
+			}
+		}
+		return result, err
+	}
+
+	if err := ValidateBuildOptions(opts); err != nil {
+		return finish(err)
+	}
+	derivedDataPath, err := resolveBuildDerivedDataPath(opts)
+	if err != nil {
+		return finish(err)
+	}
+	opts.DerivedDataPath = derivedDataPath
+	result.DerivedDataPath = derivedDataPath
+
+	if err := ensureXcodeAvailable(ctx); err != nil {
+		return finish(err)
+	}
+	if err := validateBuildInputPaths(opts); err != nil {
+		return finish(err)
+	}
+	if err := runXcodebuildForBuild(ctx, buildBuildCommand(opts), opts.LogWriter); err != nil {
+		return finish(err)
+	}
+
+	productsPath := filepath.Join(derivedDataPath, "Build", "Products")
+	if info, statErr := os.Stat(productsPath); statErr == nil && info.IsDir() {
+		result.BuildProductsPath = productsPath
+	}
+	return finish(nil)
+}
+
+func normalizeBuildOptions(opts BuildOptions) BuildOptions {
+	opts.WorkspacePath = normalizeDirectoryPath(opts.WorkspacePath)
+	opts.ProjectPath = normalizeDirectoryPath(opts.ProjectPath)
+	opts.Scheme = strings.TrimSpace(opts.Scheme)
+	opts.Configuration = strings.TrimSpace(opts.Configuration)
+	opts.Destination = strings.TrimSpace(opts.Destination)
+	opts.DerivedDataPath = normalizeDirectoryPath(opts.DerivedDataPath)
+	return opts
+}
+
+func validateBuildInputPaths(opts BuildOptions) error {
+	if opts.WorkspacePath != "" {
+		return validateExistingPath(opts.WorkspacePath, ".xcworkspace", "--workspace")
+	}
+	return validateExistingPath(opts.ProjectPath, ".xcodeproj", "--project")
+}
+
+func reservedBuildPassthroughArgument(args []string) string {
+	reserved := []string{
+		"-project",
+		"-workspace",
+		"-scheme",
+		"-configuration",
+		"-destination",
+		"-deriveddatapath",
+		"clean",
+		"build",
+		"archive",
+		"-archivepath",
+		"-exportarchive",
+	}
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		normalized := strings.ToLower(trimmed)
+		for _, managed := range reserved {
+			if normalized == managed || strings.HasPrefix(normalized, managed+"=") {
+				return strings.SplitN(trimmed, "=", 2)[0]
+			}
+		}
+		if strings.HasPrefix(normalized, "code_signing_allowed=") {
+			return strings.SplitN(trimmed, "=", 2)[0]
+		}
+	}
+	return ""
+}
+
+func resolveBuildDerivedDataPath(opts BuildOptions) (string, error) {
+	if opts.DerivedDataPath != "" {
+		return filepath.Clean(opts.DerivedDataPath), nil
+	}
+	selector := opts.ProjectPath
+	if selector == "" {
+		selector = opts.WorkspacePath
+	}
+	absoluteSelector, err := filepath.Abs(selector)
+	if err != nil {
+		return "", fmt.Errorf("resolve Xcode project/workspace path: %w", err)
+	}
+	cacheDir, err := userCacheDirFn()
+	if err != nil {
+		return "", fmt.Errorf("resolve user cache directory for derived data: %w", err)
+	}
+	cacheDir = strings.TrimSpace(cacheDir)
+	if cacheDir == "" {
+		return "", fmt.Errorf("resolve user cache directory for derived data: empty path")
+	}
+
+	digest := sha256.Sum256([]byte(strings.Join([]string{
+		absoluteSelector,
+		opts.Scheme,
+		opts.Configuration,
+		opts.Destination,
+	}, "\x00")))
+	hash := hex.EncodeToString(digest[:])[:12]
+	return filepath.Join(cacheDir, "asc", "xcode-build", safeBuildPathComponent(opts.Scheme)+"-"+hash), nil
+}
+
+func safeBuildPathComponent(value string) string {
+	var builder strings.Builder
+	lastWasSeparator := false
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+			lastWasSeparator = false
+			continue
+		}
+		if builder.Len() > 0 && !lastWasSeparator {
+			builder.WriteByte('-')
+			lastWasSeparator = true
+		}
+	}
+	component := strings.Trim(builder.String(), "-")
+	if component == "" {
+		component = "build"
+	}
+	if len(component) > 48 {
+		component = strings.TrimRight(component[:48], "-")
+	}
+	return component
+}
+
+func buildBuildCommand(opts BuildOptions) []string {
+	args := make([]string, 0, 20+len(opts.XcodebuildArgs))
+	if opts.WorkspacePath != "" {
+		args = append(args, "-workspace", opts.WorkspacePath)
+	}
+	if opts.ProjectPath != "" {
+		args = append(args, "-project", opts.ProjectPath)
+	}
+	args = append(args, "-scheme", opts.Scheme)
+	if opts.Configuration != "" {
+		args = append(args, "-configuration", opts.Configuration)
+	}
+	if opts.Destination != "" {
+		args = append(args, "-destination", opts.Destination)
+	}
+	args = append(args, "-derivedDataPath", opts.DerivedDataPath)
+	args = append(args, cloneStrings(opts.XcodebuildArgs)...)
+	if opts.NoCodeSigning {
+		args = append(args, "CODE_SIGNING_ALLOWED=NO")
+	}
+	if opts.Clean {
+		args = append(args, "clean")
+	}
+	return append(args, "build")
+}
