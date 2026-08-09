@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,10 +14,11 @@ import (
 )
 
 type postUploadBuildDistributionFake struct {
-	addErrors []error
-	getErrors []error
-	addCalls  int
-	getCalls  int
+	addErrors    []error
+	getErrors    []error
+	getResponses []*asc.BuildResponse
+	addCalls     int
+	getCalls     int
 }
 
 func (f *postUploadBuildDistributionFake) AddBetaGroupsToBuildWithNotify(_ context.Context, _ string, _ []string, _ bool) (asc.BuildBetaGroupsNotificationAction, error) {
@@ -35,6 +37,10 @@ func (f *postUploadBuildDistributionFake) GetBuild(_ context.Context, buildID st
 		if f.getErrors[index] != nil {
 			return nil, f.getErrors[index]
 		}
+	}
+	if len(f.getResponses) > 0 {
+		index := min(f.getCalls-1, len(f.getResponses)-1)
+		return f.getResponses[index], nil
 	}
 	return &asc.BuildResponse{Data: asc.Resource[asc.BuildAttributes]{ID: buildID}}, nil
 }
@@ -86,6 +92,14 @@ func TestPostUploadBuildPropagationClassifierMatchesCapturedProductionErrorOnly(
 	}
 	if isPostUploadBuildPropagationError(captured, "different-build-id") {
 		t.Fatal("did not expect a mismatched build ID to be retryable")
+	}
+	nearCollision := postUploadBuildMissingError("x09f4080c-6ee7-4e52-8103-e1241eaaa58ay")
+	if isPostUploadBuildPropagationError(nearCollision, "09f4080c-6ee7-4e52-8103-e1241eaaa58a") {
+		t.Fatal("did not expect a build ID contained inside another token to be retryable")
+	}
+	uppercase := postUploadBuildMissingError("09F4080C-6EE7-4E52-8103-E1241EAAA58A")
+	if !isPostUploadBuildPropagationError(uppercase, "09f4080c-6ee7-4e52-8103-e1241eaaa58a") {
+		t.Fatal("expected differently cased quoted build ID to be retryable")
 	}
 }
 
@@ -141,6 +155,47 @@ func TestAddUploadedBuildBetaGroupsDoesNotRetryWhenBuildCannotBeConfirmed(t *tes
 	}
 	if fake.addCalls != 1 || fake.getCalls != 1 || waits != 0 {
 		t.Fatalf("calls = add:%d get:%d wait:%d, want 1/1/0", fake.addCalls, fake.getCalls, waits)
+	}
+}
+
+func TestAddUploadedBuildBetaGroupsDoesNotRetryMalformedBuildConfirmation(t *testing.T) {
+	tests := []struct {
+		name     string
+		response *asc.BuildResponse
+	}{
+		{name: "nil response"},
+		{name: "missing build ID", response: &asc.BuildResponse{}},
+		{name: "mismatched build ID", response: &asc.BuildResponse{Data: asc.Resource[asc.BuildAttributes]{ID: "build-2"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &postUploadBuildDistributionFake{
+				addErrors:    []error{postUploadBuildMissingError("build-1")},
+				getResponses: []*asc.BuildResponse{tt.response},
+			}
+			waits := 0
+			_, err := addUploadedBuildBetaGroupsWithPolicy(
+				context.Background(),
+				fake,
+				"build-1",
+				postUploadBuildGroups(),
+				shared.AddBuildBetaGroupsOptions{},
+				postUploadBuildPropagationRetryPolicy{
+					Backoffs: []time.Duration{0},
+					Wait: func(context.Context, time.Duration) error {
+						waits++
+						return nil
+					},
+				},
+			)
+			if err == nil || !strings.Contains(err.Error(), "response did not contain the requested build") {
+				t.Fatalf("expected failed build confirmation, got %v", err)
+			}
+			if fake.addCalls != 1 || fake.getCalls != 1 || waits != 0 {
+				t.Fatalf("calls = add:%d get:%d wait:%d, want 1/1/0", fake.addCalls, fake.getCalls, waits)
+			}
+		})
 	}
 }
 

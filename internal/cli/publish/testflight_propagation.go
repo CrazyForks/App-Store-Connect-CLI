@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -71,8 +72,12 @@ func addUploadedBuildBetaGroupsWithPolicy(
 			return nil, err
 		}
 
-		if _, confirmErr := client.GetBuild(ctx, buildID); confirmErr != nil {
+		confirmedBuild, confirmErr := client.GetBuild(ctx, buildID)
+		if confirmErr != nil {
 			return nil, fmt.Errorf("build %q could not be confirmed after beta-group relationship returned build-not-found: %w", buildID, confirmErr)
+		}
+		if confirmedBuild == nil || strings.TrimSpace(confirmedBuild.Data.ID) != strings.TrimSpace(buildID) {
+			return nil, fmt.Errorf("build %q could not be confirmed after beta-group relationship returned build-not-found: response did not contain the requested build", buildID)
 		}
 		if retryIndex >= len(policy.Backoffs) {
 			return nil, fmt.Errorf("beta-group relationship still reported uploaded build %q missing after %d attempts: %w", buildID, retryIndex+1, err)
@@ -119,7 +124,12 @@ func isPostUploadBuildPropagationError(err error, buildID string) bool {
 	return trimmedBuildID != "" &&
 		strings.Contains(detail, "resource of type") &&
 		strings.Contains(detail, "builds") &&
-		strings.Contains(detail, trimmedBuildID)
+		containsExactBuildIDToken(detail, trimmedBuildID)
+}
+
+func containsExactBuildIDToken(detail, buildID string) bool {
+	pattern := `(?i)(^|[^a-z0-9_-])` + regexp.QuoteMeta(buildID) + `($|[^a-z0-9_-])`
+	return regexp.MustCompile(pattern).MatchString(detail)
 }
 
 func waitForPostUploadBuildPropagation(ctx context.Context, delay time.Duration) error {
