@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -474,6 +475,124 @@ func TestStatusResolvesMissingActiveBetaReviewBuildBeforeSelection(t *testing.T)
 	}
 	if payload.Summary.Health != "red" || len(payload.Summary.Blockers) != 1 {
 		t.Fatalf("expected older active review to block latest build, got %+v", payload.Summary)
+	}
+}
+
+func TestStatusResolvesSelectedActiveBetaReviewBeyondPrefetchCap(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	t.Setenv("ASC_APP_ID", "")
+
+	reviewSubmissions := make([]map[string]any, 0, 6)
+	for index := 1; index <= 6; index++ {
+		reviewSubmissions = append(reviewSubmissions, map[string]any{
+			"type": "betaAppReviewSubmissions",
+			"id":   fmt.Sprintf("waiting-%d", index),
+			"attributes": map[string]any{
+				"betaReviewState": "WAITING_FOR_REVIEW",
+				"submittedDate":   fmt.Sprintf("2026-08-09T%02d:00:00Z", 7-index),
+			},
+		})
+	}
+	reviewResponse, err := json.Marshal(map[string]any{
+		"data":  reviewSubmissions,
+		"links": map[string]any{"next": ""},
+	})
+	if err != nil {
+		t.Fatalf("marshal review response: %v", err)
+	}
+
+	relatedBuildCalls := 0
+	preReleaseCalls := 0
+	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.URL.Path == "/v1/builds":
+			return statusJSONResponse(`{
+				"data":[{
+					"type":"builds",
+					"id":"build-326",
+					"attributes":{"version":"326","uploadedDate":"2026-08-10T02:00:00Z","processingState":"VALID"},
+					"relationships":{"preReleaseVersion":{"data":{"type":"preReleaseVersions","id":"train-1.2.3-ios"}}}
+				}],
+				"included":[{"type":"preReleaseVersions","id":"train-1.2.3-ios","attributes":{"version":"1.2.3","platform":"IOS"}}],
+				"links":{"next":""}
+			}`), nil
+		case req.URL.Path == "/v1/buildBetaDetails":
+			return statusJSONResponse(`{"data":[],"links":{"next":""}}`), nil
+		case req.URL.Path == "/v1/betaAppReviewSubmissions":
+			return statusJSONResponse(string(reviewResponse)), nil
+		case strings.HasPrefix(req.URL.Path, "/v1/betaAppReviewSubmissions/waiting-") && strings.HasSuffix(req.URL.Path, "/build"):
+			relatedBuildCalls++
+			submissionID := strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/v1/betaAppReviewSubmissions/"), "/build")
+			buildNumber := "400"
+			if submissionID == "waiting-6" {
+				buildNumber = "325"
+			}
+			return statusJSONResponse(fmt.Sprintf(`{
+				"data":{"type":"builds","id":"review-build-%s","attributes":{"version":"%s","uploadedDate":"2026-08-09T02:00:00Z","processingState":"VALID"}}
+			}`, submissionID, buildNumber)), nil
+		case strings.HasPrefix(req.URL.Path, "/v1/builds/review-build-waiting-") && strings.HasSuffix(req.URL.Path, "/preReleaseVersion"):
+			preReleaseCalls++
+			version := "2.0.0"
+			if strings.Contains(req.URL.Path, "waiting-6") {
+				version = "1.2.3"
+			}
+			return statusJSONResponse(fmt.Sprintf(`{
+				"data":{"type":"preReleaseVersions","id":"train-%s-ios","attributes":{"version":"%s","platform":"IOS"}}
+			}`, version, version)), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	}))
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"status", "--app", "6748252780", "--platform", "IOS", "--include", "builds,testflight", "--output", "json"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	var payload struct {
+		Summary struct {
+			Health     string   `json:"health"`
+			Blockers   []string `json:"blockers"`
+			NextAction string   `json:"nextAction"`
+		} `json:"summary"`
+		TestFlight struct {
+			BetaReviewSubmission struct {
+				ID                    string                 `json:"id"`
+				RelationToLatestBuild string                 `json:"relationToLatestBuild"`
+				Build                 betaReviewBuildPayload `json:"build"`
+			} `json:"betaReviewSubmission"`
+		} `json:"testflight"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v\nstdout=%s", err, stdout)
+	}
+
+	review := payload.TestFlight.BetaReviewSubmission
+	if relatedBuildCalls != 6 || preReleaseCalls != 6 {
+		t.Fatalf("expected exactly six bounded fallback contexts (12 requests), got related=%d preRelease=%d", relatedBuildCalls, preReleaseCalls)
+	}
+	if review.ID != "waiting-6" || review.RelationToLatestBuild != "sameVersionTrain" {
+		t.Fatalf("expected selected sixth active review to resolve as same train, got %+v", review)
+	}
+	if review.Build.ID != "review-build-waiting-6" || review.Build.BuildNumber != "325" || review.Build.Version != "1.2.3" || review.Build.Platform != "IOS" {
+		t.Fatalf("expected resolved selected review build, got %+v", review.Build)
+	}
+	if payload.Summary.Health != "red" || len(payload.Summary.Blockers) != 1 {
+		t.Fatalf("expected selected older active review to block latest build, got %+v", payload.Summary)
+	}
+	if !strings.Contains(payload.Summary.NextAction, "build 325") || !strings.Contains(payload.Summary.NextAction, "build 326") {
+		t.Fatalf("expected actionable next step naming review and latest builds, got %q", payload.Summary.NextAction)
 	}
 }
 

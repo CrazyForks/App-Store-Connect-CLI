@@ -146,7 +146,7 @@ var allowedIncludes = []string{
 	"links",
 }
 
-const maxBetaReviewBuildFallbacks = 5
+const maxBetaReviewBuildPrefetches = 5
 
 // StatusCommand returns the root status dashboard command.
 func StatusCommand() *ffcli.Command {
@@ -619,6 +619,7 @@ func fillBuildsAndTestFlight(ctx context.Context, client *asc.Client, appID stri
 	}
 	reviewBuildsBySubmissionID := make(map[string]*betaReviewBuildStatus, len(reviewSubmissions.Data))
 	missingActiveBuilds := make([]asc.Resource[asc.BetaAppReviewSubmissionAttributes], 0)
+	attemptedBuildFallbacks := make(map[string]struct{}, maxBetaReviewBuildPrefetches)
 	for _, submission := range reviewSubmissions.Data {
 		reviewBuild := reviewBuildForSubmission(submission, buildsByID)
 		if reviewBuild != nil {
@@ -628,13 +629,15 @@ func fillBuildsAndTestFlight(ctx context.Context, client *asc.Client, appID stri
 			missingActiveBuilds = append(missingActiveBuilds, submission)
 		}
 	}
-	// include=build is the normal correlation path. Bound related-build fallbacks
-	// for partial responses so status never fans out across the entire history.
+	// include=build is the normal correlation path. Prefetch at most five partial
+	// active contexts, then reserve one final fallback for the selected submission.
+	// This caps resolution at six contexts and at most twelve related API requests.
 	sortBetaReviewSubmissionsLatestFirst(missingActiveBuilds)
 	for index, submission := range missingActiveBuilds {
-		if index >= maxBetaReviewBuildFallbacks {
+		if index >= maxBetaReviewBuildPrefetches {
 			break
 		}
+		attemptedBuildFallbacks[submission.ID] = struct{}{}
 		if reviewBuild := resolveBetaReviewBuildContext(ctx, client, submission, buildsByID); reviewBuild != nil {
 			reviewBuildsBySubmissionID[submission.ID] = reviewBuild
 		}
@@ -642,14 +645,18 @@ func fillBuildsAndTestFlight(ctx context.Context, client *asc.Client, appID stri
 
 	latestReviewSubmission := selectBetaReviewSubmissionForLatestBuild(reviewSubmissions.Data, latestContext, buildsByID, reviewBuildsBySubmissionID)
 	if latestReviewSubmission != nil {
-		section.BetaReviewState = latestReviewSubmission.Attributes.BetaReviewState
-		section.SubmittedDate = latestReviewSubmission.Attributes.SubmittedDate
-
 		reviewBuild := reviewBuildsBySubmissionID[latestReviewSubmission.ID]
-		if reviewBuild == nil && !isInProgressBetaReviewState(latestReviewSubmission.Attributes.BetaReviewState) {
-			reviewBuild = resolveBetaReviewBuildContext(ctx, client, *latestReviewSubmission, buildsByID)
+		_, fallbackAttempted := attemptedBuildFallbacks[latestReviewSubmission.ID]
+		if betaReviewBuildContextIncomplete(reviewBuild) && !fallbackAttempted {
+			if resolvedBuild := resolveBetaReviewBuildContext(ctx, client, *latestReviewSubmission, buildsByID); resolvedBuild != nil {
+				reviewBuildsBySubmissionID[latestReviewSubmission.ID] = resolvedBuild
+			}
+			latestReviewSubmission = selectBetaReviewSubmissionForLatestBuild(reviewSubmissions.Data, latestContext, buildsByID, reviewBuildsBySubmissionID)
+			reviewBuild = reviewBuildsBySubmissionID[latestReviewSubmission.ID]
 		}
 
+		section.BetaReviewState = latestReviewSubmission.Attributes.BetaReviewState
+		section.SubmittedDate = latestReviewSubmission.Attributes.SubmittedDate
 		section.BetaReviewSubmission = &betaReviewSubmissionStatus{
 			ID:                    latestReviewSubmission.ID,
 			State:                 latestReviewSubmission.Attributes.BetaReviewState,
