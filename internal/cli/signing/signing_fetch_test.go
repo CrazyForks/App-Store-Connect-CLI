@@ -305,6 +305,11 @@ func TestResolveSigningAssetsFiltersExistingProfileCertificatesByRequestedType(t
 			wantID:          "cert-ios",
 		},
 		{
+			name:            "comma separated types include matching certificate",
+			certificateType: "DEVELOPER_ID_APPLICATION, ios_distribution",
+			wantID:          "cert-ios",
+		},
+		{
 			name:            "no associated certificate matches",
 			certificateType: "DEVELOPER_ID_APPLICATION",
 			wantErr:         "profile profile-main has no associated certificates of type DEVELOPER_ID_APPLICATION",

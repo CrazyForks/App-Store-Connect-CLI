@@ -325,19 +325,24 @@ func findProfileCertificates(ctx context.Context, client *asc.Client, profileID,
 		next = response.Links.Next
 	}
 
-	requestedType := strings.TrimSpace(certificateType)
-	if requestedType != "" {
+	requestedTypes := shared.SplitCSVUpper(certificateType)
+	if len(requestedTypes) > 0 {
+		requestedTypeSet := make(map[string]struct{}, len(requestedTypes))
+		for _, requestedType := range requestedTypes {
+			requestedTypeSet[requestedType] = struct{}{}
+		}
 		filtered := make([]asc.Resource[asc.CertificateAttributes], 0, len(all))
 		for _, certificate := range all {
-			if strings.EqualFold(strings.TrimSpace(certificate.Attributes.CertificateType), requestedType) {
+			certificateType := strings.ToUpper(strings.TrimSpace(certificate.Attributes.CertificateType))
+			if _, matches := requestedTypeSet[certificateType]; matches {
 				filtered = append(filtered, certificate)
 			}
 		}
 		all = filtered
 	}
 	if len(all) == 0 {
-		if requestedType != "" {
-			return nil, fmt.Errorf("profile %s has no associated certificates of type %s", profileID, requestedType)
+		if len(requestedTypes) > 0 {
+			return nil, fmt.Errorf("profile %s has no associated certificates of type %s", profileID, strings.Join(requestedTypes, ","))
 		}
 		return nil, fmt.Errorf("profile %s has no associated certificates", profileID)
 	}
