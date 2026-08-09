@@ -388,6 +388,30 @@ func TestResolveSigningAssetsRejectsUnknownCertificateTypesBeforeLookup(t *testi
 	}
 }
 
+func TestResolveSigningCertificateTypesUsesIOSCertificatesForTVOSProfiles(t *testing.T) {
+	tests := []struct {
+		profileType string
+		want        string
+	}{
+		{profileType: "TVOS_APP_DEVELOPMENT", want: "IOS_DEVELOPMENT"},
+		{profileType: "TVOS_APP_STORE", want: "IOS_DISTRIBUTION"},
+		{profileType: "TVOS_APP_ADHOC", want: "IOS_DISTRIBUTION"},
+		{profileType: "TVOS_APP_INHOUSE", want: "IOS_DISTRIBUTION"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.profileType, func(t *testing.T) {
+			got, err := resolveSigningCertificateTypes(tt.profileType, "")
+			if err != nil {
+				t.Fatalf("resolveSigningCertificateTypes() error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("resolveSigningCertificateTypes() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveSigningAssetsChecksEveryActiveProfileForInferredCertificateType(t *testing.T) {
 	requestPaths := []string{}
 	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
