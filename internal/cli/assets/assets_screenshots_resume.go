@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 type screenshotUploadFailureArtifact struct {
@@ -212,6 +212,13 @@ func executeAppScreenshotUpload(ctx context.Context, cfg screenshotUploadConfig[
 	if cfg.UploadContext == nil {
 		cfg.UploadContext = contextWithAssetUploadTimeout
 	}
+	if !cfg.DryRun && len(cfg.Files) > 0 {
+		sourceRootPath, err := resolveScreenshotUploadRoot(cfg.RootPath, cfg.Files)
+		if err != nil {
+			return asc.AppScreenshotUploadResult{}, fmt.Errorf("resolve screenshot source root: %w", err)
+		}
+		cfg.RootPath = sourceRootPath
+	}
 	prepared, err := prepareAppScreenshotUpload(ctx, cfg)
 	if err != nil {
 		return asc.AppScreenshotUploadResult{}, err
@@ -242,7 +249,7 @@ func executeAppScreenshotUpload(ctx context.Context, cfg screenshotUploadConfig[
 	uploadCtx, cancel := cfg.UploadContext(ctx)
 	defer cancel()
 
-	progress, uploadErr := uploadScreenshotsWithOrderState(uploadCtx, cfg.Client, prepared.Set.ID, prepared.OrderedIDs, prepared.Files, false, true)
+	progress, uploadErr := uploadScreenshotsWithOrderState(uploadCtx, cfg.Client, prepared.Set.ID, prepared.OrderedIDs, prepared.Files, cfg.RootPath, false, true)
 	if uploadErr == nil && cfg.SkipExisting && len(prepared.SkippedResults) > 0 {
 		desiredIDs, err := syncSkippedScreenshotOrder(uploadCtx, cfg.Client, prepared.Set.ID, cfg.Files, prepared.SkippedResults, progress.Results)
 		if err != nil {
@@ -320,9 +327,12 @@ func resumeAppScreenshotUpload(ctx context.Context, client *asc.Client, artifact
 	defer cancel()
 
 	syncAfterUpload := !artifact.SkipExisting || len(artifact.Files) == 0
-	sourceRootPath, err := resolveScreenshotUploadRoot(artifact.RootPath, screenshotArtifactSourcePaths(artifact))
-	if err != nil {
-		return asc.AppScreenshotUploadResult{}, fmt.Errorf("resolve resume source root: %w", err)
+	sourceRootPath := strings.TrimSpace(artifact.RootPath)
+	if screenshotArtifactNeedsSourceFiles(artifact) {
+		sourceRootPath, err = resolveScreenshotUploadRoot(artifact.RootPath, screenshotArtifactSourcePaths(artifact))
+		if err != nil {
+			return asc.AppScreenshotUploadResult{}, fmt.Errorf("resolve resume source root: %w", err)
+		}
 	}
 	progress, uploadErr := resumeScreenshotsWithOrderState(uploadCtx, client, artifact.SetID, artifact.OrderedIDs, artifact.PendingFiles, artifact.PendingAssets, sourceRootPath, true, syncAfterUpload)
 
@@ -464,13 +474,25 @@ func normalizeScreenshotUploadFailureArtifactPaths(artifact screenshotUploadFail
 		artifact.Failures[i].FilePath = normalized
 	}
 
-	rootPath, err := resolveScreenshotUploadRoot(artifact.RootPath, screenshotArtifactSourcePaths(artifact))
-	if err != nil {
-		return screenshotUploadFailureArtifact{}, err
+	if screenshotArtifactNeedsSourceFiles(artifact) {
+		rootPath, err := resolveScreenshotUploadRoot(artifact.RootPath, screenshotArtifactSourcePaths(artifact))
+		if err != nil {
+			return screenshotUploadFailureArtifact{}, err
+		}
+		artifact.RootPath = rootPath
+	} else if strings.TrimSpace(artifact.RootPath) != "" {
+		rootPath, err := filepath.Abs(artifact.RootPath)
+		if err != nil {
+			return screenshotUploadFailureArtifact{}, err
+		}
+		artifact.RootPath = filepath.Clean(rootPath)
 	}
-	artifact.RootPath = rootPath
 
 	return artifact, nil
+}
+
+func screenshotArtifactNeedsSourceFiles(artifact screenshotUploadFailureArtifact) bool {
+	return len(artifact.PendingFiles) > 0 || len(artifact.PendingAssets) > 0
 }
 
 func screenshotArtifactSourcePaths(artifact screenshotUploadFailureArtifact) []string {
@@ -490,14 +512,37 @@ func resolveScreenshotUploadRoot(rootPath string, filePaths []string) (string, e
 		if err != nil {
 			return "", err
 		}
-		info, err := os.Lstat(absolute)
+		absolute = filepath.Clean(absolute)
+		for _, filePath := range filePaths {
+			fileAbsolute, err := filepath.Abs(strings.TrimSpace(filePath))
+			if err != nil {
+				return "", err
+			}
+			if filepath.Clean(fileAbsolute) == absolute {
+				absolute = filepath.Dir(absolute)
+				break
+			}
+		}
+		root, err := rootfs.New(absolute)
 		if err != nil {
 			return "", err
 		}
-		if info.IsDir() {
-			return filepath.Clean(absolute), nil
+		if err := root.CheckContained("."); err != nil {
+			return "", err
 		}
-		return filepath.Dir(absolute), nil
+		for _, filePath := range filePaths {
+			if strings.TrimSpace(filePath) == "" {
+				continue
+			}
+			fileAbsolute, err := filepath.Abs(filePath)
+			if err != nil {
+				return "", err
+			}
+			if _, err := root.Resolve(fileAbsolute); err != nil {
+				return "", err
+			}
+		}
+		return root.Path(), nil
 	}
 
 	cleaned := make([]string, 0, len(filePaths))
@@ -533,7 +578,19 @@ func resolveScreenshotUploadRoot(rootPath string, filePaths []string) (string, e
 			root = parent
 		}
 	}
-	return root, nil
+	trustedRoot, err := rootfs.New(root)
+	if err != nil {
+		return "", err
+	}
+	if err := trustedRoot.CheckContained("."); err != nil {
+		return "", err
+	}
+	for _, filePath := range cleaned {
+		if _, err := trustedRoot.Resolve(filePath); err != nil {
+			return "", err
+		}
+	}
+	return trustedRoot.Path(), nil
 }
 
 func persistScreenshotUploadFailureArtifact(path string, artifact screenshotUploadFailureArtifact) (string, error) {

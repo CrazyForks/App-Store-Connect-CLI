@@ -361,12 +361,16 @@ func computeFileChecksumInRoot(rootPath, filePath string) (string, error) {
 	return checksum.Hash, nil
 }
 
-func uploadScreenshotAsset(ctx context.Context, client *asc.Client, setID, filePath string) (asc.AssetUploadResultItem, screenshotPendingAsset, error) {
-	if err := asc.ValidateImageFile(filePath); err != nil {
+func uploadScreenshotAsset(ctx context.Context, client *asc.Client, setID, sourceRootPath, filePath string) (asc.AssetUploadResultItem, screenshotPendingAsset, error) {
+	root, err := rootfs.New(sourceRootPath)
+	if err != nil {
 		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
 	}
-
-	file, err := shared.OpenExistingNoFollow(filePath)
+	sourcePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
+	}
+	file, err := root.OpenFile(sourcePath)
 	if err != nil {
 		return asc.AssetUploadResultItem{}, screenshotPendingAsset{}, err
 	}
@@ -448,7 +452,11 @@ func uploadScreenshotAssetFromFile(ctx context.Context, client *asc.Client, setI
 
 // UploadScreenshotAsset uploads a screenshot file to a set.
 func UploadScreenshotAsset(ctx context.Context, client *asc.Client, setID, filePath string) (asc.AssetUploadResultItem, error) {
-	result, _, err := uploadScreenshotAsset(ctx, client, setID, filePath)
+	sourceRootPath, err := resolveScreenshotUploadRoot("", []string{filePath})
+	if err != nil {
+		return asc.AssetUploadResultItem{}, err
+	}
+	result, _, err := uploadScreenshotAsset(ctx, client, setID, sourceRootPath, filePath)
 	return result, err
 }
 
