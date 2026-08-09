@@ -486,11 +486,12 @@ func TestBuildStatusSummary_GreenWhenReadyForSale(t *testing.T) {
 func TestBuildStatusSummary_BetaReviewCorrelation(t *testing.T) {
 	latest := &betaReviewBuildStatus{ID: "build-326", Version: "1.2.3", BuildNumber: "326", Platform: "IOS"}
 	tests := []struct {
-		name       string
-		review     *betaReviewSubmissionStatus
-		wantHealth string
-		wantBlock  bool
-		wantAction string
+		name                     string
+		review                   *betaReviewSubmissionStatus
+		latestDistributedBuildID string
+		wantHealth               string
+		wantBlock                bool
+		wantAction               string
 	}{
 		{
 			name: "same build waiting is in progress, not blocked",
@@ -510,6 +511,15 @@ func TestBuildStatusSummary_BetaReviewCorrelation(t *testing.T) {
 			wantHealth: "red",
 			wantBlock:  true,
 			wantAction: "build 325",
+		},
+		{
+			name: "older same train waiting does not block an already distributed latest build",
+			review: &betaReviewSubmissionStatus{
+				ID: "review-325", State: "WAITING_FOR_REVIEW", RelationToLatestBuild: "sameVersionTrain",
+				Build: &betaReviewBuildStatus{ID: "build-325", Version: "1.2.3", BuildNumber: "325", Platform: "IOS"},
+			},
+			latestDistributedBuildID: "build-326",
+			wantHealth:               "green",
 		},
 		{
 			name: "older same train in review blocks latest",
@@ -564,8 +574,9 @@ func TestBuildStatusSummary_BetaReviewCorrelation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			resp := &dashboardResponse{
 				TestFlight: &testFlightSection{
-					BetaReviewSubmission: test.review,
-					latestBuild:          latest,
+					BetaReviewSubmission:     test.review,
+					LatestDistributedBuildID: test.latestDistributedBuildID,
+					latestBuild:              latest,
 				},
 			}
 			if test.review != nil {

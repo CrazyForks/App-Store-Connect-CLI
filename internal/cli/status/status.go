@@ -1341,6 +1341,9 @@ func betaReviewBlocker(resp *dashboardResponse) string {
 	if review.RelationToLatestBuild != "sameVersionTrain" || !isInProgressBetaReviewState(review.State) || review.Build == nil || latest == nil || review.Build.ID == latest.ID {
 		return ""
 	}
+	if resp.TestFlight.LatestDistributedBuildID == latest.ID {
+		return ""
+	}
 	return fmt.Sprintf(
 		"Beta App Review for %s is %s and blocks external testing for latest %s",
 		betaReviewBuildLabel(review.Build),
