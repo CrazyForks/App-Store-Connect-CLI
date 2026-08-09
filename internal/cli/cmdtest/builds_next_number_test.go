@@ -150,20 +150,37 @@ func TestBuildsNextBuildNumberExplainsUnavailableUploadHistory(t *testing.T) {
 		name         string
 		status       int
 		responseBody string
+		paginate     bool
 		wantCause    error
 		wantExitCode int
 	}{
 		{
-			name:         "forbidden",
+			name:         "initial request forbidden",
 			status:       http.StatusForbidden,
 			responseBody: `{"errors":[{"status":"403","code":"FORBIDDEN","title":"Forbidden"}]}`,
 			wantCause:    asc.ErrForbidden,
 			wantExitCode: cmd.ExitAuth,
 		},
 		{
-			name:         "not found",
+			name:         "initial request not found",
 			status:       http.StatusNotFound,
 			responseBody: `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`,
+			wantCause:    asc.ErrNotFound,
+			wantExitCode: cmd.ExitNotFound,
+		},
+		{
+			name:         "next page forbidden",
+			status:       http.StatusForbidden,
+			responseBody: `{"errors":[{"status":"403","code":"FORBIDDEN","title":"Forbidden"}]}`,
+			paginate:     true,
+			wantCause:    asc.ErrForbidden,
+			wantExitCode: cmd.ExitAuth,
+		},
+		{
+			name:         "next page not found",
+			status:       http.StatusNotFound,
+			responseBody: `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`,
+			paginate:     true,
 			wantCause:    asc.ErrNotFound,
 			wantExitCode: cmd.ExitNotFound,
 		},
@@ -180,6 +197,8 @@ func TestBuildsNextBuildNumberExplainsUnavailableUploadHistory(t *testing.T) {
 				switch {
 				case req.Method == http.MethodGet && req.URL.Path == "/v1/builds":
 					return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"builds","id":"build-1","attributes":{"version":"100","uploadedDate":"2026-02-01T00:00:00Z"}}]}`), nil
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/100000001/buildUploads" && tt.paginate && req.URL.Query().Get("cursor") == "":
+					return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{"next":"https://api.appstoreconnect.apple.com/v1/apps/100000001/buildUploads?cursor=next-page"}}`), nil
 				case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/100000001/buildUploads":
 					return jsonHTTPResponse(tt.status, tt.responseBody), nil
 				default:
