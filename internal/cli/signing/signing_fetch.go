@@ -98,25 +98,22 @@ Examples:
 			}
 			result.BundleIDResource = bundleIDResp.Data.ID
 
-			certs, err := findCertificates(requestCtx, client, profType, *certType)
-			if err != nil {
-				return fmt.Errorf("signing fetch: %w", err)
-			}
-			result.CertificateIDs = extractIDs(certs.Data)
-
-			profile, created, err := findOrCreateProfile(
+			profile, certs, created, err := resolveSigningAssets(
 				requestCtx,
 				client,
-				bundleIDResp.Data.ID,
-				bundle,
-				profType,
-				result.CertificateIDs,
-				shared.SplitCSV(*deviceIDs),
-				*createMissing,
+				signingAssetsOptions{
+					BundleIDResourceID: bundleIDResp.Data.ID,
+					BundleIdentifier:   bundle,
+					ProfileType:        profType,
+					CertificateType:    *certType,
+					DeviceIDs:          shared.SplitCSV(*deviceIDs),
+					CreateMissing:      *createMissing,
+				},
 			)
 			if err != nil {
 				return fmt.Errorf("signing fetch: %w", err)
 			}
+			result.CertificateIDs = extractIDs(certs.Data)
 			result.ProfileID = profile.Data.ID
 			result.Created = created
 
@@ -212,7 +209,62 @@ func findCertificates(ctx context.Context, client *asc.Client, profileType, cert
 	return &asc.CertificatesResponse{Data: all, Links: links}, nil
 }
 
-func findOrCreateProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, bundleIdentifier, profileType string, certIDs, deviceIDs []string, createMissing bool) (*asc.ProfileResponse, bool, error) {
+type signingAssetsOptions struct {
+	BundleIDResourceID string
+	BundleIdentifier   string
+	ProfileType        string
+	CertificateType    string
+	DeviceIDs          []string
+	CreateMissing      bool
+	BeforeCreate       func() error
+}
+
+func resolveSigningAssets(ctx context.Context, client *asc.Client, options signingAssetsOptions) (*asc.ProfileResponse, *asc.CertificatesResponse, bool, error) {
+	profile, err := findActiveProfile(ctx, client, options.BundleIDResourceID, options.ProfileType)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if profile != nil {
+		certificates, err := findProfileCertificates(ctx, client, profile.Data.ID, options.CertificateType)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		return profile, certificates, false, nil
+	}
+
+	if !options.CreateMissing {
+		return nil, nil, false, fmt.Errorf(
+			"no active %s profile found for bundle ID %s; use --create-missing to create one",
+			options.ProfileType,
+			options.BundleIdentifier,
+		)
+	}
+
+	certificates, err := findCertificates(ctx, client, options.ProfileType, options.CertificateType)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if options.BeforeCreate != nil {
+		if err := options.BeforeCreate(); err != nil {
+			return nil, nil, false, fmt.Errorf("preflight before creating profile: %w", err)
+		}
+	}
+
+	profile, err = createProfile(
+		ctx,
+		client,
+		options.BundleIDResourceID,
+		options.ProfileType,
+		extractIDs(certificates.Data),
+		options.DeviceIDs,
+	)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	return profile, certificates, true, nil
+}
+
+func findActiveProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, profileType string) (*asc.ProfileResponse, error) {
 	next := ""
 	for {
 		profiles, err := client.GetBundleIDProfiles(
@@ -221,7 +273,7 @@ func findOrCreateProfile(ctx context.Context, client *asc.Client, bundleIDResour
 			asc.WithBundleIDProfilesNextURL(next),
 		)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 
 		for _, profile := range profiles.Data {
@@ -229,31 +281,68 @@ func findOrCreateProfile(ctx context.Context, client *asc.Client, bundleIDResour
 				continue
 			}
 			if strings.EqualFold(strings.TrimSpace(profile.Attributes.ProfileType), profileType) {
-				return &asc.ProfileResponse{Data: profile}, false, nil
+				return &asc.ProfileResponse{Data: profile}, nil
 			}
 		}
 
 		if strings.TrimSpace(profiles.Links.Next) == "" {
-			break
+			return nil, nil
 		}
 		next = profiles.Links.Next
 	}
+}
 
-	if !createMissing {
-		return nil, false, fmt.Errorf("no active %s profile found for bundle ID %s; use --create-missing to create one", profileType, bundleIdentifier)
+func findProfileCertificates(ctx context.Context, client *asc.Client, profileID, certificateType string) (*asc.CertificatesResponse, error) {
+	var (
+		all   []asc.Resource[asc.CertificateAttributes]
+		links asc.Links
+		next  string
+	)
+	for {
+		response, err := client.GetProfileCertificates(
+			ctx,
+			profileID,
+			asc.WithProfileCertificatesNextURL(next),
+		)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, response.Data...)
+		links = response.Links
+		if strings.TrimSpace(response.Links.Next) == "" {
+			break
+		}
+		next = response.Links.Next
 	}
+
+	requestedType := strings.TrimSpace(certificateType)
+	if requestedType != "" {
+		filtered := make([]asc.Resource[asc.CertificateAttributes], 0, len(all))
+		for _, certificate := range all {
+			if strings.EqualFold(strings.TrimSpace(certificate.Attributes.CertificateType), requestedType) {
+				filtered = append(filtered, certificate)
+			}
+		}
+		all = filtered
+	}
+	if len(all) == 0 {
+		if requestedType != "" {
+			return nil, fmt.Errorf("profile %s has no associated certificates of type %s", profileID, requestedType)
+		}
+		return nil, fmt.Errorf("profile %s has no associated certificates", profileID)
+	}
+	return &asc.CertificatesResponse{Data: all, Links: links}, nil
+}
+
+func createProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, profileType string, certIDs, deviceIDs []string) (*asc.ProfileResponse, error) {
 	if len(certIDs) == 0 {
-		return nil, false, fmt.Errorf("no certificates available to create profile")
+		return nil, fmt.Errorf("no certificates available to create profile")
 	}
 	name := fmt.Sprintf("%s-%s", profileType, time.Now().Format("20060102"))
-	profile, err := client.CreateProfile(ctx, asc.ProfileCreateAttributes{
+	return client.CreateProfile(ctx, asc.ProfileCreateAttributes{
 		Name:        name,
 		ProfileType: profileType,
 	}, bundleIDResourceID, certIDs, deviceIDs)
-	if err != nil {
-		return nil, false, err
-	}
-	return profile, true, nil
 }
 
 func isDevelopmentProfile(profileType string) bool {
