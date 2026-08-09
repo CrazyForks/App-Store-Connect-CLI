@@ -151,7 +151,7 @@ Create `.asc/workflow.json`:
 Run it:
 
 ```bash
-asc workflow validate
+asc workflow validate --output json
 asc workflow run --dry-run testflight_beta VERSION:1.2.3
 asc workflow run testflight_beta VERSION:1.2.3
 ```
