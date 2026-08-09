@@ -116,6 +116,7 @@ func runShellCommand(ctx context.Context, command string, env map[string]string,
 	args := append(append([]string{}, flags...), command)
 
 	cmd := commandContextFn(ctx, shell, args...)
+	configureProcessTree(cmd)
 	cmd.Env = buildEnvSlice(env)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

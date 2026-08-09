@@ -27,6 +27,12 @@ type Workflow struct {
 	Steps       []Step            `json:"steps"`
 }
 
+// RetryPolicy configures explicit bounded retries for a run step.
+type RetryPolicy struct {
+	MaxAttempts int    `json:"max_attempts"`
+	Delay       string `json:"delay"`
+}
+
 // Step is one executable action in a workflow.
 // Bare JSON strings unmarshal to Step{Run: "..."} as shorthand.
 type Step struct {
@@ -36,6 +42,8 @@ type Step struct {
 	If       string            `json:"if,omitempty"`
 	With     map[string]string `json:"with,omitempty"`
 	Outputs  map[string]string `json:"outputs,omitempty"`
+	Retry    *RetryPolicy      `json:"retry,omitempty"`
+	Timeout  *string           `json:"timeout,omitempty"`
 }
 
 // UnmarshalJSON handles the flexible step format:

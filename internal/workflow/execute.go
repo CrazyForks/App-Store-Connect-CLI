@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -36,8 +35,20 @@ type StepResult struct {
 	ParentWorkflow string            `json:"parent_workflow,omitempty"`
 	Status         string            `json:"status"`
 	DurationMS     int64             `json:"duration_ms"`
+	FailureReason  string            `json:"failure_reason,omitempty"`
 	Error          string            `json:"error,omitempty"`
+	Attempts       []AttemptResult   `json:"attempts,omitempty"`
 	Outputs        map[string]string `json:"outputs,omitempty"`
+}
+
+// AttemptResult records one configured run-step attempt.
+type AttemptResult struct {
+	Invocation    int    `json:"invocation"`
+	Attempt       int    `json:"attempt"`
+	Status        string `json:"status"`
+	DurationMS    int64  `json:"duration_ms"`
+	FailureReason string `json:"failure_reason,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 // HookResult records execution of a hook command (before_all/after_all/error).
@@ -273,7 +284,7 @@ func (r *runner) outputsFromState(state *persistedRunState) map[string]map[strin
 	}
 	for _, stepKey := range slices.Sorted(maps.Keys(state.Steps)) {
 		step := state.Steps[stepKey]
-		if strings.TrimSpace(step.Name) == "" || len(step.Outputs) == 0 {
+		if step.Status != "ok" || strings.TrimSpace(step.Name) == "" || len(step.Outputs) == 0 {
 			continue
 		}
 		outputs[step.Name] = cloneStringMap(step.Outputs)
@@ -357,6 +368,16 @@ func (r *runner) executeSteps(ctx context.Context, workflowName string, steps []
 		}
 
 		if ref := sr.Workflow; ref != "" {
+			if step.Retry != nil || step.Timeout != nil {
+				err := fmt.Errorf("workflow: %s step %d: retry and timeout are only supported on run steps", workflowName, idx)
+				sr.Status = "error"
+				sr.FailureReason = "invalid_policy"
+				sr.Error = "retry and timeout are only supported on run steps"
+				sr.DurationMS = time.Since(stepStart).Milliseconds()
+				r.result.Steps = append(r.result.Steps, sr)
+				r.result.FailedStep = failedStepName(step.Name, stepKey)
+				return err
+			}
 			if depth+1 > MaxCallDepth {
 				err := fmt.Errorf("workflow: %s step %d: max call depth %d exceeded", workflowName, idx, MaxCallDepth)
 				sr.Status = "error"
@@ -408,6 +429,7 @@ func (r *runner) executeSteps(ctx context.Context, workflowName string, steps []
 			if persisted, ok := r.state.Steps[stepKey]; ok && persisted.Status == "ok" {
 				sr.Status = "resumed"
 				sr.Outputs = cloneStringMap(persisted.Outputs)
+				sr.Attempts = cloneAttemptResults(persisted.Attempts)
 				sr.DurationMS = 0
 				r.result.Steps = append(r.result.Steps, sr)
 				if strings.TrimSpace(persisted.Name) != "" && len(persisted.Outputs) > 0 {
@@ -437,64 +459,41 @@ func (r *runner) executeSteps(ctx context.Context, workflowName string, steps []
 			return wrapped
 		}
 
-		stdout := r.opts.Stdout
-		var captured bytes.Buffer
-		if len(step.Outputs) > 0 {
-			stdout = io.MultiWriter(r.opts.Stdout, &captured)
-		}
-
-		if err := runShellCommand(ctx, command, env, stdout, r.opts.Stderr); err != nil {
-			wrapped := fmt.Errorf("workflow: %s step %d: %w", workflowName, idx, err)
-			sr.Status = "error"
-			sr.Error = err.Error()
+		if err := r.executeRunStep(ctx, workflowName, idx, stepKey, step, command, env, &sr); err != nil {
 			sr.DurationMS = time.Since(stepStart).Milliseconds()
 			r.result.Steps = append(r.result.Steps, sr)
 			r.result.FailedStep = failedStepName(step.Name, stepKey)
-			return wrapped
-		}
-
-		if len(step.Outputs) > 0 {
-			extracted, err := extractDeclaredOutputs(step.Outputs, captured.Bytes())
-			if err != nil {
-				wrapped := fmt.Errorf("workflow: %s step %d: %w", workflowName, idx, err)
-				sr.Status = "error"
-				sr.Error = err.Error()
-				sr.DurationMS = time.Since(stepStart).Milliseconds()
-				r.result.Steps = append(r.result.Steps, sr)
-				r.result.FailedStep = failedStepName(step.Name, stepKey)
-				return wrapped
-			}
-			sr.Outputs = extracted
-			if strings.TrimSpace(step.Name) != "" {
-				r.outputs[step.Name] = cloneStringMap(extracted)
-				r.result.Outputs = cloneNestedStringMap(r.outputs)
-			}
-		}
-
-		sr.Status = "ok"
-		sr.DurationMS = time.Since(stepStart).Milliseconds()
-		r.result.Steps = append(r.result.Steps, sr)
-
-		if err := r.persistStep(stepKey, sr); err != nil {
-			r.result.FailedStep = failedStepName(step.Name, stepKey)
 			return err
 		}
+
+		sr.DurationMS = time.Since(stepStart).Milliseconds()
+		r.result.Steps = append(r.result.Steps, sr)
 	}
 	return nil
 }
 
 func (r *runner) persistStep(stepKey string, sr StepResult) error {
-	if r.state == nil || sr.Status != "ok" {
+	if r.state == nil {
 		return nil
 	}
 	r.state.Steps[stepKey] = persistedStepState{
 		Name:           sr.Name,
 		Workflow:       sr.Workflow,
 		ParentWorkflow: sr.ParentWorkflow,
-		Status:         "ok",
+		Status:         sr.Status,
+		FailureReason:  sr.FailureReason,
+		Error:          sr.Error,
+		Attempts:       cloneAttemptResults(sr.Attempts),
 		Outputs:        cloneStringMap(sr.Outputs),
 	}
 	return saveRunState(r.statePath, *r.state)
+}
+
+func cloneAttemptResults(in []AttemptResult) []AttemptResult {
+	if len(in) == 0 {
+		return nil
+	}
+	return slices.Clone(in)
 }
 
 func (r *runner) finishSuccess() error {

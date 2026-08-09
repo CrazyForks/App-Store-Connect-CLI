@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // ValidationCode classifies validation failures.
@@ -26,6 +27,17 @@ const (
 	ErrDuplicateOutputProducerName ValidationCode = "duplicate_output_producer_name"
 	ErrInvalidOutputName           ValidationCode = "invalid_output_name"
 	ErrInvalidOutputExpr           ValidationCode = "invalid_output_expr"
+	ErrStepRetryOnWorkflow         ValidationCode = "step_retry_on_workflow"
+	ErrStepTimeoutOnWorkflow       ValidationCode = "step_timeout_on_workflow"
+	ErrInvalidRetryMaxAttempts     ValidationCode = "invalid_retry_max_attempts"
+	ErrInvalidRetryDelay           ValidationCode = "invalid_retry_delay"
+	ErrInvalidStepTimeout          ValidationCode = "invalid_step_timeout"
+)
+
+const (
+	minRetryAttempts  = 2
+	maxRetryAttempts  = 100
+	maxPolicyDuration = 24 * time.Hour
 )
 
 // ValidationError describes a structured workflow validation failure.
@@ -33,6 +45,7 @@ type ValidationError struct {
 	Code     ValidationCode `json:"code"`
 	Workflow string         `json:"workflow,omitempty"`
 	Step     int            `json:"step,omitempty"`
+	Path     string         `json:"path,omitempty"`
 	Message  string         `json:"message"`
 }
 
@@ -88,6 +101,7 @@ func Validate(def *Definition) []*ValidationError {
 
 		for i, step := range wf.Steps {
 			idx := i + 1
+			stepPath := fmt.Sprintf("workflows.%s.steps[%d]", name, i)
 			hasRun := strings.TrimSpace(step.Run) != ""
 			hasWorkflow := strings.TrimSpace(step.Workflow) != ""
 			hasRawRun := step.Run != ""
@@ -126,6 +140,57 @@ func Validate(def *Definition) []*ValidationError {
 					Step:     idx,
 					Message:  fmt.Sprintf("workflow %q step %d has 'with' on a run step (only allowed on workflow steps)", name, idx),
 				})
+			}
+
+			if step.Retry != nil {
+				if !hasRun {
+					errs = append(errs, &ValidationError{
+						Code:     ErrStepRetryOnWorkflow,
+						Workflow: name,
+						Step:     idx,
+						Path:     stepPath + ".retry",
+						Message:  fmt.Sprintf("%s is only supported on run steps", stepPath+".retry"),
+					})
+				} else {
+					if step.Retry.MaxAttempts < minRetryAttempts || step.Retry.MaxAttempts > maxRetryAttempts {
+						errs = append(errs, &ValidationError{
+							Code:     ErrInvalidRetryMaxAttempts,
+							Workflow: name,
+							Step:     idx,
+							Path:     stepPath + ".retry.max_attempts",
+							Message:  fmt.Sprintf("%s must be between %d and %d and counts the initial attempt", stepPath+".retry.max_attempts", minRetryAttempts, maxRetryAttempts),
+						})
+					}
+					if _, err := parsePositivePolicyDuration(step.Retry.Delay); err != nil {
+						errs = append(errs, &ValidationError{
+							Code:     ErrInvalidRetryDelay,
+							Workflow: name,
+							Step:     idx,
+							Path:     stepPath + ".retry.delay",
+							Message:  fmt.Sprintf("%s must be a positive duration no greater than %s: %v", stepPath+".retry.delay", maxPolicyDuration, err),
+						})
+					}
+				}
+			}
+
+			if step.Timeout != nil {
+				if !hasRun {
+					errs = append(errs, &ValidationError{
+						Code:     ErrStepTimeoutOnWorkflow,
+						Workflow: name,
+						Step:     idx,
+						Path:     stepPath + ".timeout",
+						Message:  fmt.Sprintf("%s is only supported on run steps", stepPath+".timeout"),
+					})
+				} else if _, err := parsePositivePolicyDuration(*step.Timeout); err != nil {
+					errs = append(errs, &ValidationError{
+						Code:     ErrInvalidStepTimeout,
+						Workflow: name,
+						Step:     idx,
+						Path:     stepPath + ".timeout",
+						Message:  fmt.Sprintf("%s must be a positive duration no greater than %s: %v", stepPath+".timeout", maxPolicyDuration, err),
+					})
+				}
 			}
 
 			if len(step.Outputs) > 0 {
@@ -196,6 +261,24 @@ func Validate(def *Definition) []*ValidationError {
 	}
 
 	return errs
+}
+
+func parsePositivePolicyDuration(value string) (time.Duration, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, fmt.Errorf("duration is required")
+	}
+	duration, err := time.ParseDuration(trimmed)
+	if err != nil {
+		return 0, fmt.Errorf("parse duration %q: %w", trimmed, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("duration must be greater than zero")
+	}
+	if duration > maxPolicyDuration {
+		return 0, fmt.Errorf("duration exceeds %s", maxPolicyDuration)
+	}
+	return duration, nil
 }
 
 func collectOutputProducerConflicts(def *Definition) map[string]map[int]string {

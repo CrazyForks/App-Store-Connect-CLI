@@ -28,6 +28,9 @@ type persistedStepState struct {
 	Workflow       string            `json:"workflow,omitempty"`
 	ParentWorkflow string            `json:"parent_workflow,omitempty"`
 	Status         string            `json:"status,omitempty"`
+	FailureReason  string            `json:"failure_reason,omitempty"`
+	Error          string            `json:"error,omitempty"`
+	Attempts       []AttemptResult   `json:"attempts,omitempty"`
 	Outputs        map[string]string `json:"outputs,omitempty"`
 }
 

@@ -169,6 +169,47 @@ Notes:
   can execute together in the same run graph. Independent workflows can reuse
   names like `archive` or `publish`.
 
+## Bounded retry and timeout
+
+Long-form `run` steps can opt into a fixed-delay retry policy and a per-attempt
+timeout. This replaces shell retry loops for operations such as Apple's
+eventually consistent build-to-beta-group relationship:
+
+```jsonc
+{
+  "name": "add_build_to_group",
+  "run": "asc builds add-groups --build-id $BUILD_ID --group $GROUP_ID",
+  "retry": {
+    "max_attempts": 6,
+    "delay": "10s"
+  },
+  "timeout": "2m"
+}
+```
+
+`max_attempts` includes the initial execution and must be between 2 and 100.
+`delay` and `timeout` use positive Go duration strings up to `24h`; examples
+include `250ms`, `10s`, and `2m`. The delay is fixed and has no jitter. Timeout
+applies separately to each attempt. With the example above, the total policy is
+bounded by six two-minute attempts plus five ten-second delays.
+
+Retry and timeout are supported only on `run` steps. Workflow-call steps and the
+`before_all`, `after_all`, and `error` string hooks remain single-execution.
+Caller cancellation stops a running process tree or retry delay immediately.
+The error hook runs only after the final attempt fails; `after_all` still runs
+only after success.
+
+Use retry only when you have explicitly decided the command is safe to repeat.
+The runner does not infer whether a shell command is read-only, idempotent, or a
+mutation. A successful command with invalid declared output is not retried,
+because its side effect may already have happened.
+
+Attempt numbers and retry delays are written to stderr. stdout remains the one
+machine-readable workflow result. Each attempt gets a fresh output buffer, and
+declared outputs are extracted and persisted only from the successful attempt.
+Persisted attempt diagnostics remain available across `--resume`; already
+successful steps are never rerun.
+
 Example:
 
 ```json

@@ -47,6 +47,8 @@ Tips:
   Use asc workflow validate before running a new workflow file.
   Preview the plan with asc workflow run --dry-run <name>.
   Run-step outputs can be referenced later as ${steps.resolve_build.BUILD_ID}.
+  Run steps can opt into bounded retry with retry.max_attempts and retry.delay, plus a per-attempt timeout.
+  Retry uses a fixed delay with no jitter; choose it only for commands that are safe to repeat.
   Output-producing step names only need to stay unique across workflows that can execute together in the same run graph.
   For asc commands that declare outputs, usually pass --output json.
   A proven local Xcode -> TestFlight shape is: asc builds next-build-number --app $APP_ID -> asc xcode archive -> asc xcode export -> asc publish testflight --group ... --wait.
@@ -77,7 +79,12 @@ Example workflow file (.asc/workflow.json):
         },
         {
           "name": "add_build_to_group",
-          "run": "asc builds add-groups --build-id ${steps.resolve_build.BUILD_ID} --group $GROUP_ID"
+          "run": "asc builds add-groups --build-id ${steps.resolve_build.BUILD_ID} --group $GROUP_ID",
+          "retry": {
+            "max_attempts": 6,
+            "delay": "10s"
+          },
+          "timeout": "2m"
         }
       ]
     },
@@ -164,6 +171,11 @@ Do not pass extra KEY:VALUE params with --resume.
 If a step declares "outputs", the command must emit JSON on stdout; for asc commands,
 usually pass --output json.
 stdout stays machine-parseable JSON even on failure; step and hook output streams to stderr.
+Retry is opt-in on run steps. retry.max_attempts counts the initial attempt and
+retry.delay is a fixed delay between failures. timeout applies to each attempt.
+Attempt counts and delays are written to stderr and attempt outcomes are included
+in the structured result and persisted run state.
+Workflow-call steps and before_all/after_all/error hooks do not accept retry or timeout.
 
 Security note:
   Workflows intentionally execute arbitrary shell commands.
@@ -247,7 +259,7 @@ func workflowValidateCommand() *ffcli.Command {
 		Name:       "validate",
 		ShortUsage: "asc workflow validate [flags]",
 		ShortHelp:  "Validate workflow.json for errors and cycles.",
-		LongHelp: `Validate workflow.json for structure, references, cycles, and output declarations.
+		LongHelp: `Validate workflow.json for structure, references, cycles, output declarations, and run-step retry/timeout policies.
 This checks schema and wiring only; it does not assess shell-command safety.
 
 Examples:

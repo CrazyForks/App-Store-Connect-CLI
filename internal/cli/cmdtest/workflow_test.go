@@ -55,6 +55,9 @@ func TestWorkflow_ShowsHelp(t *testing.T) {
 	if !strings.Contains(stderr, `"BUILD_ID": "$.data.id"`) {
 		t.Fatalf("expected help example to extract build IDs from $.data.id, got %q", stderr)
 	}
+	if !strings.Contains(stderr, `"max_attempts": 6`) || !strings.Contains(stderr, `"timeout": "2m"`) {
+		t.Fatalf("expected help to document bounded run-step retry and timeout, got %q", stderr)
+	}
 	if !strings.Contains(stderr, "WORKFLOWS.md") {
 		t.Fatalf("expected help to link workflow docs, got %q", stderr)
 	}
