@@ -283,7 +283,7 @@ func resolveBuildResultBundlePath(pathValue string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve result bundle path: %w", err)
 	}
-	return filepath.Clean(absolutePath), nil
+	return absolutePath, nil
 }
 
 func validateBuildResultBundleDestination(pathValue string) error {

@@ -269,6 +269,10 @@ func TestXcodeBuildPrintsSignaledFailureReason(t *testing.T) {
 	if signalErr == nil {
 		t.Fatal("signal helper returned nil error")
 	}
+	var signalExitErr *exec.ExitError
+	if !errors.As(signalErr, &signalExitErr) || signalExitErr.ExitCode() != -1 {
+		t.Fatalf("signal helper error = %T %v, want signaled *exec.ExitError", signalErr, signalErr)
+	}
 
 	runBuild = func(_ context.Context, opts localxcode.BuildOptions) (*localxcode.BuildResult, error) {
 		_, _ = io.WriteString(opts.LogWriter, "compile started\n")

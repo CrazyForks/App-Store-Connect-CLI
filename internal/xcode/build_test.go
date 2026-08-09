@@ -435,6 +435,9 @@ func TestBuildRejectsExistingResultBundleBeforeStartingProcess(t *testing.T) {
 		}},
 		{name: "dangling symlink", setup: func(t *testing.T, path string) {
 			t.Helper()
+			if runtime.GOOS == "windows" {
+				t.Skip("Windows symlink creation requires elevated privileges")
+			}
 			if err := os.Symlink(filepath.Join(filepath.Dir(path), "missing-target"), path); err != nil {
 				t.Fatalf("Symlink() result bundle error = %v", err)
 			}
