@@ -147,6 +147,48 @@ func TestRun_RetryEventuallySucceedsAndCapturesOnlySuccessfulOutput(t *testing.T
 	}
 }
 
+func TestRun_SuccessfulCommandWithBackgroundPipeHolderIsNotRetried(t *testing.T) {
+	originalWaitDelay := shellWaitDelay
+	shellWaitDelay = 20 * time.Millisecond
+	t.Cleanup(func() { shellWaitDelay = originalWaitDelay })
+
+	dir := t.TempDir()
+	counterPath := filepath.Join(dir, "counter")
+	def, _ := loadWorkflowForRetryTest(t, fmt.Sprintf(`{
+		"env": {"COUNTER_PATH": %q},
+		"workflows": {
+			"main": {"steps": [{
+				"name": "background",
+				"run": "printf x >> \"$COUNTER_PATH\"; sleep 1 & printf '{\"value\":\"ok\"}'",
+				"retry": {"max_attempts": 2, "delay": "1ms"},
+				"outputs": {"VALUE": "$.value"}
+			}]}
+		}
+	}`, counterPath))
+
+	result, err := Run(context.Background(), def, runOpts("main"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Status != "ok" || len(result.Steps) != 1 {
+		t.Fatalf("result = %+v, want one successful step", result)
+	}
+	step := result.Steps[0]
+	if len(step.Attempts) != 1 || step.Attempts[0].Status != "ok" {
+		t.Fatalf("attempts = %+v, want one successful attempt", step.Attempts)
+	}
+	if got := result.Outputs["background"]["VALUE"]; got != "ok" {
+		t.Fatalf("output = %q, want ok", got)
+	}
+	data, readErr := os.ReadFile(counterPath)
+	if readErr != nil {
+		t.Fatalf("read counter: %v", readErr)
+	}
+	if got := string(data); got != "x" {
+		t.Fatalf("counter = %q, want one execution", got)
+	}
+}
+
 func TestRun_RetryExhaustionRunsErrorHookOnce(t *testing.T) {
 	dir := t.TempDir()
 	counterPath := filepath.Join(dir, "counter")
