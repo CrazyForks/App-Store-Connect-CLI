@@ -15,7 +15,7 @@ func testFlightPublishResultRows(result *TestFlightPublishResult) ([]string, [][
 	if result.BetaReviewSubmitted != nil {
 		betaReviewSubmitted = fmt.Sprintf("%t", *result.BetaReviewSubmitted)
 	}
-	rows := [][]string{{
+	row := []string{
 		result.BuildID,
 		result.BuildVersion,
 		result.BuildNumber,
@@ -26,7 +26,16 @@ func testFlightPublishResultRows(result *TestFlightPublishResult) ([]string, [][
 		string(result.NotificationAction),
 		betaReviewSubmitted,
 		result.BetaReviewSubmissionID,
-	}}
+	}
+	if result.UploadOnly {
+		headers = append(headers, "Upload Only")
+		row = append(row, "true")
+	}
+	if strings.TrimSpace(result.Error) != "" {
+		headers = append(headers, "Error")
+		row = append(row, result.Error)
+	}
+	rows := [][]string{row}
 	return headers, rows
 }
 

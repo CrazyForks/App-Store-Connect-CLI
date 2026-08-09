@@ -39,8 +39,25 @@ asc publish testflight \
 This workflow:
 
 1. Uploads the build
-2. Waits for processing
+2. Optionally waits for processing with `--wait`
 3. Distributes to specified beta groups
+
+For archive/export/upload/wait without distribution, use the explicit
+upload-only mode. It returns the uploaded build ID without requiring or
+modifying a beta group:
+
+```bash  theme={null}
+asc publish testflight \
+  --app APP_ID \
+  --ipa /path/to/MyApp.ipa \
+  --upload-only \
+  --wait \
+  --output json
+```
+
+`--upload-only` cannot be combined with `--group`, `--notify`, `--submit`,
+`--confirm`, `--test-notes`, `--locale`, or `--build`. Use the returned
+`buildId` with `asc builds add-groups` in a later resumable step.
 
 ### App Store workflow
 
@@ -69,11 +86,11 @@ This workflow:
   App ID for the build
 </ParamField>
 
-<ParamField path="--file" type="string" required>
+<ParamField path="--ipa" type="string">
   Path to IPA file
 </ParamField>
 
-<ParamField path="--groups" type="string">
+<ParamField path="--group" type="string">
   Comma-separated beta group names or IDs
 
   Example: `"External Testers,Internal Team"`
@@ -82,7 +99,11 @@ This workflow:
 <ParamField path="--wait" type="boolean">
   Wait for build processing to complete
 
-  Default: `true`
+  Default: `false`
+</ParamField>
+
+<ParamField path="--upload-only" type="boolean">
+  Upload and optionally wait for the build without group distribution or beta review
 </ParamField>
 
 ## 1.0 migration note
@@ -129,17 +150,24 @@ asc publish appstore \
 
 ## Output
 
-```
-Uploading build...
-Build uploaded successfully
-Waiting for processing...
-Build processed (VALID)
-Distributing to beta groups...
-Build distributed to External Testers
+Upload-only JSON is stable for workflow output extraction:
 
-Publish complete!
-Build ID: build-id-here
+```json  theme={null}
+{
+  "mode": "ipa_upload",
+  "buildId": "BUILD_ID",
+  "buildVersion": "1.2.3",
+  "buildNumber": "42",
+  "uploaded": true,
+  "uploadOnly": true,
+  "processingState": "VALID"
+}
 ```
+
+If `--wait` or a later optional publish stage fails after the build record is
+known, the command still prints partial structured output containing `buildId`,
+build metadata, and `error`, then exits nonzero. Resume distribution with the
+returned ID instead of uploading the binary again.
 
 ## Error handling
 

@@ -925,11 +925,14 @@ func TestPublishTestflightExistingBuildIDNotifyPreservesPartialSuccessMessageWhe
 	if runErr == nil {
 		t.Fatal("expected error")
 	}
-	if stdout != "" {
-		t.Fatalf("expected empty stdout, got %q", stdout)
-	}
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, `"buildId":"build-1"`) || !strings.Contains(stdout, `"notified":false`) {
+		t.Fatalf("expected resumable build metadata after notification failure, got %q", stdout)
+	}
+	if !strings.Contains(stdout, `"error":"publish testflight: beta groups were added`) {
+		t.Fatalf("expected structured partial notification error, got %q", stdout)
 	}
 	if !strings.Contains(runErr.Error(), `publish testflight: beta groups were added to build "build-1", but notifying testers failed`) {
 		t.Fatalf("expected partial-success publish error, got %v", runErr)

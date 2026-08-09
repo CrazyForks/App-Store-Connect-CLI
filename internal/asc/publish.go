@@ -47,6 +47,7 @@ type TestFlightPublishStageResult struct {
 	BuildNumber            string                            `json:"buildNumber,omitempty"`
 	GroupIDs               []string                          `json:"groupIds,omitempty"`
 	Uploaded               bool                              `json:"uploaded"`
+	UploadOnly             bool                              `json:"uploadOnly,omitempty"`
 	ProcessingState        string                            `json:"processingState,omitempty"`
 	Notified               *bool                             `json:"notified,omitempty"`
 	NotificationAction     BuildBetaGroupsNotificationAction `json:"notificationAction,omitempty"`
@@ -75,6 +76,7 @@ type TestFlightPublishResult struct {
 	BuildNumber            string                            `json:"buildNumber,omitempty"`
 	GroupIDs               []string                          `json:"groupIds,omitempty"`
 	Uploaded               bool                              `json:"uploaded"`
+	UploadOnly             bool                              `json:"uploadOnly,omitempty"`
 	ProcessingState        string                            `json:"processingState,omitempty"`
 	Notified               *bool                             `json:"notified,omitempty"`
 	NotificationAction     BuildBetaGroupsNotificationAction `json:"notificationAction,omitempty"`
@@ -83,6 +85,7 @@ type TestFlightPublishResult struct {
 	Archive                *PublishArchiveStageResult        `json:"archive,omitempty"`
 	Export                 *PublishExportStageResult         `json:"export,omitempty"`
 	Publish                *TestFlightPublishStageResult     `json:"publish,omitempty"`
+	Error                  string                            `json:"error,omitempty"`
 }
 
 // AppStorePublishResult captures the App Store publish workflow output.

@@ -156,6 +156,51 @@ asc workflow run --dry-run testflight_beta VERSION:1.2.3
 asc workflow run testflight_beta VERSION:1.2.3
 ```
 
+### Resumable upload and distribution steps
+
+When upload and external distribution need separate retry boundaries, make the
+upload-only command its own output-producing step. The successful step is
+persisted with `BUILD_ID`; if the distribution step fails, `--resume` skips the
+upload and reuses that exact build ID.
+
+```json
+{
+  "env": {
+    "APP_ID": "1234567890",
+    "IPA_PATH": ".asc/artifacts/App.ipa",
+    "TESTFLIGHT_GROUP": "External Testers"
+  },
+  "workflows": {
+    "testflight_external": {
+      "steps": [
+        {
+          "name": "upload",
+          "run": "asc publish testflight --app \"$APP_ID\" --ipa \"$IPA_PATH\" --upload-only --wait --output json",
+          "outputs": {
+            "BUILD_ID": "$.buildId",
+            "BUILD_VERSION": "$.buildVersion",
+            "BUILD_NUMBER": "$.buildNumber"
+          }
+        },
+        {
+          "name": "distribute",
+          "run": "asc builds add-groups --build-id ${steps.upload.BUILD_ID} --group \"$TESTFLIGHT_GROUP\" --submit --confirm --output json"
+        }
+      ]
+    }
+  }
+}
+```
+
+After a failed distribution step, use the run ID printed by `asc workflow`:
+
+```bash
+asc workflow run --resume RUN_ID
+```
+
+The upload step is not executed again because its declared outputs were already
+persisted in the run-state file.
+
 Notes:
 
 - `VERSION` must be a valid next marketing version for your app. If the latest
