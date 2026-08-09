@@ -1384,6 +1384,11 @@ func renderDashboard(resp *dashboardResponse, markdown bool) {
 		} else {
 			rows = append(rows, []string{"betaReviewSubmission", "[-] none"})
 		}
+		rows = append(
+			rows,
+			[]string{"betaReviewState", prefixedState(resp.TestFlight.BetaReviewState)},
+			[]string{"submittedDate", formatDateWithRelative(resp.TestFlight.SubmittedDate)},
+		)
 		shared.RenderSection("TestFlight", []string{"field", "value"}, rows, markdown)
 	}
 

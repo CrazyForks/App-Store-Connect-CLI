@@ -590,8 +590,10 @@ func TestRenderDashboardLabelsBetaReviewBuildExplicitly(t *testing.T) {
 	resp := &dashboardResponse{
 		Summary: statusSummary{Health: "yellow", NextAction: "Wait.", Blockers: []string{}},
 		TestFlight: &testFlightSection{
+			BetaReviewState: "WAITING_FOR_REVIEW",
+			SubmittedDate:   "2026-08-09T04:00:00Z",
 			BetaReviewSubmission: &betaReviewSubmissionStatus{
-				ID: "review-325", State: "WAITING_FOR_REVIEW", RelationToLatestBuild: "sameVersionTrain",
+				ID: "review-325", State: "WAITING_FOR_REVIEW", SubmittedDate: "2026-08-09T04:00:00Z", RelationToLatestBuild: "sameVersionTrain",
 				Build: &betaReviewBuildStatus{ID: "build-325", Version: "1.2.3", BuildNumber: "325", Platform: "IOS"},
 			},
 		},
@@ -611,8 +613,13 @@ func TestRenderDashboardLabelsBetaReviewBuildExplicitly(t *testing.T) {
 			t.Fatalf("expected explicit label %q in output:\n%s", label, stdout)
 		}
 	}
-	if strings.Contains(stdout, "\nbetaReviewState") {
-		t.Fatalf("ambiguous legacy betaReviewState label should not be rendered:\n%s", stdout)
+	for _, label := range []string{"betaReviewState", "submittedDate"} {
+		if !strings.Contains(stdout, label) {
+			t.Fatalf("expected legacy compatibility label %q in output:\n%s", label, stdout)
+		}
+	}
+	if strings.Index(stdout, "betaReviewSubmission.build.id") > strings.Index(stdout, "betaReviewState") {
+		t.Fatalf("expected explicit review build identity before legacy state alias:\n%s", stdout)
 	}
 }
 
