@@ -683,6 +683,7 @@ jobs:
   homebrew:
     name: Update Homebrew tap
     needs: publish
+    if: always() && needs.publish.result == 'success'
     runs-on: macos-latest
     permissions:
       actions: read
@@ -785,6 +786,7 @@ jobs:
   winget:
     name: Submit WinGet package
     needs: publish
+    if: always() && needs.publish.result == 'success'
     runs-on: macos-latest
     permissions:
       actions: read
