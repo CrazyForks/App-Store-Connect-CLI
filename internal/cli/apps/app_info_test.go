@@ -91,8 +91,10 @@ func TestResolveAppStoreVersionForAppInfoPaginatesBeforeSelectingLatest(t *testi
 	}))
 	t.Cleanup(server.Close)
 	client := newAppInfoTestServerClient(t, server)
+	requestCtx, cancel := shared.ContextWithTimeout(context.Background())
+	defer cancel()
 
-	selected, err := resolveAppStoreVersionForAppInfo(context.Background(), client, "app-1", "", "", nil, nil)
+	selected, err := resolveAppStoreVersionForAppInfo(requestCtx, client, "app-1", "", "", nil, nil)
 	if err != nil {
 		t.Fatalf("resolveAppStoreVersionForAppInfo() error: %v", err)
 	}
@@ -127,8 +129,10 @@ func TestResolveAppStoreVersionForAppInfoRejectsPartialResults(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	client := newAppInfoTestServerClient(t, server)
+	requestCtx, cancel := shared.ContextWithTimeout(context.Background())
+	defer cancel()
 
-	selected, err := resolveAppStoreVersionForAppInfo(context.Background(), client, "app-1", "", "", nil, nil)
+	selected, err := resolveAppStoreVersionForAppInfo(requestCtx, client, "app-1", "", "", nil, nil)
 	if err == nil {
 		t.Fatal("expected continuation error, got nil")
 	}
