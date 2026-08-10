@@ -335,6 +335,9 @@ func preflightCSRFileWrite(path string, force bool) error {
 	if info.IsDir() {
 		return fmt.Errorf("output path %q is a directory", trimmed)
 	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("output path %q is not a regular file", trimmed)
+	}
 	return nil
 }
 
