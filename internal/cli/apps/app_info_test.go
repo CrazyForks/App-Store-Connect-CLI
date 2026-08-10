@@ -7,8 +7,11 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -67,18 +70,26 @@ func TestResolveAppStoreVersionForAppInfoPaginatesBeforeSelectingLatest(t *testi
 	const nextURL = "https://api.appstoreconnect.apple.com/v1/apps/app-1/appStoreVersions?cursor=page-2"
 
 	requests := make([]string, 0, 2)
-	client := newAppInfoTestClient(t, appInfoRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requests = append(requests, req.Method+" "+req.URL.String())
-		switch len(requests) {
-		case 1:
-			return appInfoJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"old","attributes":{"createdDate":"2026-01-01T00:00:00Z"}}],"links":{"next":"`+nextURL+`"}}`), nil
-		case 2:
-			return appInfoJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"new","attributes":{"createdDate":"2026-02-01T00:00:00Z"}}]}`), nil
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if !strings.HasPrefix(req.Header.Get("Authorization"), "Bearer ") {
+			t.Errorf("request is missing bearer authorization: %s %s", req.Method, req.URL.String())
+			http.Error(w, "missing authorization", http.StatusUnauthorized)
+			return
+		}
+		requests = append(requests, req.Method+" "+req.URL.RequestURI())
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.Query().Get("cursor") {
+		case "":
+			_, _ = io.WriteString(w, `{"data":[{"type":"appStoreVersions","id":"old","attributes":{"createdDate":"2026-01-01T00:00:00Z"}}],"links":{"next":"`+nextURL+`"}}`)
+		case "page-2":
+			_, _ = io.WriteString(w, `{"data":[{"type":"appStoreVersions","id":"new","attributes":{"createdDate":"2026-02-01T00:00:00Z"}}]}`)
 		default:
-			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
-			return nil, nil
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusBadRequest)
 		}
 	}))
+	t.Cleanup(server.Close)
+	client := newAppInfoTestServerClient(t, server)
 
 	selected, err := resolveAppStoreVersionForAppInfo(context.Background(), client, "app-1", "", "", nil, nil)
 	if err != nil {
@@ -88,8 +99,8 @@ func TestResolveAppStoreVersionForAppInfoPaginatesBeforeSelectingLatest(t *testi
 		t.Fatalf("expected latest version %q, got %q", "new", selected.ID)
 	}
 	wantRequests := []string{
-		"GET https://api.appstoreconnect.apple.com/v1/apps/app-1/appStoreVersions?limit=200",
-		"GET " + nextURL,
+		"GET /v1/apps/app-1/appStoreVersions?limit=200",
+		"GET /v1/apps/app-1/appStoreVersions?cursor=page-2",
 	}
 	if !slices.Equal(requests, wantRequests) {
 		t.Fatalf("request sequence = %v, want %v", requests, wantRequests)
@@ -503,4 +514,24 @@ func newAppInfoTestClient(t *testing.T, transport http.RoundTripper) *asc.Client
 		t.Fatalf("NewClientWithHTTPClient() error: %v", err)
 	}
 	return client
+}
+
+func newAppInfoTestServerClient(t *testing.T, server *httptest.Server) *asc.Client {
+	t.Helper()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	transport := appInfoRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme != "https" || req.URL.Host != "api.appstoreconnect.apple.com" {
+			return nil, fmt.Errorf("unexpected App Store Connect URL %q", req.URL.String())
+		}
+		routed := req.Clone(req.Context())
+		routed.URL.Scheme = serverURL.Scheme
+		routed.URL.Host = serverURL.Host
+		routed.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(routed)
+	})
+	return newAppInfoTestClient(t, transport)
 }
