@@ -5,10 +5,112 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"path/filepath"
+	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
+
+const (
+	processedBuildsQuery       = "filter%5Bapp%5D=100000001&limit=200&sort=-uploadedDate"
+	processedBuildUploadsQuery = "filter%5Bstate%5D=AWAITING_UPLOAD%2CPROCESSING%2CCOMPLETE&limit=200"
+)
+
+type processedMaximumRequestStep struct {
+	path         string
+	rawQuery     string
+	responseBody string
+}
+
+type processedMaximumRequestRecorder struct {
+	t     *testing.T
+	mu    sync.Mutex
+	steps []processedMaximumRequestStep
+	next  int
+}
+
+func (r *processedMaximumRequestRecorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.next >= len(r.steps) {
+		r.t.Errorf("unexpected extra request: %s %s", req.Method, req.URL.RequestURI())
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+		return
+	}
+
+	step := r.steps[r.next]
+	r.next++
+	if req.Method != http.MethodGet {
+		r.t.Errorf("request %d method = %s, want GET", r.next, req.Method)
+	}
+	if req.URL.EscapedPath() != step.path {
+		r.t.Errorf("request %d path = %q, want %q", r.next, req.URL.EscapedPath(), step.path)
+	}
+	if req.URL.RawQuery != step.rawQuery {
+		r.t.Errorf("request %d query = %q, want %q", r.next, req.URL.RawQuery, step.rawQuery)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, step.responseBody)
+}
+
+func (r *processedMaximumRequestRecorder) requireComplete() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.next != len(r.steps) {
+		r.t.Errorf("requests = %d, want %d in exact order", r.next, len(r.steps))
+	}
+}
+
+func setProcessedMaximumTestClient(t *testing.T, steps []processedMaximumRequestStep) {
+	t.Helper()
+	setupAuth(t)
+
+	recorder := &processedMaximumRequestRecorder{t: t, steps: steps}
+	server := httptest.NewServer(recorder)
+	t.Cleanup(func() {
+		server.Close()
+		recorder.requireComplete()
+	})
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Scheme + "://" + req.URL.Host; got != asc.BaseURL {
+			t.Fatalf("request origin = %s, want %s", got, asc.BaseURL)
+		}
+		authorization := req.Header.Get("Authorization")
+		token, ok := strings.CutPrefix(authorization, "Bearer ")
+		if !ok || strings.TrimSpace(token) == "" {
+			t.Fatalf("Authorization = %q, want nonempty Bearer token", authorization)
+		}
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	})
+	client, err := asc.NewClientWithHTTPClient(
+		"TEST_KEY",
+		"TEST_ISSUER",
+		os.Getenv("ASC_PRIVATE_KEY_PATH"),
+		&http.Client{Transport: transport},
+	)
+	if err != nil {
+		t.Fatalf("create test client: %v", err)
+	}
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return client, nil
+	}))
+}
 
 type processedMaximumOutput struct {
 	LatestProcessedBuildNumber *string  `json:"latestProcessedBuildNumber"`
@@ -106,31 +208,18 @@ func TestBuildsNextBuildNumberUsesHighestProcessedNumber(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			setupAuth(t)
-			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
-
-			originalTransport := http.DefaultTransport
-			t.Cleanup(func() { http.DefaultTransport = originalTransport })
-			buildRequests := 0
-			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				switch {
-				case req.Method == http.MethodGet && req.URL.Path == "/v1/builds":
-					buildRequests++
-					query := req.URL.Query()
-					if query.Get("filter[app]") != "100000001" || query.Get("sort") != "-uploadedDate" {
-						t.Fatalf("unexpected builds query: %s", req.URL.RawQuery)
-					}
-					body := test.chronologicalBody
-					if buildRequests > 1 && test.maximumBody != "" {
-						body = test.maximumBody
-					}
-					return jsonHTTPResponse(http.StatusOK, body), nil
-				case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/100000001/buildUploads":
-					return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
-				default:
-					t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-					return nil, nil
-				}
+			maximumBody := test.maximumBody
+			if maximumBody == "" {
+				maximumBody = test.chronologicalBody
+			}
+			setProcessedMaximumTestClient(t, []processedMaximumRequestStep{
+				{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: test.chronologicalBody},
+				{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: maximumBody},
+				{
+					path:         "/v1/apps/100000001/buildUploads",
+					rawQuery:     processedBuildUploadsQuery,
+					responseBody: `{"data":[],"links":{"next":""}}`,
+				},
 			})
 
 			stdout, stderr, runErr := runProcessedMaximumCommand(t)
@@ -149,37 +238,27 @@ func TestBuildsNextBuildNumberUsesHighestProcessedNumber(t *testing.T) {
 			if len(output.SourcesConsidered) != 1 || output.SourcesConsidered[0] != "processed_builds" {
 				t.Fatalf("sourcesConsidered = %v, want [processed_builds]", output.SourcesConsidered)
 			}
-			if buildRequests != 2 {
-				t.Fatalf("build requests = %d, want 2 chronological and maximum reads", buildRequests)
-			}
 		})
 	}
 }
 
 func TestBuildsNextBuildNumberScansEveryProcessedPageForMaximum(t *testing.T) {
-	setupAuth(t)
-	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
-
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
 	const page2 = "https://api.appstoreconnect.apple.com/v1/builds?cursor=page-2"
 	const page3 = "https://api.appstoreconnect.apple.com/v1/builds?cursor=page-3"
-	page3Requests := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		switch {
-		case req.URL.String() == page2:
-			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"builds","id":"build-old-40","attributes":{"version":"40","uploadedDate":"2026-02-02T00:00:00Z"}}],"links":{"next":"`+page3+`"}}`), nil
-		case req.URL.String() == page3:
-			page3Requests++
-			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"builds","id":"build-old-100","attributes":{"version":"100","uploadedDate":"2026-02-01T00:00:00Z"}}],"links":{"next":""}}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/builds":
-			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"builds","id":"build-new-50","attributes":{"version":"50","uploadedDate":"2026-02-03T00:00:00Z"}}],"links":{"next":"`+page2+`"}}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/100000001/buildUploads":
-			return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
-		default:
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-			return nil, nil
-		}
+	firstPageBody := `{"data":[{"type":"builds","id":"build-new-50","attributes":{"version":"50","uploadedDate":"2026-02-03T00:00:00Z"}}],"links":{"next":"` + page2 + `"}}`
+	secondPageBody := `{"data":[{"type":"builds","id":"build-old-40","attributes":{"version":"40","uploadedDate":"2026-02-02T00:00:00Z"}}],"links":{"next":"` + page3 + `"}}`
+	thirdPageBody := `{"data":[{"type":"builds","id":"build-old-100","attributes":{"version":"100","uploadedDate":"2026-02-01T00:00:00Z"}}],"links":{"next":""}}`
+	setProcessedMaximumTestClient(t, []processedMaximumRequestStep{
+		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: firstPageBody},
+		{path: "/v1/builds", rawQuery: "cursor=page-2", responseBody: secondPageBody},
+		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: firstPageBody},
+		{path: "/v1/builds", rawQuery: "cursor=page-2", responseBody: secondPageBody},
+		{path: "/v1/builds", rawQuery: "cursor=page-3", responseBody: thirdPageBody},
+		{
+			path:         "/v1/apps/100000001/buildUploads",
+			rawQuery:     processedBuildUploadsQuery,
+			responseBody: `{"data":[],"links":{"next":""}}`,
+		},
 	})
 
 	stdout, stderr, runErr := runProcessedMaximumCommand(t)
@@ -195,32 +274,16 @@ func TestBuildsNextBuildNumberScansEveryProcessedPageForMaximum(t *testing.T) {
 	if output.NextBuildNumber != "101" {
 		t.Fatalf("nextBuildNumber = %q, want 101", output.NextBuildNumber)
 	}
-	if page3Requests != 1 {
-		t.Fatalf("page 3 requests = %d, want 1", page3Requests)
-	}
 }
 
 func TestBuildsNextBuildNumberRejectsMalformedOlderProcessedNumber(t *testing.T) {
-	setupAuth(t)
-	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
-
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
-	uploadRequests := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		switch {
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/builds":
-			return jsonHTTPResponse(http.StatusOK, `{"data":[
+	responseBody := `{"data":[
 				{"type":"builds","id":"build-new-50","attributes":{"version":"50","uploadedDate":"2026-02-03T00:00:00Z"}},
 				{"type":"builds","id":"build-old-bad","attributes":{"version":"not-a-number","uploadedDate":"2026-02-02T00:00:00Z"}}
-			]}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/100000001/buildUploads":
-			uploadRequests++
-			return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
-		default:
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-			return nil, nil
-		}
+			]}`
+	setProcessedMaximumTestClient(t, []processedMaximumRequestStep{
+		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: responseBody},
+		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: responseBody},
 	})
 
 	stdout, _, runErr := runProcessedMaximumCommand(t)
@@ -232,8 +295,5 @@ func TestBuildsNextBuildNumberRejectsMalformedOlderProcessedNumber(t *testing.T)
 	}
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
-	}
-	if uploadRequests != 0 {
-		t.Fatalf("upload requests = %d, want 0 after processed history failure", uploadRequests)
 	}
 }
