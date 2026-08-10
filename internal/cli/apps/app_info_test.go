@@ -63,6 +63,39 @@ func TestSelectLatestAppStoreVersionFallsBackToFirst(t *testing.T) {
 	}
 }
 
+func TestResolveAppStoreVersionForAppInfoPaginatesBeforeSelectingLatest(t *testing.T) {
+	const nextURL = "https://api.appstoreconnect.apple.com/v1/apps/app-1/appStoreVersions?cursor=page-2"
+
+	requests := make([]string, 0, 2)
+	client := newAppInfoTestClient(t, appInfoRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.Method+" "+req.URL.String())
+		switch len(requests) {
+		case 1:
+			return appInfoJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"old","attributes":{"createdDate":"2026-01-01T00:00:00Z"}}],"links":{"next":"`+nextURL+`"}}`), nil
+		case 2:
+			return appInfoJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"new","attributes":{"createdDate":"2026-02-01T00:00:00Z"}}]}`), nil
+		default:
+			t.Fatalf("unexpected extra request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	}))
+
+	selected, err := resolveAppStoreVersionForAppInfo(context.Background(), client, "app-1", "", "", nil, nil)
+	if err != nil {
+		t.Fatalf("resolveAppStoreVersionForAppInfo() error: %v", err)
+	}
+	if selected.ID != "new" {
+		t.Fatalf("expected latest version %q, got %q", "new", selected.ID)
+	}
+	wantRequests := []string{
+		"GET https://api.appstoreconnect.apple.com/v1/apps/app-1/appStoreVersions?limit=200",
+		"GET " + nextURL,
+	}
+	if !slices.Equal(requests, wantRequests) {
+		t.Fatalf("request sequence = %v, want %v", requests, wantRequests)
+	}
+}
+
 func TestWarnAppInfoSetSubmitIncompleteLocaleMentionsCanonicalPublishFlow(t *testing.T) {
 	stderr := captureAppsCreateOutput(t, func() {
 		warnAppInfoSetSubmitIncompleteLocale("en-US", asc.AppStoreVersionLocalizationAttributes{})

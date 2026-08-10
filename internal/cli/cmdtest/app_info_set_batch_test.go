@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -325,6 +326,73 @@ func TestAppInfoSetBatchDryRunInlineLocales(t *testing.T) {
 	}
 	if byLocale["de-DE"]["action"] != "create" || byLocale["de-DE"]["status"] != "planned" {
 		t.Fatalf("expected de-DE to be planned create, got %+v", byLocale["de-DE"])
+	}
+}
+
+func TestAppsInfoEditTargetsLatestVersionAcrossPages(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	const nextURL = "https://api.appstoreconnect.apple.com/v1/apps/app-1/appStoreVersions?cursor=page-2"
+	requests := make([]string, 0, 4)
+	patchBody := ""
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.Method+" "+req.URL.RequestURI())
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/app-1/appStoreVersions" && req.URL.Query().Get("cursor") == "":
+			return appInfoSetBatchJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"old","attributes":{"createdDate":"2026-01-01T00:00:00Z"}}],"links":{"next":"`+nextURL+`"}}`), nil
+		case req.Method == http.MethodGet && req.URL.String() == nextURL:
+			return appInfoSetBatchJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"new","attributes":{"createdDate":"2026-02-01T00:00:00Z"}}]}`), nil
+		case req.Method == http.MethodGet && (req.URL.Path == "/v1/appStoreVersions/new/appStoreVersionLocalizations" || req.URL.Path == "/v1/appStoreVersions/old/appStoreVersionLocalizations"):
+			versionID := strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/v1/appStoreVersions/"), "/appStoreVersionLocalizations")
+			return appInfoSetBatchJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-`+versionID+`","attributes":{"locale":"en-US","description":"Description","keywords":"keywords","supportUrl":"https://example.com/support","whatsNew":"Old notes"}}]}`), nil
+		case req.Method == http.MethodPatch && (req.URL.Path == "/v1/appStoreVersionLocalizations/loc-new" || req.URL.Path == "/v1/appStoreVersionLocalizations/loc-old"):
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatalf("read PATCH body: %v", err)
+			}
+			patchBody = string(body)
+			localizationID := strings.TrimPrefix(req.URL.Path, "/v1/appStoreVersionLocalizations/")
+			return appInfoSetBatchJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"`+localizationID+`","attributes":{"locale":"en-US","whatsNew":"Fixes"}}}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"apps", "info", "edit",
+			"--app", "app-1",
+			"--locale", "en-US",
+			"--whats-new", "Fixes",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	wantRequests := []string{
+		"GET /v1/apps/app-1/appStoreVersions?limit=200",
+		"GET /v1/apps/app-1/appStoreVersions?cursor=page-2",
+		"GET /v1/appStoreVersions/new/appStoreVersionLocalizations?filter%5Blocale%5D=en-US&limit=200",
+		"PATCH /v1/appStoreVersionLocalizations/loc-new",
+	}
+	if !slices.Equal(requests, wantRequests) {
+		t.Fatalf("request sequence = %v, want %v", requests, wantRequests)
+	}
+	if !strings.Contains(patchBody, `"whatsNew":"Fixes"`) {
+		t.Fatalf("expected latest localization PATCH body to contain whatsNew, got %q", patchBody)
 	}
 }
 
