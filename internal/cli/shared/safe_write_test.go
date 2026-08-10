@@ -255,6 +255,45 @@ func TestWriteNewFileNoSymlinkRemovesFileAfterCloseFailure(t *testing.T) {
 	}
 }
 
+func TestPublishStagedFileNoReplaceTreatsPostPublishCleanupAsBestEffort(t *testing.T) {
+	cleanupErr := errors.New("simulated cleanup failure")
+	linkCalled := false
+	removeCalls := 0
+
+	err := publishStagedFileNoReplace(
+		".safe-write-staged",
+		"artifact.bin",
+		stagedFilePublishOps{
+			linkFile: func(oldName, newName string) error {
+				linkCalled = true
+				if oldName != ".safe-write-staged" || newName != "artifact.bin" {
+					t.Fatalf("link names = %q, %q", oldName, newName)
+				}
+				return nil
+			},
+			removeFile: func(name string) error {
+				removeCalls++
+				if name != ".safe-write-staged" {
+					t.Fatalf("remove name = %q", name)
+				}
+				if removeCalls == 1 {
+					return cleanupErr
+				}
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("publishStagedFileNoReplace() error = %v", err)
+	}
+	if !linkCalled {
+		t.Fatal("link was not called")
+	}
+	if removeCalls != 2 {
+		t.Fatalf("remove calls = %d, want immediate attempt and deferred retry", removeCalls)
+	}
+}
+
 func TestSafeWriteFileNoSymlinkNoOverwriteCreatesFileOnSuccess(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "artifact.bin")
 	content := []byte("complete")

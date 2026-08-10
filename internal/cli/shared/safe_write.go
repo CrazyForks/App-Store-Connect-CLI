@@ -68,19 +68,21 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 			return written, err
 		}
 
-		// A same-directory hard link publishes the complete file atomically and
-		// fails rather than replacing a destination created during the write.
-		if err := parent.Link(temporaryName, base); err != nil {
-			err = displayDestinationError(err)
-			if errors.Is(err, os.ErrExist) {
-				err = fmt.Errorf("output file already exists: %w", err)
-			}
-			return written, cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(name string) error {
+		if err := publishStagedFileNoReplace(temporaryName, base, stagedFilePublishOps{
+			linkFile: func(oldName, newName string) error {
+				// A same-directory hard link publishes the complete file atomically
+				// and fails rather than replacing a concurrently created destination.
+				err := displayDestinationError(parent.Link(oldName, newName))
+				if errors.Is(err, os.ErrExist) {
+					return fmt.Errorf("output file already exists: %w", err)
+				}
+				return err
+			},
+			removeFile: func(name string) error {
 				return displayTemporaryError(removeRootedFile(parent, name))
-			})
-		}
-		if err := removeRootedFile(parent, temporaryName); err != nil {
-			return written, fmt.Errorf("remove temporary output after publish: %w", displayTemporaryError(err))
+			},
+		}); err != nil {
+			return written, err
 		}
 		return written, nil
 	}
@@ -92,6 +94,37 @@ type newFileWriteOps struct {
 	syncFile   func() error
 	closeFile  func() error
 	removeFile func(string) error
+}
+
+type stagedFilePublishOps struct {
+	linkFile   func(string, string) error
+	removeFile func(string) error
+}
+
+func publishStagedFileNoReplace(temporaryName, destinationName string, ops stagedFilePublishOps) error {
+	removed := false
+	removeStaged := func() error {
+		err := ops.removeFile(temporaryName)
+		if err == nil {
+			removed = true
+		}
+		return err
+	}
+	defer func() {
+		if !removed {
+			_ = removeStaged()
+		}
+	}()
+
+	if err := ops.linkFile(temporaryName, destinationName); err != nil {
+		return cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(string) error {
+			return removeStaged()
+		})
+	}
+	// Once publication succeeds, the complete destination is committed. Cleanup
+	// remains best effort so callers do not retry a write that already succeeded.
+	_ = removeStaged()
+	return nil
 }
 
 func writeNewFileNoSymlink(path string, file *os.File, write func(*os.File) (int64, error), ops newFileWriteOps) (int64, error) {
