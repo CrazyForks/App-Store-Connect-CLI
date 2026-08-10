@@ -19,8 +19,7 @@ const (
 	ExitNotFound = 4 // Resource not found
 	ExitConflict = 5 // Conflict / resource already exists
 
-	// HTTP 4xx range: 10 + (status - 400)
-	// Note: 404 and 409 are mapped to ExitNotFound and ExitConflict above.
+	// HTTP 4xx range: 10 + (status - 400), with stable special cases below.
 	ExitHTTPBadRequest    = 10       // 400
 	ExitHTTPUnauthorized  = ExitAuth // 401 (special case)
 	ExitHTTPForbidden     = ExitAuth // 403 (special case)
@@ -100,6 +99,8 @@ func HTTPStatusToExitCode(status int) int {
 		return ExitNotFound
 	case status == http.StatusConflict:
 		return ExitConflict
+	case status == http.StatusUnprocessableEntity:
+		return ExitHTTPUnprocessable
 	case status >= 400 && status < 500:
 		// 4xx: 10 + (status - 400), clamped to 10-59
 		code := min(10+(status-400), 59)

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -48,25 +49,7 @@ func TestUsersUpdateSendsRolesAndVisibleAppsInOneRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	serverURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("parse test server URL: %v", err)
-	}
-	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		cloned := req.Clone(req.Context())
-		cloned.URL.Scheme = serverURL.Scheme
-		cloned.URL.Host = serverURL.Host
-		return server.Client().Transport.RoundTrip(cloned)
-	})
-	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
-	writeECDSAPEM(t, keyPath)
-	client, err := asc.NewClientWithHTTPClient("TEST_KEY", "TEST_ISSUER", keyPath, &http.Client{Transport: transport})
-	if err != nil {
-		t.Fatalf("create test client: %v", err)
-	}
-	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
-		return client, nil
-	}))
+	setUsersUpdateTestClient(t, server)
 
 	var exitCode int
 	stdout, stderr := captureOutput(t, func() {
@@ -117,4 +100,103 @@ func TestUsersUpdateSendsRolesAndVisibleAppsInOneRequest(t *testing.T) {
 	if response.Data.ID != "user-1" {
 		t.Fatalf("response user ID = %q, want user-1", response.Data.ID)
 	}
+}
+
+func TestUsersUpdateRejectedRequestDoesNotChangeAccess(t *testing.T) {
+	type accessState struct {
+		Role       string
+		VisibleApp string
+	}
+
+	initial := accessState{Role: "ADMIN", VisibleApp: "app-before"}
+	state := initial
+	var mu sync.Mutex
+	requestCount := 0
+	lastRequest := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		requestCount++
+		lastRequest = req.Method + " " + req.URL.Path
+		mu.Unlock()
+
+		switch req.URL.Path {
+		case "/v1/users/user-1":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"errors":[{"status":"422","code":"ENTITY_ERROR.ATTRIBUTE.INVALID","title":"Invalid user update"}]}`))
+		case "/v1/users/user-1/relationships/visibleApps":
+			mu.Lock()
+			state.VisibleApp = "unexpected-follow-up"
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, req)
+		}
+	}))
+	defer server.Close()
+	setUsersUpdateTestClient(t, server)
+
+	var exitCode int
+	stdout, stderr := captureOutput(t, func() {
+		exitCode = rootcmd.Run([]string{
+			"users", "update",
+			"--id", "user-1",
+			"--roles", "developer",
+			"--visible-app", "app-after",
+			"--output", "json",
+		}, "1.2.3")
+	})
+
+	mu.Lock()
+	gotRequestCount := requestCount
+	gotLastRequest := lastRequest
+	gotState := state
+	mu.Unlock()
+
+	if exitCode != rootcmd.ExitHTTPUnprocessable {
+		t.Fatalf("exit code = %d, want %d; stderr=%q", exitCode, rootcmd.ExitHTTPUnprocessable, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "users update: failed to update") || !strings.Contains(stderr, "Invalid user update") {
+		t.Fatalf("unexpected stderr: %q", stderr)
+	}
+	if gotRequestCount != 1 || gotLastRequest != "PATCH /v1/users/user-1" {
+		t.Fatalf("requests = %d, last = %q; want one user PATCH", gotRequestCount, gotLastRequest)
+	}
+	if gotState != initial {
+		t.Fatalf("state = %+v, want unchanged %+v", gotState, initial)
+	}
+}
+
+func setUsersUpdateTestClient(t *testing.T, server *httptest.Server) {
+	t.Helper()
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Scheme+"://"+req.URL.Host != asc.BaseURL {
+			t.Fatalf("request origin = %s://%s, want %s", req.URL.Scheme, req.URL.Host, asc.BaseURL)
+		}
+		authorization := req.Header.Get("Authorization")
+		token, ok := strings.CutPrefix(authorization, "Bearer ")
+		if !ok || strings.TrimSpace(token) == "" {
+			t.Fatalf("Authorization = %q, want nonempty Bearer token", authorization)
+		}
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	})
+	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
+	writeECDSAPEM(t, keyPath)
+	client, err := asc.NewClientWithHTTPClient("TEST_KEY", "TEST_ISSUER", keyPath, &http.Client{Transport: transport})
+	if err != nil {
+		t.Fatalf("create test client: %v", err)
+	}
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return client, nil
+	}))
 }
