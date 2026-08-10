@@ -263,6 +263,96 @@ func TestCertificatesCSRGenerate_DoesNotOrphanKeyWhenCSROutExistsWithoutForce(t 
 	}
 }
 
+func TestCertificatesCSRGenerate_ValidatesLexicallyNestedOutputPaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		keyParts   []string
+		csrParts   []string
+		force      bool
+		wantNested bool
+	}{
+		{
+			name:       "key output contains CSR output",
+			keyParts:   []string{"output"},
+			csrParts:   []string{"output", "request.csr"},
+			wantNested: true,
+		},
+		{
+			name:       "CSR output contains key output with force",
+			keyParts:   []string{"output", "private.key"},
+			csrParts:   []string{"output"},
+			force:      true,
+			wantNested: true,
+		},
+		{
+			name:     "sibling prefix remains valid",
+			keyParts: []string{"output"},
+			csrParts: []string{"output-extra", "request.csr"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			keyOut := filepath.Join(append([]string{dir}, test.keyParts...)...)
+			csrOut := filepath.Join(append([]string{dir}, test.csrParts...)...)
+			args := []string{
+				"certificates", "csr", "generate",
+				"--key-out", keyOut,
+				"--csr-out", csrOut,
+				"--output", "json",
+			}
+			if test.force {
+				args = append(args, "--force")
+			}
+
+			root := RootCommand("1.2.3")
+			root.FlagSet.SetOutput(io.Discard)
+			var runErr error
+			stdout, _ := captureOutput(t, func() {
+				if err := root.Parse(args); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				runErr = root.Run(context.Background())
+			})
+
+			if test.wantNested {
+				if !errors.Is(runErr, flag.ErrHelp) {
+					t.Errorf("run error = %v, want flag.ErrHelp", runErr)
+				}
+				if runErr == nil || !strings.Contains(runErr.Error(), "--key-out and --csr-out must not be nested paths") {
+					t.Errorf("run error = %v, want nested-path error", runErr)
+				}
+				if stdout != "" {
+					t.Errorf("stdout = %q, want empty output", stdout)
+				}
+				for _, path := range []string{keyOut, csrOut} {
+					if _, err := os.Lstat(path); err == nil {
+						t.Errorf("output artifact %q was created", path)
+					} else if !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("Lstat(%q) error = %v, want not exist", path, err)
+					}
+				}
+				return
+			}
+
+			if runErr != nil {
+				t.Fatalf("run error: %v", runErr)
+			}
+			if stdout == "" {
+				t.Fatal("expected generated output")
+			}
+			for _, path := range []string{keyOut, csrOut} {
+				if info, err := os.Lstat(path); err != nil {
+					t.Fatalf("Lstat(%q) error: %v", path, err)
+				} else if !info.Mode().IsRegular() {
+					t.Fatalf("output %q mode = %v, want regular file", path, info.Mode())
+				}
+			}
+		})
+	}
+}
+
 func TestCertificatesCSRGenerate_ForcePreflightsCSRDestination(t *testing.T) {
 	tests := []struct {
 		name  string

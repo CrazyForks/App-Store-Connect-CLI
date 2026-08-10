@@ -154,8 +154,8 @@ func generateCSRFiles(opts csrGenerateOptions) (*csrGenerateResult, []byte, erro
 	if csrOutValue == "" {
 		return nil, nil, fmt.Errorf("--csr-out is required")
 	}
-	if filepath.Clean(keyOutValue) == filepath.Clean(csrOutValue) {
-		return nil, nil, shared.UsageError("--key-out and --csr-out must be different paths")
+	if err := validateCSRPairOutputPaths(keyOutValue, csrOutValue); err != nil {
+		return nil, nil, err
 	}
 
 	normalizedKeyType := strings.ToLower(strings.TrimSpace(opts.KeyType))
@@ -283,6 +283,31 @@ func renderCSRGenerateResult(result *csrGenerateResult, markdown bool) error {
 		}},
 	)
 	return nil
+}
+
+func validateCSRPairOutputPaths(keyOut string, csrOut string) error {
+	keyPath, err := filepath.Abs(keyOut)
+	if err != nil {
+		return fmt.Errorf("resolve --key-out: %w", err)
+	}
+	csrPath, err := filepath.Abs(csrOut)
+	if err != nil {
+		return fmt.Errorf("resolve --csr-out: %w", err)
+	}
+	if keyPath == csrPath {
+		return shared.UsageError("--key-out and --csr-out must be different paths")
+	}
+	if csrLexicalPathContains(keyPath, csrPath) || csrLexicalPathContains(csrPath, keyPath) {
+		return shared.UsageError("--key-out and --csr-out must not be nested paths")
+	}
+	return nil
+}
+
+func csrLexicalPathContains(parent string, child string) bool {
+	if !os.IsPathSeparator(parent[len(parent)-1]) {
+		parent += string(filepath.Separator)
+	}
+	return strings.HasPrefix(child, parent)
 }
 
 func preflightCSRFileWrite(path string, force bool) error {

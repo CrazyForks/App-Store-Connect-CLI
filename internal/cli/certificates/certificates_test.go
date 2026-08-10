@@ -423,6 +423,20 @@ func TestValidateCSRFileOutputPathRejectsWindowsSeparators(t *testing.T) {
 	}
 }
 
+func TestValidateCSRPairOutputPathsCleansAbsolutePaths(t *testing.T) {
+	dir := t.TempDir()
+	keyOut := filepath.Join(dir, "output")
+	csrOut := filepath.Join(dir, "discard") + string(filepath.Separator) + ".." + string(filepath.Separator) + "output" + string(filepath.Separator) + "request.csr"
+
+	err := validateCSRPairOutputPaths(keyOut, csrOut)
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("validateCSRPairOutputPaths() error = %v, want flag.ErrHelp", err)
+	}
+	if err.Error() != "--key-out and --csr-out must not be nested paths" {
+		t.Fatalf("validateCSRPairOutputPaths() error = %q, want nested-path error", err)
+	}
+}
+
 func TestCertificatesRevokeCommand_MissingID(t *testing.T) {
 	cmd := CertificatesRevokeCommand()
 
