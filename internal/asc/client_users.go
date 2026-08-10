@@ -345,3 +345,30 @@ func (c *Client) RemoveUserVisibleApps(ctx context.Context, userID string, appID
 	_, err = c.do(ctx, "DELETE", path, body)
 	return err
 }
+
+// SetUserVisibleApps replaces the visible apps list for a user.
+func (c *Client) SetUserVisibleApps(ctx context.Context, userID string, appIDs []string) error {
+	userID = strings.TrimSpace(userID)
+	appIDs = normalizeList(appIDs)
+	if userID == "" {
+		return fmt.Errorf("userID is required")
+	}
+	payload := RelationshipRequest{
+		Data: make([]RelationshipData, 0, len(appIDs)),
+	}
+	for _, id := range appIDs {
+		payload.Data = append(payload.Data, RelationshipData{
+			Type: ResourceTypeApps,
+			ID:   id,
+		})
+	}
+
+	body, err := BuildRequestBody(payload)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/v1/users/%s/relationships/visibleApps", userID)
+	_, err = c.do(ctx, "PATCH", path, body)
+	return err
+}

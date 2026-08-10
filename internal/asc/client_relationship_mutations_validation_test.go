@@ -111,6 +111,13 @@ func TestRelationshipMutationValidationErrors(t *testing.T) {
 			},
 		},
 		{
+			name:    "SetUserVisibleApps missing userID",
+			wantErr: "userID is required",
+			call: func(client *Client) error {
+				return client.SetUserVisibleApps(ctx, "", []string{"app-1"})
+			},
+		},
+		{
 			name:    "AddBuildsToAppEncryptionDeclaration missing buildIDs",
 			wantErr: "buildIDs are required",
 			call: func(client *Client) error {
