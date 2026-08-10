@@ -280,6 +280,10 @@ Examples:
 					localeToID[loc.Attributes.Locale] = loc.ID
 				}
 			}
+			appInfoPlan, err := prepareAppInfoLocalizations(requestCtx, client, resolvedAppID, appInfoLocs)
+			if err != nil {
+				return err
+			}
 
 			submitOpts := shared.SubmitReadinessOptions{}
 			if migrateVersionLocalizationsNeedUpdateContext(localizations, localeToID) {
@@ -289,7 +293,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			appInfoUploaded, err := uploadAppInfoLocalizations(requestCtx, client, resolvedAppID, appInfoLocs)
+			appInfoUploaded, err := uploadAppInfoLocalizations(requestCtx, client, appInfoPlan)
 			if err != nil {
 				return err
 			}
