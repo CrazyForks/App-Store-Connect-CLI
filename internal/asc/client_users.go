@@ -64,8 +64,9 @@ func (c *Client) GetUser(ctx context.Context, userID string, opts ...UsersOption
 }
 
 // UpdateUser updates a user by ID.
-func (c *Client) UpdateUser(ctx context.Context, userID string, attrs UserUpdateAttributes) (*UserResponse, error) {
+func (c *Client) UpdateUser(ctx context.Context, userID string, attrs UserUpdateAttributes, visibleAppIDs []string) (*UserResponse, error) {
 	userID = strings.TrimSpace(userID)
+	visibleAppIDs = normalizeList(visibleAppIDs)
 	payload := UserUpdateRequest{
 		Data: UserUpdateData{
 			Type: ResourceTypeUsers,
@@ -74,6 +75,20 @@ func (c *Client) UpdateUser(ctx context.Context, userID string, attrs UserUpdate
 	}
 	if len(attrs.Roles) > 0 || attrs.AllAppsVisible != nil || attrs.ProvisioningAllowed != nil {
 		payload.Data.Attributes = &attrs
+	}
+	if len(visibleAppIDs) > 0 {
+		relationships := &UserUpdateRelationships{
+			VisibleApps: &RelationshipList{
+				Data: make([]ResourceData, 0, len(visibleAppIDs)),
+			},
+		}
+		for _, appID := range visibleAppIDs {
+			relationships.VisibleApps.Data = append(relationships.VisibleApps.Data, ResourceData{
+				Type: ResourceTypeApps,
+				ID:   appID,
+			})
+		}
+		payload.Data.Relationships = relationships
 	}
 
 	body, err := BuildRequestBody(payload)
