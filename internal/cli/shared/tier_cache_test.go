@@ -38,6 +38,46 @@ func TestTierCacheRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTierCacheSaveRejectsSymlinkAndPreservesTarget(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cacheDir := filepath.Join(home, ".asc", "cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache dir: %v", err)
+	}
+
+	sentinelPath := filepath.Join(home, "sentinel.txt")
+	const sentinel = "keep this content"
+	if err := os.WriteFile(sentinelPath, []byte(sentinel), 0o600); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	cachePath := filepath.Join(cacheDir, "tiers-app123-USA.json")
+	if err := os.Symlink(sentinelPath, cachePath); err != nil {
+		t.Fatalf("create cache symlink: %v", err)
+	}
+
+	err := SaveTierCache("app123", "USA", []TierEntry{{
+		Tier:          1,
+		PricePointID:  "pp-1",
+		CustomerPrice: "0.99",
+	}})
+	if err == nil {
+		t.Error("SaveTierCache() error = nil, want symlink rejection")
+	} else if !strings.Contains(err.Error(), "refusing to overwrite symlink") {
+		t.Errorf("SaveTierCache() error = %q, want symlink rejection", err)
+	}
+
+	got, readErr := os.ReadFile(sentinelPath)
+	if readErr != nil {
+		t.Fatalf("read sentinel: %v", readErr)
+	}
+	if string(got) != sentinel {
+		t.Errorf("sentinel content = %q, want %q", got, sentinel)
+	}
+}
+
 func TestTierCacheMiss(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
