@@ -71,7 +71,8 @@ func TestResolveAppStoreVersionForAppInfoPaginatesBeforeSelectingLatest(t *testi
 
 	requests := make([]string, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if !strings.HasPrefix(req.Header.Get("Authorization"), "Bearer ") {
+		token, ok := strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
+		if !ok || strings.TrimSpace(token) == "" {
 			t.Errorf("request is missing bearer authorization: %s %s", req.Method, req.URL.String())
 			http.Error(w, "missing authorization", http.StatusUnauthorized)
 			return
@@ -97,6 +98,45 @@ func TestResolveAppStoreVersionForAppInfoPaginatesBeforeSelectingLatest(t *testi
 	}
 	if selected.ID != "new" {
 		t.Fatalf("expected latest version %q, got %q", "new", selected.ID)
+	}
+	wantRequests := []string{
+		"GET /v1/apps/app-1/appStoreVersions?limit=200",
+		"GET /v1/apps/app-1/appStoreVersions?cursor=page-2",
+	}
+	if !slices.Equal(requests, wantRequests) {
+		t.Fatalf("request sequence = %v, want %v", requests, wantRequests)
+	}
+}
+
+func TestResolveAppStoreVersionForAppInfoRejectsPartialResults(t *testing.T) {
+	const nextURL = "https://api.appstoreconnect.apple.com/v1/apps/app-1/appStoreVersions?cursor=page-2"
+
+	requests := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, req.Method+" "+req.URL.RequestURI())
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.Query().Get("cursor") {
+		case "":
+			_, _ = io.WriteString(w, `{"data":[{"type":"appStoreVersions","id":"old","attributes":{"createdDate":"2026-01-01T00:00:00Z"}}],"links":{"next":"`+nextURL+`"}}`)
+		case "page-2":
+			_, _ = io.WriteString(w, `{`)
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client := newAppInfoTestServerClient(t, server)
+
+	selected, err := resolveAppStoreVersionForAppInfo(context.Background(), client, "app-1", "", "", nil, nil)
+	if err == nil {
+		t.Fatal("expected continuation error, got nil")
+	}
+	if selected.ID != "" {
+		t.Fatalf("expected no version from partial results, got %q", selected.ID)
+	}
+	if !strings.Contains(err.Error(), "page 2") {
+		t.Fatalf("expected continuation error to identify page 2, got %v", err)
 	}
 	wantRequests := []string{
 		"GET /v1/apps/app-1/appStoreVersions?limit=200",
