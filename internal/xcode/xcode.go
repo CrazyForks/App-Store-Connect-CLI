@@ -1257,8 +1257,8 @@ func runCommandWithBoundedOutputMode(ctx context.Context, name string, args []st
 	}
 	cmd := commandContextFn(ctx, name, args...)
 	outputWindow := newXcodeDiagnosticBuffer(xcodebuildErrorTailLimit, logWriter)
-	cmd.Stdout = outputWindow.newStreamWriter()
-	cmd.Stderr = outputWindow.newStreamWriter()
+	cmd.Stdout = outputWindow
+	cmd.Stderr = outputWindow
 	if err := runXcodeCommand(cmd); err != nil {
 		return formatCommandOutputError(ctx, err, outputWindow, action, commandLabel, preserveProcessError)
 	}
@@ -1372,17 +1372,8 @@ type xcodeDiagnosticBuffer struct {
 	diagnostics     []string
 	diagnosticSet   map[string]struct{}
 	diagnosticBytes int
-	streams         []*xcodeDiagnosticLineState
-}
-
-type xcodeDiagnosticLineState struct {
-	pending  []byte
-	overflow bool
-}
-
-type xcodeDiagnosticStreamWriter struct {
-	buffer *xcodeDiagnosticBuffer
-	state  *xcodeDiagnosticLineState
+	pending         []byte
+	overflow        bool
 }
 
 func newXcodeDiagnosticBuffer(limit int, logWriter io.Writer) *xcodeDiagnosticBuffer {
@@ -1394,21 +1385,12 @@ func newXcodeDiagnosticBuffer(limit int, logWriter io.Writer) *xcodeDiagnosticBu
 	}
 }
 
-func (b *xcodeDiagnosticBuffer) newStreamWriter() io.Writer {
-	state := &xcodeDiagnosticLineState{}
-	b.streams = append(b.streams, state)
-	return &xcodeDiagnosticStreamWriter{
-		buffer: b,
-		state:  state,
-	}
-}
+func (b *xcodeDiagnosticBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-func (w *xcodeDiagnosticStreamWriter) Write(p []byte) (int, error) {
-	w.buffer.mu.Lock()
-	defer w.buffer.mu.Unlock()
-
-	if w.buffer.logWriter != nil {
-		written, err := w.buffer.logWriter.Write(p)
+	if b.logWriter != nil {
+		written, err := b.logWriter.Write(p)
 		if err != nil {
 			return written, err
 		}
@@ -1416,54 +1398,50 @@ func (w *xcodeDiagnosticStreamWriter) Write(p []byte) (int, error) {
 			return written, io.ErrShortWrite
 		}
 	}
-	return w.buffer.writeStreamLocked(w.state, p), nil
-}
-
-func (b *xcodeDiagnosticBuffer) writeStreamLocked(state *xcodeDiagnosticLineState, p []byte) int {
 	written := len(p)
 	b.totalBytes += int64(written)
 	_, _ = b.tail.Write(p)
-	b.consumeDiagnosticLinesLocked(state, p)
-	return written
+	b.consumeDiagnosticLinesLocked(p)
+	return written, nil
 }
 
-func (b *xcodeDiagnosticBuffer) consumeDiagnosticLinesLocked(state *xcodeDiagnosticLineState, p []byte) {
+func (b *xcodeDiagnosticBuffer) consumeDiagnosticLinesLocked(p []byte) {
 	for len(p) > 0 {
 		newline := bytes.IndexByte(p, '\n')
 		if newline < 0 {
-			b.appendDiagnosticFragmentLocked(state, p)
+			b.appendDiagnosticFragmentLocked(p)
 			return
 		}
-		b.appendDiagnosticFragmentLocked(state, p[:newline])
-		b.finishDiagnosticLineLocked(state)
+		b.appendDiagnosticFragmentLocked(p[:newline])
+		b.finishDiagnosticLineLocked()
 		p = p[newline+1:]
 	}
 }
 
-func (b *xcodeDiagnosticBuffer) appendDiagnosticFragmentLocked(state *xcodeDiagnosticLineState, fragment []byte) {
-	remaining := xcodeDiagnosticLineLimit - len(state.pending)
+func (b *xcodeDiagnosticBuffer) appendDiagnosticFragmentLocked(fragment []byte) {
+	remaining := xcodeDiagnosticLineLimit - len(b.pending)
 	if remaining > 0 {
 		prefixLength := min(remaining, len(fragment))
-		state.pending = append(state.pending, fragment[:prefixLength]...)
+		b.pending = append(b.pending, fragment[:prefixLength]...)
 		fragment = fragment[prefixLength:]
 	}
 	if len(fragment) > 0 {
-		state.overflow = true
+		b.overflow = true
 	}
 }
 
-func (b *xcodeDiagnosticBuffer) finishDiagnosticLineLocked(state *xcodeDiagnosticLineState) {
-	if len(state.pending) == 0 && !state.overflow {
+func (b *xcodeDiagnosticBuffer) finishDiagnosticLineLocked() {
+	if len(b.pending) == 0 && !b.overflow {
 		return
 	}
 
-	line := strings.TrimSuffix(strings.ToValidUTF8(string(state.pending), ""), "\r")
-	if state.overflow {
+	line := strings.TrimSuffix(strings.ToValidUTF8(string(b.pending), ""), "\r")
+	if b.overflow {
 		const omissionMarker = "…"
 		line = truncateUTF8Prefix(line, xcodeDiagnosticLineLimit-len(omissionMarker)) + omissionMarker
 	}
-	state.pending = state.pending[:0]
-	state.overflow = false
+	b.pending = b.pending[:0]
+	b.overflow = false
 
 	line = strings.TrimSpace(line)
 	if !isXcodeErrorDiagnostic(line) {
@@ -1499,9 +1477,7 @@ func (b *xcodeDiagnosticBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, stream := range b.streams {
-		b.finishDiagnosticLineLocked(stream)
-	}
+	b.finishDiagnosticLineLocked()
 	tail := strings.ToValidUTF8(b.tail.String(), "")
 	if b.totalBytes <= int64(b.limit) {
 		return tail

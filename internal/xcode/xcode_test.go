@@ -1439,7 +1439,7 @@ func TestTailBufferStringRemainsValidUTF8AfterByteTruncation(t *testing.T) {
 func renderXcodeDiagnosticOutput(t *testing.T, input string) (*xcodeDiagnosticBuffer, string) {
 	t.Helper()
 	buffer := newXcodeDiagnosticBuffer(xcodebuildErrorTailLimit, nil)
-	if _, err := io.WriteString(buffer.newStreamWriter(), input); err != nil {
+	if _, err := io.WriteString(buffer, input); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 	return buffer, buffer.String()
@@ -1470,9 +1470,8 @@ func countExactOutputLines(output string, value string) int {
 func TestXcodeDiagnosticBufferPreservesUntruncatedOutput(t *testing.T) {
 	for _, chunks := range [][]string{{"ab", "cd", "ef"}, {"abcd", "efgh"}} {
 		buffer := newXcodeDiagnosticBuffer(8, nil)
-		stream := buffer.newStreamWriter()
 		for _, chunk := range chunks {
-			if _, err := io.WriteString(stream, chunk); err != nil {
+			if _, err := io.WriteString(buffer, chunk); err != nil {
 				t.Fatalf("Write(%q) error = %v", chunk, err)
 			}
 		}
@@ -1640,44 +1639,36 @@ func TestXcodeDiagnosticBufferBoundsManyUniqueErrors(t *testing.T) {
 	}
 }
 
-func TestXcodeDiagnosticBufferFramesStreamFragmentsIndependently(t *testing.T) {
+func TestXcodeDiagnosticBufferRecognizesDiagnosticSplitAcrossWrites(t *testing.T) {
 	buffer := newXcodeDiagnosticBuffer(xcodebuildErrorTailLimit, nil)
-	stdout := buffer.newStreamWriter()
-	stderr := buffer.newStreamWriter()
-	if _, err := stdout.Write([]byte("file.m:4:3: err")); err != nil {
-		t.Fatalf("stdout Write() error = %v", err)
-	}
-	if _, err := stderr.Write([]byte("or: cross-stream false positive\n")); err != nil {
-		t.Fatalf("stderr Write() error = %v", err)
-	}
-	for _, chunk := range []string{"or: split root cause\n", strings.Repeat("x", xcodebuildErrorTailLimit+128)} {
-		if _, err := io.WriteString(stdout, chunk); err != nil {
+	for _, chunk := range []string{
+		"Sources/App.swift:12:7: er",
+		"ror: split root cause",
+		"\n",
+		strings.Repeat("x", xcodebuildErrorTailLimit+128),
+	} {
+		if _, err := io.WriteString(buffer, chunk); err != nil {
 			t.Fatalf("Write() error = %v", err)
 		}
 	}
 
 	got := buffer.String()
-	if !strings.Contains(got, "file.m:4:3: error: split root cause") {
+	if !strings.Contains(got, "Sources/App.swift:12:7: error: split root cause") {
 		t.Fatalf("String() dropped diagnostic split across writes")
-	}
-	if strings.Contains(got, "cross-stream false positive") {
-		t.Fatalf("String() joined fragments across streams: %q", got)
 	}
 }
 
-func TestXcodeDiagnosticBufferSerializesConcurrentStreamWrites(t *testing.T) {
+func TestXcodeDiagnosticBufferSerializesConcurrentWrites(t *testing.T) {
 	var streamed bytes.Buffer
 	buffer := newXcodeDiagnosticBuffer(xcodebuildErrorTailLimit, &streamed)
-	stdout := buffer.newStreamWriter()
-	stderr := buffer.newStreamWriter()
 
 	var writers sync.WaitGroup
-	for _, writer := range []io.Writer{stdout, stderr} {
+	for range 2 {
 		writers.Add(1)
 		go func() {
 			defer writers.Done()
 			for range 100 {
-				if _, err := writer.Write([]byte("ordinary build output\n")); err != nil {
+				if _, err := buffer.Write([]byte("ordinary build output\n")); err != nil {
 					t.Errorf("Write() error = %v", err)
 					return
 				}
@@ -1688,6 +1679,21 @@ func TestXcodeDiagnosticBufferSerializesConcurrentStreamWrites(t *testing.T) {
 
 	if got := buffer.String(); got != streamed.String() {
 		t.Fatalf("captured output differs from streamed output")
+	}
+}
+
+func TestRunXcodebuildPreservesCombinedChildStreamOrder(t *testing.T) {
+	restore := overrideTestEnvironment(t)
+	commandContextFn = helperCommandContext(t, filepath.Join(t.TempDir(), "commands.log"))
+	t.Cleanup(restore)
+
+	const want = "FIRST-STDOUT\nSECOND-STDERR\nTHIRD-STDOUT\nFINAL-STDERR\n"
+	var streamed bytes.Buffer
+	if err := runXcodebuild(context.Background(), []string{"alternating-stream-output"}, &streamed); err != nil {
+		t.Fatalf("runXcodebuild() error = %v", err)
+	}
+	if got := streamed.String(); got != want {
+		t.Fatalf("streamed output = %q, want child write order %q", got, want)
 	}
 }
 
@@ -1973,6 +1979,20 @@ func TestXcodeHelperProcess(t *testing.T) {
 		fmt.Fprint(os.Stderr, strings.Repeat("x", xcodebuildErrorTailLimit+128))
 		fmt.Fprint(os.Stderr, "\nFINAL-DIAGNOSTIC\n")
 		os.Exit(1)
+	}
+
+	if len(commandArgs) >= 2 && commandArgs[0] == "xcodebuild" && commandArgs[1] == "alternating-stream-output" {
+		stdoutInfo, stdoutErr := os.Stdout.Stat()
+		stderrInfo, stderrErr := os.Stderr.Stat()
+		fmt.Fprint(os.Stdout, "FIRST-STDOUT\n")
+		fmt.Fprint(os.Stderr, "SECOND-STDERR\n")
+		fmt.Fprint(os.Stdout, "THIRD-STDOUT\n")
+		fmt.Fprint(os.Stderr, "FINAL-STDERR\n")
+		if stdoutErr != nil || stderrErr != nil || !os.SameFile(stdoutInfo, stderrInfo) {
+			fmt.Fprintln(os.Stderr, "stdout and stderr do not share one ordered descriptor")
+			os.Exit(3)
+		}
+		os.Exit(0)
 	}
 
 	if len(commandArgs) >= 2 && commandArgs[0] == "xcodebuild" && commandArgs[1] == "large-output-then-wait" {
