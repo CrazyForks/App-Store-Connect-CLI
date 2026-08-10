@@ -84,6 +84,12 @@ func captureOutput(t *testing.T, fn func()) (string, string) {
 }
 
 func TestSigningFetchValidationErrors(t *testing.T) {
+	// Flag validation must fail before any client is built; an unusable client
+	// keeps the test hermetic if that ever regresses.
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return nil, errors.New("App Store Connect client must not be created during flag validation")
+	}))
+
 	tests := []struct {
 		name    string
 		args    []string
@@ -103,6 +109,11 @@ func TestSigningFetchValidationErrors(t *testing.T) {
 			name:    "missing device for development profile",
 			args:    []string{"signing", "fetch", "--bundle-id", "com.example.app", "--profile-type", "IOS_APP_DEVELOPMENT", "--create-missing"},
 			wantErr: "Error: --device is required for development profiles",
+		},
+		{
+			name:    "device without create-missing",
+			args:    []string{"signing", "fetch", "--bundle-id", "com.example.app", "--profile-type", "IOS_APP_DEVELOPMENT", "--device", "DEVICE1,DEVICE2"},
+			wantErr: "Error: --device requires --create-missing (devices are only applied to profiles this command creates)",
 		},
 	}
 
@@ -180,6 +191,27 @@ func TestSigningFetchWriteFiles_NoOverwrite(t *testing.T) {
 		t.Fatal("expected error when overwriting certificate file")
 	} else if !errors.Is(err, os.ErrExist) {
 		t.Fatalf("expected ErrExist, got %v", err)
+	}
+}
+
+func TestSigningFetchHelpPairsDeviceWithCreateMissing(t *testing.T) {
+	cmd := SigningFetchCommand()
+
+	deviceFlag := cmd.FlagSet.Lookup("device")
+	if deviceFlag == nil {
+		t.Fatal("expected --device flag")
+	}
+	if !strings.Contains(deviceFlag.Usage, "--create-missing") {
+		t.Fatalf("--device usage = %q, want it to name --create-missing", deviceFlag.Usage)
+	}
+
+	for _, line := range strings.Split(cmd.LongHelp, "\n") {
+		if !strings.Contains(line, "--device") {
+			continue
+		}
+		if !strings.Contains(line, "--create-missing") {
+			t.Fatalf("example uses --device without --create-missing: %q", line)
+		}
 	}
 }
 

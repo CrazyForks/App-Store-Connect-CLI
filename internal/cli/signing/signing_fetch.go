@@ -17,6 +17,11 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
+// deviceRequiresCreateMissingMessage explains that device lists only reach App
+// Store Connect through profile creation; the API has no endpoint for adding
+// devices to an existing profile.
+const deviceRequiresCreateMissingMessage = "--device requires --create-missing (devices are only applied to profiles this command creates)"
+
 // SigningFetchCommand returns the signing fetch subcommand.
 func SigningFetchCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("fetch", flag.ExitOnError)
@@ -24,7 +29,7 @@ func SigningFetchCommand() *ffcli.Command {
 	appID := fs.String("app", "", "App Store Connect app ID (optional, or ASC_APP_ID env)")
 	bundleID := fs.String("bundle-id", "", "Bundle identifier (e.g., com.example.app) - required")
 	profileType := fs.String("profile-type", "", "Profile type: IOS_APP_STORE, IOS_APP_DEVELOPMENT, MAC_APP_STORE, etc. (required)")
-	deviceIDs := fs.String("device", "", "Device ID(s), comma-separated (required for development profiles)")
+	deviceIDs := fs.String("device", "", "Device ID(s), comma-separated (requires --create-missing; required there for development profiles)")
 	certType := fs.String("certificate-type", "", "Certificate type filter (optional)")
 	outputPath := fs.String("output", "./signing", "Output directory for signing files")
 	createMissing := fs.Bool("create-missing", false, "Create missing profiles")
@@ -40,11 +45,12 @@ This command resolves the bundle ID, finds matching certificates and profiles,
 and writes them to the output directory.
 
 With --create-missing, it will create a new profile if none exist for the
-specified configuration.
+specified configuration. Devices are only applied to profiles this command
+creates, so --device requires --create-missing.
 
 Examples:
   asc signing fetch --bundle-id com.example.app --profile-type IOS_APP_STORE --output ./signing
-  asc signing fetch --bundle-id com.example.app --profile-type IOS_APP_DEVELOPMENT --device "DEVICE1,DEVICE2"
+  asc signing fetch --bundle-id com.example.app --profile-type IOS_APP_DEVELOPMENT --create-missing --device "DEVICE1,DEVICE2"
   asc signing fetch --bundle-id com.example.app --profile-type IOS_APP_STORE --create-missing`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -61,6 +67,9 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 			profType = strings.ToUpper(profType)
+			if !*createMissing && strings.TrimSpace(*deviceIDs) != "" {
+				return shared.UsageError(deviceRequiresCreateMissingMessage)
+			}
 			if *createMissing && isDevelopmentProfile(profType) && strings.TrimSpace(*deviceIDs) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --device is required for development profiles")
 				return shared.MissingRequiredUsageError()

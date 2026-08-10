@@ -2,11 +2,17 @@ package signing
 
 import (
 	"context"
+	"errors"
+	"flag"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestSigningSyncCommandLongHelpUsesOutputDirExample(t *testing.T) {
@@ -100,6 +106,39 @@ func TestSigningSyncPreparesRepositoryOnceInAssetOrder(t *testing.T) {
 				t.Fatalf("unexpected operation order: got %v, want %v", events, tt.wantEvents)
 			}
 		})
+	}
+}
+
+func TestSigningSyncPushRejectsDeviceWithoutCreateMissing(t *testing.T) {
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return nil, errors.New("App Store Connect client must not be created during flag validation")
+	}))
+
+	cmd := syncPushCommand()
+	cmd.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := cmd.Parse([]string{
+			"--bundle-id", "com.example.app",
+			"--profile-type", "IOS_APP_DEVELOPMENT",
+			"--repo", "git@github.com:team/certs.git",
+			"--password", "secret",
+			"--device", "DEVICE1",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		err := cmd.Run(context.Background())
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected usage error, got %v", err)
+		}
+	})
+
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	want := "Error: --device requires --create-missing (devices are only applied to profiles this command creates)"
+	if !strings.Contains(stderr, want) {
+		t.Fatalf("expected %q, got %q", want, stderr)
 	}
 }
 

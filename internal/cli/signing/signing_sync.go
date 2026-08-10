@@ -95,7 +95,7 @@ func syncPushCommand() *ffcli.Command {
 	password := fs.String("password", "", "Encryption password (or ASC_MATCH_PASSWORD env)")
 	branch := fs.String("branch", "main", "Git branch")
 	certType := fs.String("certificate-type", "", "Certificate type filter (optional)")
-	deviceIDs := fs.String("device", "", "Device ID(s), comma-separated (for development profiles)")
+	deviceIDs := fs.String("device", "", "Device ID(s), comma-separated (requires --create-missing; required there for development profiles)")
 	createMissing := fs.Bool("create-missing", false, "Create missing profiles")
 	output := shared.BindOutputFlags(fs)
 
@@ -121,6 +121,9 @@ func syncPushCommand() *ffcli.Command {
 			repo := strings.TrimSpace(*repoURL)
 			if repo == "" {
 				return shared.UsageError("--repo is required")
+			}
+			if !*createMissing && strings.TrimSpace(*deviceIDs) != "" {
+				return shared.UsageError(deviceRequiresCreateMissingMessage)
 			}
 			if *createMissing && isDevelopmentProfile(profType) && strings.TrimSpace(*deviceIDs) == "" {
 				return shared.UsageError("--device is required for development profiles with --create-missing")
