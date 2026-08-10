@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
@@ -125,9 +126,10 @@ func routingCoverageSourceRoot(workingDir, absolutePath string) (string, error) 
 		return "", fmt.Errorf("resolve current directory: %w", err)
 	}
 	absolutePath = filepath.Clean(absolutePath)
+	volumeRoot := filepath.Clean(filepath.VolumeName(absolutePath) + string(filepath.Separator))
 	for {
 		if routingCoveragePathWithinRoot(rootPath, absolutePath) {
-			return rootPath, nil
+			return routingCoverageTrustedRoot(rootPath, volumeRoot, absolutePath)
 		}
 		parent := filepath.Dir(rootPath)
 		if parent == rootPath {
@@ -136,11 +138,41 @@ func routingCoverageSourceRoot(workingDir, absolutePath string) (string, error) 
 		rootPath = parent
 	}
 
-	volumeRoot := filepath.VolumeName(absolutePath) + string(filepath.Separator)
 	if !routingCoveragePathWithinRoot(volumeRoot, absolutePath) {
 		return "", fmt.Errorf("resolve trusted root for file %q", absolutePath)
 	}
-	return filepath.Clean(volumeRoot), nil
+	return routingCoverageTrustedRoot(volumeRoot, volumeRoot, absolutePath)
+}
+
+func routingCoverageTrustedRoot(commonRoot, volumeRoot, absolutePath string) (string, error) {
+	commonRoot = filepath.Clean(commonRoot)
+	if commonRoot != volumeRoot {
+		return commonRoot, nil
+	}
+
+	relativePath, err := filepath.Rel(volumeRoot, absolutePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve file relative to volume root: %w", err)
+	}
+	firstSeparator := strings.IndexRune(relativePath, filepath.Separator)
+	if firstSeparator < 0 {
+		return volumeRoot, nil
+	}
+	topLevelRoot := filepath.Join(volumeRoot, relativePath[:firstSeparator])
+	if runtime.GOOS == "darwin" {
+		// macOS exposes protected volume-root aliases such as /tmp and /var.
+		// Trust only that immediate alias as the root; nested and final symlinks
+		// remain below it and are still rejected by rootfs.OpenFile.
+		volumeInfo, volumeErr := os.Stat(volumeRoot)
+		aliasInfo, aliasErr := os.Lstat(topLevelRoot)
+		targetInfo, targetErr := os.Stat(topLevelRoot)
+		if volumeErr == nil && volumeInfo.IsDir() && volumeInfo.Mode().Perm()&0o022 == 0 &&
+			aliasErr == nil && aliasInfo.Mode()&os.ModeSymlink != 0 &&
+			targetErr == nil && targetInfo.IsDir() {
+			return topLevelRoot, nil
+		}
+	}
+	return volumeRoot, nil
 }
 
 func routingCoveragePathWithinRoot(rootPath, path string) bool {

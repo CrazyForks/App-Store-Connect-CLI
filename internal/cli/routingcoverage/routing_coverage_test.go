@@ -106,6 +106,66 @@ func TestPrepareRoutingCoverageFileAcceptsOutOfWorkingDirectoryRegularFiles(t *t
 	}
 }
 
+func TestPrepareRoutingCoverageFileAcceptsAbsoluteFileThroughHostTempAlias(t *testing.T) {
+	tempAlias := filepath.Join(string(filepath.Separator), "tmp")
+	aliasInfo, err := os.Lstat(tempAlias)
+	if err != nil {
+		t.Skipf("inspect host temp alias: %v", err)
+	}
+	if aliasInfo.Mode()&os.ModeSymlink == 0 {
+		t.Skipf("host temp path %q is not a symlink alias", tempAlias)
+	}
+
+	inputDir, err := os.MkdirTemp(tempAlias, "asc-routing-coverage-")
+	if err != nil {
+		t.Fatalf("create input directory through host temp alias: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(inputDir) })
+	coveragePath := filepath.Join(inputDir, "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	workingDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve unrelated working directory: %v", err)
+	}
+	t.Chdir(workingDir)
+
+	prepared, err := PrepareRoutingCoverageFile(coveragePath)
+	if err != nil {
+		t.Fatalf("PrepareRoutingCoverageFile(%q) error: %v", coveragePath, err)
+	}
+	if prepared.Path != coveragePath {
+		t.Fatalf("PrepareRoutingCoverageFile(%q) path = %q, want %q", coveragePath, prepared.Path, coveragePath)
+	}
+	if err := RevalidatePreparedRoutingCoverageFile(prepared); err != nil {
+		t.Fatalf("RevalidatePreparedRoutingCoverageFile() error: %v", err)
+	}
+
+	finalLink := filepath.Join(inputDir, "final-link.geojson")
+	if err := os.Symlink(coveragePath, finalLink); err != nil {
+		t.Fatalf("create final symlink: %v", err)
+	}
+	parentTarget := filepath.Join(inputDir, "parent-target")
+	if err := os.Mkdir(parentTarget, 0o700); err != nil {
+		t.Fatalf("create parent target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(parentTarget, "coverage.geojson"), []byte(validRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write parent target fixture: %v", err)
+	}
+	parentLink := filepath.Join(inputDir, "parent-link")
+	if err := os.Symlink(parentTarget, parentLink); err != nil {
+		t.Fatalf("create parent symlink: %v", err)
+	}
+
+	for _, path := range []string{finalLink, filepath.Join(parentLink, "coverage.geojson")} {
+		if _, err := PrepareRoutingCoverageFile(path); !errors.Is(err, rootfs.ErrSymlink) {
+			t.Fatalf("PrepareRoutingCoverageFile(%q) error = %v, want rootfs.ErrSymlink", path, err)
+		}
+	}
+}
+
 func TestPrepareRoutingCoverageFileRejectsOutOfWorkingDirectorySymlinks(t *testing.T) {
 	base := t.TempDir()
 	workingDir := filepath.Join(base, "work")
