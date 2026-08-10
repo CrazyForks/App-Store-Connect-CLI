@@ -170,6 +170,17 @@ func TestAppSetupInfoSetPlansExplicitLocalizationTargetBeforeWrites(t *testing.T
 					"locale":"en-US","name":"Existing App","subtitle":"Updated Subtitle","privacyPolicyUrl":"https://example.com/privacy"}}}`,
 			},
 		},
+		{
+			name:          "update privacy policy without name",
+			args:          []string{"--privacy-policy-url", "https://example.com/privacy"},
+			localizations: `{"data":[{"type":"appInfoLocalizations","id":"loc-1","attributes":{"locale":"en-US","name":"Existing App"}}]}`,
+			localizationWrite: appSetupInfoHTTPStep{
+				method:       http.MethodPatch,
+				uri:          "/v1/appInfoLocalizations/loc-1",
+				requestBody:  `{"data":{"type":"appInfoLocalizations","id":"loc-1","attributes":{"privacyPolicyUrl":"https://example.com/privacy"}}}`,
+				responseBody: `{"data":{"type":"appInfoLocalizations","id":"loc-1","attributes":{"locale":"en-US","name":"Existing App","privacyPolicyUrl":"https://example.com/privacy"}}}`,
+			},
+		},
 	}
 
 	for _, test := range tests {
