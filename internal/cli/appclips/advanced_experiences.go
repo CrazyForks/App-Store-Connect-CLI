@@ -342,14 +342,6 @@ Examples:
 				categoryValue = &parsed
 			}
 
-			client, err := appClipsClientFactory()
-			if err != nil {
-				return fmt.Errorf("app-clips advanced-experiences create: %w", err)
-			}
-
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
 			appClipValue := strings.TrimSpace(*appClipID)
 			bundleValue := strings.TrimSpace(*bundleID)
 			appValue := strings.TrimSpace(shared.ResolveAppID(*appID))
@@ -361,6 +353,14 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --app is required with --bundle-id")
 				return shared.MissingRequiredUsageError()
 			}
+
+			client, err := appClipsClientFactory()
+			if err != nil {
+				return fmt.Errorf("app-clips advanced-experiences create: %w", err)
+			}
+
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
 
 			appClipValue, err = resolveAppClipID(requestCtx, client, appValue, appClipValue, bundleValue)
 			if err != nil {
