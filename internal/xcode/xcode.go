@@ -3,6 +3,7 @@ package xcode
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -767,43 +768,124 @@ func runXcodebuildForBuild(ctx context.Context, args []string, logWriter io.Writ
 }
 
 func runAltoolValidate(ctx context.Context, args []string, logWriter io.Writer) error {
-	outputTail := newTailBuffer(xcodebuildErrorTailLimit)
-	captureWriter := io.Writer(outputTail)
-	if logWriter != nil {
-		captureWriter = io.MultiWriter(logWriter, outputTail)
-	}
-	if err := runCommandWithTail(ctx, "xcrun", args, captureWriter, "validate", "xcrun altool"); err != nil {
+	validationOutput := newAltoolValidationOutputWriter(logWriter)
+	if err := runCommandWithTail(ctx, "xcrun", args, validationOutput, "validate", "xcrun altool"); err != nil {
 		return err
 	}
 
-	details := parseAltoolValidationErrors(outputTail.String())
+	details := validationOutput.Details()
 	if len(details) == 0 {
 		return nil
 	}
 	return fmt.Errorf("xcrun altool validate failed: %s", strings.Join(details, "; "))
 }
 
-func parseAltoolValidationErrors(output string) []string {
-	details := make([]string, 0)
-	for _, line := range strings.Split(output, "\n") {
-		markerEnd := -1
-		for _, pattern := range altoolValidationErrorPrefixes {
-			if match := pattern.FindStringIndex(line); match != nil {
-				markerEnd = match[1]
-				break
-			}
-		}
-		if markerEnd < 0 {
-			continue
-		}
+type altoolValidationOutputWriter struct {
+	logWriter   io.Writer
+	line        []byte
+	details     []string
+	seen        map[string]struct{}
+	detailBytes int
+}
 
-		detail := strings.TrimSpace(line[markerEnd:])
-		if detail == "" {
-			detail = "altool reported an unspecified validation error"
-		}
-		details = append(details, detail)
+func newAltoolValidationOutputWriter(logWriter io.Writer) *altoolValidationOutputWriter {
+	return &altoolValidationOutputWriter{
+		logWriter: logWriter,
+		seen:      make(map[string]struct{}),
 	}
-	return UniqueDiagnosticDetails(details)
+}
+
+func (w *altoolValidationOutputWriter) Write(p []byte) (int, error) {
+	written := len(p)
+	var err error
+	if w.logWriter != nil {
+		written, err = w.logWriter.Write(p)
+	}
+	w.consume(p[:written])
+	return written, err
+}
+
+func (w *altoolValidationOutputWriter) Details() []string {
+	if len(w.line) > 0 {
+		w.recordLine()
+	}
+	return append([]string(nil), w.details...)
+}
+
+func (w *altoolValidationOutputWriter) consume(p []byte) {
+	for len(p) > 0 {
+		newline := bytes.IndexByte(p, '\n')
+		if newline < 0 {
+			w.appendLine(p)
+			return
+		}
+		w.appendLine(p[:newline])
+		w.recordLine()
+		p = p[newline+1:]
+	}
+}
+
+func (w *altoolValidationOutputWriter) appendLine(fragment []byte) {
+	remaining := xcodebuildErrorTailLimit - len(w.line)
+	if remaining <= 0 {
+		return
+	}
+	if len(fragment) > remaining {
+		fragment = fragment[:remaining]
+	}
+	w.line = append(w.line, fragment...)
+}
+
+func (w *altoolValidationOutputWriter) recordLine() {
+	detail, ok := parseAltoolValidationErrorLine(string(w.line))
+	w.line = w.line[:0]
+	if !ok {
+		return
+	}
+
+	separatorBytes := 0
+	if len(w.details) > 0 {
+		separatorBytes = len("; ")
+	}
+	remaining := xcodebuildErrorTailLimit - w.detailBytes - separatorBytes
+	if remaining <= 0 {
+		return
+	}
+	detail = truncateUTF8Prefix(detail, remaining)
+	if detail == "" {
+		return
+	}
+	if _, exists := w.seen[detail]; exists {
+		return
+	}
+	w.seen[detail] = struct{}{}
+	w.details = append(w.details, detail)
+	w.detailBytes += separatorBytes + len(detail)
+}
+
+func parseAltoolValidationErrorLine(line string) (string, bool) {
+	for _, pattern := range altoolValidationErrorPrefixes {
+		if match := pattern.FindStringIndex(line); match != nil {
+			detail := strings.TrimSpace(line[match[1]:])
+			if detail == "" {
+				detail = "altool reported an unspecified validation error"
+			}
+			return detail, true
+		}
+	}
+	return "", false
+}
+
+func truncateUTF8Prefix(value string, limit int) string {
+	value = strings.ToValidUTF8(value, "\uFFFD")
+	if len(value) <= limit {
+		return value
+	}
+	prefix := []byte(value[:limit])
+	for len(prefix) > 0 && !utf8.Valid(prefix) {
+		prefix = prefix[:len(prefix)-1]
+	}
+	return string(prefix)
 }
 
 func runAltoolAndCapture(ctx context.Context, args []string, logWriter io.Writer, action string) (string, error) {

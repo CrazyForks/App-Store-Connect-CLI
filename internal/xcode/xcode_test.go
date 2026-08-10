@@ -443,6 +443,12 @@ func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
 			wantDetail: "Unable to validate archive './artifacts/Demo.ipa'.",
 		},
 		{
+			name:       "timestamped error before long diagnostics",
+			output:     "2026-08-10 06:47:56.580 ERROR: Early server rejection.\n" + strings.Repeat("x", xcodebuildErrorTailLimit+1) + "\n",
+			wantErr:    true,
+			wantDetail: "Early server rejection.",
+		},
+		{
 			name:   "benign output containing error text",
 			output: "2026-08-10 06:47:56.580 INFO: Validation completed.\nDiagnostic: no ERROR: records were returned.\n",
 		},
