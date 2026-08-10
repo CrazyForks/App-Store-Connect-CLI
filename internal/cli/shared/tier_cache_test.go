@@ -69,6 +69,14 @@ func TestTierCacheSaveRejectsSymlinkAndPreservesTarget(t *testing.T) {
 		t.Errorf("SaveTierCache() error = %q, want symlink rejection", err)
 	}
 
+	linkTarget, readlinkErr := os.Readlink(cachePath)
+	if readlinkErr != nil {
+		t.Fatalf("read cache symlink: %v", readlinkErr)
+	}
+	if linkTarget != sentinelPath {
+		t.Errorf("cache symlink target = %q, want %q", linkTarget, sentinelPath)
+	}
+
 	got, readErr := os.ReadFile(sentinelPath)
 	if readErr != nil {
 		t.Fatalf("read sentinel: %v", readErr)
