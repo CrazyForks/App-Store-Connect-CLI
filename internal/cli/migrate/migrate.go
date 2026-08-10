@@ -323,7 +323,7 @@ Examples:
 				result.CompletedStages = append([]string(nil), completedStages...)
 				shared.WarnIncludeSensitive(os.Stderr, *includeSensitive)
 				if printErr := printMigrateOutput(presentableImportResult(result, *includeSensitive), *output.Output, *output.Pretty); printErr != nil {
-					return errors.Join(failure, fmt.Errorf(migrateImportPartialResultPrintErrorFormat, printErr))
+					return errors.Join(failure, fmt.Errorf("print partial migrate import result: %w", printErr))
 				}
 				// Locales created before the failure still need the submission
 				// fields the warning names, so report them here too.
@@ -594,12 +594,11 @@ type SkippedItem struct {
 }
 
 const (
-	migratePartialStatus                       = "partial"
-	migrateStageVersionLocalizations           = "version_localizations"
-	migrateStageAppInfoLocalizations           = "app_info_localizations"
-	migrateStageReviewInformation              = "review_information"
-	migrateStageScreenshots                    = "screenshots"
-	migrateImportPartialResultPrintErrorFormat = "print partial migrate import result: %w"
+	migratePartialStatus             = "partial"
+	migrateStageVersionLocalizations = "version_localizations"
+	migrateStageAppInfoLocalizations = "app_info_localizations"
+	migrateStageReviewInformation    = "review_information"
+	migrateStageScreenshots          = "screenshots"
 )
 
 // MigrateImportResult is the result of a migrate import operation.

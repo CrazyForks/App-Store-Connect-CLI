@@ -235,13 +235,14 @@ func containFastlaneChild(fastlaneDir, child string) (string, error) {
 
 // containDeliverfilePath resolves a repository-controlled Deliverfile path
 // value against the Deliverfile's own directory and requires the result to stay
-// inside the working directory, because the Deliverfile ships with the checkout
-// and must not select files outside it.
-func containDeliverfilePath(workDir, base, value string) (string, error) {
+// inside the trusted root for the run (the working directory, or the selected
+// Fastlane directory), because the Deliverfile ships with the checkout and must
+// not select files outside it.
+func containDeliverfilePath(rootPath, base, value string) (string, error) {
 	if err := rootfs.ValidateRelativeAllowingTraversal(value); err != nil {
 		return "", fmt.Errorf("deliverfile path %q: %w", value, err)
 	}
-	root, err := rootfs.New(workDir)
+	root, err := rootfs.New(rootPath)
 	if err != nil {
 		return "", err
 	}
