@@ -741,7 +741,8 @@ func checkpointMatchesRunArguments(existing *runCheckpoint, opts runOptions) boo
 	if existing.RoutingCoverageFile == opts.RoutingCoverageFile {
 		return true
 	}
-	return checkpointCanDropPendingRoutingCoverage(existing, opts.RoutingCoverageFile)
+	return checkpointCanDropPendingRoutingCoverage(existing, opts.RoutingCoverageFile) ||
+		checkpointCanAddRoutingCoverage(existing, opts.RoutingCoverageFile)
 }
 
 func checkpointCanDropPendingRoutingCoverage(existing *runCheckpoint, desiredFile string) bool {
@@ -754,6 +755,23 @@ func checkpointCanDropPendingRoutingCoverage(existing *runCheckpoint, desiredFil
 		}
 		switch name {
 		case stepEnsureVersion, stepApplyMetadata:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func checkpointCanAddRoutingCoverage(existing *runCheckpoint, desiredFile string) bool {
+	if strings.TrimSpace(existing.RoutingCoverageFile) != "" || strings.TrimSpace(desiredFile) == "" {
+		return false
+	}
+	for name, completed := range existing.Completed {
+		if !completed {
+			continue
+		}
+		switch name {
+		case stepEnsureVersion, stepApplyMetadata, stepAttachBuild, stepValidateReadiness:
 		default:
 			return false
 		}
