@@ -9550,6 +9550,40 @@ func TestUpdateUser_SendsRequest(t *testing.T) {
 	}
 }
 
+func TestUpdateUser_DefaultsAllAppsVisibleWithVisibleApps(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"users","id":"user-1","attributes":{"username":"user@example.com","roles":["DEVELOPER"],"allAppsVisible":false,"provisioningAllowed":false}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch {
+			t.Fatalf("expected PATCH, got %s", req.Method)
+		}
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("failed to read request: %v", err)
+		}
+		var payload UserUpdateRequest
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+		if payload.Data.Attributes == nil {
+			t.Fatal("expected attributes to be set")
+		}
+		if payload.Data.Attributes.AllAppsVisible == nil || *payload.Data.Attributes.AllAppsVisible {
+			t.Fatalf("expected defaulted allAppsVisible=false, got %+v", payload.Data.Attributes.AllAppsVisible)
+		}
+		if payload.Data.Relationships == nil || payload.Data.Relationships.VisibleApps == nil {
+			t.Fatal("expected visibleApps relationships")
+		}
+		if got := len(payload.Data.Relationships.VisibleApps.Data); got != 1 {
+			t.Fatalf("expected 1 visibleApps relationship, got %d", got)
+		}
+		assertAuthorized(t, req)
+	}, response)
+
+	if _, err := client.UpdateUser(context.Background(), "user-1", UserUpdateAttributes{}, []string{"app-1"}); err != nil {
+		t.Fatalf("UpdateUser() error: %v", err)
+	}
+}
+
 func TestUpdateUser_OmitsVisibleAppsWhenEmpty(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"users","id":"user-1","attributes":{"username":"user@example.com","roles":["ADMIN"],"allAppsVisible":true,"provisioningAllowed":false}}}`)
 	client := newTestClient(t, func(req *http.Request) {

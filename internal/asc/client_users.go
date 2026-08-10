@@ -67,6 +67,13 @@ func (c *Client) GetUser(ctx context.Context, userID string, opts ...UsersOption
 func (c *Client) UpdateUser(ctx context.Context, userID string, attrs UserUpdateAttributes, visibleAppIDs []string) (*UserResponse, error) {
 	userID = strings.TrimSpace(userID)
 	visibleAppIDs = normalizeList(visibleAppIDs)
+	// Selecting specific visible apps implies the account is not all-apps
+	// visible; pair the attribute like CreateUserInvitation so one request
+	// stays self-consistent.
+	if len(visibleAppIDs) > 0 && attrs.AllAppsVisible == nil {
+		allAppsVisible := false
+		attrs.AllAppsVisible = &allAppsVisible
+	}
 	payload := UserUpdateRequest{
 		Data: UserUpdateData{
 			Type: ResourceTypeUsers,
