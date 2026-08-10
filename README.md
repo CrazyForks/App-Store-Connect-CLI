@@ -350,18 +350,23 @@ asc workflow run --dry-run testflight_beta VERSION:1.2.3
 
 ### Verified local Xcode -> TestFlight workflow
 
-See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for a copyable `.asc/deployment.json`,
-`.asc/workflow.json`, and `ExportOptions.plist` that use `asc builds next-build-number`,
+See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for local compile validation with
+`asc xcode build` and a copyable `.asc/deployment.json`, `.asc/workflow.json`,
+and `ExportOptions.plist` that use `asc builds next-build-number`,
 `asc xcode inject`, `asc xcode archive`, `asc xcode export --timeout 10m`, and
-`asc publish testflight --group ... --wait`. Add `--submit --confirm` when
+`asc publish testflight --group ... --wait`.
+Add `--submit --confirm` when
 distributing to an external TestFlight group that needs beta app review submission.
 
 ```bash
 asc workflow validate --output json
 asc xcode inject --manifest .asc/deployment.json --set version=1.2.3 --set build_number=42 --dry-run --output json
+asc xcode build --project App.xcodeproj --scheme App --destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0' --no-code-signing --output json
 asc workflow run --dry-run testflight_beta VERSION:1.2.3
 asc workflow run testflight_beta VERSION:1.2.3
 ```
+
+Replace the example Xcode destination with a simulator installed on the host.
 
 ### Xcode Cloud workflows and build runs
 

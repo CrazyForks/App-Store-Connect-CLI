@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"howett.net/plist"
 
@@ -755,6 +756,10 @@ func runXcodebuild(ctx context.Context, args []string, logWriter io.Writer) erro
 	return runCommandWithTail(ctx, "xcodebuild", args, logWriter, summarizeAction(args), "xcodebuild")
 }
 
+func runXcodebuildForBuild(ctx context.Context, args []string, logWriter io.Writer) error {
+	return runCommandWithTailMode(ctx, "xcodebuild", args, logWriter, summarizeAction(args), "xcodebuild", true)
+}
+
 func runAltoolValidate(ctx context.Context, args []string, logWriter io.Writer) error {
 	return runCommandWithTail(ctx, "xcrun", args, logWriter, "validate", "xcrun altool")
 }
@@ -1062,6 +1067,10 @@ func parseBuildStatusMetadataField(line string) (string, string, bool) {
 }
 
 func runCommandWithTail(ctx context.Context, name string, args []string, logWriter io.Writer, action string, commandLabel string) error {
+	return runCommandWithTailMode(ctx, name, args, logWriter, action, commandLabel, false)
+}
+
+func runCommandWithTailMode(ctx context.Context, name string, args []string, logWriter io.Writer, action string, commandLabel string, preserveProcessError bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1093,6 +1102,16 @@ func runCommandWithTail(ctx context.Context, name string, args []string, logWrit
 		}
 		if detail != "" {
 			if outputTail.Truncated() {
+				if preserveProcessError {
+					return fmt.Errorf(
+						"%s %s failed (showing last %d bytes): %s: %w",
+						commandLabel,
+						action,
+						xcodebuildErrorTailLimit,
+						detail,
+						err,
+					)
+				}
 				return fmt.Errorf(
 					"%s %s failed (showing last %d bytes): %s",
 					commandLabel,
@@ -1100,6 +1119,9 @@ func runCommandWithTail(ctx context.Context, name string, args []string, logWrit
 					xcodebuildErrorTailLimit,
 					detail,
 				)
+			}
+			if preserveProcessError {
+				return fmt.Errorf("%s %s failed: %s: %w", commandLabel, action, detail, err)
 			}
 			return fmt.Errorf("%s %s failed: %s", commandLabel, action, detail)
 		}
@@ -1142,7 +1164,13 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *tailBuffer) String() string {
-	return string(b.data)
+	data := b.data
+	if b.truncated {
+		for len(data) > 0 && !utf8.RuneStart(data[0]) {
+			data = data[1:]
+		}
+	}
+	return string(data)
 }
 
 func (b *tailBuffer) Truncated() bool {
@@ -1158,6 +1186,9 @@ func summarizeAction(args []string) string {
 	}
 	if containsArg(args, "archive") {
 		return "archive"
+	}
+	if containsArg(args, "build") {
+		return "build"
 	}
 	return "command"
 }

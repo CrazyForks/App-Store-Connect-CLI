@@ -52,17 +52,18 @@ func XcodeCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "xcode",
 		ShortUsage: "asc xcode <subcommand> [flags]",
-		ShortHelp:  "Local Xcode archive/export helpers (macOS only).",
-		LongHelp: `Local Xcode archive/export helpers.
+		ShortHelp:  "Local Xcode build/archive/export helpers (macOS only).",
+		LongHelp: `Local Xcode build/archive/export helpers.
 
 These commands wrap local xcodebuild flows and are visible on every platform so
 docs and workflows stay consistent, but execution is supported on macOS only.
 
-Use these commands to produce deterministic .xcarchive and .ipa paths that can
-be passed directly into asc upload and publish commands.
+Use these commands to compile projects and produce deterministic .xcarchive and
+.ipa paths that can be passed directly into asc upload and publish commands.
 
 Examples:
   asc xcode inject --manifest .asc/deployment.json --set version=1.3.0 --overwrite
+  asc xcode build --project App.xcodeproj --scheme App --destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0' --no-code-signing --output json
   asc xcode archive --workspace App.xcworkspace --scheme App --archive-path .asc/artifacts/App.xcarchive --output json
   asc xcode export --archive-path .asc/artifacts/App.xcarchive --ipa-path .asc/artifacts/App.ipa --output json
   asc xcode export-options generate --archive-path .asc/artifacts/App.xcarchive
@@ -73,6 +74,7 @@ Examples:
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
 			XcodeInjectCommand(),
+			XcodeBuildCommand(),
 			XcodeArchiveCommand(),
 			XcodeExportCommand(),
 			XcodeExportOptionsGroupCommand(),
