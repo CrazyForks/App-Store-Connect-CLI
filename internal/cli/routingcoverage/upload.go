@@ -300,13 +300,16 @@ func snapshotPreparedRoutingCoverageFile(file PreparedRoutingCoverageFile) (*os.
 }
 
 // UploadPreparedRoutingCoverageFile creates, uploads, and commits routing coverage.
+// A post-create commit error returns the retained reservation response alongside
+// the error so callers can report its ID.
 func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, versionID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
 	return uploadPreparedRoutingCoverageFile(ctx, client, versionID, "", file)
 }
 
 // ReplaceRoutingCoverageWithPreparedFile revalidates the upload source before
 // deleting the current routing coverage, then creates, uploads, and commits its
-// replacement from the same open source handle.
+// replacement from the same open source handle. A post-create commit error
+// returns the retained replacement response alongside the error.
 func ReplaceRoutingCoverageWithPreparedFile(ctx context.Context, client *asc.Client, versionID, currentCoverageID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
 	currentCoverageID = strings.TrimSpace(currentCoverageID)
 	if currentCoverageID == "" {
@@ -398,10 +401,10 @@ func uploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, 
 	committed, err := client.UpdateRoutingAppCoverage(commitCtx, coverageID, attributes)
 	commitCancel()
 	if err != nil {
-		return nil, fmt.Errorf("failed to commit upload: %w", err)
+		return response, fmt.Errorf("failed to commit upload: %w", err)
 	}
 	if committed == nil || strings.TrimSpace(committed.Data.ID) == "" {
-		return nil, fmt.Errorf("committed routing coverage response is missing an ID")
+		return response, fmt.Errorf("committed routing coverage response is missing an ID")
 	}
 	return committed, nil
 }

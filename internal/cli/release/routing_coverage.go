@@ -118,6 +118,10 @@ func applyPreparedRoutingCoverageStep(ctx context.Context, client *asc.Client, v
 		committed, err = routingcoveragecli.UploadPreparedRoutingCoverageFile(ctx, client, versionID, prepared)
 	}
 	if err != nil {
+		if committed != nil && strings.TrimSpace(committed.Data.ID) != "" {
+			details.CoverageID = strings.TrimSpace(committed.Data.ID)
+			details.DeliveryState = routingCoverageDeliveryState(committed)
+		}
 		return stepOutcome{Details: details}, err
 	}
 	details.CoverageID = committed.Data.ID

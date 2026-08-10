@@ -381,6 +381,42 @@ func TestUploadPreparedRoutingCoverageFileDoesNotDeleteAfterAmbiguousCommitRespo
 	}
 }
 
+func TestApplyRoutingCoverageStepReportsNewIDAfterAmbiguousReplacementCommit(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+	prepared := prepareReleaseRoutingCoverage(t, coveragePath)
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/routingAppCoverage":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_OLD","attributes":{"sourceFileChecksum":"old-checksum","assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_OLD":
+			return releaseJSONResponse(http.StatusNoContent, "")
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/routingAppCoverages":
+			return releaseJSONResponse(http.StatusCreated, fmt.Sprintf(`{"data":{"type":"routingAppCoverages","id":"COVERAGE_NEW","attributes":{"uploadOperations":[{"method":"PUT","url":"https://upload.example/coverage","length":%d,"offset":0}]}}}`, len(validReleaseRoutingCoverageGeoJSON)))
+		case req.Method == http.MethodPut && req.URL.Host == "upload.example":
+			return releaseJSONResponse(http.StatusOK, `{}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_NEW":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"","attributes":{"assetDeliveryState":{"state":"UPLOAD_COMPLETE"}}}}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	outcome, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepared, false)
+	if err == nil || !strings.Contains(err.Error(), "committed routing coverage response is missing an ID") {
+		t.Fatalf("applyPreparedRoutingCoverageStep() error = %v, want missing-ID diagnostic", err)
+	}
+	details, ok := outcome.Details.(routingCoverageStepDetails)
+	if !ok || details.Action != "replace" || details.CoverageID != "COVERAGE_NEW" {
+		t.Fatalf("expected replacement error details to preserve the new coverage ID, got %#v", outcome.Details)
+	}
+}
+
 func TestVerifyResumedCheckpointRechecksRoutingCoverageInput(t *testing.T) {
 	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
 		switch {
