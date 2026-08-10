@@ -44,7 +44,7 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 
 		file, temporaryName, err := secureopen.CreateTempNoFollowInRoot(parent, ".", tempPattern, perm)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("create output %q: %w", path, replaceErrorPaths(err, path, temporaryName))
 		}
 		temporaryPath := file.Name()
 		displayDestinationError := func(err error) error {

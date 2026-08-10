@@ -102,6 +102,35 @@ func TestSafeWriteFileNoSymlinkNoOverwriteReportsDestinationForCallbackPathError
 	}
 }
 
+func TestSafeWriteFileNoSymlinkNoOverwriteReportsDestinationForStagingCreationError(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "artifact.bin")
+	callbackCalled := false
+
+	_, err := SafeWriteFileNoSymlink(
+		destination,
+		0o600,
+		false,
+		filepath.Join("missing", ".safe-write-*"),
+		".safe-write-backup-*",
+		func(file *os.File) (int64, error) {
+			callbackCalled = true
+			return 0, nil
+		},
+	)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want os.ErrNotExist", err)
+	}
+	if !strings.Contains(err.Error(), destination) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want destination %q", err, destination)
+	}
+	if strings.Contains(err.Error(), ".safe-write-") {
+		t.Fatalf("SafeWriteFileNoSymlink() exposed temporary path: %v", err)
+	}
+	if callbackCalled {
+		t.Fatal("write callback was called")
+	}
+}
+
 func TestSafeWriteFileNoSymlinkNoOverwritePreservesDestinationCreatedDuringWrite(t *testing.T) {
 	directory := t.TempDir()
 	destination := filepath.Join(directory, "artifact.bin")
