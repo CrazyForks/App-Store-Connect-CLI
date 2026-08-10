@@ -447,8 +447,10 @@ Examples:
 					err := client.AddBetaTesterToGroups(requestCtx, testerID, groupIDs)
 					cancel()
 					if err != nil {
-						if errors.Is(err, asc.ErrConflict) {
-							// Relationship already exists; treat as idempotent success.
+						alreadySatisfied, verificationErr := betaTesterGroupConflictAlreadySatisfied(ctx, client, testerID, groupIDs, err)
+						if verificationErr != nil {
+							err = fmt.Errorf("%w (failed to verify beta group membership: %w)", err, verificationErr)
+						} else if alreadySatisfied {
 							summary.Updated++
 							continue
 						}
@@ -752,6 +754,57 @@ func fetchExistingTestersByEmail(ctx context.Context, client *asc.Client, appID 
 		byEmail[email] = strings.TrimSpace(tester.ID)
 	}
 	return byEmail, nil
+}
+
+func betaTesterGroupConflictAlreadySatisfied(
+	ctx context.Context,
+	client *asc.Client,
+	testerID string,
+	groupIDs []string,
+	requestErr error,
+) (bool, error) {
+	if !errors.Is(requestErr, asc.ErrConflict) {
+		return false, nil
+	}
+
+	requestedGroupIDs := uniqueSortedStrings(groupIDs)
+	if len(requestedGroupIDs) == 0 {
+		return false, nil
+	}
+
+	requestCtx, cancel := shared.ContextWithTimeout(ctx)
+	first, err := client.GetBetaTesterBetaGroupsRelationships(requestCtx, testerID, asc.WithLinkagesLimit(200))
+	cancel()
+	if err != nil {
+		return false, err
+	}
+
+	all, err := asc.PaginateAll(ctx, first, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		requestCtx, cancel := shared.ContextWithTimeout(ctx)
+		defer cancel()
+		return client.GetBetaTesterBetaGroupsRelationships(requestCtx, testerID, asc.WithLinkagesNextURL(nextURL))
+	})
+	if err != nil {
+		return false, err
+	}
+	resp, ok := all.(*asc.LinkagesResponse)
+	if !ok || resp == nil {
+		return false, fmt.Errorf("unexpected beta tester group relationships response type")
+	}
+
+	presentGroupIDs := make(map[string]struct{}, len(resp.Data))
+	for _, linkage := range resp.Data {
+		groupID := strings.TrimSpace(linkage.ID)
+		if groupID != "" {
+			presentGroupIDs[groupID] = struct{}{}
+		}
+	}
+	for _, groupID := range requestedGroupIDs {
+		if _, ok := presentGroupIDs[groupID]; !ok {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func fetchTesterGroupMemberships(ctx context.Context, client *asc.Client, resolver *betaGroupResolver) (map[string][]string, error) {
