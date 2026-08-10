@@ -41,7 +41,7 @@ func OpenNewFileNoFollowInRoot(root *os.Root, name string, perm os.FileMode) (*o
 // OpenAppendNoFollowInRoot opens a file for appending relative to root using
 // best-effort final-component checks. Root itself prevents parent traversal.
 func OpenAppendNoFollowInRoot(root *os.Root, name string, perm os.FileMode) (*os.File, error) {
-	return openNewFileNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
+	return openAppendFileNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
 		return root.OpenFile(name, os.O_WRONLY|os.O_APPEND|os.O_CREATE, perm)
 	})
 }

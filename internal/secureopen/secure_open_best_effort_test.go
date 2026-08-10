@@ -1,6 +1,7 @@
 package secureopen
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,6 +130,49 @@ func TestOpenNewFileNoFollowBestEffortCreatesRegularFile(t *testing.T) {
 	}
 	if string(data) != "ok" {
 		t.Fatalf("file data = %q, want %q", string(data), "ok")
+	}
+}
+
+func TestOpenNewFileNoFollowInRootBestEffortRemovesCreatedFileAfterVerificationFailure(t *testing.T) {
+	rootPath := t.TempDir()
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		t.Fatalf("OpenRoot() error = %v", err)
+	}
+	defer root.Close()
+
+	const stagedName = ".safe-write-stage"
+	const otherName = "other.txt"
+	otherPath := filepath.Join(rootPath, otherName)
+	if err := os.WriteFile(otherPath, []byte("other"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	file, err := openNewFileNoFollowInRootBestEffort(root, stagedName, func() (*os.File, error) {
+		created, err := root.OpenFile(stagedName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if err := created.Close(); err != nil {
+			return nil, err
+		}
+		return root.Open(otherName)
+	})
+	if file != nil {
+		_ = file.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
+		t.Fatalf("openNewFileNoFollowInRootBestEffort() error = %v, want verification failure", err)
+	}
+	if _, statErr := root.Lstat(stagedName); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("staged file remains after verification failure, Lstat() error = %v", statErr)
+	}
+	content, readErr := os.ReadFile(otherPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if string(content) != "other" {
+		t.Fatalf("other file content = %q, want %q", content, "other")
 	}
 }
 

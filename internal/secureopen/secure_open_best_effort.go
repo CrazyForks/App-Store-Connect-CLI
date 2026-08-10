@@ -1,6 +1,7 @@
 package secureopen
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
@@ -107,6 +108,14 @@ func openExistingNoFollowInRootBestEffort(root *os.Root, name string, opener fun
 }
 
 func openNewFileNoFollowInRootBestEffort(root *os.Root, name string, opener func() (*os.File, error)) (*os.File, error) {
+	return openWritableFileNoFollowInRootBestEffort(root, name, true, opener)
+}
+
+func openAppendFileNoFollowInRootBestEffort(root *os.Root, name string, opener func() (*os.File, error)) (*os.File, error) {
+	return openWritableFileNoFollowInRootBestEffort(root, name, false, opener)
+}
+
+func openWritableFileNoFollowInRootBestEffort(root *os.Root, name string, removeCreatedOnFailure bool, opener func() (*os.File, error)) (*os.File, error) {
 	if _, err := rootLstatNoSymlink(root, name); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -115,7 +124,18 @@ func openNewFileNoFollowInRootBestEffort(root *os.Root, name string, opener func
 		return nil, err
 	}
 	if err := verifyRootOpenedPath(root, name, file, nil); err != nil {
-		_ = file.Close()
+		if !removeCreatedOnFailure {
+			_ = file.Close()
+			return nil, err
+		}
+		closeErr := file.Close()
+		removeErr := root.Remove(name)
+		if errors.Is(removeErr, os.ErrNotExist) {
+			removeErr = nil
+		}
+		if closeErr != nil || removeErr != nil {
+			return nil, errors.Join(err, closeErr, removeErr)
+		}
 		return nil, err
 	}
 	return file, nil
