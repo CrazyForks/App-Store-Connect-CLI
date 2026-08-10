@@ -386,15 +386,13 @@ func migrateImportAppliedAnything(result *MigrateImportResult) bool {
 	if result == nil {
 		return false
 	}
-	if len(result.Uploaded) > 0 || len(result.AppInfoUploaded) > 0 || result.ReviewInfoResult != nil {
-		return true
-	}
-	for _, screenshot := range result.ScreenshotResults {
-		if len(screenshot.Uploaded) > 0 {
-			return true
-		}
-	}
-	return false
+	// A screenshot result exists only once its set was created or resolved and
+	// the run started writing to it, so it counts as applied even when no asset
+	// finished uploading.
+	return len(result.Uploaded) > 0 ||
+		len(result.AppInfoUploaded) > 0 ||
+		result.ReviewInfoResult != nil ||
+		len(result.ScreenshotResults) > 0
 }
 
 func migrateVersionLocalizationsNeedUpdateContext(localizations []FastlaneLocalization, localeToID map[string]string) bool {
