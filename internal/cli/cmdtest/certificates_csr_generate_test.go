@@ -290,6 +290,9 @@ func TestCertificatesCSRGenerate_RejectsEquivalentSpellingsOfSameOutputPath(t *t
 	if !errors.Is(runErr, flag.ErrHelp) {
 		t.Fatalf("run error = %v, want usage error", runErr)
 	}
+	if got, want := runErr.Error(), "--key-out and --csr-out must be different paths"; got != want {
+		t.Fatalf("run error = %q, want %q", got, want)
+	}
 	if !strings.Contains(stderr, "--key-out and --csr-out must be different paths") {
 		t.Fatalf("stderr = %q, want same-path usage error", stderr)
 	}
