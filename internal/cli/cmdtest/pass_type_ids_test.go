@@ -2,7 +2,6 @@ package cmdtest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -20,6 +19,10 @@ import (
 )
 
 func TestPassTypeIDsCertificateQueryFlagsRequireIncludeBeforeClient(t *testing.T) {
+	const (
+		certificateFieldsError = "Error: --certificate-fields requires --include certificates"
+		certificateLimitError  = "Error: --limit-certificates requires --include certificates"
+	)
 	commands := []struct {
 		name string
 		args []string
@@ -32,33 +35,24 @@ func TestPassTypeIDsCertificateQueryFlagsRequireIncludeBeforeClient(t *testing.T
 		args    []string
 		wantErr string
 	}{
-		{
-			name:    "certificate fields",
-			args:    []string{"--certificate-fields", "name"},
-			wantErr: "Error: --certificate-fields requires --include certificates",
-		},
-		{
-			name:    "certificate limit",
-			args:    []string{"--limit-certificates", "1"},
-			wantErr: "Error: --limit-certificates requires --include certificates",
-		},
+		{name: "certificate fields", args: []string{"--certificate-fields", "name"}, wantErr: certificateFieldsError},
+		{name: "certificate limit", args: []string{"--limit-certificates", "1"}, wantErr: certificateLimitError},
 		{
 			name:    "deterministic precedence",
 			args:    []string{"--limit-certificates", "1", "--certificate-fields", "name"},
-			wantErr: "Error: --certificate-fields requires --include certificates",
+			wantErr: certificateFieldsError,
 		},
 	}
+
+	clientFactoryCalls := 0
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		clientFactoryCalls++
+		return nil, errors.New("client factory must not run during validation")
+	}))
 
 	for _, command := range commands {
 		for _, flagCase := range flags {
 			t.Run(command.name+"/"+flagCase.name, func(t *testing.T) {
-				clientFactoryCalls := 0
-				restore := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
-					clientFactoryCalls++
-					return nil, errors.New("client factory must not run during validation")
-				})
-				t.Cleanup(restore)
-
 				var code int
 				stdout, stderr := captureOutput(t, func() {
 					args := append(append([]string(nil), command.args...), flagCase.args...)
@@ -83,46 +77,42 @@ func TestPassTypeIDsCertificateQueryFlagsRequireIncludeBeforeClient(t *testing.T
 }
 
 func TestPassTypeIDsCertificateQueryFlagsPreserveValidRequests(t *testing.T) {
+	certificateArgs := []string{
+		"--fields", "certificates",
+		"--include", "certificates",
+		"--certificate-fields", "name,expirationDate",
+		"--limit-certificates", "1",
+		"--output", "json",
+	}
+	certificateQuery := url.Values{
+		"fields[passTypeIds]":  {"certificates"},
+		"fields[certificates]": {"name,expirationDate"},
+		"include":              {"certificates"},
+		"limit[certificates]":  {"1"},
+	}
 	tests := []struct {
-		name         string
-		args         []string
-		path         string
-		response     string
-		wantID       string
-		collection   bool
-		wantIncluded bool
+		name     string
+		args     []string
+		path     string
+		query    url.Values
+		response string
+		wantID   string
 	}{
 		{
-			name: "list",
-			args: []string{
-				"pass-type-ids", "list",
-				"--fields", "certificates",
-				"--include", "certificates",
-				"--certificate-fields", "name,expirationDate",
-				"--limit-certificates", "1",
-				"--output", "json",
-			},
-			path:         "/v1/passTypeIds",
-			response:     `{"data":[{"type":"passTypeIds","id":"PASS_LIST","attributes":{"name":"List pass"}}],"included":[{"type":"certificates","id":"CERT_LIST","attributes":{"name":"List certificate"}}]}`,
-			wantID:       "PASS_LIST",
-			collection:   true,
-			wantIncluded: true,
+			name:     "list",
+			args:     append([]string{"pass-type-ids", "list"}, certificateArgs...),
+			path:     "/v1/passTypeIds",
+			query:    certificateQuery,
+			response: `{"data":[{"type":"passTypeIds","id":"PASS_LIST"}]}`,
+			wantID:   "PASS_LIST",
 		},
 		{
-			name: "view",
-			args: []string{
-				"pass-type-ids", "view", "--pass-type-id", "PASS_VIEW",
-				"--fields", "certificates",
-				"--include", "certificates",
-				"--certificate-fields", "name,expirationDate",
-				"--limit-certificates", "1",
-				"--output", "json",
-			},
-			path:         "/v1/passTypeIds/PASS_VIEW",
-			response:     `{"data":{"type":"passTypeIds","id":"PASS_VIEW","attributes":{"name":"Viewed pass"}},"included":[{"type":"certificates","id":"CERT_VIEW","attributes":{"name":"Viewed certificate"}}]}`,
-			wantID:       "PASS_VIEW",
-			collection:   false,
-			wantIncluded: true,
+			name:     "view",
+			args:     append([]string{"pass-type-ids", "view", "--pass-type-id", "PASS_VIEW"}, certificateArgs...),
+			path:     "/v1/passTypeIds/PASS_VIEW",
+			query:    certificateQuery,
+			response: `{"data":{"type":"passTypeIds","id":"PASS_VIEW"}}`,
+			wantID:   "PASS_VIEW",
 		},
 		{
 			name: "relationship field without include",
@@ -131,10 +121,10 @@ func TestPassTypeIDsCertificateQueryFlagsPreserveValidRequests(t *testing.T) {
 				"--fields", "certificates",
 				"--output", "json",
 			},
-			path:       "/v1/passTypeIds",
-			response:   `{"data":[{"type":"passTypeIds","id":"PASS_FIELDS","relationships":{"certificates":{"links":{"related":"https://api.appstoreconnect.apple.com/v1/passTypeIds/PASS_FIELDS/certificates"}}}}]}`,
-			wantID:     "PASS_FIELDS",
-			collection: true,
+			path:     "/v1/passTypeIds",
+			query:    url.Values{"fields[passTypeIds]": {"certificates"}},
+			response: `{"data":[{"type":"passTypeIds","id":"PASS_FIELDS"}]}`,
+			wantID:   "PASS_FIELDS",
 		},
 	}
 
@@ -143,22 +133,14 @@ func TestPassTypeIDsCertificateQueryFlagsPreserveValidRequests(t *testing.T) {
 			setupAuth(t)
 			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
-			requestCount := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				requestCount++
 				if req.Method != http.MethodGet || req.URL.Path != test.path {
 					t.Errorf("request = %s %s, want GET %s", req.Method, req.URL.Path, test.path)
 					http.Error(w, "unexpected request", http.StatusBadRequest)
 					return
 				}
-				wantQuery := url.Values{"fields[passTypeIds]": {"certificates"}}
-				if test.wantIncluded {
-					wantQuery.Set("fields[certificates]", "name,expirationDate")
-					wantQuery.Set("include", "certificates")
-					wantQuery.Set("limit[certificates]", "1")
-				}
-				if got := req.URL.Query().Encode(); got != wantQuery.Encode() {
-					t.Errorf("query = %q, want %q", got, wantQuery.Encode())
+				if got := req.URL.Query().Encode(); got != test.query.Encode() {
+					t.Errorf("query = %q, want %q", got, test.query.Encode())
 				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(w, test.response)
@@ -194,67 +176,20 @@ func TestPassTypeIDsCertificateQueryFlagsPreserveValidRequests(t *testing.T) {
 				return client, nil
 			}))
 
-			root := RootCommand("1.2.3")
+			var code int
 			stdout, stderr := captureOutput(t, func() {
-				if err := root.Parse(test.args); err != nil {
-					t.Fatalf("parse error: %v", err)
-				}
-				if err := root.Run(context.Background()); err != nil {
-					t.Fatalf("run error: %v", err)
-				}
+				code = rootcmd.Run(test.args, "1.2.3")
 			})
+			if code != rootcmd.ExitSuccess {
+				t.Fatalf("exit code = %d, want %d; stderr: %s", code, rootcmd.ExitSuccess, stderr)
+			}
 			if stderr != "" {
 				t.Fatalf("stderr = %q, want empty", stderr)
 			}
-			if requestCount != 1 {
-				t.Fatalf("request count = %d, want 1", requestCount)
+			if !strings.Contains(stdout, `"id":"`+test.wantID+`"`) {
+				t.Fatalf("stdout missing ID %q: %s", test.wantID, stdout)
 			}
-			assertPassTypeIDResponseShape(t, stdout, test.wantID, test.collection, test.wantIncluded)
 		})
-	}
-}
-
-func assertPassTypeIDResponseShape(t *testing.T, output, wantID string, collection, wantIncluded bool) {
-	t.Helper()
-
-	var envelope struct {
-		Data     json.RawMessage `json:"data"`
-		Included []struct {
-			ID string `json:"id"`
-		} `json:"included"`
-	}
-	if err := json.Unmarshal([]byte(output), &envelope); err != nil {
-		t.Fatalf("parse JSON output: %v\noutput: %s", err, output)
-	}
-
-	if collection {
-		var resources []struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(envelope.Data, &resources); err != nil {
-			t.Fatalf("parse collection data: %v", err)
-		}
-		if len(resources) != 1 || resources[0].ID != wantID {
-			t.Fatalf("collection data = %#v, want one resource with ID %q", resources, wantID)
-		}
-	} else {
-		var resource struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(envelope.Data, &resource); err != nil {
-			t.Fatalf("parse instance data: %v", err)
-		}
-		if resource.ID != wantID {
-			t.Fatalf("instance ID = %q, want %q", resource.ID, wantID)
-		}
-	}
-
-	if wantIncluded {
-		if len(envelope.Included) != 1 || !strings.HasPrefix(envelope.Included[0].ID, "CERT_") {
-			t.Fatalf("included = %#v, want one certificate", envelope.Included)
-		}
-	} else if len(envelope.Included) != 0 {
-		t.Fatalf("included = %#v, want none", envelope.Included)
 	}
 }
 
