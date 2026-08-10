@@ -110,11 +110,6 @@ Examples:
 			}
 
 			id := strings.TrimSpace(*instanceID)
-			if id != "" {
-				if err := validateUUIDFlag("--instance-id", id); err != nil {
-					return fmt.Errorf("analytics instances links: %w", err)
-				}
-			}
 			if id == "" && strings.TrimSpace(*next) == "" {
 				fmt.Fprintln(os.Stderr, "Error: --instance-id is required")
 				return shared.MissingRequiredUsageError()

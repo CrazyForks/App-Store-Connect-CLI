@@ -174,12 +174,12 @@ func normalizeAnalyticsAccessType(value string) (asc.AnalyticsAccessType, error)
 	}
 }
 
-func validateUUIDFlag(flagName, value string) error {
+func validateAnalyticsRequestID(value string) error {
 	if strings.TrimSpace(value) == "" {
-		return fmt.Errorf("%s is required", flagName)
+		return fmt.Errorf("--request-id is required")
 	}
 	if !uuidPattern.MatchString(strings.TrimSpace(value)) {
-		return fmt.Errorf("%s must be a valid UUID", flagName)
+		return fmt.Errorf("--request-id must be a valid UUID")
 	}
 	return nil
 }
