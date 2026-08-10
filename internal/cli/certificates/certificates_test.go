@@ -411,6 +411,18 @@ func TestCertificatesCreateCommand_GenerateCSRWriteFailures(t *testing.T) {
 	}
 }
 
+func TestValidateCSRFileOutputPathRejectsWindowsSeparators(t *testing.T) {
+	windowsPathSeparator := func(character uint8) bool {
+		return character == '\\' || character == '/'
+	}
+
+	for _, path := range []string{"output/", `output\`} {
+		if _, err := validateCSRFileOutputPathWithSeparator(path, windowsPathSeparator); err == nil {
+			t.Fatalf("validateCSRFileOutputPathWithSeparator(%q) error = nil, want file-path error", path)
+		}
+	}
+}
+
 func TestCertificatesRevokeCommand_MissingID(t *testing.T) {
 	cmd := CertificatesRevokeCommand()
 
