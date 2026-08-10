@@ -167,6 +167,7 @@ func TestReviewItemTypeListIncludes441VersionTypes(t *testing.T) {
 }
 
 func TestReviewItemsAddRejectsRemovedItemTypesBeforeAuth(t *testing.T) {
+	wantErr := "--item-type must be one of: " + strings.Join(reviewSubmissionItemTypeList(), ", ")
 	tests := []struct {
 		name     string
 		itemType string
@@ -189,8 +190,8 @@ func TestReviewItemsAddRejectsRemovedItemTypesBeforeAuth(t *testing.T) {
 				"--item-type", test.itemType,
 				"--item-id", "item-1",
 			})
-			if err == nil || !errors.Is(err, flag.ErrHelp) || !strings.Contains(err.Error(), "--item-type must be one of:") {
-				t.Fatalf("error = %v, want unsupported item type usage error", err)
+			if err == nil || !errors.Is(err, flag.ErrHelp) || err.Error() != wantErr {
+				t.Fatalf("error = %q, want %q with flag.ErrHelp", err, wantErr)
 			}
 			if factoryCalled {
 				t.Fatal("client factory called before removed item type validation")
