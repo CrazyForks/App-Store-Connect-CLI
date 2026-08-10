@@ -84,7 +84,13 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 		return nil, UsageError("--initial-build-number must be >= 1")
 	}
 
-	selection, err := resolveLatestBuildSelection(ctx, client, opts.LatestBuildSelectionOptions, true)
+	// Resolving the next build number walks the full processed build history
+	// and the full build upload history. A single caller-supplied request
+	// deadline cannot bound that many sequential pages, so drop the innermost
+	// request deadline and give every outbound request its own fresh one.
+	scanCtx := contextWithoutCurrentTimeout(ctx)
+
+	selection, err := resolveLatestBuildSelection(scanCtx, client, opts.LatestBuildSelectionOptions, true)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +120,7 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 	highestProcessedNumber := latestProcessedNumber
 	hasProcessed := hasLatestProcessed
 	scannedProcessedValue, scannedProcessedNumber, hasScannedProcessed, err := findHighestProcessedBuildNumber(
-		ctx,
+		scanCtx,
 		client,
 		selection,
 		opts.LatestBuildSelectionOptions,
@@ -132,7 +138,7 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 	}
 
 	latestUploadValue, latestUploadNumber, hasUpload, err := findLatestBuildUploadNumber(
-		ctx,
+		scanCtx,
 		client,
 		selection.ResolvedAppID,
 		selection.NormalizedVersion,
@@ -186,7 +192,9 @@ func resolveLatestBuildSelection(ctx context.Context, client *asc.Client, opts L
 		return nil, UsageError("--app is required (or set ASC_APP_ID)")
 	}
 
-	resolvedAppID, err := ResolveAppIDWithLookup(ctx, client, resolvedAppID)
+	lookupCtx, lookupCancel := contextWithTimeout(ctx)
+	resolvedAppID, err := ResolveAppIDWithLookup(lookupCtx, client, resolvedAppID)
+	lookupCancel()
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +250,9 @@ func resolveLatestBuildSelection(ctx context.Context, client *asc.Client, opts L
 		if opts.ExcludeExpired {
 			buildOpts = append(buildOpts, asc.WithBuildsExpired(false))
 		}
-		builds, err := client.GetBuilds(ctx, resolvedAppID, buildOpts...)
+		requestCtx, cancel := contextWithTimeout(ctx)
+		builds, err := client.GetBuilds(requestCtx, resolvedAppID, buildOpts...)
+		cancel()
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch: %w", err)
 		}
@@ -271,7 +281,9 @@ func resolveLatestBuildSelection(ctx context.Context, client *asc.Client, opts L
 			if opts.ExcludeExpired {
 				buildOpts = append(buildOpts, asc.WithBuildsExpired(false))
 			}
-			builds, err := client.GetBuilds(ctx, resolvedAppID, buildOpts...)
+			requestCtx, cancel := contextWithTimeout(ctx)
+			builds, err := client.GetBuilds(requestCtx, resolvedAppID, buildOpts...)
+			cancel()
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch: %w", err)
 			}
@@ -329,7 +341,9 @@ func findHighestProcessedBuildNumber(
 		buildOpts = append(buildOpts, asc.WithBuildsExpired(false))
 	}
 
-	builds, err := client.GetBuilds(ctx, selection.ResolvedAppID, buildOpts...)
+	firstPageCtx, firstPageCancel := contextWithTimeout(ctx)
+	builds, err := client.GetBuilds(firstPageCtx, selection.ResolvedAppID, buildOpts...)
+	firstPageCancel()
 	if err != nil {
 		return buildNumber{}, nil, false, fmt.Errorf("failed to fetch processed build history: %w", err)
 	}
@@ -357,7 +371,9 @@ func findHighestProcessedBuildNumber(
 	}
 
 	err = asc.PaginateEach(ctx, builds, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-		return client.GetBuilds(ctx, selection.ResolvedAppID, asc.WithBuildsNextURL(nextURL))
+		requestCtx, cancel := contextWithTimeout(ctx)
+		defer cancel()
+		return client.GetBuilds(requestCtx, selection.ResolvedAppID, asc.WithBuildsNextURL(nextURL))
 	}, func(page asc.PaginatedResponse) error {
 		resp, ok := page.(*asc.BuildsResponse)
 		if !ok {
@@ -389,7 +405,9 @@ func FindPreReleaseVersionIDs(ctx context.Context, client *asc.Client, appID, ve
 		opts = append(opts, asc.WithPreReleaseVersionsPlatform(platform))
 	}
 
-	firstPage, err := client.GetPreReleaseVersions(ctx, appID, opts...)
+	firstPageCtx, firstPageCancel := contextWithTimeout(ctx)
+	firstPage, err := client.GetPreReleaseVersions(firstPageCtx, appID, opts...)
+	firstPageCancel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup pre-release versions: %w", err)
 	}
@@ -415,7 +433,9 @@ func FindPreReleaseVersionIDs(ctx context.Context, client *asc.Client, appID, ve
 	}
 
 	err = asc.PaginateEach(ctx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-		return client.GetPreReleaseVersions(ctx, appID, asc.WithPreReleaseVersionsNextURL(nextURL))
+		requestCtx, cancel := contextWithTimeout(ctx)
+		defer cancel()
+		return client.GetPreReleaseVersions(requestCtx, appID, asc.WithPreReleaseVersionsNextURL(nextURL))
 	}, func(page asc.PaginatedResponse) error {
 		resp, ok := page.(*asc.PreReleaseVersionsResponse)
 		if !ok {
@@ -434,7 +454,9 @@ func FindPreReleaseVersionIDs(ctx context.Context, client *asc.Client, appID, ve
 func findMostRecentlyUploadedBuild(ctx context.Context, client *asc.Client, appID string, opts ...asc.BuildsOption) (*asc.BuildResponse, error) {
 	const buildsLatestScanPageLimit = 10
 
-	firstPage, err := client.GetBuilds(ctx, appID, opts...)
+	firstPageCtx, firstPageCancel := contextWithTimeout(ctx)
+	firstPage, err := client.GetBuilds(firstPageCtx, appID, opts...)
+	firstPageCancel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch builds: %w", err)
 	}
@@ -485,7 +507,9 @@ func findMostRecentlyUploadedBuild(ctx context.Context, client *asc.Client, appI
 		}
 		seenProbeURLs[nextURL] = struct{}{}
 
-		nextPage, err := client.GetBuilds(ctx, appID, asc.WithBuildsNextURL(nextURL))
+		nextPageCtx, nextPageCancel := contextWithTimeout(ctx)
+		nextPage, err := client.GetBuilds(nextPageCtx, appID, asc.WithBuildsNextURL(nextURL))
+		nextPageCancel()
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, fmt.Errorf("failed to paginate builds: page %d: %w", pagesScanned+1, err)
@@ -589,7 +613,9 @@ func findLatestBuildUploadNumber(ctx context.Context, client *asc.Client, appID,
 		opts = append(opts, asc.WithBuildUploadsPlatforms([]string{platform}))
 	}
 
-	uploads, err := client.GetBuildUploads(ctx, appID, opts...)
+	firstPageCtx, firstPageCancel := contextWithTimeout(ctx)
+	uploads, err := client.GetBuildUploads(firstPageCtx, appID, opts...)
+	firstPageCancel()
 	if err != nil {
 		return buildNumber{}, nil, false, buildUploadHistoryError(appID, "failed to fetch build uploads", err)
 	}
@@ -618,7 +644,9 @@ func findLatestBuildUploadNumber(ctx context.Context, client *asc.Client, appID,
 	}
 
 	err = asc.PaginateEach(ctx, uploads, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
-		return client.GetBuildUploads(ctx, appID, asc.WithBuildUploadsNextURL(nextURL))
+		requestCtx, cancel := contextWithTimeout(ctx)
+		defer cancel()
+		return client.GetBuildUploads(requestCtx, appID, asc.WithBuildUploadsNextURL(nextURL))
 	}, func(page asc.PaginatedResponse) error {
 		resp, ok := page.(*asc.BuildUploadsResponse)
 		if !ok {
