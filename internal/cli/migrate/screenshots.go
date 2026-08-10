@@ -27,6 +27,10 @@ type ScreenshotUploadResult struct {
 	DisplayType string                      `json:"displayType"`
 	Uploaded    []asc.AssetUploadResultItem `json:"uploaded,omitempty"`
 	Skipped     []SkippedItem               `json:"skipped,omitempty"`
+	// createdSet records that this run created the screenshot set, so a later
+	// failure still reports the App Store Connect state it left behind even
+	// when no asset finished uploading.
+	createdSet bool
 }
 
 const maxMigrateScreenshotFileSize = int64(1024 * 1024 * 1024)

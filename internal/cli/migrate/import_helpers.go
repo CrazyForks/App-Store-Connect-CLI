@@ -503,14 +503,14 @@ func uploadReviewInformation(ctx context.Context, client *asc.Client, versionID 
 		if err != nil {
 			return nil, fmt.Errorf("migrate import: failed to create review information: %w", err)
 		}
-		return &ReviewInfoResult{Action: "create", DetailID: created.Data.ID}, nil
+		return &ReviewInfoResult{Action: migrateReviewInfoActionCreate, DetailID: created.Data.ID}, nil
 	}
 
 	if existing == nil || existing.Data.ID == "" {
 		return nil, fmt.Errorf("migrate import: review information response missing ID")
 	}
 	if reviewInformationMatches(existing.Data.Attributes, info) {
-		return &ReviewInfoResult{Action: "skip", DetailID: existing.Data.ID}, nil
+		return &ReviewInfoResult{Action: migrateReviewInfoActionSkip, DetailID: existing.Data.ID}, nil
 	}
 	updateCtx, updateCancel := migrateRequestContext(ctx)
 	_, err = client.UpdateAppStoreReviewDetail(updateCtx, existing.Data.ID, buildReviewDetailUpdateAttributes(info))
@@ -518,7 +518,7 @@ func uploadReviewInformation(ctx context.Context, client *asc.Client, versionID 
 	if err != nil {
 		return nil, fmt.Errorf("migrate import: failed to update review information: %w", err)
 	}
-	return &ReviewInfoResult{Action: "update", DetailID: existing.Data.ID}, nil
+	return &ReviewInfoResult{Action: migrateReviewInfoActionUpdate, DetailID: existing.Data.ID}, nil
 }
 
 func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string, localeToID map[string]string, plans []ScreenshotPlan) ([]ScreenshotUploadResult, error) {
@@ -588,6 +588,7 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 		for _, plan := range localePlans {
 			canonicalDisplayType := asc.CanonicalScreenshotDisplayTypeForAPI(plan.DisplayType)
 			setID := setByType[canonicalDisplayType]
+			createdSet := false
 			if setID == "" {
 				setCtx, setCancel := migrateRequestContext(ctx)
 				set, err := client.CreateAppScreenshotSet(setCtx, localizationID, canonicalDisplayType)
@@ -596,6 +597,7 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 					return sortedScreenshotResults(results), fmt.Errorf("migrate import: failed to create screenshot set %s: %w", canonicalDisplayType, err)
 				}
 				setID = set.Data.ID
+				createdSet = true
 				setByType[canonicalDisplayType] = setID
 				existingFiles[canonicalDisplayType] = make(map[string]bool)
 				existingIDsByName[canonicalDisplayType] = make(map[string]string)
@@ -616,6 +618,7 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 			result := ScreenshotUploadResult{
 				Locale:      plan.Locale,
 				DisplayType: canonicalDisplayType,
+				createdSet:  createdSet,
 			}
 			uploadedIDsByName := make(map[string]string)
 

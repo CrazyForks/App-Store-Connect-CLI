@@ -357,7 +357,7 @@ Examples:
 			if err != nil {
 				return reportPartialFailure(migrateStageReviewInformation, err)
 			}
-			if reviewResult != nil {
+			if migrateReviewInfoApplied(reviewResult) {
 				completedStages = append(completedStages, migrateStageReviewInformation)
 			}
 
@@ -366,7 +366,7 @@ Examples:
 			if err != nil {
 				return reportPartialFailure(migrateStageScreenshots, err)
 			}
-			if len(screenshotResults) > 0 {
+			if migrateScreenshotsApplied(screenshotResults) {
 				completedStages = append(completedStages, migrateStageScreenshots)
 			}
 
@@ -386,13 +386,30 @@ func migrateImportAppliedAnything(result *MigrateImportResult) bool {
 	if result == nil {
 		return false
 	}
-	// A screenshot result exists only once its set was created or resolved and
-	// the run started writing to it, so it counts as applied even when no asset
-	// finished uploading.
 	return len(result.Uploaded) > 0 ||
 		len(result.AppInfoUploaded) > 0 ||
-		result.ReviewInfoResult != nil ||
-		len(result.ScreenshotResults) > 0
+		migrateReviewInfoApplied(result.ReviewInfoResult) ||
+		migrateScreenshotsApplied(result.ScreenshotResults)
+}
+
+// migrateReviewInfoApplied reports whether the review information stage changed
+// the remote detail. A skip means App Store Connect already carried the
+// imported values, so nothing was written.
+func migrateReviewInfoApplied(result *ReviewInfoResult) bool {
+	return result != nil && result.Action != migrateReviewInfoActionSkip
+}
+
+// migrateScreenshotsApplied reports whether the screenshot stage changed App
+// Store Connect. A result that only lists assets which already existed left the
+// version untouched, while a created set counts even when no asset finished
+// uploading into it.
+func migrateScreenshotsApplied(results []ScreenshotUploadResult) bool {
+	for _, result := range results {
+		if len(result.Uploaded) > 0 || result.createdSet {
+			return true
+		}
+	}
+	return false
 }
 
 func migrateVersionLocalizationsNeedUpdateContext(localizations []FastlaneLocalization, localeToID map[string]string) bool {
@@ -599,6 +616,14 @@ const (
 	migrateStageAppInfoLocalizations = "app_info_localizations"
 	migrateStageReviewInformation    = "review_information"
 	migrateStageScreenshots          = "screenshots"
+)
+
+// Review information outcomes. Only create and update write to App Store
+// Connect; skip means the remote detail already matched the imported values.
+const (
+	migrateReviewInfoActionCreate = "create"
+	migrateReviewInfoActionUpdate = "update"
+	migrateReviewInfoActionSkip   = "skip"
 )
 
 // MigrateImportResult is the result of a migrate import operation.
