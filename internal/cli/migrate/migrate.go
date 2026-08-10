@@ -202,6 +202,14 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID or Deliverfile app_identifier)")
 				return shared.MissingRequiredUsageError()
 			}
+			preparedLocalizations, err := prepareVersionLocalizations(localizations)
+			if err != nil {
+				return err
+			}
+			preparedAppInfoLocalizations, err := prepareAppInfoLocalizationAttributes(appInfoLocs)
+			if err != nil {
+				return err
+			}
 
 			var client *asc.Client
 			var requestCtx context.Context
@@ -268,24 +276,34 @@ Examples:
 
 			localeToID := make(map[string]string)
 			if len(localizations) > 0 || len(screenshotPlan) > 0 {
-				existingLocs, err := client.GetAppStoreVersionLocalizations(requestCtx, strings.TrimSpace(resolvedVersionID), asc.WithAppStoreVersionLocalizationsLimit(200))
+				existingLocs, err := fetchVersionLocalizationsForPlan(requestCtx, client, strings.TrimSpace(resolvedVersionID))
 				if err != nil {
 					return fmt.Errorf("migrate import: failed to fetch existing localizations: %w", err)
 				}
-				for _, loc := range existingLocs.Data {
+				for _, loc := range existingLocs {
 					localeToID[loc.Attributes.Locale] = loc.ID
 				}
+			}
+			if err := validateVersionLocalizationCreateLocales(preparedLocalizations, localeToID); err != nil {
+				return err
+			}
+			if err := validateScreenshotLocalizationCreateLocales(screenshotPlan, localeToID); err != nil {
+				return err
+			}
+			appInfoPlan, err := prepareAppInfoLocalizations(requestCtx, client, resolvedAppID, preparedAppInfoLocalizations)
+			if err != nil {
+				return err
 			}
 
 			submitOpts := shared.SubmitReadinessOptions{}
 			if migrateVersionLocalizationsNeedUpdateContext(localizations, localeToID) {
 				submitOpts = shared.ResolveSubmitReadinessOptionsForVersionBestEffort(requestCtx, client, resolvedVersionID, resolvedAppID, "")
 			}
-			uploaded, warnings, err := uploadVersionLocalizations(requestCtx, client, resolvedVersionID, localizations, localeToID, submitOpts)
+			uploaded, warnings, err := uploadVersionLocalizations(requestCtx, client, resolvedVersionID, preparedLocalizations, localeToID, submitOpts)
 			if err != nil {
 				return err
 			}
-			appInfoUploaded, err := uploadAppInfoLocalizations(requestCtx, client, resolvedAppID, appInfoLocs)
+			appInfoUploaded, err := uploadAppInfoLocalizations(requestCtx, client, appInfoPlan)
 			if err != nil {
 				return err
 			}
