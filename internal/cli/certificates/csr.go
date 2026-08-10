@@ -114,7 +114,11 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --csr-out is required")
 				return shared.MissingRequiredUsageError()
 			}
-			if filepath.Clean(keyOutValue) == filepath.Clean(csrOutValue) {
+			samePath, err := csrOutputPathsEqual(keyOutValue, csrOutValue)
+			if err != nil {
+				return fmt.Errorf("certificates csr generate: %w", err)
+			}
+			if samePath {
 				return shared.UsageError("--key-out and --csr-out must be different paths")
 			}
 
@@ -154,7 +158,11 @@ func generateCSRFiles(opts csrGenerateOptions) (*csrGenerateResult, []byte, erro
 	if csrOutValue == "" {
 		return nil, nil, fmt.Errorf("--csr-out is required")
 	}
-	if filepath.Clean(keyOutValue) == filepath.Clean(csrOutValue) {
+	samePath, err := csrOutputPathsEqual(keyOutValue, csrOutValue)
+	if err != nil {
+		return nil, nil, err
+	}
+	if samePath {
 		return nil, nil, shared.UsageError("--key-out and --csr-out must be different paths")
 	}
 
@@ -283,6 +291,21 @@ func renderCSRGenerateResult(result *csrGenerateResult, markdown bool) error {
 		}},
 	)
 	return nil
+}
+
+// csrOutputPathsEqual reports whether both output flags name the same
+// destination under any lexical spelling, including mixed relative and
+// absolute forms of one path.
+func csrOutputPathsEqual(keyOut, csrOut string) (bool, error) {
+	keyAbsolute, err := filepath.Abs(keyOut)
+	if err != nil {
+		return false, fmt.Errorf("resolve --key-out: %w", err)
+	}
+	csrAbsolute, err := filepath.Abs(csrOut)
+	if err != nil {
+		return false, fmt.Errorf("resolve --csr-out: %w", err)
+	}
+	return keyAbsolute == csrAbsolute, nil
 }
 
 func preflightCSRFileWrite(path string, force bool) error {
