@@ -183,6 +183,51 @@ func TestSigningFetchWriteFiles_NoOverwrite(t *testing.T) {
 	}
 }
 
+func TestSigningOutputPathsCoverProfileAndCertificateFiles(t *testing.T) {
+	dir := filepath.Join("tmp", "signing")
+	paths := signingOutputPaths(dir, "Created Profile", "profile-created", []asc.Resource[asc.CertificateAttributes]{
+		{ID: "cert-1", Attributes: asc.CertificateAttributes{SerialNumber: "CERT1"}},
+		{ID: "cert-2", Attributes: asc.CertificateAttributes{}},
+	})
+
+	want := []string{
+		filepath.Join(dir, "Created Profile.mobileprovision"),
+		filepath.Join(dir, "CERT1.cer"),
+		filepath.Join(dir, "cert-2.cer"),
+	}
+	if strings.Join(paths, ",") != strings.Join(want, ",") {
+		t.Fatalf("signingOutputPaths() = %v, want %v", paths, want)
+	}
+}
+
+func TestEnsureOutputPathsAreFreeReportsCollisions(t *testing.T) {
+	dir := t.TempDir()
+	free := filepath.Join(dir, "free.cer")
+	existing := filepath.Join(dir, "existing.cer")
+	danglingSymlink := filepath.Join(dir, "dangling.cer")
+
+	if err := os.WriteFile(existing, []byte("certificate"), 0o600); err != nil {
+		t.Fatalf("write existing certificate: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "missing.cer"), danglingSymlink); err != nil {
+		t.Fatalf("create dangling symlink: %v", err)
+	}
+
+	if err := ensureOutputPathsAreFree([]string{free}); err != nil {
+		t.Fatalf("ensureOutputPathsAreFree() error for free path: %v", err)
+	}
+
+	for _, path := range []string{existing, danglingSymlink} {
+		err := ensureOutputPathsAreFree([]string{free, path})
+		if !errors.Is(err, os.ErrExist) {
+			t.Fatalf("ensureOutputPathsAreFree(%q) error = %v, want os.ErrExist", path, err)
+		}
+		if !strings.Contains(err.Error(), path) {
+			t.Fatalf("ensureOutputPathsAreFree(%q) error = %v, want the colliding path named", path, err)
+		}
+	}
+}
+
 func TestFindActiveProfilesUseBundleIDRelationship(t *testing.T) {
 	widgetProfileContent := base64.StdEncoding.EncodeToString([]byte("application-identifier=TEAM.com.example.signing.profile.widget"))
 	mainProfileContent := base64.StdEncoding.EncodeToString([]byte("application-identifier=TEAM.com.example.signing.profile"))
@@ -704,7 +749,7 @@ func TestResolveSigningAssetsRejectsProfileCreationWhenAllCertificatesAreIneligi
 			BundleIdentifier:   "com.example.signing.profile",
 			ProfileType:        "IOS_APP_STORE",
 			CreateMissing:      true,
-			BeforeCreate: func() error {
+			BeforeCreate: func(profileCreatePlan) error {
 				preflightCalled = true
 				return nil
 			},
@@ -808,8 +853,14 @@ func TestResolveSigningAssetsPreflightsBeforeCreatingProfile(t *testing.T) {
 			BundleIdentifier:   "com.example.signing.profile",
 			ProfileType:        "IOS_APP_STORE",
 			CreateMissing:      true,
-			BeforeCreate: func() error {
+			BeforeCreate: func(plan profileCreatePlan) error {
 				events = append(events, "repository preflight")
+				if plan.ProfileName != profileCreateName("IOS_APP_STORE", time.Now()) {
+					t.Errorf("preflight profile name = %q, want the name used to create the profile", plan.ProfileName)
+				}
+				if got := extractIDs(plan.Certificates); len(got) != 1 || got[0] != "cert-1" {
+					t.Errorf("preflight certificates = %v, want the certificates used to create the profile", got)
+				}
 				return nil
 			},
 		},
@@ -860,7 +911,7 @@ func TestResolveSigningAssetsRefreshesCreateTimeoutAfterPreflight(t *testing.T) 
 			BundleIdentifier:   "com.example.signing.profile",
 			ProfileType:        "IOS_APP_STORE",
 			CreateMissing:      true,
-			BeforeCreate: func() error {
+			BeforeCreate: func(profileCreatePlan) error {
 				events = append(events, "repository preflight")
 				expireRequest()
 				return nil

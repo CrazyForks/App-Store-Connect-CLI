@@ -82,7 +82,9 @@ func TestSigningSyncPreparesRepositoryOnceInAssetOrder(t *testing.T) {
 					BundleIdentifier:   "com.example.signing.profile",
 					ProfileType:        "IOS_APP_STORE",
 					CreateMissing:      !tt.hasProfile,
-					BeforeCreate:       prepareRepository,
+					BeforeCreate: func(profileCreatePlan) error {
+						return prepareRepository()
+					},
 				},
 			)
 			if err != nil {

@@ -76,6 +76,15 @@ Examples:
 				}
 				return nil
 			})
+			// signing fetch never overwrites, so every colliding output file has
+			// to be detected before the profile is created in App Store Connect.
+			// Otherwise a failed write leaves a stray profile in the account.
+			preflightOutput := func(profileName, profileID string, certificates []asc.Resource[asc.CertificateAttributes]) error {
+				if err := prepareOutputDir(); err != nil {
+					return err
+				}
+				return ensureOutputPathsAreFree(signingOutputPaths(outputDir, profileName, profileID, certificates))
+			}
 
 			client, err := shared.GetASCClient()
 			if err != nil {
@@ -114,7 +123,9 @@ Examples:
 					CertificateType:    *certType,
 					DeviceIDs:          shared.SplitCSV(*deviceIDs),
 					CreateMissing:      *createMissing,
-					BeforeCreate:       prepareOutputDir,
+					BeforeCreate: func(plan profileCreatePlan) error {
+						return preflightOutput(plan.ProfileName, "", plan.Certificates)
+					},
 				},
 			)
 			if err != nil {
@@ -124,12 +135,11 @@ Examples:
 			result.ProfileID = profile.Data.ID
 			result.Created = created
 
-			if err := prepareOutputDir(); err != nil {
+			if err := preflightOutput(profile.Data.Attributes.Name, profile.Data.ID, certs.Data); err != nil {
 				return fmt.Errorf("signing fetch: %w", err)
 			}
 
-			profileName := safeFileName(profile.Data.Attributes.Name, profile.Data.ID)
-			profilePath := filepath.Join(outputDir, profileName+".mobileprovision")
+			profilePath := profileOutputPath(outputDir, profile.Data.Attributes.Name, profile.Data.ID)
 			profileContent, err := decodeBase64Content("profile", profile.Data.Attributes.ProfileContent)
 			if err != nil {
 				return fmt.Errorf("signing fetch: decode profile: %w", err)
@@ -140,8 +150,7 @@ Examples:
 			result.ProfileFile = profilePath
 
 			for _, cert := range certs.Data {
-				certName := safeFileName(cert.Attributes.SerialNumber, cert.ID)
-				certPath := filepath.Join(outputDir, certName+".cer")
+				certPath := certificateOutputPath(outputDir, cert)
 				certContent, err := decodeBase64Content("certificate", cert.Attributes.CertificateContent)
 				if err != nil {
 					return fmt.Errorf("signing fetch: decode certificate: %w", err)
@@ -223,8 +232,15 @@ type signingAssetsOptions struct {
 	CertificateType    string
 	DeviceIDs          []string
 	CreateMissing      bool
-	BeforeCreate       func() error
+	BeforeCreate       func(profileCreatePlan) error
 	CreateContext      func() (context.Context, context.CancelFunc)
+}
+
+// profileCreatePlan describes the profile that is about to be created so callers
+// can fail before App Store Connect is mutated.
+type profileCreatePlan struct {
+	ProfileName  string
+	Certificates []asc.Resource[asc.CertificateAttributes]
 }
 
 var errNoMatchingProfileCertificates = errors.New("profile has no matching associated certificates")
@@ -295,8 +311,10 @@ func resolveSigningAssets(ctx context.Context, client *asc.Client, options signi
 			options.ProfileType,
 		)
 	}
+	profileName := profileCreateName(options.ProfileType, time.Now())
 	if options.BeforeCreate != nil {
-		if err := options.BeforeCreate(); err != nil {
+		plan := profileCreatePlan{ProfileName: profileName, Certificates: certificates.Data}
+		if err := options.BeforeCreate(plan); err != nil {
 			return nil, nil, false, fmt.Errorf("preflight before creating profile: %w", err)
 		}
 	}
@@ -313,6 +331,7 @@ func resolveSigningAssets(ctx context.Context, client *asc.Client, options signi
 		createCtx,
 		client,
 		options.BundleIDResourceID,
+		profileName,
 		options.ProfileType,
 		extractIDs(certificates.Data),
 		options.DeviceIDs,
@@ -472,15 +491,18 @@ func findProfileCertificates(ctx context.Context, client *asc.Client, profileID,
 	return &asc.CertificatesResponse{Data: all, Links: links}, nil
 }
 
-func createProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, profileType string, certIDs, deviceIDs []string) (*asc.ProfileResponse, error) {
+func createProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, profileName, profileType string, certIDs, deviceIDs []string) (*asc.ProfileResponse, error) {
 	if len(certIDs) == 0 {
 		return nil, fmt.Errorf("no certificates available to create profile")
 	}
-	name := fmt.Sprintf("%s-%s", profileType, time.Now().Format("20060102"))
 	return client.CreateProfile(ctx, asc.ProfileCreateAttributes{
-		Name:        name,
+		Name:        profileName,
 		ProfileType: profileType,
 	}, bundleIDResourceID, certIDs, deviceIDs)
+}
+
+func profileCreateName(profileType string, now time.Time) string {
+	return fmt.Sprintf("%s-%s", profileType, now.Format("20060102"))
 }
 
 func isDevelopmentProfile(profileType string) bool {
@@ -533,6 +555,43 @@ func decodeBase64Content(label, content string) ([]byte, error) {
 		return nil, fmt.Errorf("decode %s: %w", label, err)
 	}
 	return data, nil
+}
+
+// signingOutputPaths returns every file signing fetch writes for the resolved
+// assets. profileID is empty while the profile is still being planned.
+func signingOutputPaths(outputDir, profileName, profileID string, certificates []asc.Resource[asc.CertificateAttributes]) []string {
+	paths := make([]string, 0, len(certificates)+1)
+	paths = append(paths, profileOutputPath(outputDir, profileName, profileID))
+	for _, certificate := range certificates {
+		paths = append(paths, certificateOutputPath(outputDir, certificate))
+	}
+	return paths
+}
+
+func profileOutputPath(outputDir, profileName, profileID string) string {
+	return filepath.Join(outputDir, safeFileName(profileName, profileID)+".mobileprovision")
+}
+
+func certificateOutputPath(outputDir string, certificate asc.Resource[asc.CertificateAttributes]) string {
+	return filepath.Join(outputDir, safeFileName(certificate.Attributes.SerialNumber, certificate.ID)+".cer")
+}
+
+// ensureOutputPathsAreFree reports the first colliding output file. Writes use
+// O_EXCL, so a collision always fails the command; detecting it up front keeps
+// the failure free of remote and on-disk side effects.
+func ensureOutputPathsAreFree(paths []string) error {
+	for _, path := range paths {
+		_, err := os.Lstat(path)
+		switch {
+		case err == nil:
+			return fmt.Errorf("output file already exists: %s: %w", path, os.ErrExist)
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return fmt.Errorf("inspect output path %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 func writeBinaryFile(path string, data []byte) error {

@@ -177,7 +177,9 @@ func syncPushCommand() *ffcli.Command {
 					CertificateType:    *certType,
 					DeviceIDs:          shared.SplitCSV(*deviceIDs),
 					CreateMissing:      *createMissing,
-					BeforeCreate:       prepareRepository,
+					BeforeCreate: func(profileCreatePlan) error {
+						return prepareRepository()
+					},
 					CreateContext: func() (context.Context, context.CancelFunc) {
 						return shared.ContextWithTimeout(ctx)
 					},
