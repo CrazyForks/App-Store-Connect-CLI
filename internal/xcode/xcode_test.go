@@ -425,10 +425,12 @@ func TestValidateRunsAltoolWithTVOSPlatform(t *testing.T) {
 
 func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantErr    bool
-		wantDetail string
+		name           string
+		stdout         string
+		output         string
+		wantErr        bool
+		wantDetail     string
+		maxDetailBytes int
 	}{
 		{
 			name:       "timestamped server error",
@@ -449,6 +451,21 @@ func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
 			wantDetail: "Early server rejection.",
 		},
 		{
+			name:       "unterminated stdout before timestamped stderr",
+			stdout:     "Upload progress",
+			output:     "2026-08-10 06:47:56.580 ERROR: Server rejected the archive.\n",
+			wantErr:    true,
+			wantDetail: "Server rejected the archive.",
+		},
+		{
+			name:           "aggregate details from both streams stay bounded",
+			stdout:         "2026-08-10 06:47:56.580 ERROR: " + strings.Repeat("a", xcodebuildErrorTailLimit/2) + "\n",
+			output:         "*** Error: " + strings.Repeat("b", xcodebuildErrorTailLimit/2) + "\n",
+			wantErr:        true,
+			wantDetail:     strings.Repeat("a", 32),
+			maxDetailBytes: xcodebuildErrorTailLimit,
+		},
+		{
 			name:   "benign output containing error text",
 			output: "2026-08-10 06:47:56.580 INFO: Validation completed.\nDiagnostic: no ERROR: records were returned.\n",
 		},
@@ -462,6 +479,7 @@ func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
 				t.Fatalf("writeTestIPA() error: %v", err)
 			}
 			logPath := filepath.Join(tempDir, "commands.log")
+			t.Setenv("ASC_XCODE_HELPER_VALIDATE_STDOUT", tt.stdout)
 			t.Setenv("ASC_XCODE_HELPER_VALIDATE_OUTPUT", tt.output)
 
 			restore := overrideTestEnvironment(t)
@@ -486,6 +504,12 @@ func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
 				}
 				if !strings.Contains(err.Error(), tt.wantDetail) {
 					t.Fatalf("Validate() error = %q, want detail %q", err, tt.wantDetail)
+				}
+				if tt.maxDetailBytes > 0 {
+					detail := strings.TrimPrefix(err.Error(), "xcrun altool validate failed: ")
+					if len(detail) > tt.maxDetailBytes {
+						t.Fatalf("Validate() detail bytes = %d, want at most %d", len(detail), tt.maxDetailBytes)
+					}
 				}
 				return
 			}
@@ -1410,6 +1434,10 @@ func TestXcodeHelperProcess(t *testing.T) {
 		if _, err := valueAfter(commandArgs[2:], "--file"); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
+		}
+		if output := os.Getenv("ASC_XCODE_HELPER_VALIDATE_STDOUT"); output != "" {
+			fmt.Fprint(os.Stdout, output)
+			time.Sleep(50 * time.Millisecond)
 		}
 		if output := os.Getenv("ASC_XCODE_HELPER_VALIDATE_OUTPUT"); output != "" {
 			fmt.Fprint(os.Stderr, output)

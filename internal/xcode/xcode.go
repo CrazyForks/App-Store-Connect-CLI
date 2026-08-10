@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -768,16 +769,61 @@ func runXcodebuildForBuild(ctx context.Context, args []string, logWriter io.Writ
 }
 
 func runAltoolValidate(ctx context.Context, args []string, logWriter io.Writer) error {
-	validationOutput := newAltoolValidationOutputWriter(logWriter)
-	if err := runCommandWithTail(ctx, "xcrun", args, validationOutput, "validate", "xcrun altool"); err != nil {
-		return err
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := commandContextFn(ctx, "xcrun", args...)
+	outputTail := newTailBuffer(xcodebuildErrorTailLimit)
+	combinedOutput := io.Writer(outputTail)
+	if logWriter != nil {
+		combinedOutput = io.MultiWriter(logWriter, outputTail)
+	}
+	serializedOutput := &synchronizedWriter{writer: combinedOutput}
+	stdoutOutput := newAltoolValidationOutputWriter(serializedOutput)
+	stderrOutput := newAltoolValidationOutputWriter(serializedOutput)
+	cmd.Stdout = stdoutOutput
+	cmd.Stderr = stderrOutput
+	if err := runXcodeCommand(cmd); err != nil {
+		return formatCommandTailError(ctx, err, outputTail, "validate", "xcrun altool", false)
 	}
 
-	details := validationOutput.Details()
+	details := append(stdoutOutput.Details(), stderrOutput.Details()...)
+	details = UniqueDiagnosticDetails(details)
+	details = boundDiagnosticDetails(details, xcodebuildErrorTailLimit)
 	if len(details) == 0 {
 		return nil
 	}
 	return fmt.Errorf("xcrun altool validate failed: %s", strings.Join(details, "; "))
+}
+
+func boundDiagnosticDetails(details []string, maxBytes int) []string {
+	if maxBytes <= 0 {
+		return nil
+	}
+
+	bounded := make([]string, 0, len(details))
+	usedBytes := 0
+	for _, detail := range details {
+		separatorBytes := 0
+		if len(bounded) > 0 {
+			separatorBytes = len("; ")
+		}
+		remaining := maxBytes - usedBytes - separatorBytes
+		if remaining <= 0 {
+			break
+		}
+
+		boundedDetail := truncateUTF8Prefix(detail, remaining)
+		if boundedDetail == "" {
+			break
+		}
+		bounded = append(bounded, boundedDetail)
+		usedBytes += separatorBytes + len(boundedDetail)
+		if len(boundedDetail) < len(detail) {
+			break
+		}
+	}
+	return bounded
 }
 
 type altoolValidationOutputWriter struct {
@@ -786,6 +832,17 @@ type altoolValidationOutputWriter struct {
 	details     []string
 	seen        map[string]struct{}
 	detailBytes int
+}
+
+type synchronizedWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+}
+
+func (w *synchronizedWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(p)
 }
 
 func newAltoolValidationOutputWriter(logWriter io.Writer) *altoolValidationOutputWriter {
@@ -1207,51 +1264,55 @@ func runCommandWithTailMode(ctx context.Context, name string, args []string, log
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 	if err := runXcodeCommand(cmd); err != nil {
-		detail := strings.TrimSpace(outputTail.String())
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			if detail != "" {
-				if outputTail.Truncated() {
-					return fmt.Errorf(
-						"%s %s timed out or was canceled (showing last %d bytes): %s: %w",
-						commandLabel,
-						action,
-						xcodebuildErrorTailLimit,
-						detail,
-						ctxErr,
-					)
-				}
-				return fmt.Errorf("%s %s timed out or was canceled: %s: %w", commandLabel, action, detail, ctxErr)
-			}
-			return fmt.Errorf("%s %s timed out or was canceled: %w", commandLabel, action, ctxErr)
-		}
+		return formatCommandTailError(ctx, err, outputTail, action, commandLabel, preserveProcessError)
+	}
+	return nil
+}
+
+func formatCommandTailError(ctx context.Context, err error, outputTail *tailBuffer, action string, commandLabel string, preserveProcessError bool) error {
+	detail := strings.TrimSpace(outputTail.String())
+	if ctxErr := ctx.Err(); ctxErr != nil {
 		if detail != "" {
 			if outputTail.Truncated() {
-				if preserveProcessError {
-					return fmt.Errorf(
-						"%s %s failed (showing last %d bytes): %s: %w",
-						commandLabel,
-						action,
-						xcodebuildErrorTailLimit,
-						detail,
-						err,
-					)
-				}
 				return fmt.Errorf(
-					"%s %s failed (showing last %d bytes): %s",
+					"%s %s timed out or was canceled (showing last %d bytes): %s: %w",
 					commandLabel,
 					action,
 					xcodebuildErrorTailLimit,
 					detail,
+					ctxErr,
 				)
 			}
-			if preserveProcessError {
-				return fmt.Errorf("%s %s failed: %s: %w", commandLabel, action, detail, err)
-			}
-			return fmt.Errorf("%s %s failed: %s", commandLabel, action, detail)
+			return fmt.Errorf("%s %s timed out or was canceled: %s: %w", commandLabel, action, detail, ctxErr)
 		}
-		return fmt.Errorf("%s %s failed: %w", commandLabel, action, err)
+		return fmt.Errorf("%s %s timed out or was canceled: %w", commandLabel, action, ctxErr)
 	}
-	return nil
+	if detail != "" {
+		if outputTail.Truncated() {
+			if preserveProcessError {
+				return fmt.Errorf(
+					"%s %s failed (showing last %d bytes): %s: %w",
+					commandLabel,
+					action,
+					xcodebuildErrorTailLimit,
+					detail,
+					err,
+				)
+			}
+			return fmt.Errorf(
+				"%s %s failed (showing last %d bytes): %s",
+				commandLabel,
+				action,
+				xcodebuildErrorTailLimit,
+				detail,
+			)
+		}
+		if preserveProcessError {
+			return fmt.Errorf("%s %s failed: %s: %w", commandLabel, action, detail, err)
+		}
+		return fmt.Errorf("%s %s failed: %s", commandLabel, action, detail)
+	}
+	return fmt.Errorf("%s %s failed: %w", commandLabel, action, err)
 }
 
 type tailBuffer struct {
