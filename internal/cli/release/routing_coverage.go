@@ -59,6 +59,16 @@ func applyPreparedRoutingCoverageStep(ctx context.Context, client *asc.Client, v
 			strings.TrimSpace(existing.Data.Attributes.SourceFileChecksum),
 			strings.TrimSpace(prepared.Checksum),
 		)
+		if sameChecksum && details.DeliveryState == "" {
+			refreshed, refreshErr := client.GetRoutingAppCoverage(ctx, existing.Data.ID)
+			if refreshErr != nil {
+				return stepOutcome{Details: details}, fmt.Errorf("fetch routing coverage %s delivery state: %w", existing.Data.ID, refreshErr)
+			}
+			details.DeliveryState = routingCoverageDeliveryState(refreshed)
+			if details.DeliveryState == "" {
+				return stepOutcome{Details: details}, fmt.Errorf("routing coverage %s response is missing a delivery state", existing.Data.ID)
+			}
+		}
 		if sameChecksum && details.DeliveryState == "COMPLETE" {
 			if err := routingcoveragecli.RevalidatePreparedRoutingCoverageFile(prepared); err != nil {
 				return stepOutcome{Details: details}, err
