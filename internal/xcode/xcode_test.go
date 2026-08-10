@@ -1421,6 +1421,21 @@ func waitForHelperSignal(path string, timeout time.Duration) error {
 	}
 }
 
+func TestTailBufferStringRemainsValidUTF8AfterByteTruncation(t *testing.T) {
+	buffer := newTailBuffer(4)
+	if _, err := buffer.Write([]byte("界界")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if !utf8.ValidString(got) {
+		t.Fatalf("String() returned invalid UTF-8 after truncation: %q", got)
+	}
+	if !strings.Contains(got, "界") {
+		t.Fatalf("String() = %q, want intact trailing diagnostic", got)
+	}
+}
+
 func renderXcodeDiagnosticOutput(t *testing.T, input string) (*xcodeDiagnosticBuffer, string) {
 	t.Helper()
 	buffer := newXcodeDiagnosticBuffer(xcodebuildErrorTailLimit, nil)
