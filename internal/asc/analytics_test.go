@@ -465,6 +465,59 @@ func TestGetAnalyticsReportInstance_SendsRequest(t *testing.T) {
 	}
 }
 
+func TestAnalyticsResourceEndpointsRejectIDsThatEscapePathSegment(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*Client) error
+	}{
+		{
+			name: "GetAnalyticsReportInstance",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReportInstance(context.Background(), "inst-1/relationships/reports")
+				return err
+			},
+		},
+		{
+			name: "GetAnalyticsReportInstanceSegmentsRelationships",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReportInstanceSegmentsRelationships(context.Background(), "inst-1/relationships/reports")
+				return err
+			},
+		},
+		{
+			name: "GetAnalyticsReportSegments",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReportSegments(context.Background(), "inst-1/relationships/reports")
+				return err
+			},
+		},
+		{
+			name: "GetAnalyticsReportSegment",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReportSegment(context.Background(), "seg-1/relationships/report")
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requestCount := 0
+			client := newTestClient(t, func(_ *http.Request) {
+				requestCount++
+			}, jsonResponse(http.StatusOK, `{}`))
+
+			err := tt.call(client)
+			if err == nil || !strings.Contains(err.Error(), "single path segment") {
+				t.Fatalf("error = %v, want path-segment rejection", err)
+			}
+			if requestCount != 0 {
+				t.Fatalf("request count = %d, want 0", requestCount)
+			}
+		})
+	}
+}
+
 func TestGetAnalyticsReportSegment_SendsRequest(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":{"type":"analyticsReportSegments","id":"seg-1"}}`)
 	client := newTestClient(t, func(req *http.Request) {
