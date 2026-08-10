@@ -552,6 +552,37 @@ func (r Root) CreateNewFile(name string, data []byte, perm os.FileMode) error {
 	return file.Close()
 }
 
+// RemoveFileIfSame removes name only when it still identifies expected. A
+// missing name is already clean. The identity check and removal stay anchored
+// to the same trusted parent directory.
+func (r Root) RemoveFileIfSame(name string, expected os.FileInfo) error {
+	if expected == nil {
+		return errors.New("expected file identity is required")
+	}
+
+	resolved, err := r.Resolve(name)
+	if err != nil {
+		return err
+	}
+	parent, base, err := r.openParentRooted(resolved)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+
+	current, err := parent.Lstat(base)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(expected, current) {
+		return fmt.Errorf("refusing to remove replaced file %q", resolved)
+	}
+	return parent.Remove(base)
+}
+
 // AppendFile appends data to a file beneath the root, creating it when missing,
 // without following a final or parent symlink.
 func (r Root) AppendFile(name string, data []byte, perm os.FileMode) error {

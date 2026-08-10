@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
 // SafeWriteFileNoSymlink writes a file to path without following symlinks and with an optional
@@ -20,6 +22,10 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 	}
 
 	if !overwrite {
+		destinationRoot, err := rootfs.New(filepath.Dir(path))
+		if err != nil {
+			return 0, err
+		}
 		file, err := OpenNewFileNoFollow(path, perm)
 		if err != nil {
 			if errors.Is(err, os.ErrExist) {
@@ -27,10 +33,16 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 			}
 			return 0, err
 		}
+		createdInfo, err := file.Stat()
+		if err != nil {
+			return 0, errors.Join(err, file.Close())
+		}
 		return writeNewFileNoSymlink(path, file, write, newFileWriteOps{
-			syncFile:   file.Sync,
-			closeFile:  file.Close,
-			removeFile: os.Remove,
+			syncFile:  file.Sync,
+			closeFile: file.Close,
+			removeFile: func(string) error {
+				return destinationRoot.RemoveFileIfSame(filepath.Base(path), createdInfo)
+			},
 		})
 	}
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -30,6 +31,56 @@ func TestSafeWriteFileNoSymlinkNoOverwriteRemovesPartialFileAfterCallbackFailure
 	}
 	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected partial destination to be removed, stat error = %v", err)
+	}
+}
+
+func TestSafeWriteFileNoSymlinkNoOverwritePreservesReplacementAfterCallbackFailure(t *testing.T) {
+	directory := t.TempDir()
+	destination := filepath.Join(directory, "artifact.bin")
+	displaced := filepath.Join(directory, "displaced.bin")
+	replacement := []byte("replacement")
+	writeErr := errors.New("simulated write failure")
+
+	_, err := SafeWriteFileNoSymlink(
+		destination,
+		0o600,
+		false,
+		".safe-write-*",
+		".safe-write-backup-*",
+		func(file *os.File) (int64, error) {
+			written, err := file.Write([]byte("partial"))
+			if err != nil {
+				return int64(written), err
+			}
+
+			// Renaming an open file is supported on Unix. Windows may require the
+			// handle to be closed first, so retry after closing it there.
+			if err := os.Rename(destination, displaced); err != nil && !errors.Is(err, os.ErrNotExist) {
+				if closeErr := file.Close(); closeErr != nil {
+					return int64(written), errors.Join(err, closeErr)
+				}
+				if err := os.Rename(destination, displaced); err != nil {
+					return int64(written), err
+				}
+			}
+			if err := os.WriteFile(destination, replacement, 0o600); err != nil {
+				return int64(written), err
+			}
+			return int64(written), writeErr
+		},
+	)
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want %v", err, writeErr)
+	}
+	if !strings.Contains(err.Error(), "refusing to remove replaced file") {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want replacement cleanup failure", err)
+	}
+	got, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != string(replacement) {
+		t.Fatalf("destination content = %q, want %q", got, replacement)
 	}
 }
 
