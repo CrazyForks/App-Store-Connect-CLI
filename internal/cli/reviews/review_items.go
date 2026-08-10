@@ -37,7 +37,6 @@ Examples:
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
 		Subcommands: []*ffcli.Command{
-			reviewItemsGetCommand("view", "review items view", `asc review items view --id "ITEM_ID"`),
 			reviewItemsListCommand("list", "review items list", `asc review items list [flags]`, `asc review items list --submission "SUBMISSION_ID"
   asc review items list --submission "SUBMISSION_ID" --paginate`),
 			reviewItemsAddCommand("add", "review items add", `asc review items add [flags]`, `asc review items add --submission "SUBMISSION_ID" --item-type appStoreVersions --item-id "VERSION_ID"
@@ -51,44 +50,6 @@ Examples:
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
-		},
-	}
-}
-
-// ReviewItemsGetCommand returns the stable review items-get subcommand.
-func ReviewItemsGetCommand() *ffcli.Command {
-	return reviewItemsGetCommand("items-get", "review items-get", `asc review items-get --id "ITEM_ID"`)
-}
-
-func reviewItemsGetCommand(name, errorPrefix, example string) *ffcli.Command {
-	fs := flag.NewFlagSet(name, flag.ExitOnError)
-
-	itemID := fs.String("id", "", "Review submission item ID (required)")
-	shared.BindOutputFlags(fs)
-
-	return &ffcli.Command{
-		Name:       name,
-		ShortUsage: example + " [flags]",
-		ShortHelp:  "DEPRECATED: App Store Connect has no review-item detail endpoint.",
-		LongHelp: `DEPRECATED: App Store Connect API 4.4.1 has no review-item detail endpoint.
-
-Use asc review items list --submission "SUBMISSION_ID" instead.
-
-Examples:
-  ` + example,
-		FlagSet:   fs,
-		UsageFunc: shared.DeprecatedUsageFunc,
-		Exec: func(ctx context.Context, args []string) error {
-			if len(args) != 0 {
-				return fmt.Errorf("%s: %w", errorPrefix, shared.UsageError("unexpected positional arguments"))
-			}
-			trimmedID := strings.TrimSpace(*itemID)
-			if trimmedID == "" {
-				fmt.Fprintln(os.Stderr, "Error: --id is required")
-				return shared.MissingRequiredUsageError()
-			}
-
-			return fmt.Errorf("%s: %w", errorPrefix, shared.UsageError(`App Store Connect API 4.4.1 has no item-detail GET; use asc review items list --submission "SUBMISSION_ID"`))
 		},
 	}
 }
@@ -349,7 +310,6 @@ func reviewItemsUpdateCommand(name, errorPrefix, shortUsage, examples string) *f
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 
 	itemID := fs.String("id", "", "Review submission item ID (required)")
-	fs.String("state", "", "Deprecated: no longer supported by App Store Connect")
 	resolved := fs.String("resolved", "", "Whether the item is resolved: true or false")
 	removed := fs.String("removed", "", "Whether the item is removed: true or false")
 	clearResolved := fs.Bool("clear-resolved", false, "Set resolved to JSON null")
@@ -377,9 +337,6 @@ Examples:
 			if trimmedID == "" {
 				fmt.Fprintln(os.Stderr, "Error: --id is required")
 				return shared.MissingRequiredUsageError()
-			}
-			if reviewFlagWasProvided(fs, "state") {
-				return fmt.Errorf("%s: %w", errorPrefix, shared.UsageError("--state is deprecated and no longer supported by App Store Connect; use --resolved or --removed"))
 			}
 			resolvedProvided := reviewFlagWasProvided(fs, "resolved")
 			removedProvided := reviewFlagWasProvided(fs, "removed")

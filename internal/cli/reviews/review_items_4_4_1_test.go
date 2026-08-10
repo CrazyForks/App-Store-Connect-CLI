@@ -213,44 +213,12 @@ func TestReviewItemsAddRejectsUnsupportedLegacyTypesBeforeAuth(t *testing.T) {
 	}
 }
 
-func TestReviewItemsViewIsDeprecatedBeforeAuth(t *testing.T) {
-	tests := []struct {
-		name    string
-		command func() *ffcli.Command
-	}{
-		{name: "legacy", command: ReviewItemsGetCommand},
-		{name: "nested", command: func() *ffcli.Command {
-			return reviewItemsGetCommand("view", "review items view", `asc review items view --id "ITEM_ID"`)
-		}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			factoryCalled := false
-			restore := SetReviewItemsClientFactory(func() (*asc.Client, error) {
-				factoryCalled = true
-				return nil, errors.New("poison client factory called")
-			})
-			defer restore()
-
-			err := test.command().ParseAndRun(context.Background(), []string{"--id", "item-1"})
-			if err == nil || !errors.Is(err, flag.ErrHelp) || !strings.Contains(err.Error(), "has no item-detail GET") || !strings.Contains(err.Error(), "review items list --submission") {
-				t.Fatalf("error = %v, want deprecated item-detail guidance", err)
-			}
-			if factoryCalled {
-				t.Fatal("client factory called for unsupported item-detail GET")
-			}
-		})
-	}
-}
-
 func TestReviewItemsUpdateValidatesSchemaFlagsBeforeAuth(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
 		want string
 	}{
-		{name: "deprecated state", args: []string{"--id", "item-1", "--state", "READY_FOR_REVIEW"}, want: "--state is deprecated"},
-		{name: "explicit empty state", args: []string{"--id", "item-1", "--state", ""}, want: "--state is deprecated"},
 		{name: "missing update", args: []string{"--id", "item-1"}, want: "at least one of --resolved, --removed, --clear-resolved, or --clear-removed is required"},
 		{name: "invalid resolved", args: []string{"--id", "item-1", "--resolved", "yes"}, want: "--resolved must be true or false"},
 		{name: "invalid removed", args: []string{"--id", "item-1", "--removed", "no"}, want: "--removed must be true or false"},
