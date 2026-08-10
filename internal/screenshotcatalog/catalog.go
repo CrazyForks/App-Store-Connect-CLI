@@ -80,11 +80,12 @@ var (
 	iphone40Dimensions = portraitLandscape(640, 1136)
 	iphone35Dimensions = portraitLandscape(640, 960)
 
-	ipadPro129Dimensions = combineDimensions(
+	ipadPro3Gen129Dimensions = combineDimensions(
 		portraitLandscape(2048, 2732),
 		portraitLandscape(2064, 2752),
 	)
-	ipadPro11Dimensions = combineDimensions(
+	ipadPro129Dimensions = portraitLandscape(2048, 2732)
+	ipadPro11Dimensions  = combineDimensions(
 		portraitLandscape(1488, 2266),
 		portraitLandscape(1668, 2388),
 		portraitLandscape(1668, 2420),
@@ -120,7 +121,7 @@ var registry = map[string][]Dimension{
 	"APP_IPHONE_47":                  iphone47Dimensions,
 	"APP_IPHONE_40":                  iphone40Dimensions,
 	"APP_IPHONE_35":                  iphone35Dimensions,
-	"APP_IPAD_PRO_3GEN_129":          ipadPro129Dimensions,
+	"APP_IPAD_PRO_3GEN_129":          ipadPro3Gen129Dimensions,
 	"APP_IPAD_PRO_3GEN_11":           ipadPro11Dimensions,
 	"APP_IPAD_PRO_129":               ipadPro129Dimensions,
 	"APP_IPAD_105":                   ipad105Dimensions,
@@ -141,7 +142,7 @@ var registry = map[string][]Dimension{
 	"IMESSAGE_APP_IPHONE_55":         iphone55Dimensions,
 	"IMESSAGE_APP_IPHONE_47":         iphone47Dimensions,
 	"IMESSAGE_APP_IPHONE_40":         iphone40Dimensions,
-	"IMESSAGE_APP_IPAD_PRO_3GEN_129": ipadPro129Dimensions,
+	"IMESSAGE_APP_IPAD_PRO_3GEN_129": ipadPro3Gen129Dimensions,
 	"IMESSAGE_APP_IPAD_PRO_3GEN_11":  ipadPro11Dimensions,
 	"IMESSAGE_APP_IPAD_PRO_129":      ipadPro129Dimensions,
 	"IMESSAGE_APP_IPAD_105":          ipad105Dimensions,
