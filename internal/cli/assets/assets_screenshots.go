@@ -72,6 +72,7 @@ type screenshotUploadConfig[T any] struct {
 	Client         *asc.Client
 	LocalizationID string
 	DisplayType    string
+	RootPath       string
 	Files          []string
 	SkipExisting   bool
 	Replace        bool
@@ -608,6 +609,7 @@ func executeScreenshotUploadCommand(ctx context.Context, opts screenshotUploadCo
 			Client:         client,
 			LocalizationID: locID,
 			DisplayType:    apiDisplayType,
+			RootPath:       pathValue,
 			Files:          files,
 			SkipExisting:   opts.SkipExisting,
 			Replace:        opts.Replace,
