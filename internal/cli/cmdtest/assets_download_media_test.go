@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	cmdpkg "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
@@ -520,7 +521,18 @@ func TestVideoPreviewsDownload_ByLocalization_PreservesFallbackDetailErrors(t *t
 	defaultTransport := http.DefaultTransport
 
 	var serverURL string
+	var requestMu sync.Mutex
+	var requestPaths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requestMu.Lock()
+		requestPaths = append(requestPaths, req.URL.Path)
+		requestMu.Unlock()
+		if strings.HasPrefix(req.URL.Path, "/v1/") {
+			authorization := req.Header.Get("Authorization")
+			if !strings.HasPrefix(authorization, "Bearer ") || strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")) == "" {
+				t.Error("API request is missing a bearer Authorization header")
+			}
+		}
 		if req.Method != http.MethodGet {
 			t.Errorf("method = %s, want GET", req.Method)
 			http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
@@ -648,6 +660,19 @@ func TestVideoPreviewsDownload_ByLocalization_PreservesFallbackDetailErrors(t *t
 	}
 	if http.DefaultTransport != defaultTransport {
 		t.Fatal("test mutated http.DefaultTransport")
+	}
+	requestMu.Lock()
+	gotRequests := strings.Join(requestPaths, "\n")
+	requestMu.Unlock()
+	wantRequests := strings.Join([]string{
+		"/v1/appStoreVersionLocalizations/loc-1/appPreviewSets",
+		"/v1/appPreviewSets/set-1/appPreviews",
+		"/v1/appPreviews/auth",
+		"/v1/appPreviews/empty",
+		"/media/good.mov",
+	}, "\n")
+	if gotRequests != wantRequests {
+		t.Fatalf("request sequence = %q, want %q", gotRequests, wantRequests)
 	}
 }
 
