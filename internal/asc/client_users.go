@@ -64,6 +64,17 @@ func (c *Client) GetUser(ctx context.Context, userID string, opts ...UsersOption
 }
 
 // UpdateUser updates a user by ID.
+//
+// UserUpdateRequest treats attributes.allAppsVisible and
+// relationships.visibleApps as independent optional fields, and this builder
+// sends only what the caller supplies so an attributes-only or a
+// relationships-only PATCH stays expressible. Pairing them is therefore the
+// caller's responsibility: a visible-apps list has no effect while the account
+// still has allAppsVisible=true, so `asc users update` sets AllAppsVisible to
+// false whenever --visible-app is present, which
+// TestUsersUpdateSendsRolesAndVisibleAppsInOneRequest asserts. This differs from
+// CreateUserInvitation, which creates the account and therefore defaults the
+// attribute itself.
 func (c *Client) UpdateUser(ctx context.Context, userID string, attrs UserUpdateAttributes, visibleAppIDs []string) (*UserResponse, error) {
 	userID = strings.TrimSpace(userID)
 	visibleAppIDs = normalizeList(visibleAppIDs)
@@ -343,32 +354,5 @@ func (c *Client) RemoveUserVisibleApps(ctx context.Context, userID string, appID
 
 	path := fmt.Sprintf("/v1/users/%s/relationships/visibleApps", userID)
 	_, err = c.do(ctx, "DELETE", path, body)
-	return err
-}
-
-// SetUserVisibleApps replaces the visible apps list for a user.
-func (c *Client) SetUserVisibleApps(ctx context.Context, userID string, appIDs []string) error {
-	userID = strings.TrimSpace(userID)
-	appIDs = normalizeList(appIDs)
-	if userID == "" {
-		return fmt.Errorf("userID is required")
-	}
-	payload := RelationshipRequest{
-		Data: make([]RelationshipData, 0, len(appIDs)),
-	}
-	for _, id := range appIDs {
-		payload.Data = append(payload.Data, RelationshipData{
-			Type: ResourceTypeApps,
-			ID:   id,
-		})
-	}
-
-	body, err := BuildRequestBody(payload)
-	if err != nil {
-		return err
-	}
-
-	path := fmt.Sprintf("/v1/users/%s/relationships/visibleApps", userID)
-	_, err = c.do(ctx, "PATCH", path, body)
 	return err
 }
