@@ -45,7 +45,7 @@ func TestAssetListCommandsRenewRequestTimeout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			setupAuth(t)
-			t.Setenv("ASC_TIMEOUT", "500ms")
+			t.Setenv("ASC_TIMEOUT", "10s")
 			t.Setenv("ASC_TIMEOUT_SECONDS", "")
 			t.Setenv("ASC_MAX_RETRIES", "0")
 
@@ -54,10 +54,16 @@ func TestAssetListCommandsRenewRequestTimeout(t *testing.T) {
 				http.DefaultTransport = originalTransport
 			})
 
-			const requestDelay = 300 * time.Millisecond
+			requestDeadlines := make([]time.Time, 0, 2)
 			callCount := 0
 			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 				callCount++
+				deadline, ok := req.Context().Deadline()
+				if !ok {
+					t.Fatal("request context has no deadline")
+				}
+				requestDeadlines = append(requestDeadlines, deadline)
+
 				var body string
 				switch callCount {
 				case 1:
@@ -65,6 +71,7 @@ func TestAssetListCommandsRenewRequestTimeout(t *testing.T) {
 						t.Fatalf("unexpected sets request: %s %s", req.Method, req.URL.Path)
 					}
 					body = tt.setsBody
+					time.Sleep(5 * time.Millisecond)
 				case 2:
 					if req.Method != http.MethodGet || req.URL.Path != tt.assetsPath {
 						t.Fatalf("unexpected assets request: %s %s", req.Method, req.URL.Path)
@@ -74,12 +81,7 @@ func TestAssetListCommandsRenewRequestTimeout(t *testing.T) {
 					t.Fatalf("unexpected request count %d", callCount)
 				}
 
-				select {
-				case <-time.After(requestDelay):
-					return jsonHTTPResponse(http.StatusOK, body), nil
-				case <-req.Context().Done():
-					return nil, req.Context().Err()
-				}
+				return jsonHTTPResponse(http.StatusOK, body), nil
 			})
 
 			root := RootCommand("1.2.3")
@@ -101,6 +103,9 @@ func TestAssetListCommandsRenewRequestTimeout(t *testing.T) {
 			}
 			if callCount != 2 {
 				t.Fatalf("request count = %d, want 2", callCount)
+			}
+			if !requestDeadlines[1].After(requestDeadlines[0]) {
+				t.Fatalf("child request deadline = %v, want later than set request deadline %v", requestDeadlines[1], requestDeadlines[0])
 			}
 
 			var result struct {
