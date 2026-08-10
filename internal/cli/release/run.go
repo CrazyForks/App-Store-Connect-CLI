@@ -52,6 +52,7 @@ type runOptions struct {
 	Timeout                     time.Duration
 	DryRun                      bool
 	Confirm                     bool
+	AllowDeletes                bool
 	StrictValidate              bool
 	CheckpointFile              string
 	Mode                        string
@@ -101,11 +102,12 @@ type runCheckpoint struct {
 }
 
 type stepOutcome struct {
-	Status     string
-	Message    string
-	Details    any
-	Persist    bool
-	ResolvedID string
+	Status      string
+	Message     string
+	Remediation string
+	Details     any
+	Persist     bool
+	ResolvedID  string
 }
 
 func executeStage(ctx context.Context, opts runOptions) (runResult, error) {
@@ -246,6 +248,9 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 				step.Message = stepErr.Error()
 			}
 			step.Remediation = remediation
+			if strings.TrimSpace(outcome.Remediation) != "" {
+				step.Remediation = outcome.Remediation
+			}
 			step.Details = outcome.Details
 			result.Steps = append(result.Steps, step)
 			result.Status = "error"
@@ -362,11 +367,30 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 				Dir:          opts.MetadataDir,
 				Include:      "localizations",
 				DryRun:       opts.DryRun,
-				AllowDeletes: false,
-				Confirm:      false,
+				AllowDeletes: opts.AllowDeletes,
+				Confirm:      opts.Confirm,
 			})
 			if pushErr != nil {
 				return stepOutcome{}, fmt.Errorf("apply metadata: %w", pushErr)
+			}
+
+			details := map[string]any{
+				"adds":     len(pushResult.Adds),
+				"updates":  len(pushResult.Updates),
+				"deletes":  len(pushResult.Deletes),
+				"apiCalls": pushResult.APICalls,
+			}
+
+			// metadata.ExecutePush returns the plan before its delete guard when
+			// DryRun is set. Apply the same requirement here so the preview and
+			// the confirmed run agree instead of reporting a plan that --confirm
+			// would refuse to apply.
+			if opts.DryRun && len(pushResult.Deletes) > 0 && !opts.AllowDeletes {
+				return stepOutcome{
+					Message:     "metadata plan requires --allow-deletes",
+					Remediation: "Add the missing localizations to --metadata-dir, or rerun with --allow-deletes to apply the planned deletions.",
+					Details:     details,
+				}, fmt.Errorf("apply metadata: %w", shared.UsageError("--allow-deletes is required to apply delete operations"))
 			}
 
 			changeCount := len(pushResult.Adds) + len(pushResult.Updates) + len(pushResult.Deletes)
@@ -387,12 +411,7 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 			return stepOutcome{
 				Status:  status,
 				Message: message,
-				Details: map[string]any{
-					"adds":     len(pushResult.Adds),
-					"updates":  len(pushResult.Updates),
-					"deletes":  len(pushResult.Deletes),
-					"apiCalls": pushResult.APICalls,
-				},
+				Details: details,
 				Persist: !opts.DryRun,
 			}, nil
 		}
