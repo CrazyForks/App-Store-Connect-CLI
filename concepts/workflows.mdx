@@ -621,6 +621,9 @@ apply:
 ### Best Practices
 
 * **Review workflow files** before running them, especially with `--file`
+* **Gitignore `.asc/runs/`** - every run writes `run_file` there with the run
+  parameters and all declared step outputs, and nothing prunes it
+* **Never map a secret into `outputs`** - it is persisted in the run-state file
 * **Avoid running workflows from untrusted sources** (e.g., unreviewed PRs)
 * **Be careful with secrets** - steps inherit your process environment
 * **In CI, use secret masking** - workflows may log environment variables

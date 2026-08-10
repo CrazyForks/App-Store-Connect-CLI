@@ -495,10 +495,29 @@ release:
   Workflow files execute arbitrary shell commands. Ensure:
 
   * `.asc/workflow.json` is added to `.gitignore` if it contains secrets
+  * `.asc/runs/` is added to `.gitignore`
   * Use environment variables for sensitive values
   * Review workflow files before execution
   * Run workflows in trusted environments only
 </Warning>
+
+### Run-state files
+
+Every `asc workflow run` writes a run-state file next to the workflow file, in a
+`runs/` directory beside it (`.asc/runs/<run-id>.json` by default). The file is
+what `--resume` reads, and it stores the run parameters and every declared step
+output.
+
+Nothing prunes those files, so add `.asc/runs/` to `.gitignore` and delete old
+runs when you no longer need to resume them:
+
+```bash  theme={null}
+echo '.asc/runs/' >> .gitignore
+rm -rf .asc/runs
+```
+
+Never map a secret into a step's `outputs`: it lands in the run-state file in
+plain text.
 
 ## Troubleshooting
 
