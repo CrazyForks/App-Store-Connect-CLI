@@ -1,9 +1,12 @@
 package profiles
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -70,25 +73,79 @@ func TestResolveProfilesInstallDirExplicitOverrideSkipsDiscovery(t *testing.T) {
 	}
 }
 
-func TestResolveProfilesInstallDirFailsClosed(t *testing.T) {
-	originalGOOS := profilesRuntimeGOOS
-	originalActiveVersion := activeXcodeMajorVersionFn
-	t.Cleanup(func() {
-		profilesRuntimeGOOS = originalGOOS
-		activeXcodeMajorVersionFn = originalActiveVersion
-	})
-
-	profilesRuntimeGOOS = "darwin"
-	discoveryErr := errors.New("full Xcode is not active")
-	activeXcodeMajorVersionFn = func(context.Context) (int, error) { return 0, discoveryErr }
-
-	_, err := resolveProfilesInstallDir(context.Background(), "")
-	if !errors.Is(err, discoveryErr) {
-		t.Fatalf("resolveProfilesInstallDir() error = %v, want discovery error", err)
+func TestResolveProfilesInstallDirFallsBackToLegacyDirectory(t *testing.T) {
+	tests := []struct {
+		name  string
+		major int
+		err   error
+	}{
+		{name: "discovery failure", err: errors.New("xcodebuild -version failed: command line tools instance")},
+		{name: "unusable major version", major: 0},
 	}
-	if errors.Is(err, errProfilesInstallDirRequired) {
-		t.Fatalf("active Xcode discovery error must not be classified as missing --install-dir: %v", err)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			originalGOOS := profilesRuntimeGOOS
+			originalHomeDir := profilesUserHomeDirFn
+			originalActiveVersion := activeXcodeMajorVersionFn
+			t.Cleanup(func() {
+				profilesRuntimeGOOS = originalGOOS
+				profilesUserHomeDirFn = originalHomeDir
+				activeXcodeMajorVersionFn = originalActiveVersion
+			})
+
+			profilesRuntimeGOOS = "darwin"
+			homeDir := t.TempDir()
+			profilesUserHomeDirFn = func() (string, error) { return homeDir, nil }
+			activeXcodeMajorVersionFn = func(context.Context) (int, error) { return test.major, test.err }
+
+			var got string
+			var err error
+			stderr := captureProfilesStderr(t, func() {
+				got, err = resolveProfilesInstallDir(context.Background(), "")
+			})
+			if err != nil {
+				t.Fatalf("resolveProfilesInstallDir() error = %v, want the legacy default", err)
+			}
+			want := filepath.Join(homeDir, "Library", "MobileDevice", "Provisioning Profiles")
+			if got != want {
+				t.Fatalf("resolveProfilesInstallDir() = %q, want %q", got, want)
+			}
+			if lines := strings.Count(strings.TrimSpace(stderr), "\n") + 1; lines != 1 {
+				t.Fatalf("expected a single stderr notice, got %q", stderr)
+			}
+			for _, wantText := range []string{"active Xcode", want, "--install-dir"} {
+				if !strings.Contains(stderr, wantText) {
+					t.Fatalf("stderr notice %q missing %q", stderr, wantText)
+				}
+			}
+		})
 	}
+}
+
+func captureProfilesStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	original := os.Stderr
+	os.Stderr = writer
+
+	captured := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, reader)
+		_ = reader.Close()
+		captured <- buf.String()
+	}()
+
+	fn()
+
+	os.Stderr = original
+	_ = writer.Close()
+	return <-captured
 }
 
 func TestResolveProfilesInstallDirPreservesCancellation(t *testing.T) {
