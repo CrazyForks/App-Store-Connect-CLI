@@ -709,12 +709,12 @@ func TestGitCommandEnvironmentPreservesCustomSSHCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			environment := gitCommandEnvironment([]string{
+			environment := gitCommandEnvironmentWithConfig([]string{
 				"PATH=/usr/bin",
 				"GIT_TERMINAL_PROMPT=1",
 				"GIT_TERMINAL_PROMPT=true",
 				"GIT_SSH_COMMAND=" + tt.sshCommand,
-			})
+			}, runtime.GOOS, false)
 
 			if got := commandEnvironmentValues(environment, "GIT_TERMINAL_PROMPT"); len(got) != 1 || got[0] != "0" {
 				t.Fatalf("GIT_TERMINAL_PROMPT values = %v, want [0]", got)
@@ -727,19 +727,19 @@ func TestGitCommandEnvironmentPreservesCustomSSHCommand(t *testing.T) {
 }
 
 func TestGitCommandEnvironmentPreservesGitSSH(t *testing.T) {
-	environment := gitCommandEnvironment([]string{
+	environment := gitCommandEnvironmentWithConfig([]string{
 		"PATH=/usr/bin",
 		"GIT_TERMINAL_PROMPT=1",
 		"GIT_SSH_COMMAND= \t",
 		"GIT_SSH=/opt/team/bin/ssh-wrapper",
-	})
+	}, runtime.GOOS, false)
 	want := []string{
 		"PATH=/usr/bin",
 		"GIT_SSH=/opt/team/bin/ssh-wrapper",
 		"GIT_TERMINAL_PROMPT=0",
 	}
 	if !slices.Equal(environment, want) {
-		t.Fatalf("gitCommandEnvironment() = %v, want %v", environment, want)
+		t.Fatalf("gitCommandEnvironmentWithConfig() = %v, want %v", environment, want)
 	}
 }
 
@@ -764,7 +764,7 @@ func TestGitCommandEnvironmentDefaultsMissingOrBlankSSHCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			environment := gitCommandEnvironment(tt.environment)
+			environment := gitCommandEnvironmentWithConfig(tt.environment, runtime.GOOS, false)
 			if got := commandEnvironmentValues(environment, "GIT_SSH_COMMAND"); len(got) != 1 || got[0] != "ssh -o BatchMode=yes" {
 				t.Fatalf("GIT_SSH_COMMAND values = %v, want [ssh -o BatchMode=yes]", got)
 			}
@@ -773,35 +773,35 @@ func TestGitCommandEnvironmentDefaultsMissingOrBlankSSHCommand(t *testing.T) {
 }
 
 func TestGitCommandEnvironmentForWindowsMatchesKeysCaseInsensitively(t *testing.T) {
-	environment := gitCommandEnvironmentForGOOS([]string{
+	environment := gitCommandEnvironmentWithConfig([]string{
 		"PATH=C:\\Windows\\System32",
 		"git_terminal_prompt=1",
 		`git_ssh_command=team-ssh-wrapper --identity 'release key'`,
-	}, "windows")
+	}, "windows", false)
 	want := []string{
 		"PATH=C:\\Windows\\System32",
 		"GIT_TERMINAL_PROMPT=0",
 		`GIT_SSH_COMMAND=team-ssh-wrapper --identity 'release key'`,
 	}
 	if !slices.Equal(environment, want) {
-		t.Fatalf("gitCommandEnvironmentForGOOS() = %v, want %v", environment, want)
+		t.Fatalf("gitCommandEnvironmentWithConfig() = %v, want %v", environment, want)
 	}
 }
 
 func TestGitCommandEnvironmentForWindowsPreservesGitSSH(t *testing.T) {
-	environment := gitCommandEnvironmentForGOOS([]string{
+	environment := gitCommandEnvironmentWithConfig([]string{
 		"PATH=C:\\Windows\\System32",
 		"git_terminal_prompt=1",
 		"git_ssh_command= ",
 		`git_ssh=C:\tools\team-ssh.exe`,
-	}, "windows")
+	}, "windows", false)
 	want := []string{
 		"PATH=C:\\Windows\\System32",
 		`git_ssh=C:\tools\team-ssh.exe`,
 		"GIT_TERMINAL_PROMPT=0",
 	}
 	if !slices.Equal(environment, want) {
-		t.Fatalf("gitCommandEnvironmentForGOOS() = %v, want %v", environment, want)
+		t.Fatalf("gitCommandEnvironmentWithConfig() = %v, want %v", environment, want)
 	}
 }
 
@@ -825,11 +825,11 @@ func TestGitEnvironmentWithoutRepositorySelectorsMatchesWindowsKeysCaseInsensiti
 }
 
 func TestGitCommandEnvironmentForPOSIXKeepsKeysCaseSensitive(t *testing.T) {
-	environment := gitCommandEnvironmentForGOOS([]string{
+	environment := gitCommandEnvironmentWithConfig([]string{
 		"PATH=/usr/bin",
 		"git_terminal_prompt=1",
 		"git_ssh_command=team-ssh-wrapper",
-	}, "linux")
+	}, "linux", false)
 	want := []string{
 		"PATH=/usr/bin",
 		"git_terminal_prompt=1",
@@ -838,7 +838,7 @@ func TestGitCommandEnvironmentForPOSIXKeepsKeysCaseSensitive(t *testing.T) {
 		"GIT_SSH_COMMAND=ssh -o BatchMode=yes",
 	}
 	if !slices.Equal(environment, want) {
-		t.Fatalf("gitCommandEnvironmentForGOOS() = %v, want %v", environment, want)
+		t.Fatalf("gitCommandEnvironmentWithConfig() = %v, want %v", environment, want)
 	}
 }
 

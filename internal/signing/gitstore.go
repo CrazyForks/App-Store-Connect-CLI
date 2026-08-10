@@ -289,14 +289,6 @@ func gitEnvironmentWithoutRepositorySelectors(environment []string, goos string)
 	return environment
 }
 
-func gitCommandEnvironment(environment []string) []string {
-	return gitCommandEnvironmentWithConfig(environment, runtime.GOOS, false)
-}
-
-func gitCommandEnvironmentForGOOS(environment []string, goos string) []string {
-	return gitCommandEnvironmentWithConfig(environment, goos, false)
-}
-
 func gitCommandEnvironmentWithConfig(environment []string, goos string, coreSSHCommandConfigured bool) []string {
 	caseInsensitive := goos == "windows"
 	environment = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", caseInsensitive)
