@@ -37,7 +37,7 @@ var (
 	}
 )
 
-const xcodeCommandErrorOutputLimit = 64 * 1024
+const xcodebuildErrorTailLimit = 64 * 1024
 
 type ArchiveOptions struct {
 	WorkspacePath  string
@@ -773,7 +773,7 @@ func runAltoolValidate(ctx context.Context, args []string, logWriter io.Writer) 
 		ctx = context.Background()
 	}
 	cmd := commandContextFn(ctx, "xcrun", args...)
-	outputTail := newTailBuffer(xcodeCommandErrorOutputLimit)
+	outputTail := newTailBuffer(xcodebuildErrorTailLimit)
 	combinedOutput := io.Writer(outputTail)
 	if logWriter != nil {
 		combinedOutput = io.MultiWriter(logWriter, outputTail)
@@ -789,7 +789,7 @@ func runAltoolValidate(ctx context.Context, args []string, logWriter io.Writer) 
 
 	details := append(stdoutOutput.Details(), stderrOutput.Details()...)
 	details = UniqueDiagnosticDetails(details)
-	details = boundDiagnosticDetails(details, xcodeCommandErrorOutputLimit)
+	details = boundDiagnosticDetails(details, xcodebuildErrorTailLimit)
 	if len(details) == 0 {
 		return nil
 	}
@@ -883,7 +883,7 @@ func (w *altoolValidationOutputWriter) consume(p []byte) {
 }
 
 func (w *altoolValidationOutputWriter) appendLine(fragment []byte) {
-	remaining := xcodeCommandErrorOutputLimit - len(w.line)
+	remaining := xcodebuildErrorTailLimit - len(w.line)
 	if remaining <= 0 {
 		return
 	}
@@ -904,7 +904,7 @@ func (w *altoolValidationOutputWriter) recordLine() {
 	if len(w.details) > 0 {
 		separatorBytes = len("; ")
 	}
-	remaining := xcodeCommandErrorOutputLimit - w.detailBytes - separatorBytes
+	remaining := xcodebuildErrorTailLimit - w.detailBytes - separatorBytes
 	if remaining <= 0 {
 		return
 	}
@@ -952,7 +952,7 @@ func runAltoolAndCapture(ctx context.Context, args []string, logWriter io.Writer
 	cmd := commandContextFn(ctx, "xcrun", args...)
 	var stdout strings.Builder
 	var stderr strings.Builder
-	outputTail := newTailBuffer(xcodeCommandErrorOutputLimit)
+	outputTail := newTailBuffer(xcodebuildErrorTailLimit)
 	stdoutWriter := io.Writer(&stdout)
 	stderrWriter := io.Writer(io.MultiWriter(&stderr, outputTail))
 	if logWriter != nil {
@@ -968,7 +968,7 @@ func runAltoolAndCapture(ctx context.Context, args []string, logWriter io.Writer
 		}
 		if detail != "" {
 			if outputTail.Truncated() {
-				return "", fmt.Errorf("xcrun altool %s failed (showing last %d bytes): %s", action, xcodeCommandErrorOutputLimit, detail)
+				return "", fmt.Errorf("xcrun altool %s failed (showing last %d bytes): %s", action, xcodebuildErrorTailLimit, detail)
 			}
 			return "", fmt.Errorf("xcrun altool %s failed: %s", action, detail)
 		}
@@ -1256,9 +1256,9 @@ func runCommandWithBoundedOutputMode(ctx context.Context, name string, args []st
 		ctx = context.Background()
 	}
 	cmd := commandContextFn(ctx, name, args...)
-	outputWindow := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
-	cmd.Stdout = outputWindow.newStreamWriter(logWriter)
-	cmd.Stderr = outputWindow.newStreamWriter(logWriter)
+	outputWindow := newXcodeDiagnosticBuffer(xcodebuildErrorTailLimit, logWriter)
+	cmd.Stdout = outputWindow.newStreamWriter()
+	cmd.Stderr = outputWindow.newStreamWriter()
 	if err := runXcodeCommand(cmd); err != nil {
 		return formatCommandOutputError(ctx, err, outputWindow, action, commandLabel, preserveProcessError)
 	}
@@ -1367,12 +1367,12 @@ type xcodeDiagnosticBuffer struct {
 	mu              sync.Mutex
 	limit           int
 	tail            *tailBuffer
+	logWriter       io.Writer
 	totalBytes      int64
 	diagnostics     []string
 	diagnosticSet   map[string]struct{}
 	diagnosticBytes int
 	streams         []*xcodeDiagnosticLineState
-	defaultStream   *xcodeDiagnosticLineState
 }
 
 type xcodeDiagnosticLineState struct {
@@ -1381,32 +1381,25 @@ type xcodeDiagnosticLineState struct {
 }
 
 type xcodeDiagnosticStreamWriter struct {
-	buffer    *xcodeDiagnosticBuffer
-	state     *xcodeDiagnosticLineState
-	logWriter io.Writer
+	buffer *xcodeDiagnosticBuffer
+	state  *xcodeDiagnosticLineState
 }
 
-func newXcodeDiagnosticBuffer(limit int) *xcodeDiagnosticBuffer {
-	defaultStream := &xcodeDiagnosticLineState{}
+func newXcodeDiagnosticBuffer(limit int, logWriter io.Writer) *xcodeDiagnosticBuffer {
 	return &xcodeDiagnosticBuffer{
 		limit:         max(0, limit),
 		tail:          newTailBuffer(max(0, limit)),
+		logWriter:     logWriter,
 		diagnosticSet: make(map[string]struct{}),
-		streams:       []*xcodeDiagnosticLineState{defaultStream},
-		defaultStream: defaultStream,
 	}
 }
 
-func (b *xcodeDiagnosticBuffer) newStreamWriter(logWriter io.Writer) io.Writer {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+func (b *xcodeDiagnosticBuffer) newStreamWriter() io.Writer {
 	state := &xcodeDiagnosticLineState{}
 	b.streams = append(b.streams, state)
 	return &xcodeDiagnosticStreamWriter{
-		buffer:    b,
-		state:     state,
-		logWriter: logWriter,
+		buffer: b,
+		state:  state,
 	}
 }
 
@@ -1414,8 +1407,8 @@ func (w *xcodeDiagnosticStreamWriter) Write(p []byte) (int, error) {
 	w.buffer.mu.Lock()
 	defer w.buffer.mu.Unlock()
 
-	if w.logWriter != nil {
-		written, err := w.logWriter.Write(p)
+	if w.buffer.logWriter != nil {
+		written, err := w.buffer.logWriter.Write(p)
 		if err != nil {
 			return written, err
 		}
@@ -1424,12 +1417,6 @@ func (w *xcodeDiagnosticStreamWriter) Write(p []byte) (int, error) {
 		}
 	}
 	return w.buffer.writeStreamLocked(w.state, p), nil
-}
-
-func (b *xcodeDiagnosticBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.writeStreamLocked(b.defaultStream, p), nil
 }
 
 func (b *xcodeDiagnosticBuffer) writeStreamLocked(state *xcodeDiagnosticLineState, p []byte) int {
