@@ -320,7 +320,7 @@ func TestCertificatesCSRGenerate_ValidatesLexicallyNestedOutputPaths(t *testing.
 				if !errors.Is(runErr, flag.ErrHelp) {
 					t.Errorf("run error = %v, want flag.ErrHelp", runErr)
 				}
-				if runErr == nil || !strings.Contains(runErr.Error(), "--key-out and --csr-out must not be nested paths") {
+				if runErr == nil || runErr.Error() != "certificates csr generate: --key-out and --csr-out must not be nested paths" {
 					t.Errorf("run error = %v, want nested-path error", runErr)
 				}
 				if stdout != "" {
