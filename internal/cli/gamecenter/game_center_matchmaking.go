@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -885,7 +886,7 @@ func GameCenterMatchmakingRulesCreateCommand() *ffcli.Command {
 	description := fs.String("description", "", "Rule description")
 	ruleType := fs.String("type", "", "Rule type (COMPATIBLE, DISTANCE, MATCH, TEAM)")
 	expression := fs.String("expression", "", "Rule expression")
-	weight := fs.String("weight", "", "Rule weight (float)")
+	weight := fs.String("weight", "", "Rule weight (finite number)")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -933,10 +934,9 @@ Examples:
 			}
 
 			if strings.TrimSpace(*weight) != "" {
-				val, err := strconv.ParseFloat(strings.TrimSpace(*weight), 64)
+				val, err := parseMatchmakingRuleWeight(*weight)
 				if err != nil {
-					fmt.Fprintln(os.Stderr, "Error: --weight must be a number")
-					return flag.ErrHelp
+					return shared.UsageError(err.Error())
 				}
 				attrs.Weight = &val
 			}
@@ -966,7 +966,7 @@ func GameCenterMatchmakingRulesUpdateCommand() *ffcli.Command {
 	ruleID := fs.String("id", "", "Matchmaking rule ID")
 	description := fs.String("description", "", "Rule description")
 	expression := fs.String("expression", "", "Rule expression")
-	weight := fs.String("weight", "", "Rule weight (float)")
+	weight := fs.String("weight", "", "Rule weight (finite number)")
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
@@ -1001,10 +1001,9 @@ Examples:
 				hasUpdate = true
 			}
 			if strings.TrimSpace(*weight) != "" {
-				val, err := strconv.ParseFloat(strings.TrimSpace(*weight), 64)
+				val, err := parseMatchmakingRuleWeight(*weight)
 				if err != nil {
-					fmt.Fprintln(os.Stderr, "Error: --weight must be a number")
-					return flag.ErrHelp
+					return shared.UsageError(err.Error())
 				}
 				attrs.Weight = &val
 				hasUpdate = true
@@ -1031,6 +1030,17 @@ Examples:
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
 		},
 	}
+}
+
+func parseMatchmakingRuleWeight(value string) (float64, error) {
+	weight, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0, fmt.Errorf("--weight must be a number")
+	}
+	if math.IsNaN(weight) || math.IsInf(weight, 0) {
+		return 0, fmt.Errorf("--weight must be a finite number")
+	}
+	return weight, nil
 }
 
 // GameCenterMatchmakingRulesDeleteCommand returns the rules delete subcommand.
