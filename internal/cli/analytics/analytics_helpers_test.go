@@ -5,11 +5,49 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
+
+func TestAnalyticsDownloadDefaultOutputSanitizesInstanceID(t *testing.T) {
+	const requestID = "11111111-1111-1111-1111-111111111111"
+	tests := []struct {
+		name       string
+		instanceID string
+		want       string
+	}{
+		{
+			name:       "preserves prefixed ID",
+			instanceID: "r39-example-instance",
+			want:       "analytics_report_11111111-1111-1111-1111-111111111111_r39-example-instance.csv.gz",
+		},
+		{
+			name:       "removes path syntax",
+			instanceID: `r39/../../target\segment:part`,
+			want:       "analytics_report_11111111-1111-1111-1111-111111111111_r39_.._.._target_segment_part.csv.gz",
+		},
+		{
+			name:       "uses fallback for only path syntax",
+			instanceID: `../\:`,
+			want:       "analytics_report_11111111-1111-1111-1111-111111111111_instance.csv.gz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := analyticsDownloadDefaultOutput(requestID, tt.instanceID)
+			if got != tt.want {
+				t.Fatalf("analyticsDownloadDefaultOutput() = %q, want %q", got, tt.want)
+			}
+			if filepath.Base(got) != got || strings.ContainsAny(got, `/\`) {
+				t.Fatalf("analyticsDownloadDefaultOutput() returned path syntax: %q", got)
+			}
+		})
+	}
+}
 
 func TestResolveReportOutputPaths_Decompress(t *testing.T) {
 	compressed, decompressed := shared.ResolveReportOutputPaths("report.tsv.gz", "default.tsv.gz", ".tsv", true)
