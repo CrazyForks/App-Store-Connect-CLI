@@ -167,14 +167,26 @@ func TestReviewItemTypeListIncludes441VersionTypes(t *testing.T) {
 }
 
 func TestReviewItemsAddRejectsRemovedItemTypesBeforeAuth(t *testing.T) {
-	wantErr := "--item-type must be one of: " + strings.Join(reviewSubmissionItemTypeList(), ", ")
 	tests := []struct {
 		name     string
 		itemType string
+		wantErr  string
 	}{
-		{name: "custom product page", itemType: "appCustomProductPages"},
-		{name: "experiment treatment", itemType: "appStoreVersionExperimentTreatments"},
-		{name: "singular experiment v2 alias", itemType: "appStoreVersionExperimentV2"},
+		{
+			name:     "custom product page",
+			itemType: "appCustomProductPages",
+			wantErr:  "--item-type appCustomProductPages is deprecated and no longer supported by App Store Connect; pass an app custom product page version ID with --item-type appCustomProductPageVersions",
+		},
+		{
+			name:     "experiment treatment",
+			itemType: "appStoreVersionExperimentTreatments",
+			wantErr:  "--item-type appStoreVersionExperimentTreatments is deprecated and no longer supported by App Store Connect; experiment treatments cannot be added as review submission items",
+		},
+		{
+			name:     "unknown",
+			itemType: "nope",
+			wantErr:  "--item-type must be one of: " + strings.Join(reviewSubmissionItemTypeList(), ", "),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -190,8 +202,8 @@ func TestReviewItemsAddRejectsRemovedItemTypesBeforeAuth(t *testing.T) {
 				"--item-type", test.itemType,
 				"--item-id", "item-1",
 			})
-			if err == nil || !errors.Is(err, flag.ErrHelp) || err.Error() != wantErr {
-				t.Fatalf("error = %q, want %q with flag.ErrHelp", err, wantErr)
+			if err == nil || !errors.Is(err, flag.ErrHelp) || err.Error() != test.wantErr {
+				t.Fatalf("error = %q, want %q with flag.ErrHelp", err, test.wantErr)
 			}
 			if factoryCalled {
 				t.Fatal("client factory called before removed item type validation")
