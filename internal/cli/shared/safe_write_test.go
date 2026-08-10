@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,31 @@ func TestSafeWriteFileNoSymlinkNoOverwriteRemovesPartialFileAfterCallbackFailure
 	}
 	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected partial destination to be removed, stat error = %v", err)
+	}
+}
+
+func TestSafeWriteFileNoSymlinkNoOverwriteReportsDestinationForCallbackPathError(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "artifact.bin")
+	writeErr := errors.New("simulated write failure")
+
+	_, err := SafeWriteFileNoSymlink(
+		destination,
+		0o600,
+		false,
+		".safe-write-*",
+		".safe-write-backup-*",
+		func(file *os.File) (int64, error) {
+			return 0, &os.PathError{Op: "write", Path: file.Name(), Err: writeErr}
+		},
+	)
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want %v", err, writeErr)
+	}
+	if !strings.Contains(err.Error(), destination) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want destination %q", err, destination)
+	}
+	if strings.Contains(err.Error(), ".safe-write-") {
+		t.Fatalf("SafeWriteFileNoSymlink() exposed temporary path: %v", err)
 	}
 }
 

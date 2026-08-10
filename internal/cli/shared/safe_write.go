@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/secureopen"
 )
@@ -22,6 +23,9 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 	}
 
 	if !overwrite {
+		// Callers pass a complete, already-resolved output path. Pin its immediate
+		// parent so staging, publication, and cleanup cannot be redirected by a
+		// concurrent parent rename.
 		parent, err := os.OpenRoot(filepath.Dir(path))
 		if err != nil {
 			return 0, err
@@ -39,27 +43,44 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 		if err != nil {
 			return 0, err
 		}
-		written, err := writeNewFileNoSymlink(temporaryName, file, write, newFileWriteOps{
-			syncFile:  file.Sync,
-			closeFile: file.Close,
+		temporaryPath := file.Name()
+		displayDestinationError := func(err error) error {
+			return replaceErrorPaths(err, path, temporaryPath, temporaryName)
+		}
+		displayTemporaryError := func(err error) error {
+			return replaceErrorPaths(err, "temporary output", temporaryPath, temporaryName)
+		}
+		written, err := writeNewFileNoSymlink(temporaryName, file, func(file *os.File) (int64, error) {
+			written, err := write(file)
+			return written, displayDestinationError(err)
+		}, newFileWriteOps{
+			syncFile: func() error {
+				return displayDestinationError(file.Sync())
+			},
+			closeFile: func() error {
+				return displayDestinationError(file.Close())
+			},
 			removeFile: func(name string) error {
-				return removeRootedFile(parent, name)
+				return displayTemporaryError(removeRootedFile(parent, name))
 			},
 		})
 		if err != nil {
 			return written, err
 		}
 
+		// A same-directory hard link publishes the complete file atomically and
+		// fails rather than replacing a destination created during the write.
 		if err := parent.Link(temporaryName, base); err != nil {
+			err = displayDestinationError(err)
 			if errors.Is(err, os.ErrExist) {
 				err = fmt.Errorf("output file already exists: %w", err)
 			}
 			return written, cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(name string) error {
-				return removeRootedFile(parent, name)
+				return displayTemporaryError(removeRootedFile(parent, name))
 			})
 		}
 		if err := removeRootedFile(parent, temporaryName); err != nil {
-			return written, fmt.Errorf("remove temporary output after publish: %w", err)
+			return written, fmt.Errorf("remove temporary output after publish: %w", displayTemporaryError(err))
 		}
 		return written, nil
 	}
@@ -97,6 +118,35 @@ func writeNewFileNoSymlink(path string, file *os.File, write func(*os.File) (int
 		return written, cleanupIncompleteFile(path, err, closeFile, ops.removeFile)
 	}
 	return written, nil
+}
+
+type displayPathError struct {
+	err     error
+	message string
+}
+
+func (e *displayPathError) Error() string {
+	return e.message
+}
+
+func (e *displayPathError) Unwrap() error {
+	return e.err
+}
+
+func replaceErrorPaths(err error, replacement string, paths ...string) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	for _, path := range paths {
+		if path != "" && path != replacement {
+			message = strings.ReplaceAll(message, path, replacement)
+		}
+	}
+	if message == err.Error() {
+		return err
+	}
+	return &displayPathError{err: err, message: message}
 }
 
 func removeRootedFile(root *os.Root, name string) error {
