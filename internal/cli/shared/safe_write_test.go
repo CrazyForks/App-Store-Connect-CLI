@@ -672,6 +672,112 @@ func TestSafeWriteFileNoSymlinkNoOverwriteCopyFallbackPreservesExistingDestinati
 	}
 }
 
+func TestSafeWriteFileNoSymlinkNoOverwriteReportsPublishFailureAgainstDestination(t *testing.T) {
+	previousRename := renameNoReplaceInRoot
+	t.Cleanup(func() {
+		renameNoReplaceInRoot = previousRename
+	})
+	renameNoReplaceInRoot = func(_ *os.Root, oldName, newName string) error {
+		return &os.LinkError{Op: "renameat2", Old: oldName, New: newName, Err: syscall.EIO}
+	}
+
+	destination := filepath.Join(t.TempDir(), "artifact.bin")
+
+	_, err := SafeWriteFileNoSymlink(
+		destination,
+		0o600,
+		false,
+		".safe-write-*",
+		".safe-write-backup-*",
+		func(file *os.File) (int64, error) {
+			written, err := file.Write([]byte("complete"))
+			return int64(written), err
+		},
+	)
+	if !errors.Is(err, syscall.EIO) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want syscall.EIO", err)
+	}
+	message := err.Error()
+	if !strings.Contains(message, destination) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want destination %q", err, destination)
+	}
+	if count := strings.Count(message, filepath.Base(destination)); count != 1 {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want destination named once, got %d occurrences", err, count)
+	}
+	if strings.Contains(message, "renameat2") {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, exposed the publication syscall", err)
+	}
+	if strings.Contains(message, ".safe-write-") {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, exposed the staged path", err)
+	}
+}
+
+func TestSafeWriteFileNoSymlinkNoOverwriteReportsExistingDestinationAgainstOutputPath(t *testing.T) {
+	t.Run("before staging", func(t *testing.T) {
+		destination := filepath.Join(t.TempDir(), "artifact.bin")
+		if err := os.WriteFile(destination, []byte("original"), 0o600); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+
+		_, err := SafeWriteFileNoSymlink(
+			destination,
+			0o600,
+			false,
+			".safe-write-*",
+			".safe-write-backup-*",
+			func(file *os.File) (int64, error) {
+				t.Fatal("write callback was called for an existing destination")
+				return 0, nil
+			},
+		)
+		assertExistingDestinationError(t, err, destination)
+	})
+
+	t.Run("during publication", func(t *testing.T) {
+		destination := filepath.Join(t.TempDir(), "artifact.bin")
+
+		_, err := SafeWriteFileNoSymlink(
+			destination,
+			0o600,
+			false,
+			".safe-write-*",
+			".safe-write-backup-*",
+			func(file *os.File) (int64, error) {
+				written, err := file.Write([]byte("complete"))
+				if err != nil {
+					return int64(written), err
+				}
+				if err := os.WriteFile(destination, []byte("concurrent"), 0o600); err != nil {
+					return int64(written), err
+				}
+				return int64(written), nil
+			},
+		)
+		assertExistingDestinationError(t, err, destination)
+	})
+}
+
+func assertExistingDestinationError(t *testing.T, err error, destination string) {
+	t.Helper()
+
+	if !errors.Is(err, os.ErrExist) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want os.ErrExist", err)
+	}
+	message := err.Error()
+	if !strings.Contains(message, "output file already exists") {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want existing-output message", err)
+	}
+	if !strings.Contains(message, destination) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want destination %q", err, destination)
+	}
+	if count := strings.Count(message, filepath.Base(destination)); count != 1 {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want destination named once, got %d occurrences", err, count)
+	}
+	if strings.Contains(message, ".safe-write-") {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, exposed the staged path", err)
+	}
+}
+
 // stubUnsupportedPublishPrimitives simulates a destination filesystem such as
 // FAT/exFAT, SMB, or FUSE that implements neither an atomic no-replace rename
 // nor hard links.

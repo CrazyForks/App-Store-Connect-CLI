@@ -47,7 +47,7 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 
 		base := filepath.Base(path)
 		if _, err := parent.Lstat(base); err == nil {
-			return 0, fmt.Errorf("output file already exists: %w", os.ErrExist)
+			return 0, existingOutputError(path, os.ErrExist)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return 0, err
 		}
@@ -64,9 +64,21 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 			return replaceErrorPaths(err, "temporary output", temporaryPath, temporaryName)
 		}
 		displayPublishError := func(err error) error {
+			if err == nil {
+				return nil
+			}
 			err = displayDestinationError(err)
 			if errors.Is(err, os.ErrExist) {
-				return fmt.Errorf("output file already exists: %w", err)
+				return existingOutputError(path, err)
+			}
+			// Publication primitives report failures as *os.LinkError naming the
+			// staged and destination entries relative to the pinned parent, which
+			// reads as the same file twice once the staged operand is rewritten to
+			// the destination. Name the output path once and keep the syscall
+			// error as the wrapped cause.
+			var linkErr *os.LinkError
+			if errors.As(err, &linkErr) {
+				return &displayPathError{err: err, message: fmt.Sprintf("publish output %q: %v", path, linkErr.Err)}
 			}
 			return err
 		}
@@ -265,6 +277,12 @@ func replaceErrorPaths(err error, replacement string, paths ...string) error {
 		return err
 	}
 	return &displayPathError{err: err, message: message}
+}
+
+// existingOutputError reports a refused overwrite against the output path the
+// caller asked for while keeping the cause matchable with errors.Is.
+func existingOutputError(path string, cause error) error {
+	return &displayPathError{err: cause, message: fmt.Sprintf("output file already exists: %q", path)}
 }
 
 func removeRootedFile(root *os.Root, name string) error {
