@@ -184,6 +184,10 @@ asc review items-update --id "ITEM_ID" --resolved false
 asc review items-update --id "ITEM_ID" --clear-removed
 ```
 
+`--item-type appStoreVersionExperimentV2` is the deprecated singular spelling
+of `appStoreVersionExperimentsV2`. It still resolves to the canonical value and
+warns on stderr; the alias is removed in 5.0.0.
+
 `--fields` controls review-item fields. The related sparse-field flags are
 `--iap-version-fields`, `--subscription-version-fields`, and
 `--subscription-group-version-fields`. `--item-fields` exposes the expanded
