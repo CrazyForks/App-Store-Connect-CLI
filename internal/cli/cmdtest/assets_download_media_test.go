@@ -3,12 +3,18 @@ package cmdtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	cmdpkg "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 )
 
 func TestScreenshotsDownload_ByID_WritesFile(t *testing.T) {
@@ -504,4 +510,139 @@ func TestVideoPreviewsDownload_ByLocalization_WritesFiles(t *testing.T) {
 	if string(data) != "MOVDATA" {
 		t.Fatalf("unexpected file contents: %q", string(data))
 	}
+}
+
+func TestVideoPreviewsDownload_ByLocalization_PreservesFallbackDetailErrors(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_MAX_RETRIES", "0")
+
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", req.Method)
+			http.Error(w, "unexpected method", http.StatusMethodNotAllowed)
+			return
+		}
+		if req.URL.RawQuery != "" {
+			t.Errorf("query = %q, want empty", req.URL.RawQuery)
+			http.Error(w, "unexpected query", http.StatusBadRequest)
+			return
+		}
+
+		switch req.URL.Path {
+		case "/v1/appStoreVersionLocalizations/loc-1/appPreviewSets":
+			writeJSONResponse(w, http.StatusOK, `{"data":[{"type":"appPreviewSets","id":"set-1","attributes":{"previewType":"IPHONE_65"}}],"links":{}}`)
+		case "/v1/appPreviewSets/set-1/appPreviews":
+			writeJSONResponse(w, http.StatusOK, `{"data":[{"type":"appPreviews","id":"auth","attributes":{"fileName":"a-auth.mov"}},{"type":"appPreviews","id":"empty","attributes":{"fileName":"b-empty.mov"}},{"type":"appPreviews","id":"good","attributes":{"fileName":"c-good.mov","videoUrl":"`+serverURL+`/media/good.mov"}}],"links":{}}`)
+		case "/v1/appPreviews/auth":
+			writeJSONResponse(w, http.StatusUnauthorized, `{"errors":[{"status":"401","code":"NOT_AUTHORIZED","title":"Unauthorized","detail":"preview detail access denied\nforged-row"}]}`)
+		case "/v1/appPreviews/empty":
+			writeJSONResponse(w, http.StatusOK, `{"data":{"type":"appPreviews","id":"empty","attributes":{"fileName":"b-empty.mov"}},"links":{}}`)
+		case "/media/good.mov":
+			w.Header().Set("Content-Type", "video/quicktime")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "MOVDATA")
+		default:
+			t.Errorf("unexpected request path: %s", req.URL.Path)
+			http.Error(w, "unexpected path", http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	serverURL = server.URL
+
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+	serverTransport := server.Client().Transport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		switch req.URL.Host {
+		case "api.appstoreconnect.apple.com":
+			cloned.URL.Scheme = target.Scheme
+			cloned.URL.Host = target.Host
+			cloned.Host = target.Host
+		case target.Host:
+			// The successful sibling downloads directly from the test server.
+		default:
+			return nil, fmt.Errorf("unexpected host: %s", req.URL.Host)
+		}
+		return serverTransport.RoundTrip(cloned)
+	})
+
+	outDir := filepath.Join(t.TempDir(), "previews")
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"video-previews", "download", "--version-localization", "loc-1", "--output-dir", outDir}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty because the JSON result already reports failures", stderr)
+	}
+	var reported ReportedError
+	if !errors.As(runErr, &reported) {
+		t.Fatalf("run error = %T %v, want ReportedError", runErr, runErr)
+	}
+	if got := cmdpkg.ExitCodeFromError(runErr); got != cmdpkg.ExitError {
+		t.Fatalf("exit code = %d, want generic failure %d", got, cmdpkg.ExitError)
+	}
+
+	var result struct {
+		Total      int `json:"total"`
+		Downloaded int `json:"downloaded"`
+		Failed     int `json:"failed"`
+		Failures   []struct {
+			ID    string `json:"id"`
+			Error string `json:"error"`
+		} `json:"failures"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode stdout JSON: %v (stdout=%q)", err, stdout)
+	}
+	if result.Total != 3 || result.Downloaded != 1 || result.Failed != 2 {
+		t.Fatalf("unexpected result summary: %+v", result)
+	}
+	if len(result.Failures) != 2 {
+		t.Fatalf("failures = %#v, want 2", result.Failures)
+	}
+	if got, want := result.Failures[0].ID, "auth"; got != want {
+		t.Fatalf("first failure ID = %q, want %q", got, want)
+	}
+	if got, want := result.Failures[0].Error, "failed to fetch preview details: Unauthorized: preview detail access denied forged-row"; got != want {
+		t.Fatalf("first failure error = %q, want %q", got, want)
+	}
+	if strings.ContainsAny(result.Failures[0].Error, "\r\n") {
+		t.Fatalf("first failure contains an unsafe line break: %q", result.Failures[0].Error)
+	}
+	if got, want := result.Failures[1].ID, "empty"; got != want {
+		t.Fatalf("second failure ID = %q, want %q", got, want)
+	}
+	if got, want := result.Failures[1].Error, "preview has no videoUrl"; got != want {
+		t.Fatalf("second failure error = %q, want %q", got, want)
+	}
+
+	goodPath := filepath.Join(outDir, "IPHONE_65", "03_good_c-good.mov")
+	data, err := os.ReadFile(goodPath)
+	if err != nil {
+		t.Fatalf("read successful sibling: %v", err)
+	}
+	if string(data) != "MOVDATA" {
+		t.Fatalf("successful sibling contents = %q, want MOVDATA", data)
+	}
+}
+
+func writeJSONResponse(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, body)
 }
