@@ -326,7 +326,7 @@ func certificatesForProfileCreation(certificates []asc.Resource[asc.CertificateA
 	candidates := make([]candidate, 0, len(certificates))
 	for _, certificate := range certificates {
 		activated := certificate.Attributes.Activated
-		if activated == nil || !*activated {
+		if activated != nil && !*activated {
 			continue
 		}
 		expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(certificate.Attributes.ExpirationDate))

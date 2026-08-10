@@ -687,7 +687,7 @@ func TestResolveSigningAssetsRejectsProfileCreationWhenAllCertificatesAreIneligi
 	}
 }
 
-func TestCertificatesForProfileCreationRequiresCompleteLifecycleMetadata(t *testing.T) {
+func TestCertificatesForProfileCreationAcceptsOmittedActivationButRequiresValidExpiration(t *testing.T) {
 	now := time.Date(2030, time.January, 1, 0, 0, 0, 0, time.UTC)
 	active := true
 	certificates := []asc.Resource[asc.CertificateAttributes]{
@@ -699,8 +699,8 @@ func TestCertificatesForProfileCreationRequiresCompleteLifecycleMetadata(t *test
 	}
 
 	got := certificatesForProfileCreation(certificates, "IOS_APP_DEVELOPMENT", now)
-	if ids := strings.Join(extractIDs(got), ","); ids != "cert-valid" {
-		t.Fatalf("eligible certificate IDs = %q, want cert-valid", ids)
+	if ids := strings.Join(extractIDs(got), ","); ids != "cert-missing-activation,cert-valid" {
+		t.Fatalf("eligible certificate IDs = %q, want omitted-activation and valid certificates", ids)
 	}
 }
 
