@@ -25,7 +25,7 @@ func TestCertificatesCSRGenerate_ForceRejectsNamedPipeOutputsBeforeWriting(t *te
 	}
 	csrOut := filepath.Join(dir, "cert.csr")
 	if err := unix.Mkfifo(csrOut, 0o600); err != nil {
-		t.Skipf("mkfifo not supported: %v", err)
+		t.Fatalf("Mkfifo(csrOut) error: %v", err)
 	}
 
 	root := RootCommand("1.2.3")
