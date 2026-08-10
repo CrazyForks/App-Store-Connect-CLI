@@ -446,7 +446,7 @@ func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
 		},
 		{
 			name:       "timestamped error before long diagnostics",
-			output:     "2026-08-10 06:47:56.580 ERROR: Early server rejection.\n" + strings.Repeat("x", xcodebuildErrorTailLimit+1) + "\n",
+			output:     "2026-08-10 06:47:56.580 ERROR: Early server rejection.\n" + strings.Repeat("x", xcodeCommandErrorOutputLimit+1) + "\n",
 			wantErr:    true,
 			wantDetail: "Early server rejection.",
 		},
@@ -459,11 +459,11 @@ func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
 		},
 		{
 			name:           "aggregate details from both streams stay bounded",
-			stdout:         "2026-08-10 06:47:56.580 ERROR: " + strings.Repeat("a", xcodebuildErrorTailLimit/2) + "\n",
-			output:         "*** Error: " + strings.Repeat("b", xcodebuildErrorTailLimit/2) + "\n",
+			stdout:         "2026-08-10 06:47:56.580 ERROR: " + strings.Repeat("a", xcodeCommandErrorOutputLimit/2) + "\n",
+			output:         "*** Error: " + strings.Repeat("b", xcodeCommandErrorOutputLimit/2) + "\n",
 			wantErr:        true,
 			wantDetail:     strings.Repeat("a", 32),
-			maxDetailBytes: xcodebuildErrorTailLimit,
+			maxDetailBytes: xcodeCommandErrorOutputLimit,
 		},
 		{
 			name:   "benign output containing error text",
@@ -1246,7 +1246,60 @@ func TestExportRejectsExistingIPAWithoutOverwrite(t *testing.T) {
 	}
 }
 
-func TestRunXcodebuildWithLogWriterKeepsOnlyTailInErrorMessage(t *testing.T) {
+func TestRunXcodebuildFailurePreservesBeginningAndEndWithinBound(t *testing.T) {
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "commands.log")
+
+	restore := overrideTestEnvironment(t)
+	commandContextFn = helperCommandContext(t, logPath)
+	t.Cleanup(restore)
+
+	tests := []struct {
+		name                 string
+		action               string
+		preserveProcessError bool
+	}{
+		{name: "build", action: "build", preserveProcessError: true},
+		{name: "archive", action: "archive"},
+		{name: "export", action: "export"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := runCommandWithBoundedOutputMode(
+				context.Background(),
+				"xcodebuild",
+				[]string{"fail-large-output"},
+				nil,
+				test.action,
+				"xcodebuild",
+				test.preserveProcessError,
+			)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+
+			errorText := err.Error()
+			for _, want := range []string{
+				"file.m:4:3: error: root cause",
+				"FINAL-DIAGNOSTIC",
+				"output truncated to 65536 bytes; preserving beginning and end",
+				"bytes omitted",
+			} {
+				if !strings.Contains(errorText, want) {
+					t.Fatalf("error = %q, want %q", errorText, want)
+				}
+			}
+
+			var exitErr *exec.ExitError
+			if got := errors.As(err, &exitErr); got != test.preserveProcessError {
+				t.Fatalf("errors.As(*exec.ExitError) = %t, want %t; error = %v", got, test.preserveProcessError, err)
+			}
+		})
+	}
+}
+
+func TestRunXcodebuildFailureStillStreamsCompleteOutputOnce(t *testing.T) {
 	tempDir := t.TempDir()
 	logPath := filepath.Join(tempDir, "commands.log")
 
@@ -1261,22 +1314,17 @@ func TestRunXcodebuildWithLogWriterKeepsOnlyTailInErrorMessage(t *testing.T) {
 	}
 
 	streamedOutput := streamed.String()
-	if !strings.Contains(streamedOutput, "EARLY-MARKER") {
-		t.Fatalf("expected streamed output to include early marker, got %q", streamedOutput)
-	}
-	if !strings.Contains(streamedOutput, "LATE-MARKER") {
-		t.Fatalf("expected streamed output to include late marker, got %q", streamedOutput)
+	for _, want := range []string{"file.m:4:3: error: root cause", "FINAL-DIAGNOSTIC"} {
+		if got := strings.Count(streamedOutput, want); got != 1 {
+			t.Fatalf("streamed diagnostic %q count = %d, want 1", want, got)
+		}
 	}
 
 	errorText := err.Error()
-	if !strings.Contains(errorText, "showing last") {
-		t.Fatalf("expected truncated tail message, got %v", err)
-	}
-	if strings.Contains(errorText, "EARLY-MARKER") {
-		t.Fatalf("expected early marker to be dropped from tail, got %v", err)
-	}
-	if !strings.Contains(errorText, "LATE-MARKER") {
-		t.Fatalf("expected late marker in error tail, got %v", err)
+	for _, want := range []string{"file.m:4:3: error: root cause", "FINAL-DIAGNOSTIC"} {
+		if !strings.Contains(errorText, want) {
+			t.Fatalf("error = %q, want %q", errorText, want)
+		}
 	}
 	if strings.Contains(errorText, "exit status 1") {
 		t.Fatalf("legacy archive/export runner error text changed: %v", err)
@@ -1284,6 +1332,57 @@ func TestRunXcodebuildWithLogWriterKeepsOnlyTailInErrorMessage(t *testing.T) {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		t.Fatalf("legacy archive/export runner unexpectedly exposes process error: %v", err)
+	}
+}
+
+func TestRunXcodebuildInterruptionPreservesBeginningAndEndWithinBound(t *testing.T) {
+	tempDir := t.TempDir()
+	restore := overrideTestEnvironment(t)
+	commandContextFn = helperCommandContext(t, filepath.Join(tempDir, "commands.log"))
+	t.Cleanup(restore)
+
+	tests := []struct {
+		name       string
+		newContext func() (context.Context, context.CancelFunc)
+		wantCause  error
+	}{
+		{
+			name: "deadline",
+			newContext: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), 50*time.Millisecond)
+			},
+			wantCause: context.DeadlineExceeded,
+		},
+		{
+			name: "cancellation",
+			newContext: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				time.AfterFunc(50*time.Millisecond, cancel)
+				return ctx, cancel
+			},
+			wantCause: context.Canceled,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := test.newContext()
+			defer cancel()
+
+			err := runXcodebuild(ctx, []string{"large-output-then-wait"}, nil)
+			if !errors.Is(err, test.wantCause) {
+				t.Fatalf("runXcodebuild() error = %v, want %v", err, test.wantCause)
+			}
+			for _, want := range []string{
+				"file.m:4:3: error: root cause",
+				"FINAL-BEFORE-INTERRUPTION",
+				"output truncated to 65536 bytes; preserving beginning and end",
+			} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error = %q, want %q", err, want)
+				}
+			}
+		})
 	}
 }
 
@@ -1299,6 +1398,62 @@ func TestTailBufferStringRemainsValidUTF8AfterByteTruncation(t *testing.T) {
 	}
 	if !strings.Contains(got, "界") {
 		t.Fatalf("String() = %q, want intact trailing diagnostic", got)
+	}
+}
+
+func TestHeadTailBufferPreservesUntruncatedOutput(t *testing.T) {
+	buffer := newHeadTailBuffer(8)
+	for _, chunk := range []string{"ab", "cd", "ef"} {
+		if _, err := buffer.Write([]byte(chunk)); err != nil {
+			t.Fatalf("Write(%q) error = %v", chunk, err)
+		}
+	}
+
+	if buffer.Truncated() {
+		t.Fatal("Truncated() = true, want false")
+	}
+	if got := buffer.String(); got != "abcdef" {
+		t.Fatalf("String() = %q, want %q", got, "abcdef")
+	}
+}
+
+func TestHeadTailBufferRepairsUTF8AtBothTruncationBoundaries(t *testing.T) {
+	buffer := newHeadTailBuffer(8)
+	if _, err := buffer.Write([]byte("始界界終")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if !utf8.ValidString(got) {
+		t.Fatalf("String() returned invalid UTF-8 after truncation: %q", got)
+	}
+	for _, want := range []string{"始", "終", "6 bytes omitted"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("String() = %q, want %q", got, want)
+		}
+	}
+	if stored := len(buffer.head) + len(buffer.tail.data); stored > buffer.limit {
+		t.Fatalf("stored bytes = %d, limit = %d", stored, buffer.limit)
+	}
+}
+
+func TestHeadTailBufferHandlesZeroAndSingleByteLimits(t *testing.T) {
+	for _, limit := range []int{0, 1} {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
+			buffer := newHeadTailBuffer(limit)
+			if _, err := buffer.Write([]byte("ab")); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			if !buffer.Truncated() {
+				t.Fatal("Truncated() = false, want true")
+			}
+			if !utf8.ValidString(buffer.String()) {
+				t.Fatalf("String() returned invalid UTF-8: %q", buffer.String())
+			}
+			if stored := len(buffer.head) + len(buffer.tail.data); stored > limit {
+				t.Fatalf("stored bytes = %d, limit = %d", stored, limit)
+			}
+		})
 	}
 }
 
@@ -1552,10 +1707,18 @@ func TestXcodeHelperProcess(t *testing.T) {
 	}
 
 	if len(commandArgs) >= 2 && commandArgs[0] == "xcodebuild" && commandArgs[1] == "fail-large-output" {
-		fmt.Fprint(os.Stderr, "EARLY-MARKER\n")
-		fmt.Fprint(os.Stderr, strings.Repeat("x", xcodebuildErrorTailLimit+128))
-		fmt.Fprint(os.Stderr, "\nLATE-MARKER\n")
+		fmt.Fprint(os.Stderr, "file.m:4:3: error: root cause\n")
+		fmt.Fprint(os.Stderr, strings.Repeat("x", xcodeCommandErrorOutputLimit+128))
+		fmt.Fprint(os.Stderr, "\nFINAL-DIAGNOSTIC\n")
 		os.Exit(1)
+	}
+
+	if len(commandArgs) >= 2 && commandArgs[0] == "xcodebuild" && commandArgs[1] == "large-output-then-wait" {
+		fmt.Fprint(os.Stderr, "file.m:4:3: error: root cause\n")
+		fmt.Fprint(os.Stderr, strings.Repeat("x", xcodeCommandErrorOutputLimit+128))
+		fmt.Fprint(os.Stderr, "\nFINAL-BEFORE-INTERRUPTION\n")
+		time.Sleep(2 * time.Second)
+		os.Exit(0)
 	}
 
 	fmt.Fprintf(os.Stderr, "unexpected helper invocation: %v\n", commandArgs)
