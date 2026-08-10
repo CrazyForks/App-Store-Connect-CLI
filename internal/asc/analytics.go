@@ -631,7 +631,7 @@ func (c *Client) GetAnalyticsReportInstance(ctx context.Context, instanceID stri
 func (c *Client) GetAnalyticsReportInstanceSegmentsRelationships(ctx context.Context, instanceID string, opts ...LinkagesOption) (*AnalyticsReportInstanceSegmentsLinkagesResponse, error) {
 	if strings.TrimSpace(instanceID) != "" {
 		var err error
-		instanceID, err = validateResourcePathSegment(instanceID)
+		instanceID, err = ValidateResourcePathSegment(instanceID)
 		if err != nil {
 			return nil, fmt.Errorf("analytics report instance segments relationship: %w", err)
 		}
@@ -687,7 +687,10 @@ func (c *Client) GetAnalyticsReportSegments(ctx context.Context, instanceID stri
 
 // GetAnalyticsReportSegment retrieves a specific report segment by ID.
 func (c *Client) GetAnalyticsReportSegment(ctx context.Context, segmentID string) (*AnalyticsReportSegmentResponse, error) {
-	path := fmt.Sprintf("/v1/analyticsReportSegments/%s", strings.TrimSpace(segmentID))
+	path, err := resourcePath("/v1/analyticsReportSegments/%s", segmentID)
+	if err != nil {
+		return nil, fmt.Errorf("analytics report segment: %w", err)
+	}
 	data, err := c.do(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err

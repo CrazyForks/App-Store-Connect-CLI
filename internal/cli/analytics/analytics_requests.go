@@ -428,6 +428,11 @@ Examples:
 					return fmt.Errorf("analytics view: %w", err)
 				}
 			}
+			if strings.TrimSpace(*instanceID) != "" {
+				if _, err := asc.ValidateResourcePathSegment(*instanceID); err != nil {
+					return fmt.Errorf("analytics view: --instance-id: %w", err)
+				}
+			}
 			if *limit != 0 && (*limit < 1 || *limit > analyticsMaxLimit) {
 				return fmt.Errorf("analytics view: --limit must be between 1 and 200")
 			}
@@ -607,6 +612,14 @@ Examples:
 			}
 			if err := validateAnalyticsRequestID(*requestID); err != nil {
 				return fmt.Errorf("analytics download: %w", err)
+			}
+			if _, err := asc.ValidateResourcePathSegment(*instanceID); err != nil {
+				return fmt.Errorf("analytics download: --instance-id: %w", err)
+			}
+			if strings.TrimSpace(*segmentID) != "" {
+				if _, err := asc.ValidateResourcePathSegment(*segmentID); err != nil {
+					return fmt.Errorf("analytics download: --segment-id: %w", err)
+				}
 			}
 
 			defaultOutput := analyticsDownloadDefaultOutput(*requestID, *instanceID)

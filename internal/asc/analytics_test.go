@@ -465,7 +465,7 @@ func TestGetAnalyticsReportInstance_SendsRequest(t *testing.T) {
 	}
 }
 
-func TestAnalyticsInstanceEndpointsRejectIDsThatEscapePathSegment(t *testing.T) {
+func TestAnalyticsResourceEndpointsRejectIDsThatEscapePathSegment(t *testing.T) {
 	tests := []struct {
 		name string
 		call func(*Client) error
@@ -488,6 +488,13 @@ func TestAnalyticsInstanceEndpointsRejectIDsThatEscapePathSegment(t *testing.T) 
 			name: "GetAnalyticsReportSegments",
 			call: func(client *Client) error {
 				_, err := client.GetAnalyticsReportSegments(context.Background(), "inst-1/relationships/reports")
+				return err
+			},
+		},
+		{
+			name: "GetAnalyticsReportSegment",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReportSegment(context.Background(), "seg-1/relationships/report")
 				return err
 			},
 		},

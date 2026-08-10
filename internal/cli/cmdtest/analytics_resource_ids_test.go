@@ -121,6 +121,83 @@ func TestAnalyticsRequestIDValidationRemainsBeforeClientConstruction(t *testing.
 	}
 }
 
+func TestAnalyticsResourcePathValidationRemainsBeforeClientConstruction(t *testing.T) {
+	setupAnalyticsResourceIDAuth(t)
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "instances view",
+			args: []string{
+				"analytics", "instances", "view",
+				"--instance-id", "r39/escaped-instance",
+			},
+		},
+		{
+			name: "instances links",
+			args: []string{
+				"analytics", "instances", "links",
+				"--instance-id", "r39/escaped-instance",
+			},
+		},
+		{
+			name: "view filter",
+			args: []string{
+				"analytics", "view",
+				"--request-id", analyticsViewRequestID,
+				"--instance-id", "r39/escaped-instance",
+			},
+		},
+		{
+			name: "segments view",
+			args: []string{
+				"analytics", "segments", "view",
+				"--segment-id", "s39/escaped-segment",
+			},
+		},
+		{
+			name: "download",
+			args: []string{
+				"analytics", "download",
+				"--request-id", analyticsViewRequestID,
+				"--instance-id", "r39/escaped-instance",
+			},
+		},
+		{
+			name: "download segment",
+			args: []string{
+				"analytics", "download",
+				"--request-id", analyticsViewRequestID,
+				"--instance-id", "r39-example-instance",
+				"--segment-id", "s39/escaped-segment",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clientFactoryCalls := 0
+			t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+				clientFactoryCalls++
+				return nil, errors.New("client construction should not be attempted")
+			}))
+
+			stdout, stderr, runErr := runCommand(t, test.args)
+			if runErr == nil || !strings.Contains(runErr.Error(), "single path segment") {
+				t.Fatalf("run error = %v, want resource path-segment validation", runErr)
+			}
+			if stdout != "" || stderr != "" {
+				t.Fatalf("expected empty output, got stdout=%q stderr=%q", stdout, stderr)
+			}
+			if clientFactoryCalls != 0 {
+				t.Fatalf("client factory calls = %d, want 0", clientFactoryCalls)
+			}
+		})
+	}
+}
+
 func runAnalyticsDownloadIDCase(t *testing.T, instanceID, segmentID string) {
 	t.Helper()
 	setupAnalyticsResourceIDAuth(t)
