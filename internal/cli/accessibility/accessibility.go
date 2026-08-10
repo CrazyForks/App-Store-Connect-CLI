@@ -78,6 +78,9 @@ Examples:
 			if err := shared.ValidateNextURL(*next); err != nil {
 				return fmt.Errorf("accessibility list: %w", err)
 			}
+			if err := rejectAccessibilityNextFlagConflicts(fs, *next, "app", "device-family", "state", "fields", "limit"); err != nil {
+				return err
+			}
 
 			deviceFamilies, err := normalizeAccessibilityDeviceFamilies(shared.SplitCSVUpper(*deviceFamily))
 			if err != nil {
@@ -141,6 +144,22 @@ Examples:
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
 		},
 	}
+}
+
+func rejectAccessibilityNextFlagConflicts(fs *flag.FlagSet, next string, names ...string) error {
+	if strings.TrimSpace(next) == "" {
+		return nil
+	}
+	provided := make(map[string]struct{}, len(names))
+	fs.Visit(func(f *flag.Flag) {
+		provided[f.Name] = struct{}{}
+	})
+	for _, name := range names {
+		if _, ok := provided[name]; ok {
+			return shared.UsageErrorf("accessibility list: --next cannot be combined with --%s", name)
+		}
+	}
+	return nil
 }
 
 // AccessibilityGetCommand returns the accessibility view subcommand.
