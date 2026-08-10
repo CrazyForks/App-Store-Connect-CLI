@@ -103,10 +103,6 @@ Examples:
 			}
 
 			if *paginate {
-				if resolvedAppID == "" {
-					fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID)")
-					return shared.MissingRequiredUsageError()
-				}
 				paginateOpts := append(opts, asc.WithWebhooksLimit(webhooksMaxLimit))
 				firstPage, err := client.GetAppWebhooks(requestCtx, resolvedAppID, paginateOpts...)
 				if err != nil {
