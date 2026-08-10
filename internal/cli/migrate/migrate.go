@@ -206,6 +206,10 @@ Examples:
 			if err != nil {
 				return err
 			}
+			preparedAppInfoLocalizations, err := prepareAppInfoLocalizationAttributes(appInfoLocs)
+			if err != nil {
+				return err
+			}
 
 			var client *asc.Client
 			var requestCtx context.Context
@@ -280,7 +284,7 @@ Examples:
 					localeToID[loc.Attributes.Locale] = loc.ID
 				}
 			}
-			appInfoPlan, err := prepareAppInfoLocalizations(requestCtx, client, resolvedAppID, appInfoLocs)
+			appInfoPlan, err := prepareAppInfoLocalizations(requestCtx, client, resolvedAppID, preparedAppInfoLocalizations)
 			if err != nil {
 				return err
 			}

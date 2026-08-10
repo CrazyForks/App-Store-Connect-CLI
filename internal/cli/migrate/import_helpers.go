@@ -12,6 +12,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/assets"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
 func resolveAppID(ctx context.Context, client *asc.Client, appFlag string, config DeliverfileConfig) (string, error) {
@@ -192,6 +193,29 @@ func prepareVersionLocalizations(localizations []FastlaneLocalization) ([]prepar
 	return prepared, nil
 }
 
+func prepareAppInfoLocalizationAttributes(localizations []AppInfoFastlaneLocalization) ([]preparedAppInfoLocalization, error) {
+	prepared := make([]preparedAppInfoLocalization, 0, len(localizations))
+	for _, loc := range localizations {
+		attrs := asc.AppInfoLocalizationAttributes{
+			Locale:           loc.Locale,
+			Name:             loc.Name,
+			Subtitle:         loc.Subtitle,
+			PrivacyPolicyURL: loc.PrivacyURL,
+		}
+		for _, issue := range validation.AppInfoLocalizationLengthIssues(validation.AppInfoLocalization{
+			Name:     attrs.Name,
+			Subtitle: attrs.Subtitle,
+		}) {
+			return nil, fmt.Errorf("migrate import: locale %q: %s exceeds %d %s", loc.Locale, issue.Field, issue.Limit, issue.Unit)
+		}
+		prepared = append(prepared, preparedAppInfoLocalization{
+			localization: loc,
+			attributes:   attrs,
+		})
+	}
+	return prepared, nil
+}
+
 func uploadVersionLocalizations(ctx context.Context, client *asc.Client, versionID string, localizations []preparedVersionLocalization, localeToID map[string]string, submitOpts shared.SubmitReadinessOptions) ([]LocalizationUploadItem, []shared.SubmitReadinessCreateWarning, error) {
 	results := make([]LocalizationUploadItem, 0, len(localizations))
 	warnings := make([]shared.SubmitReadinessCreateWarning, 0, len(localizations))
@@ -228,8 +252,8 @@ func uploadVersionLocalizations(ctx context.Context, client *asc.Client, version
 	return results, shared.NormalizeSubmitReadinessCreateWarnings(warnings), nil
 }
 
-func prepareAppInfoLocalizations(ctx context.Context, client *asc.Client, appID string, appInfoLocs []AppInfoFastlaneLocalization) (appInfoLocalizationPlan, error) {
-	if len(appInfoLocs) == 0 {
+func prepareAppInfoLocalizations(ctx context.Context, client *asc.Client, appID string, localizations []preparedAppInfoLocalization) (appInfoLocalizationPlan, error) {
+	if len(localizations) == 0 {
 		return appInfoLocalizationPlan{}, nil
 	}
 	appInfos, err := client.GetAppInfos(ctx, appID)
@@ -255,24 +279,17 @@ func prepareAppInfoLocalizations(ctx context.Context, client *asc.Client, appID 
 
 	plan := appInfoLocalizationPlan{
 		appInfoID:     appInfoID,
-		localizations: make([]preparedAppInfoLocalization, 0, len(appInfoLocs)),
+		localizations: make([]preparedAppInfoLocalization, 0, len(localizations)),
 	}
-	for _, loc := range appInfoLocs {
-		attrs := asc.AppInfoLocalizationAttributes{
-			Locale:           loc.Locale,
-			Name:             loc.Name,
-			Subtitle:         loc.Subtitle,
-			PrivacyPolicyURL: loc.PrivacyURL,
-		}
+	for _, prepared := range localizations {
+		loc := prepared.localization
+		attrs := prepared.attributes
 		localizationID := appInfoLocaleToID[loc.Locale]
 		if localizationID == "" && strings.TrimSpace(attrs.Name) == "" {
 			return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: locale %q: name is required when creating app info localization", loc.Locale)
 		}
-		plan.localizations = append(plan.localizations, preparedAppInfoLocalization{
-			localization:   loc,
-			attributes:     attrs,
-			localizationID: localizationID,
-		})
+		prepared.localizationID = localizationID
+		plan.localizations = append(plan.localizations, prepared)
 	}
 	return plan, nil
 }

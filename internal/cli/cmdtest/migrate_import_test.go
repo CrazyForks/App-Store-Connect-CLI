@@ -442,6 +442,91 @@ func TestMigrateImportPreflightsAppInfoCreatesBeforeMutations(t *testing.T) {
 	}
 }
 
+func TestMigrateImportPreflightsAppInfoLengthsBeforeMutations(t *testing.T) {
+	tests := []struct {
+		name      string
+		fileName  string
+		value     string
+		wantError string
+	}{
+		{
+			name:      "name",
+			fileName:  "name.txt",
+			value:     strings.Repeat("n", validation.LimitName+1),
+			wantError: `migrate import: locale "ja": name exceeds 30 characters`,
+		},
+		{
+			name:      "subtitle",
+			fileName:  "subtitle.txt",
+			value:     strings.Repeat("s", validation.LimitSubtitle+1),
+			wantError: `migrate import: locale "ja": subtitle exceeds 30 characters`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupAuth(t)
+			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+			root := t.TempDir()
+			metadataDir := filepath.Join(root, "metadata")
+			for _, locale := range []string{"en-US", "ja"} {
+				if err := os.MkdirAll(filepath.Join(metadataDir, locale), 0o755); err != nil {
+					t.Fatalf("mkdir metadata locale %s: %v", locale, err)
+				}
+			}
+			writeFile(t, filepath.Join(metadataDir, "en-US", "description.txt"), "English description")
+			writeFile(t, filepath.Join(metadataDir, "ja", "description.txt"), "Japanese description")
+			writeFile(t, filepath.Join(metadataDir, "ja", tt.fileName), tt.value)
+
+			originalTransport := http.DefaultTransport
+			t.Cleanup(func() {
+				http.DefaultTransport = originalTransport
+			})
+
+			var requests []string
+			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requests = append(requests, req.Method+" "+req.URL.Path)
+				return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			})
+
+			rootCmd := RootCommand("1.2.3")
+			rootCmd.FlagSet.SetOutput(io.Discard)
+
+			var runErr error
+			stdout, stderr := captureOutput(t, func() {
+				if err := rootCmd.Parse([]string{
+					"migrate", "import",
+					"--app", "APP_ID",
+					"--version-id", "VERSION_ID",
+					"--fastlane-dir", root,
+					"--confirm",
+					"--skip-screenshots",
+				}); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				runErr = rootCmd.Run(context.Background())
+			})
+
+			if runErr == nil {
+				t.Fatal("expected app info localization validation error")
+			}
+			if runErr.Error() != tt.wantError {
+				t.Fatalf("run error = %q, want %q", runErr, tt.wantError)
+			}
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if stderr != "" {
+				t.Fatalf("expected empty stderr, got %q", stderr)
+			}
+			if len(requests) != 0 {
+				t.Fatalf("expected no HTTP requests, got %v", requests)
+			}
+		})
+	}
+}
+
 func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesAfterPlanning(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
