@@ -134,6 +134,16 @@ skip_screenshots false
 * `platform` - Platform: `ios`, `osx` (or `macos`), `appletvos` (or `tvos`), `xros` (or `visionos`)
 * `skip_metadata` - Skip metadata import
 * `skip_screenshots` - Skip screenshot import
+* `metadata_path` - Metadata directory, resolved relative to the Deliverfile
+* `screenshots_path` - Screenshots directory, resolved relative to the Deliverfile
+
+`metadata_path` and `screenshots_path` win over the conventional `metadata/` and
+`screenshots/` directories, including when `--fastlane-dir` selected the
+Deliverfile. When a conventional directory exists but is not read, it is
+reported in `skipped`. A Deliverfile path that points outside the selected
+directory is rejected unless `--allow-external-metadata` or
+`--allow-external-screenshots` is passed, and a Deliverfile path that does not
+exist fails the command instead of falling back.
 
 ## Metadata Fields
 

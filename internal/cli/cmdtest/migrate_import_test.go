@@ -1318,6 +1318,66 @@ func TestMigrateImportDryRunDeliverfileSkipScreenshotsAllowsMissingFastlaneScree
 	}
 }
 
+func TestMigrateImportFastlaneDirHonorsDeliverfileMetadataPath(t *testing.T) {
+	root := t.TempDir()
+	fastlaneDir := filepath.Join(root, "fastlane")
+	staleDir := filepath.Join(fastlaneDir, "metadata", "en-US")
+	if err := os.MkdirAll(staleDir, 0o755); err != nil {
+		t.Fatalf("mkdir metadata: %v", err)
+	}
+	writeFile(t, filepath.Join(staleDir, "description.txt"), "STALE WRONG DESCRIPTION")
+
+	prodDir := filepath.Join(fastlaneDir, "metadata_prod", "en-US")
+	if err := os.MkdirAll(prodDir, 0o755); err != nil {
+		t.Fatalf("mkdir metadata_prod: %v", err)
+	}
+	writeFile(t, filepath.Join(prodDir, "description.txt"), "Production description")
+	writeFile(t, filepath.Join(fastlaneDir, "Deliverfile"), "metadata_path \"./metadata_prod\"\nskip_screenshots true\n")
+
+	rootCmd := RootCommand("1.2.3")
+	rootCmd.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := rootCmd.Parse([]string{
+			"migrate", "import",
+			"--app", "APP_ID",
+			"--version-id", "VERSION_ID",
+			"--fastlane-dir", fastlaneDir,
+			"--dry-run",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := rootCmd.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	var result migrate.MigrateImportResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if result.MetadataDir != filepath.Join(fastlaneDir, "metadata_prod") {
+		t.Fatalf("metadataDir = %q, want Deliverfile metadata_path", result.MetadataDir)
+	}
+	if len(result.Localizations) != 1 || result.Localizations[0].Description != "Production description" {
+		t.Fatalf("localizations = %+v, want the Deliverfile metadata_path description", result.Localizations)
+	}
+	wantReason := `unused because Deliverfile metadata_path "./metadata_prod" selects another directory`
+	found := false
+	for _, item := range result.Skipped {
+		if item.Path == filepath.Join(fastlaneDir, "metadata") && item.Reason == wantReason {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("skipped = %+v, want the overridden conventional metadata directory reported", result.Skipped)
+	}
+}
+
 func migrateJSONResponse(status int, body string) *http.Response {
 	return &http.Response{
 		StatusCode: status,
