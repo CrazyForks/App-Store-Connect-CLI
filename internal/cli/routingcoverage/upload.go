@@ -44,6 +44,10 @@ func prepareRoutingCoverageFile(path string, checksumFunc func(io.Reader, asc.Ch
 	if err != nil {
 		return PreparedRoutingCoverageFile{}, err
 	}
+	fileName := filepath.Base(absolutePath)
+	if !strings.EqualFold(filepath.Ext(fileName), ".geojson") {
+		return PreparedRoutingCoverageFile{}, fmt.Errorf("file must use the .geojson extension: %q", absolutePath)
+	}
 	root, err := rootfs.New(rootPath)
 	if err != nil {
 		return PreparedRoutingCoverageFile{}, err
@@ -79,7 +83,7 @@ func prepareRoutingCoverageFile(path string, checksumFunc func(io.Reader, asc.Ch
 	}
 	return PreparedRoutingCoverageFile{
 		Path:         absolutePath,
-		FileName:     filepath.Base(absolutePath),
+		FileName:     fileName,
 		FileSize:     info.Size(),
 		Checksum:     checksum.Hash,
 		rootPath:     root.Path(),

@@ -50,6 +50,18 @@ func TestPrepareRoutingCoverageFileValidatesGeoJSON(t *testing.T) {
 	}
 }
 
+func TestPrepareRoutingCoverageFileRejectsNonGeoJSONExtension(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "coverage.json")
+	if err := os.WriteFile(path, []byte(validRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	_, err := PrepareRoutingCoverageFile(path)
+	if err == nil || !strings.Contains(err.Error(), ".geojson") {
+		t.Fatalf("PrepareRoutingCoverageFile() error = %v, want .geojson extension error", err)
+	}
+}
+
 func TestPrepareRoutingCoverageFileFingerprintsValidatedSnapshot(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "coverage.geojson")
