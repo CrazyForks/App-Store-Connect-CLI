@@ -115,7 +115,11 @@ type ReviewSubmissionItemCreateRequest struct {
 }
 
 type reviewSubmissionItemTypeSpec struct {
-	canonical         ReviewSubmissionItemType
+	canonical ReviewSubmissionItemType
+	// deprecatedAliases are legacy CLI spellings that still resolve to the
+	// canonical type during their deprecation window. They are never
+	// advertised by ReviewSubmissionItemTypeNames.
+	deprecatedAliases []string
 	applyRelationship func(*ReviewSubmissionItemCreateRelationships, string)
 }
 
@@ -163,7 +167,8 @@ var reviewSubmissionItemTypeSpecs = []reviewSubmissionItemTypeSpec{
 		},
 	},
 	{
-		canonical: ReviewSubmissionItemTypeAppStoreVersionExperimentV2,
+		canonical:         ReviewSubmissionItemTypeAppStoreVersionExperimentV2,
+		deprecatedAliases: []string{"appStoreVersionExperimentV2"},
 		applyRelationship: func(relationships *ReviewSubmissionItemCreateRelationships, itemID string) {
 			relationships.AppStoreVersionExperimentV2 = reviewSubmissionItemRelationship(ResourceTypeAppStoreVersionExperiments, itemID)
 		},
@@ -215,12 +220,27 @@ func ReviewSubmissionItemTypeNames() []string {
 	return names
 }
 
-// ParseReviewSubmissionItemType returns the canonical item type for a CLI value.
+// ParseReviewSubmissionItemType returns the canonical item type for a CLI value,
+// including deprecated aliases that are still accepted.
 func ParseReviewSubmissionItemType(value string) (ReviewSubmissionItemType, bool) {
 	normalized := strings.TrimSpace(value)
 	for _, spec := range reviewSubmissionItemTypeSpecs {
 		if normalized == string(spec.canonical) {
 			return spec.canonical, true
+		}
+	}
+	return DeprecatedReviewSubmissionItemTypeAlias(normalized)
+}
+
+// DeprecatedReviewSubmissionItemTypeAlias returns the canonical item type for a
+// deprecated CLI spelling so callers can warn before the alias is removed.
+func DeprecatedReviewSubmissionItemTypeAlias(value string) (ReviewSubmissionItemType, bool) {
+	normalized := strings.TrimSpace(value)
+	for _, spec := range reviewSubmissionItemTypeSpecs {
+		for _, alias := range spec.deprecatedAliases {
+			if normalized == alias {
+				return spec.canonical, true
+			}
 		}
 	}
 	return "", false

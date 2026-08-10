@@ -174,7 +174,6 @@ func TestReviewItemsAddRejectsRemovedItemTypesBeforeAuth(t *testing.T) {
 	}{
 		{name: "custom product page", itemType: "appCustomProductPages"},
 		{name: "experiment treatment", itemType: "appStoreVersionExperimentTreatments"},
-		{name: "singular experiment v2 alias", itemType: "appStoreVersionExperimentV2"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

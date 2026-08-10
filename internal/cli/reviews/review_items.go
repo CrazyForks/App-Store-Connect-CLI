@@ -474,8 +474,17 @@ Examples:
 }
 
 func normalizeReviewSubmissionItemType(value string) (asc.ReviewSubmissionItemType, error) {
-	if strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
 		return "", fmt.Errorf("--item-type is required")
+	}
+	if canonical, ok := asc.DeprecatedReviewSubmissionItemTypeAlias(trimmed); ok {
+		fmt.Fprintf(
+			os.Stderr,
+			"Warning: `--item-type %s` is deprecated. Use `--item-type %s`. The alias will be removed in 5.0.0.\n",
+			trimmed, canonical,
+		)
+		return canonical, nil
 	}
 	if itemType, ok := asc.ParseReviewSubmissionItemType(value); ok {
 		return itemType, nil
