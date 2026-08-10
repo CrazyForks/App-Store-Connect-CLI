@@ -342,7 +342,7 @@ func certificatesForProfileCreation(certificates []asc.Resource[asc.CertificateA
 	if len(candidates) == 0 {
 		return nil
 	}
-	if !isAppStoreDistributionProfile(profileType) {
+	if !isSingleCertificateProfile(profileType) {
 		eligible := make([]asc.Resource[asc.CertificateAttributes], 0, len(candidates))
 		for _, candidate := range candidates {
 			eligible = append(eligible, candidate.certificate)
@@ -360,9 +360,11 @@ func certificatesForProfileCreation(certificates []asc.Resource[asc.CertificateA
 	return []asc.Resource[asc.CertificateAttributes]{selected.certificate}
 }
 
-func isAppStoreDistributionProfile(profileType string) bool {
+func isSingleCertificateProfile(profileType string) bool {
 	switch strings.ToUpper(strings.TrimSpace(profileType)) {
-	case "IOS_APP_STORE", "TVOS_APP_STORE", "MAC_APP_STORE", "MAC_CATALYST_APP_STORE":
+	case "IOS_APP_STORE", "IOS_APP_ADHOC", "IOS_APP_INHOUSE",
+		"TVOS_APP_STORE", "TVOS_APP_ADHOC", "TVOS_APP_INHOUSE",
+		"MAC_APP_STORE", "MAC_CATALYST_APP_STORE":
 		return true
 	default:
 		return false

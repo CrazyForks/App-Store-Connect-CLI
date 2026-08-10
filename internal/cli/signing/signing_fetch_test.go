@@ -540,61 +540,75 @@ func TestResolveSigningAssetsCreatesWhenActiveProfilesLackRequestedCertificate(t
 	}
 }
 
-func TestResolveSigningAssetsCreatesAppStoreProfileWithNewestEligibleCertificate(t *testing.T) {
-	var profileCreateBody []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		switch {
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
-			signingFetchWriteJSON(t, w, http.StatusOK, `{"data":[]}`)
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
-			signingFetchWriteJSON(t, w, http.StatusOK, `{
-				"data":[
-					{"type":"certificates","id":"cert-inactive","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":false,"expirationDate":"2102-01-01T00:00:00Z"}},
-					{"type":"certificates","id":"cert-expired","attributes":{"certificateType":"DISTRIBUTION","activated":true,"expirationDate":"2000-01-01T00:00:00Z"}},
-					{"type":"certificates","id":"cert-older","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}},
-					{"type":"certificates","id":"cert-b","attributes":{"certificateType":"DISTRIBUTION","activated":true,"expirationDate":"2101-01-01T00:00:00Z"}},
-					{"type":"certificates","id":"cert-a","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2101-01-01T00:00:00Z"}}
-				]
-			}`)
-		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
-			var err error
-			profileCreateBody, err = io.ReadAll(req.Body)
-			if err != nil {
-				t.Errorf("read profile create request: %v", err)
-				http.Error(w, "invalid request body", http.StatusBadRequest)
-				return
-			}
-			signingFetchWriteJSON(t, w, http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}}`)
-		default:
-			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
-			http.Error(w, "unexpected request", http.StatusInternalServerError)
-		}
-	}))
-	t.Cleanup(server.Close)
-	client := newSigningFetchServerTestClient(t, server)
+func TestResolveSigningAssetsCreatesSingleCertificateProfileWithNewestEligibleCertificate(t *testing.T) {
+	tests := []struct {
+		name        string
+		profileType string
+		deviceIDs   []string
+	}{
+		{name: "App Store", profileType: "IOS_APP_STORE"},
+		{name: "Ad Hoc", profileType: "IOS_APP_ADHOC", deviceIDs: []string{"device-1"}},
+	}
 
-	profile, certificates, created, err := resolveSigningAssets(
-		context.Background(),
-		client,
-		signingAssetsOptions{
-			BundleIDResourceID: "bundle-main",
-			BundleIdentifier:   "com.example.signing.profile",
-			ProfileType:        "IOS_APP_STORE",
-			CreateMissing:      true,
-		},
-	)
-	if err != nil {
-		t.Fatalf("resolveSigningAssets() error: %v", err)
-	}
-	if !created || profile.Data.ID != "profile-created" {
-		t.Fatalf("expected created profile, got created=%v profile=%#v", created, profile)
-	}
-	createdWithCertificateIDs := profileCreateCertificateIDs(t, bytes.NewReader(profileCreateBody))
-	if got := strings.Join(createdWithCertificateIDs, ","); got != "cert-a" {
-		t.Fatalf("profile certificate IDs = %q, want cert-a", got)
-	}
-	if got := strings.Join(extractIDs(certificates.Data), ","); got != "cert-a" {
-		t.Fatalf("returned certificate IDs = %q, want cert-a", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var profileCreateBody []byte
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch {
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
+					signingFetchWriteJSON(t, w, http.StatusOK, `{"data":[]}`)
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
+					signingFetchWriteJSON(t, w, http.StatusOK, `{
+						"data":[
+							{"type":"certificates","id":"cert-inactive","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":false,"expirationDate":"2102-01-01T00:00:00Z"}},
+							{"type":"certificates","id":"cert-expired","attributes":{"certificateType":"DISTRIBUTION","activated":true,"expirationDate":"2000-01-01T00:00:00Z"}},
+							{"type":"certificates","id":"cert-older","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}},
+							{"type":"certificates","id":"cert-b","attributes":{"certificateType":"DISTRIBUTION","activated":true,"expirationDate":"2101-01-01T00:00:00Z"}},
+							{"type":"certificates","id":"cert-a","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2101-01-01T00:00:00Z"}}
+						]
+					}`)
+				case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
+					var err error
+					profileCreateBody, err = io.ReadAll(req.Body)
+					if err != nil {
+						t.Errorf("read profile create request: %v", err)
+						http.Error(w, "invalid request body", http.StatusBadRequest)
+						return
+					}
+					signingFetchWriteJSON(t, w, http.StatusCreated, fmt.Sprintf(`{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":%q,"profileState":"ACTIVE"}}}`, tt.profileType))
+				default:
+					t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+					http.Error(w, "unexpected request", http.StatusInternalServerError)
+				}
+			}))
+			t.Cleanup(server.Close)
+			client := newSigningFetchServerTestClient(t, server)
+
+			profile, certificates, created, err := resolveSigningAssets(
+				context.Background(),
+				client,
+				signingAssetsOptions{
+					BundleIDResourceID: "bundle-main",
+					BundleIdentifier:   "com.example.signing.profile",
+					ProfileType:        tt.profileType,
+					DeviceIDs:          tt.deviceIDs,
+					CreateMissing:      true,
+				},
+			)
+			if err != nil {
+				t.Fatalf("resolveSigningAssets() error: %v", err)
+			}
+			if !created || profile.Data.ID != "profile-created" {
+				t.Fatalf("expected created profile, got created=%v profile=%#v", created, profile)
+			}
+			createdWithCertificateIDs := profileCreateCertificateIDs(t, bytes.NewReader(profileCreateBody))
+			if got := strings.Join(createdWithCertificateIDs, ","); got != "cert-a" {
+				t.Fatalf("profile certificate IDs = %q, want cert-a", got)
+			}
+			if got := strings.Join(extractIDs(certificates.Data), ","); got != "cert-a" {
+				t.Fatalf("returned certificate IDs = %q, want cert-a", got)
+			}
+		})
 	}
 }
 
@@ -724,25 +738,31 @@ func TestCertificatesForProfileCreationAcceptsOmittedActivationButRequiresValidE
 	}
 }
 
-func TestIsAppStoreDistributionProfileMatchesOnlyAppStoreTypes(t *testing.T) {
+func TestIsSingleCertificateProfileMatchesDocumentedTypes(t *testing.T) {
 	tests := []struct {
 		profileType string
 		want        bool
 	}{
 		{profileType: "IOS_APP_STORE", want: true},
+		{profileType: "IOS_APP_ADHOC", want: true},
+		{profileType: "IOS_APP_INHOUSE", want: true},
 		{profileType: "TVOS_APP_STORE", want: true},
+		{profileType: "TVOS_APP_ADHOC", want: true},
+		{profileType: "TVOS_APP_INHOUSE", want: true},
 		{profileType: "MAC_APP_STORE", want: true},
 		{profileType: " mac_catalyst_app_store ", want: true},
-		{profileType: "IOS_APP_ADHOC", want: false},
-		{profileType: "IOS_APP_INHOUSE", want: false},
 		{profileType: "MAC_APP_DIRECT", want: false},
+		{profileType: "MAC_CATALYST_APP_DIRECT", want: false},
 		{profileType: "IOS_APP_DEVELOPMENT", want: false},
+		{profileType: "TVOS_APP_DEVELOPMENT", want: false},
+		{profileType: "MAC_APP_DEVELOPMENT", want: false},
+		{profileType: "MAC_CATALYST_APP_DEVELOPMENT", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(strings.TrimSpace(tt.profileType), func(t *testing.T) {
-			if got := isAppStoreDistributionProfile(tt.profileType); got != tt.want {
-				t.Fatalf("isAppStoreDistributionProfile(%q) = %v, want %v", tt.profileType, got, tt.want)
+			if got := isSingleCertificateProfile(tt.profileType); got != tt.want {
+				t.Fatalf("isSingleCertificateProfile(%q) = %v, want %v", tt.profileType, got, tt.want)
 			}
 		})
 	}
