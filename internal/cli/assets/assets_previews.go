@@ -376,11 +376,14 @@ Examples:
 						destPath := filepath.Join(destDir, destName)
 
 						videoURL := strings.TrimSpace(preview.Attributes.VideoURL)
+						failureReason := "preview has no videoUrl"
 						if videoURL == "" {
 							requestCtx, cancel := shared.ContextWithTimeout(ctx)
 							full, err := client.GetAppPreview(requestCtx, preview.ID)
 							cancel()
-							if err == nil {
+							if err != nil {
+								failureReason = fmt.Sprintf("failed to fetch preview details: %v", err)
+							} else {
 								videoURL = strings.TrimSpace(full.Data.Attributes.VideoURL)
 							}
 						}
@@ -396,7 +399,7 @@ Examples:
 								ID:          strings.TrimSpace(preview.ID),
 								PreviewType: previewType,
 								OutputPath:  destPath,
-								Error:       "preview has no videoUrl",
+								Error:       failureReason,
 							})
 							continue
 						}
