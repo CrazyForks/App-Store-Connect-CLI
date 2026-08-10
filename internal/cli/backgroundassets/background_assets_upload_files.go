@@ -280,7 +280,7 @@ func BackgroundAssetsUploadFilesUpdateCommand() *ffcli.Command {
 
 	uploadFileID := fs.String("upload-file-id", "", "Background asset upload file ID")
 	uploaded := fs.String("uploaded", "", "Mark upload as complete (true/false)")
-	filePath := fs.String("file", "", "Path to file for checksum verification")
+	filePath := fs.String("file", "", "Path to file for checksum verification (requires --checksum)")
 	checksum := fs.Bool("checksum", false, "Verify source file checksums before committing")
 	output := shared.BindOutputFlags(fs)
 
@@ -313,6 +313,9 @@ Examples:
 			}
 
 			pathValue := strings.TrimSpace(*filePath)
+			if pathValue != "" && !*checksum {
+				return shared.UsageError("--file requires --checksum")
+			}
 			if *checksum && pathValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --checksum requires --file")
 				return flag.ErrHelp
