@@ -166,28 +166,14 @@ func TestReviewItemTypeListIncludes441VersionTypes(t *testing.T) {
 	}
 }
 
-func TestReviewItemsAddRejectsDeprecatedExperimentTreatment(t *testing.T) {
-	_, err := normalizeReviewSubmissionItemType("appStoreVersionExperimentTreatments")
-	if err == nil || !strings.Contains(err.Error(), "deprecated and no longer supported") {
-		t.Fatalf("error = %v, want treatment deprecation guidance", err)
-	}
-}
-
-func TestReviewItemsAddRejectsDeprecatedCustomProductPage(t *testing.T) {
-	_, err := normalizeReviewSubmissionItemType("appCustomProductPages")
-	if err == nil || !strings.Contains(err.Error(), "app custom product page version ID") || !strings.Contains(err.Error(), "appCustomProductPageVersions") {
-		t.Fatalf("error = %v, want custom product page version migration guidance", err)
-	}
-}
-
-func TestReviewItemsAddRejectsUnsupportedLegacyTypesBeforeAuth(t *testing.T) {
+func TestReviewItemsAddRejectsRemovedItemTypesBeforeAuth(t *testing.T) {
 	tests := []struct {
 		name     string
 		itemType string
-		want     string
 	}{
-		{name: "custom product page", itemType: "appCustomProductPages", want: "appCustomProductPageVersions"},
-		{name: "experiment treatment", itemType: "appStoreVersionExperimentTreatments", want: "experiment treatments cannot be added"},
+		{name: "custom product page", itemType: "appCustomProductPages"},
+		{name: "experiment treatment", itemType: "appStoreVersionExperimentTreatments"},
+		{name: "singular experiment v2 alias", itemType: "appStoreVersionExperimentV2"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -203,11 +189,11 @@ func TestReviewItemsAddRejectsUnsupportedLegacyTypesBeforeAuth(t *testing.T) {
 				"--item-type", test.itemType,
 				"--item-id", "item-1",
 			})
-			if err == nil || !errors.Is(err, flag.ErrHelp) || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v, want usage error containing %q", err, test.want)
+			if err == nil || !errors.Is(err, flag.ErrHelp) || !strings.Contains(err.Error(), "--item-type must be one of:") {
+				t.Fatalf("error = %v, want unsupported item type usage error", err)
 			}
 			if factoryCalled {
-				t.Fatal("client factory called before legacy type validation")
+				t.Fatal("client factory called before removed item type validation")
 			}
 		})
 	}

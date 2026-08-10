@@ -477,12 +477,6 @@ func normalizeReviewSubmissionItemType(value string) (asc.ReviewSubmissionItemTy
 	if strings.TrimSpace(value) == "" {
 		return "", fmt.Errorf("--item-type is required")
 	}
-	if strings.TrimSpace(value) == string(asc.ReviewSubmissionItemTypeAppStoreVersionExperimentTreatment) {
-		return "", fmt.Errorf("--item-type %s is deprecated and no longer supported by App Store Connect; experiment treatments cannot be added as review submission items", asc.ReviewSubmissionItemTypeAppStoreVersionExperimentTreatment)
-	}
-	if strings.TrimSpace(value) == string(asc.ReviewSubmissionItemTypeAppCustomProductPage) {
-		return "", fmt.Errorf("--item-type %s is deprecated and no longer supported by App Store Connect; pass an app custom product page version ID with --item-type %s", asc.ReviewSubmissionItemTypeAppCustomProductPage, asc.ReviewSubmissionItemTypeAppCustomProductPageVersion)
-	}
 	if itemType, ok := asc.ParseReviewSubmissionItemType(value); ok {
 		return itemType, nil
 	}
