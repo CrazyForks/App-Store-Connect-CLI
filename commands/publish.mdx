@@ -38,9 +38,10 @@ asc publish testflight \
 
 This workflow:
 
-1. Uploads the build
-2. Waits for processing
-3. Distributes to specified beta groups
+1. Uploads the build and resolves its App Store Connect build record
+2. Distributes to specified beta groups
+
+Add `--wait` to wait for build processing before distribution.
 
 For archive/export/upload/wait without distribution, use the experimental
 upload-only mode. It returns the uploaded build ID without requiring or
@@ -150,7 +151,7 @@ asc publish appstore \
 
 ## Output
 
-Upload-only JSON is stable for workflow output extraction:
+Upload-only JSON can be extracted by workflows:
 
 ```json  theme={null}
 {

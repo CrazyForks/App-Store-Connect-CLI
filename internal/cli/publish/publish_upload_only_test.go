@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -94,19 +95,32 @@ func TestPublishTestFlightUploadOnlyLocalBuildStopsBeforeDistribution(t *testing
 		return "app-123", nil
 	}
 	validatePublishIPAPathFn = func(string) (os.FileInfo, error) { return newPublishTestFileInfo(t) }
+	archivePath := filepath.Join(t.TempDir(), "Demo.xcarchive")
+	ipaPath := filepath.Join(t.TempDir(), "Demo.ipa")
 	archiveCalls := 0
 	runPublishArchiveFn = func(_ context.Context, _ localxcode.ArchiveOptions) (*localxcode.ArchiveResult, error) {
 		archiveCalls++
 		return &localxcode.ArchiveResult{
-			ArchivePath: ".asc/artifacts/Demo.xcarchive",
+			ArchivePath: archivePath,
 			BundleID:    "com.example.demo", Version: "1.2.3", BuildNumber: "42", Scheme: "Demo", Configuration: "Release",
 		}, nil
 	}
+	generateCalls := 0
+	generatePublishExportOptionsFn = func(_ context.Context, opts localxcode.ExportOptionsGenerateOptions) (*localxcode.ExportOptionsGenerateResult, error) {
+		generateCalls++
+		if opts.SigningStyle != "manual" || opts.TeamID != "TEAM123456" {
+			t.Fatalf("expected manual signing passthrough, got style=%q team=%q", opts.SigningStyle, opts.TeamID)
+		}
+		return &localxcode.ExportOptionsGenerateResult{Path: opts.OutputPath}, nil
+	}
 	exportCalls := 0
-	runPublishExportFn = func(_ context.Context, _ localxcode.ExportOptions) (*localxcode.ExportResult, error) {
+	runPublishExportFn = func(_ context.Context, opts localxcode.ExportOptions) (*localxcode.ExportResult, error) {
 		exportCalls++
+		if strings.TrimSpace(opts.ExportOptions) == "" {
+			t.Fatal("expected generated export options path")
+		}
 		return &localxcode.ExportResult{
-			ArchivePath: ".asc/artifacts/Demo.xcarchive", IPAPath: ".asc/artifacts/Demo.ipa",
+			ArchivePath: archivePath, IPAPath: ipaPath,
 			BundleID: "com.example.demo", Version: "1.2.3", BuildNumber: "42",
 		}, nil
 	}
@@ -125,7 +139,8 @@ func TestPublishTestFlightUploadOnlyLocalBuildStopsBeforeDistribution(t *testing
 		"--scheme", "Demo",
 		"--version", "1.2.3",
 		"--build-number", "42",
-		"--export-options", "ExportOptions.plist",
+		"--signing-style", "manual",
+		"--team-id", "TEAM123456",
 		"--upload-only",
 		"--output", "json",
 	}); err != nil {
@@ -138,8 +153,8 @@ func TestPublishTestFlightUploadOnlyLocalBuildStopsBeforeDistribution(t *testing
 	if strings.TrimSpace(stderr) != "" {
 		t.Fatalf("expected no stderr output, got %q", stderr)
 	}
-	if archiveCalls != 1 || exportCalls != 1 || uploadCalls != 1 || *requestCalls != 0 {
-		t.Fatalf("expected one archive, export, and upload with no distribution calls; archives=%d exports=%d uploads=%d requests=%d", archiveCalls, exportCalls, uploadCalls, *requestCalls)
+	if archiveCalls != 1 || generateCalls != 1 || exportCalls != 1 || uploadCalls != 1 || *requestCalls != 0 {
+		t.Fatalf("expected one archive, export-options generation, export, and upload with no distribution calls; archives=%d generations=%d exports=%d uploads=%d requests=%d", archiveCalls, generateCalls, exportCalls, uploadCalls, *requestCalls)
 	}
 
 	var payload map[string]any
