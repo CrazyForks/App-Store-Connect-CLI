@@ -39,6 +39,11 @@ asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fas
 * `--fastlane-dir` - Path to fastlane directory (optional)
 * `--dry-run` - Preview changes without uploading
 * `--confirm` - Confirm uploading the imported metadata and screenshots (required unless `--dry-run`)
+* `--skip-screenshots` - Skip screenshot discovery and upload
+* `--allow-external-metadata` - Trust Deliverfile metadata paths and symlinks outside the selected Fastlane directory
+* `--allow-external-screenshots` - Trust Deliverfile screenshot paths and symlinks outside the selected Fastlane directory
+* `--allow-symlinked-deliverfile` - Trust and follow a symlinked Deliverfile
+* `--include-sensitive` - \[experimental] Print secret values such as demo account passwords instead of redacting them
 * `--output` - Output format: `json`, `table`, `markdown`
 * `--pretty` - Pretty-print JSON output
 
@@ -101,6 +106,7 @@ asc migrate validate --fastlane-dir ./fastlane --output table
 **Flags:**
 
 * `--fastlane-dir` - Path to fastlane directory (required)
+* `--allow-external-metadata` - Trust a metadata symlink outside the selected Fastlane directory
 * `--output` - Output format: `json`, `table`, `markdown`
 * `--pretty` - Pretty-print JSON output
 
@@ -355,18 +361,22 @@ Fastlane uses directory names like `en-US`, `es-ES`, `ja`, etc. The CLI automati
 
 ## Skipped Items
 
-The import command skips non-locale directories and reports them:
+The import command reports directories and files it did not read. Directory
+names that are not locales, symlinked entries, unsupported screenshot files, a
+missing conventional directory, and anything a Deliverfile or flag turned off
+all appear here (`metadata/review_information` and `metadata/default` are read
+as part of the import and are not reported):
 
 ```json  theme={null}
 {
   "skipped": [
     {
-      "path": "metadata/review_information",
-      "reason": "special directory"
+      "path": "fastlane/metadata/trade_representative_contact_information",
+      "reason": "skipped non-locale directory \"trade_representative_contact_information\": locale \"trade_representative_contact_information\" must match pattern like 'en', 'en-US', or 'zh-Hans'"
     },
     {
-      "path": "metadata/trade_representative_contact_information",
-      "reason": "skipped non-locale directory"
+      "path": "fastlane/screenshots",
+      "reason": "skipped by --skip-screenshots"
     }
   ]
 }
