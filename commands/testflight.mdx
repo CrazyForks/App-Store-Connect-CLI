@@ -40,7 +40,11 @@ The result includes stable group IDs, names, `internal` or `external` type,
 `explicit-and-all-builds`. A complete lookup with no matches exits `0` and
 returns an empty `groups` array.
 
-App Store Connect has no `GET /v1/builds/{id}/relationships/betaGroups`.
+App Store Connect has no `GET /v1/builds/{id}/relationships/betaGroups`. It does
+document `include=betaGroups` on `GET /v1/builds/{id}`, but that read caps
+included groups at `limit[betaGroups]=50`, has no documented build-side endpoint
+for paging past the cap, and reports the same explicit linkage Apple can omit for
+all-build groups.
 The command resolves the build's app and prefers Apple's documented
 `filter[builds]` beta-group collection filter. It automatically paginates every
 required collection. Because Apple can omit an explicit relationship for a
