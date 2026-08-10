@@ -613,30 +613,50 @@ func completeMultipartUploadWithClient(ctx context.Context, httpClient *http.Cli
 
 	decoder := xml.NewDecoder(bytes.NewReader(respBody))
 	rootSeen := false
+	rootClosed := false
+	rootDepth := 0
 	for {
 		token, decodeErr := decoder.Token()
 		if errors.Is(decodeErr, io.EOF) {
 			if !rootSeen {
 				return errors.New("parse complete multipart upload response: missing root element")
 			}
+			if !rootClosed {
+				return errors.New("parse complete multipart upload response: incomplete root element")
+			}
 			break
 		}
 		if decodeErr != nil {
 			return fmt.Errorf("parse complete multipart upload response: %w", decodeErr)
 		}
-		start, ok := token.(xml.StartElement)
-		if !ok || rootSeen {
-			continue
-		}
-		rootSeen = true
-		switch start.Name.Local {
-		case "Error":
-			return fmt.Errorf("complete multipart upload failed: %s", sanitizeErrorBody(respBody))
-		case "CompleteMultipartUploadResult":
-			// Consume the complete document so truncated or malformed success
-			// responses cannot be mistaken for a completed upload.
-		default:
-			return fmt.Errorf("unexpected complete multipart upload response: %s", sanitizeErrorBody(respBody))
+
+		switch value := token.(type) {
+		case xml.StartElement:
+			if rootClosed {
+				return errors.New("parse complete multipart upload response: multiple root elements")
+			}
+			if !rootSeen {
+				rootSeen = true
+				switch value.Name.Local {
+				case "Error":
+					return fmt.Errorf("complete multipart upload failed: %s", sanitizeErrorBody(respBody))
+				case "CompleteMultipartUploadResult":
+					// Consume the complete document so malformed success responses
+					// cannot be mistaken for a completed upload.
+				default:
+					return fmt.Errorf("unexpected complete multipart upload response: %s", sanitizeErrorBody(respBody))
+				}
+			}
+			rootDepth++
+		case xml.EndElement:
+			rootDepth--
+			if rootDepth == 0 {
+				rootClosed = true
+			}
+		case xml.CharData:
+			if (!rootSeen || rootClosed) && len(bytes.TrimSpace(value)) != 0 {
+				return errors.New("parse complete multipart upload response: character data outside root element")
+			}
 		}
 	}
 	return nil

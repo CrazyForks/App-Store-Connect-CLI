@@ -575,7 +575,7 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 			body: "\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
 				"<CompleteMultipartUploadResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">" +
 				"<Bucket>example</Bucket><Key>archive.zip</Key><ETag>\"etag\"</ETag>" +
-				"</CompleteMultipartUploadResult>",
+				"</CompleteMultipartUploadResult>\n<!-- completed -->\n ",
 		},
 		{
 			name:            "unexpected response root",
@@ -586,6 +586,18 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 			name: "truncated completion result",
 			body: "<?xml version=\"1.0\"?>" +
 				"<CompleteMultipartUploadResult><Bucket>example</Bucket>",
+			wantErrorPrefix: "parse complete multipart upload response: ",
+		},
+		{
+			name: "second root after completion result",
+			body: "<CompleteMultipartUploadResult></CompleteMultipartUploadResult>" +
+				"<Error><Code>InternalError</Code></Error>",
+			wantErrorPrefix: "parse complete multipart upload response: ",
+		},
+		{
+			name: "non-whitespace data after completion result",
+			body: "<CompleteMultipartUploadResult></CompleteMultipartUploadResult>" +
+				"unexpected trailing data",
 			wantErrorPrefix: "parse complete multipart upload response: ",
 		},
 	}
