@@ -249,7 +249,7 @@ Manage profiles on your local machine:
 asc profiles local list
 
 # Remove expired profiles
-asc profiles local clean
+asc profiles local clean --expired --confirm
 
 # Get UUID of a profile file
 asc profiles inspect --path "./profile.mobileprovision" --output json | jq -r '.uuid'
