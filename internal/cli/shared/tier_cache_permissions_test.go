@@ -10,11 +10,12 @@ import (
 
 func TestTierCacheSaveUsesPrivatePermissions(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		existing bool
+		name         string
+		existingMode os.FileMode
 	}{
 		{name: "new cache"},
-		{name: "existing restrictive cache", existing: true},
+		{name: "existing restrictive cache", existingMode: 0o600},
+		{name: "existing permissive cache", existingMode: 0o644},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cacheDir := useTierCacheDirForTest(t)
@@ -26,9 +27,9 @@ func TestTierCacheSaveUsesPrivatePermissions(t *testing.T) {
 			if got := filepath.Dir(cachePath); got != cacheDir {
 				t.Fatalf("cache dir = %q, want %q", got, cacheDir)
 			}
-			if tc.existing {
-				if err := os.WriteFile(cachePath, []byte("existing cache"), 0o600); err != nil {
-					t.Fatalf("write restrictive cache: %v", err)
+			if tc.existingMode != 0 {
+				if err := os.WriteFile(cachePath, []byte("existing cache"), tc.existingMode); err != nil {
+					t.Fatalf("write cache with mode %o: %v", tc.existingMode, err)
 				}
 			}
 
