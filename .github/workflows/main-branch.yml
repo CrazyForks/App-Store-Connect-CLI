@@ -133,6 +133,15 @@ jobs:
               export PATH="$(go env GOPATH)/bin:$PATH"
               make lint
 
+          # Every test job runs on ubuntu, so darwin- and windows-gated sources and
+          # tests are otherwise never type-checked. golangci-lint already vets
+          # GOOS=linux with tests enabled.
+          - name: Vet platform-gated code
+            if: contains(fromJSON('["telemetry", "full"]'), needs.changes.outputs.scope)
+            run: |
+              GOOS=darwin go vet ./...
+              GOOS=windows go vet ./...
+
   format-and-lint:
     needs: [changes, wall-only-check, quality-checks, website-checks]
     if: always()

@@ -228,6 +228,13 @@ def assert_optimized_workflow_text(path: Path, workflow: str, test_job: str) -> 
         "make lint",
     ):
         assert command in quality, f"{path}: quality-checks must run {command!r}"
+    # Every test job runs on ubuntu, so darwin- and windows-gated sources and tests
+    # are never type-checked unless CI vets them explicitly. golangci-lint covers
+    # GOOS=linux with tests enabled, so only the two absent platforms need a pass.
+    for goos in ("darwin", "windows"):
+        assert f"GOOS={goos} go vet ./..." in quality, (
+            f"{path}: quality-checks must type-check {goos}-gated code"
+        )
     website = job_block(workflow, "website-checks")
     assert "uses: ./.github/workflows/website-checks.yml" in website
     assert "needs.changes.outputs.website_affected == 'true'" in website
@@ -273,6 +280,8 @@ def assert_optimized_workflow_rejects_weakened_checks() -> None:
             "make check-docs",
             "make check-wall-of-apps",
             "make lint",
+            "GOOS=darwin go vet ./...",
+            "GOOS=windows go vet ./...",
             "python3 scripts/go_test_shard.py",
             "--packages ./...",
             "ASC_BYPASS_KEYCHAIN=1",
