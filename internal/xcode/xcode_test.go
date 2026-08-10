@@ -423,6 +423,77 @@ func TestValidateRunsAltoolWithTVOSPlatform(t *testing.T) {
 	}
 }
 
+func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
+	tests := []struct {
+		name       string
+		output     string
+		wantErr    bool
+		wantDetail string
+	}{
+		{
+			name:       "timestamped server error",
+			output:     "2026-08-10 06:47:56.580 ERROR: [ContentDelivery.Uploader] The bundle version must be higher than the previously uploaded version.\n",
+			wantErr:    true,
+			wantDetail: "The bundle version must be higher than the previously uploaded version.",
+		},
+		{
+			name:       "legacy error",
+			output:     "*** Error: Unable to validate archive './artifacts/Demo.ipa'.\n",
+			wantErr:    true,
+			wantDetail: "Unable to validate archive './artifacts/Demo.ipa'.",
+		},
+		{
+			name:   "benign output containing error text",
+			output: "2026-08-10 06:47:56.580 INFO: Validation completed.\nDiagnostic: no ERROR: records were returned.\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			ipaPath := filepath.Join(tempDir, "Demo.ipa")
+			if err := writeTestIPA(ipaPath); err != nil {
+				t.Fatalf("writeTestIPA() error: %v", err)
+			}
+			logPath := filepath.Join(tempDir, "commands.log")
+			t.Setenv("ASC_XCODE_HELPER_VALIDATE_OUTPUT", tt.output)
+
+			restore := overrideTestEnvironment(t)
+			runtimeGOOS = "darwin"
+			lookPathFn = func(file string) (string, error) {
+				switch file {
+				case "xcodebuild":
+					return "/usr/bin/xcodebuild", nil
+				case "xcrun":
+					return "/usr/bin/xcrun", nil
+				default:
+					return "", exec.ErrNotFound
+				}
+			}
+			commandContextFn = helperCommandContext(t, logPath)
+			t.Cleanup(restore)
+
+			result, err := Validate(context.Background(), ValidateOptions{IPAPath: ipaPath})
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Validate() error = nil, want server validation failure; result = %+v", result)
+				}
+				if !strings.Contains(err.Error(), tt.wantDetail) {
+					t.Fatalf("Validate() error = %q, want detail %q", err, tt.wantDetail)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Validate() error: %v", err)
+			}
+			if result == nil || !result.Validated {
+				t.Fatalf("Validate() result = %+v, want validated success", result)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsOversizedInfoPlistBeforeAltool(t *testing.T) {
 	tempDir := t.TempDir()
 	ipaPath := writeIPAWithRawInfoPlist(t, buildSizedAppInfoPlist(t, infoplist.MaxBytes+1))
@@ -1333,6 +1404,9 @@ func TestXcodeHelperProcess(t *testing.T) {
 		if _, err := valueAfter(commandArgs[2:], "--file"); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
+		}
+		if output := os.Getenv("ASC_XCODE_HELPER_VALIDATE_OUTPUT"); output != "" {
+			fmt.Fprint(os.Stderr, output)
 		}
 		os.Exit(0)
 	}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"unicode"
@@ -27,6 +28,11 @@ var (
 	commandContextFn     = exec.CommandContext
 	activeDeveloperDirFn = activeDeveloperDir
 	altoolHelpOutputFn   = readAltoolHelpOutput
+
+	altoolValidationErrorPrefixes = [...]*regexp.Regexp{
+		regexp.MustCompile(`(?i)^[[:space:]]*\*{3}[[:space:]]*error:[[:space:]]*`),
+		regexp.MustCompile(`(?i)^[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?[[:space:]]+error:[[:space:]]*`),
+	}
 )
 
 const xcodebuildErrorTailLimit = 64 * 1024
@@ -761,7 +767,43 @@ func runXcodebuildForBuild(ctx context.Context, args []string, logWriter io.Writ
 }
 
 func runAltoolValidate(ctx context.Context, args []string, logWriter io.Writer) error {
-	return runCommandWithTail(ctx, "xcrun", args, logWriter, "validate", "xcrun altool")
+	outputTail := newTailBuffer(xcodebuildErrorTailLimit)
+	captureWriter := io.Writer(outputTail)
+	if logWriter != nil {
+		captureWriter = io.MultiWriter(logWriter, outputTail)
+	}
+	if err := runCommandWithTail(ctx, "xcrun", args, captureWriter, "validate", "xcrun altool"); err != nil {
+		return err
+	}
+
+	details := parseAltoolValidationErrors(outputTail.String())
+	if len(details) == 0 {
+		return nil
+	}
+	return fmt.Errorf("xcrun altool validate failed: %s", strings.Join(details, "; "))
+}
+
+func parseAltoolValidationErrors(output string) []string {
+	details := make([]string, 0)
+	for _, line := range strings.Split(output, "\n") {
+		markerEnd := -1
+		for _, pattern := range altoolValidationErrorPrefixes {
+			if match := pattern.FindStringIndex(line); match != nil {
+				markerEnd = match[1]
+				break
+			}
+		}
+		if markerEnd < 0 {
+			continue
+		}
+
+		detail := strings.TrimSpace(line[markerEnd:])
+		if detail == "" {
+			detail = "altool reported an unspecified validation error"
+		}
+		details = append(details, detail)
+	}
+	return UniqueDiagnosticDetails(details)
 }
 
 func runAltoolAndCapture(ctx context.Context, args []string, logWriter io.Writer, action string) (string, error) {
