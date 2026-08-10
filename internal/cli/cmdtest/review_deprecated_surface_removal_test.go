@@ -205,3 +205,44 @@ func TestReviewRemovedItemDetailCommandsExitWithUsageCode(t *testing.T) {
 		})
 	}
 }
+
+// TestReviewItemsGroupRejectsUnknownSubcommands keeps unknown children named in
+// the error. Registering the removed `view` stub makes the entry point hand the
+// normalized `get` spelling to the group instead of rejecting it upstream.
+func TestReviewItemsGroupRejectsUnknownSubcommands(t *testing.T) {
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_APP_ID", "")
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "legacy get spelling",
+			args:    []string{"review", "items", "get", "--id", "ITEM_ID"},
+			wantErr: "Error: unexpected argument(s): get",
+		},
+		{
+			name:    "unknown child",
+			args:    []string{"review", "items", "nope"},
+			wantErr: "Error: unexpected argument(s): nope",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr := captureOutput(t, func() {
+				if code := cmd.Run(test.args, "4.0.0"); code != cmd.ExitUsage {
+					t.Fatalf("exit code = %d, want %d", code, cmd.ExitUsage)
+				}
+			})
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}

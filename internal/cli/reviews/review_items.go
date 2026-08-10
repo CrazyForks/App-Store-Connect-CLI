@@ -51,6 +51,12 @@ Examples:
 			removedReviewItemsGetCommand("view", "asc review items view"),
 		},
 		Exec: func(ctx context.Context, args []string) error {
+			// The removed `view` stub makes the entry point route the
+			// normalized `get` spelling here instead of rejecting it, so name
+			// the unknown child rather than printing bare group help.
+			if len(args) > 0 {
+				return shared.UsageErrorf("unexpected argument(s): %s", shared.SanitizeTerminal(strings.TrimSpace(args[0])))
+			}
 			return flag.ErrHelp
 		},
 	}
