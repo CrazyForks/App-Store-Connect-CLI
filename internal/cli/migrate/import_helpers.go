@@ -297,12 +297,12 @@ func prepareAppInfoLocalizations(ctx context.Context, client *asc.Client, appID 
 		return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: failed to select app info for app")
 	}
 
-	existingAppInfoLocs, err := client.GetAppInfoLocalizations(ctx, appInfoID)
+	existingAppInfoLocs, err := fetchAppInfoLocalizationsForPlan(ctx, client, appInfoID)
 	if err != nil {
 		return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: failed to fetch app info localizations: %w", err)
 	}
 	appInfoLocaleToID := make(map[string]string)
-	for _, loc := range existingAppInfoLocs.Data {
+	for _, loc := range existingAppInfoLocs {
 		appInfoLocaleToID[loc.Attributes.Locale] = loc.ID
 	}
 
@@ -326,6 +326,35 @@ func prepareAppInfoLocalizations(ctx context.Context, client *asc.Client, appID 
 		plan.localizations = append(plan.localizations, prepared)
 	}
 	return plan, nil
+}
+
+func fetchAppInfoLocalizationsForPlan(ctx context.Context, client *asc.Client, appInfoID string) ([]asc.Resource[asc.AppInfoLocalizationAttributes], error) {
+	firstPage, err := client.GetAppInfoLocalizations(ctx, appInfoID, asc.WithAppInfoLocalizationsLimit(200))
+	if err != nil {
+		return nil, err
+	}
+	if firstPage == nil {
+		return nil, fmt.Errorf("empty app info localizations response")
+	}
+
+	paginated, err := asc.PaginateAll(ctx, firstPage, func(pageCtx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		nextPage, err := client.GetAppInfoLocalizations(pageCtx, appInfoID, asc.WithAppInfoLocalizationsNextURL(nextURL))
+		if err != nil {
+			return nil, err
+		}
+		if nextPage == nil {
+			return nil, fmt.Errorf("empty app info localizations response")
+		}
+		return nextPage, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	allPages, ok := paginated.(*asc.AppInfoLocalizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected app info localization pagination response type")
+	}
+	return allPages.Data, nil
 }
 
 func uploadAppInfoLocalizations(ctx context.Context, client *asc.Client, plan appInfoLocalizationPlan) ([]LocalizationUploadItem, error) {

@@ -380,11 +380,18 @@ func TestMigrateImportPreflightsWouldCreateScreenshotLocalesBeforeMutations(t *t
 	api.assertComplete(t, 0)
 }
 
-func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesAfterPlanning(t *testing.T) {
+func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesFromLaterPages(t *testing.T) {
 	root := writeMigrateImportMetadata(t, validMigrateAppInfoMetadata())
 	expectations := append(migrateImportPlanningExpectations(
-		`{"data":[{"type":"appInfoLocalizations","id":"appinfo-loc-ja","attributes":{"locale":"ja"}}]}`,
+		`{"data":[],"links":{"next":"https://api.appstoreconnect.apple.com/v1/appInfos/appinfo-1/appInfoLocalizations?cursor=page-2&limit=200"}}`,
 	), []migrateImportExpectation{
+		{
+			method:               http.MethodGet,
+			path:                 "/v1/appInfos/appinfo-1/appInfoLocalizations",
+			rawQuery:             "cursor=page-2&limit=200",
+			requireAuthorization: true,
+			response:             `{"data":[{"type":"appInfoLocalizations","id":"appinfo-loc-ja","attributes":{"locale":"ja"}}],"links":{"next":""}}`,
+		},
 		{
 			method:   http.MethodPatch,
 			path:     "/v1/appStoreVersionLocalizations/loc-en",
@@ -421,19 +428,58 @@ func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesAfterPlanning(t *testing.T
 	if len(result.AppInfoUploaded) != 1 || result.AppInfoUploaded[0].Action != "update" || result.AppInfoUploaded[0].LocalizationID != "appinfo-loc-ja" {
 		t.Fatalf("unexpected app info upload result: %#v", result.AppInfoUploaded)
 	}
+	if got := api.queries[3]; got != "limit=200" {
+		t.Fatalf("first app info localization query = %q, want %q", got, "limit=200")
+	}
 	api.assertComplete(t, 3)
 }
 
+func TestMigrateImportStopsOnAppInfoPaginationErrorBeforeMutations(t *testing.T) {
+	root := writeMigrateImportMetadata(t, validMigrateAppInfoMetadata())
+	expectations := append(migrateImportPlanningExpectations(
+		`{"data":[],"links":{"next":"https://api.appstoreconnect.apple.com/v1/appInfos/appinfo-1/appInfoLocalizations?cursor=page-2&limit=200"}}`,
+	), migrateImportExpectation{
+		method:               http.MethodGet,
+		path:                 "/v1/appInfos/appinfo-1/appInfoLocalizations",
+		rawQuery:             "cursor=page-2&limit=200",
+		requireAuthorization: true,
+		status:               http.StatusInternalServerError,
+		response:             `{"errors":[{"status":"500","code":"UNEXPECTED_ERROR","title":"Request failed","detail":"pagination unavailable"}]}`,
+	})
+	api := newMigrateImportAPI(t, expectations...)
+
+	stdout, stderr, runErr := runMigrateImport(t, root)
+	if runErr == nil {
+		t.Fatal("expected pagination error")
+	}
+	for _, want := range []string{"migrate import: failed to fetch app info localizations: page 2:", "pagination unavailable"} {
+		if !strings.Contains(runErr.Error(), want) {
+			t.Fatalf("run error = %q, want it to contain %q", runErr, want)
+		}
+	}
+	if stdout != "" || stderr != "" {
+		t.Fatalf("expected empty output, got stdout %q stderr %q", stdout, stderr)
+	}
+	if got := api.queries[3]; got != "limit=200" {
+		t.Fatalf("first app info localization query = %q, want %q", got, "limit=200")
+	}
+	api.assertComplete(t, 0)
+}
+
 type migrateImportExpectation struct {
-	method   string
-	path     string
-	body     string
-	response string
+	method               string
+	path                 string
+	rawQuery             string
+	requireAuthorization bool
+	status               int
+	body                 string
+	response             string
 }
 
 type migrateImportAPI struct {
 	expectations []migrateImportExpectation
 	requests     []string
+	queries      []string
 	mutations    int
 	factoryCalls int
 }
@@ -447,6 +493,7 @@ func newMigrateImportAPI(t *testing.T, expectations ...migrateImportExpectation)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requestLabel := req.Method + " " + req.URL.Path
 		api.requests = append(api.requests, requestLabel)
+		api.queries = append(api.queries, req.URL.RawQuery)
 		if req.Method == http.MethodPost || req.Method == http.MethodPatch || req.Method == http.MethodDelete {
 			api.mutations++
 		}
@@ -463,11 +510,24 @@ func newMigrateImportAPI(t *testing.T, expectations ...migrateImportExpectation)
 			http.Error(w, "unexpected request", http.StatusInternalServerError)
 			return
 		}
+		if expected.rawQuery != "" && req.URL.RawQuery != expected.rawQuery {
+			t.Errorf("request %d query = %q, want %q", index+1, req.URL.RawQuery, expected.rawQuery)
+			http.Error(w, "unexpected query", http.StatusInternalServerError)
+			return
+		}
+		if expected.requireAuthorization && !strings.HasPrefix(req.Header.Get("Authorization"), "Bearer ") {
+			t.Errorf("request %d Authorization header = %q, want bearer token", index+1, req.Header.Get("Authorization"))
+			http.Error(w, "missing authorization", http.StatusInternalServerError)
+			return
+		}
 		if expected.body != "" {
 			assertJSONDocument(t, req.Body, expected.body)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		if expected.status != 0 {
+			w.WriteHeader(expected.status)
+		}
 		_, _ = io.WriteString(w, expected.response)
 	}))
 	t.Cleanup(server.Close)
