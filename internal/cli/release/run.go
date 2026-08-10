@@ -26,8 +26,6 @@ const (
 	stepApplyRoutingCoverage = "apply_routing_coverage"
 	stepAttachBuild          = "attach_build"
 	stepValidateReadiness    = "validate_readiness"
-	stepSubmitReview         = "submit_review"
-	releaseModeRun           = "run"
 	releaseModeStage         = "stage"
 	releaseRunTimeout        = 30 * time.Minute
 )
@@ -57,7 +55,6 @@ type runOptions struct {
 	StrictValidate              bool
 	CheckpointFile              string
 	Mode                        string
-	SubmitForReview             bool
 }
 
 type stepResult struct {
@@ -74,7 +71,6 @@ type runResult struct {
 	Version             string       `json:"version"`
 	VersionID           string       `json:"versionId,omitempty"`
 	BuildID             string       `json:"buildId"`
-	SubmissionID        string       `json:"submissionId,omitempty"`
 	MetadataDir         string       `json:"metadataDir,omitempty"`
 	CopyMetadataFrom    string       `json:"copyMetadataFrom,omitempty"`
 	RoutingCoverageFile string       `json:"routingCoverageFile,omitempty"`
@@ -99,39 +95,27 @@ type runCheckpoint struct {
 	RoutingCoverageFile string          `json:"routingCoverageFile,omitempty"`
 	Platform            string          `json:"platform"`
 	VersionID           string          `json:"versionId,omitempty"`
-	SubmissionID        string          `json:"submissionId,omitempty"`
 	Mode                string          `json:"mode,omitempty"`
 	Completed           map[string]bool `json:"completed"`
 	UpdatedAt           string          `json:"updatedAt,omitempty"`
 }
 
 type stepOutcome struct {
-	Status       string
-	Message      string
-	Details      any
-	Persist      bool
-	ResolvedID   string
-	SubmissionID string
-}
-
-func executeRun(ctx context.Context, opts runOptions) (runResult, error) {
-	opts.Mode = releaseModeRun
-	opts.SubmitForReview = true
-	return executePipeline(ctx, opts)
+	Status     string
+	Message    string
+	Details    any
+	Persist    bool
+	ResolvedID string
 }
 
 func executeStage(ctx context.Context, opts runOptions) (runResult, error) {
 	opts.Mode = releaseModeStage
-	opts.SubmitForReview = false
 	return executePipeline(ctx, opts)
 }
 
 func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 	stepCapacity := 4
 	if strings.TrimSpace(opts.RoutingCoverageFile) != "" {
-		stepCapacity++
-	}
-	if opts.SubmitForReview {
 		stepCapacity++
 	}
 	result := runResult{
@@ -199,7 +183,6 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 			}
 			result.Resumed = len(checkpoint.Completed) > 0
 			result.VersionID = checkpoint.VersionID
-			result.SubmissionID = checkpoint.SubmissionID
 		}
 	}
 
@@ -213,14 +196,12 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 	requestCtx, cancel := shared.ContextWithTimeoutDuration(ctx, opts.Timeout)
 	defer cancel()
 
-	if result.Resumed || strings.TrimSpace(checkpoint.VersionID) != "" || checkpoint.SubmissionID != "" {
+	if result.Resumed || strings.TrimSpace(checkpoint.VersionID) != "" {
 		completedBeforeVerification := len(checkpoint.Completed)
-		submissionBeforeVerification := checkpoint.SubmissionID
 		if err := verifyResumedCheckpointBinding(requestCtx, client, opts, &checkpoint, nil); err != nil {
 			result.Status = "error"
 			result.Error = err.Error()
 			result.VersionID = ""
-			result.SubmissionID = ""
 			return result, err
 		}
 		// Verification only ever discards completions. Persist those discards
@@ -228,8 +209,7 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 		// write that fails leaves the stale flags on disk, and the next resume
 		// finds the mutation already applied and skips the steps the discard
 		// was meant to force.
-		discarded := len(checkpoint.Completed) != completedBeforeVerification ||
-			checkpoint.SubmissionID != submissionBeforeVerification
+		discarded := len(checkpoint.Completed) != completedBeforeVerification
 		if !opts.DryRun && discarded {
 			if saveErr := saveCheckpoint(opts.CheckpointFile, checkpoint); saveErr != nil {
 				result.Status = "error"
@@ -239,11 +219,9 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 		}
 		result.Resumed = len(checkpoint.Completed) > 0
 		result.VersionID = strings.TrimSpace(checkpoint.VersionID)
-		result.SubmissionID = strings.TrimSpace(checkpoint.SubmissionID)
 	}
 
 	versionID := strings.TrimSpace(checkpoint.VersionID)
-	submissionID := strings.TrimSpace(checkpoint.SubmissionID)
 	versionPlannedCreate := false
 
 	runStep := func(name, remediation string, fn func() (stepOutcome, error)) error {
@@ -288,11 +266,6 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 			versionID = strings.TrimSpace(outcome.ResolvedID)
 			result.VersionID = versionID
 			checkpoint.VersionID = versionID
-		}
-		if strings.TrimSpace(outcome.SubmissionID) != "" {
-			submissionID = strings.TrimSpace(outcome.SubmissionID)
-			result.SubmissionID = submissionID
-			checkpoint.SubmissionID = submissionID
 		}
 
 		if !opts.DryRun && outcome.Persist {
@@ -569,75 +542,6 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 		return result, err
 	}
 
-	if opts.SubmitForReview {
-		if err := runStep(stepSubmitReview, "Check review submission prerequisites and rerun with --confirm.", func() (stepOutcome, error) {
-			if strings.TrimSpace(versionID) == "" {
-				if opts.DryRun {
-					return stepOutcome{
-						Status:  "dry-run",
-						Message: "submission deferred until version exists",
-						Details: map[string]any{"deferred": true},
-						Persist: false,
-					}, nil
-				}
-				return stepOutcome{}, fmt.Errorf("submit review: resolved version ID is empty")
-			}
-
-			submitResult, submitErr := submitcli.SubmitResolvedVersion(requestCtx, client, submitcli.SubmitResolvedVersionOptions{
-				AppID:                    opts.AppID,
-				VersionID:                versionID,
-				BuildID:                  opts.BuildID,
-				Platform:                 opts.Platform,
-				EnsureBuildAttached:      false,
-				LookupExistingSubmission: true,
-				DryRun:                   opts.DryRun,
-				Emit: func(message string) {
-					fmt.Fprintln(os.Stderr, message)
-				},
-			})
-			if submitErr != nil {
-				return stepOutcome{Details: submitResult}, submitErr
-			}
-
-			switch {
-			case submitResult.AlreadySubmitted:
-				status := "skipped"
-				message := "submission already exists for version"
-				if opts.DryRun {
-					status = "dry-run"
-					message = "submission already exists for version (no action needed)"
-				}
-				return stepOutcome{
-					Status:       status,
-					Message:      message,
-					Details:      submitResult,
-					Persist:      !opts.DryRun,
-					SubmissionID: submitResult.SubmissionID,
-				}, nil
-			case submitResult.WouldSubmit:
-				return stepOutcome{
-					Status:  "dry-run",
-					Message: "would create and submit review submission",
-					Details: submitResult,
-					Persist: false,
-				}, nil
-			default:
-				return stepOutcome{
-					Status:       "ok",
-					Message:      "submitted version for review",
-					Details:      submitResult,
-					Persist:      true,
-					SubmissionID: submitResult.SubmissionID,
-				}, nil
-			}
-		}); err != nil {
-			return result, err
-		}
-	}
-
-	if strings.TrimSpace(result.SubmissionID) == "" {
-		result.SubmissionID = strings.TrimSpace(submissionID)
-	}
 	if strings.TrimSpace(result.VersionID) == "" {
 		result.VersionID = strings.TrimSpace(versionID)
 	}
@@ -694,17 +598,6 @@ func hasReleaseReadinessCheckID(checks []validation.CheckResult, wantID string) 
 	return false
 }
 
-func defaultCheckpointPath(appID, version, buildID, platform string) string {
-	fileName := fmt.Sprintf(
-		"%s_%s_%s_%s.json",
-		sanitizeCheckpointToken(appID),
-		sanitizeCheckpointToken(version),
-		sanitizeCheckpointToken(buildID),
-		sanitizeCheckpointToken(platform),
-	)
-	return filepath.Join(".asc", "release", "checkpoints", fileName)
-}
-
 func defaultStageCheckpointPath(appID, version, buildID, platform string) string {
 	fileName := fmt.Sprintf(
 		"stage_%s_%s_%s_%s.json",
@@ -716,14 +609,11 @@ func defaultStageCheckpointPath(appID, version, buildID, platform string) string
 	return filepath.Join(".asc", "release", "checkpoints", fileName)
 }
 
+// checkpointModeMatches reports whether an existing checkpoint was written by
+// the pipeline that is being resumed. A checkpoint without a mode was written
+// by the `release run` pipeline removed in 1.0, so it never matches.
 func checkpointModeMatches(existingMode, desiredMode string) bool {
-	normalizedExistingMode := strings.TrimSpace(existingMode)
-	switch normalizedExistingMode {
-	case "":
-		return desiredMode == releaseModeRun
-	default:
-		return normalizedExistingMode == desiredMode
-	}
+	return strings.TrimSpace(existingMode) == strings.TrimSpace(desiredMode)
 }
 
 func checkpointMatchesRunArguments(existing *runCheckpoint, opts runOptions) bool {
