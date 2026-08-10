@@ -12,6 +12,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/assets"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
 func resolveAppID(ctx context.Context, client *asc.Client, appFlag string, config DeliverfileConfig) (string, error) {
@@ -153,9 +154,24 @@ func buildAppInfoFilePlans(localizations []AppInfoFastlaneLocalization) []Locali
 	return plans
 }
 
-func uploadVersionLocalizations(ctx context.Context, client *asc.Client, versionID string, localizations []FastlaneLocalization, localeToID map[string]string, submitOpts shared.SubmitReadinessOptions) ([]LocalizationUploadItem, []shared.SubmitReadinessCreateWarning, error) {
-	results := make([]LocalizationUploadItem, 0, len(localizations))
-	warnings := make([]shared.SubmitReadinessCreateWarning, 0, len(localizations))
+type preparedVersionLocalization struct {
+	localization FastlaneLocalization
+	attributes   asc.AppStoreVersionLocalizationAttributes
+}
+
+type preparedAppInfoLocalization struct {
+	localization   AppInfoFastlaneLocalization
+	attributes     asc.AppInfoLocalizationAttributes
+	localizationID string
+}
+
+type appInfoLocalizationPlan struct {
+	appInfoID     string
+	localizations []preparedAppInfoLocalization
+}
+
+func prepareVersionLocalizations(localizations []FastlaneLocalization) ([]preparedVersionLocalization, error) {
+	prepared := make([]preparedVersionLocalization, 0, len(localizations))
 	for _, loc := range localizations {
 		attrs := asc.AppStoreVersionLocalizationAttributes{
 			Locale:          loc.Locale,
@@ -167,8 +183,74 @@ func uploadVersionLocalizations(ctx context.Context, client *asc.Client, version
 			MarketingURL:    loc.MarketingURL,
 		}
 		if err := shared.ValidateVersionLocalizationAttributes(attrs); err != nil {
-			return nil, nil, fmt.Errorf("migrate import: locale %q: %w", loc.Locale, err)
+			return nil, fmt.Errorf("migrate import: locale %q: %w", loc.Locale, err)
 		}
+		prepared = append(prepared, preparedVersionLocalization{
+			localization: loc,
+			attributes:   attrs,
+		})
+	}
+	return prepared, nil
+}
+
+func validateVersionLocalizationCreateLocales(localizations []preparedVersionLocalization, localeToID map[string]string) error {
+	for _, prepared := range localizations {
+		locale := prepared.localization.Locale
+		if err := validateLocalizationCreateTarget(locale, localeToID[locale]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateScreenshotLocalizationCreateLocales(screenshots []ScreenshotPlan, localeToID map[string]string) error {
+	for _, screenshot := range screenshots {
+		if err := validateLocalizationCreateTarget(screenshot.Locale, localeToID[screenshot.Locale]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateLocalizationCreateTarget(locale, localizationID string) error {
+	if localizationID != "" {
+		return nil
+	}
+	if _, err := shared.CanonicalizeAppStoreLocalizationLocale(locale); err != nil {
+		return fmt.Errorf("migrate import: locale %q: %w", locale, err)
+	}
+	return nil
+}
+
+func prepareAppInfoLocalizationAttributes(localizations []AppInfoFastlaneLocalization) ([]preparedAppInfoLocalization, error) {
+	prepared := make([]preparedAppInfoLocalization, 0, len(localizations))
+	for _, loc := range localizations {
+		attrs := asc.AppInfoLocalizationAttributes{
+			Locale:           loc.Locale,
+			Name:             loc.Name,
+			Subtitle:         loc.Subtitle,
+			PrivacyPolicyURL: loc.PrivacyURL,
+		}
+		for _, issue := range validation.AppInfoLocalizationLengthIssues(validation.AppInfoLocalization{
+			Name:     attrs.Name,
+			Subtitle: attrs.Subtitle,
+		}) {
+			return nil, fmt.Errorf("migrate import: locale %q: %s exceeds %d %s", loc.Locale, issue.Field, issue.Limit, issue.Unit)
+		}
+		prepared = append(prepared, preparedAppInfoLocalization{
+			localization: loc,
+			attributes:   attrs,
+		})
+	}
+	return prepared, nil
+}
+
+func uploadVersionLocalizations(ctx context.Context, client *asc.Client, versionID string, localizations []preparedVersionLocalization, localeToID map[string]string, submitOpts shared.SubmitReadinessOptions) ([]LocalizationUploadItem, []shared.SubmitReadinessCreateWarning, error) {
+	results := make([]LocalizationUploadItem, 0, len(localizations))
+	warnings := make([]shared.SubmitReadinessCreateWarning, 0, len(localizations))
+	for _, prepared := range localizations {
+		loc := prepared.localization
+		attrs := prepared.attributes
 		action := "create"
 		localizationID := localeToID[loc.Locale]
 		if localizationID != "" {
@@ -199,49 +281,124 @@ func uploadVersionLocalizations(ctx context.Context, client *asc.Client, version
 	return results, shared.NormalizeSubmitReadinessCreateWarnings(warnings), nil
 }
 
-func uploadAppInfoLocalizations(ctx context.Context, client *asc.Client, appID string, appInfoLocs []AppInfoFastlaneLocalization) ([]LocalizationUploadItem, error) {
-	if len(appInfoLocs) == 0 {
-		return nil, nil
+func prepareAppInfoLocalizations(ctx context.Context, client *asc.Client, appID string, localizations []preparedAppInfoLocalization) (appInfoLocalizationPlan, error) {
+	if len(localizations) == 0 {
+		return appInfoLocalizationPlan{}, nil
 	}
 	appInfos, err := client.GetAppInfos(ctx, appID)
 	if err != nil {
-		return nil, fmt.Errorf("migrate import: failed to get app info: %w", err)
+		return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: failed to get app info: %w", err)
 	}
 	if len(appInfos.Data) == 0 {
-		return nil, fmt.Errorf("migrate import: no app info found for app")
+		return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: no app info found for app")
 	}
 	appInfoID := shared.SelectBestAppInfoID(appInfos)
 	if strings.TrimSpace(appInfoID) == "" {
-		return nil, fmt.Errorf("migrate import: failed to select app info for app")
+		return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: failed to select app info for app")
 	}
 
-	existingAppInfoLocs, err := client.GetAppInfoLocalizations(ctx, appInfoID)
+	existingAppInfoLocs, err := fetchAppInfoLocalizationsForPlan(ctx, client, appInfoID)
 	if err != nil {
-		return nil, fmt.Errorf("migrate import: failed to fetch app info localizations: %w", err)
+		return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: failed to fetch app info localizations: %w", err)
 	}
 	appInfoLocaleToID := make(map[string]string)
-	for _, loc := range existingAppInfoLocs.Data {
+	for _, loc := range existingAppInfoLocs {
 		appInfoLocaleToID[loc.Attributes.Locale] = loc.ID
 	}
 
-	results := make([]LocalizationUploadItem, 0, len(appInfoLocs))
-	for _, loc := range appInfoLocs {
-		attrs := asc.AppInfoLocalizationAttributes{
-			Locale:           loc.Locale,
-			Name:             loc.Name,
-			Subtitle:         loc.Subtitle,
-			PrivacyPolicyURL: loc.PrivacyURL,
-		}
-
-		action := "create"
+	plan := appInfoLocalizationPlan{
+		appInfoID:     appInfoID,
+		localizations: make([]preparedAppInfoLocalization, 0, len(localizations)),
+	}
+	for _, prepared := range localizations {
+		loc := prepared.localization
+		attrs := prepared.attributes
 		localizationID := appInfoLocaleToID[loc.Locale]
+		if err := validateLocalizationCreateTarget(loc.Locale, localizationID); err != nil {
+			return appInfoLocalizationPlan{}, err
+		}
+		if localizationID == "" {
+			if strings.TrimSpace(attrs.Name) == "" {
+				return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: locale %q: name is required when creating app info localization", loc.Locale)
+			}
+		}
+		prepared.localizationID = localizationID
+		plan.localizations = append(plan.localizations, prepared)
+	}
+	return plan, nil
+}
+
+func fetchAppInfoLocalizationsForPlan(ctx context.Context, client *asc.Client, appInfoID string) ([]asc.Resource[asc.AppInfoLocalizationAttributes], error) {
+	firstPage, err := client.GetAppInfoLocalizations(ctx, appInfoID, asc.WithAppInfoLocalizationsLimit(200))
+	if err != nil {
+		return nil, err
+	}
+	if firstPage == nil {
+		return nil, fmt.Errorf("empty app info localizations response")
+	}
+
+	paginated, err := asc.PaginateAll(ctx, firstPage, func(pageCtx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		nextPage, err := client.GetAppInfoLocalizations(pageCtx, appInfoID, asc.WithAppInfoLocalizationsNextURL(nextURL))
+		if err != nil {
+			return nil, err
+		}
+		if nextPage == nil {
+			return nil, fmt.Errorf("empty app info localizations response")
+		}
+		return nextPage, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	allPages, ok := paginated.(*asc.AppInfoLocalizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected app info localization pagination response type")
+	}
+	return allPages.Data, nil
+}
+
+func fetchVersionLocalizationsForPlan(ctx context.Context, client *asc.Client, versionID string) ([]asc.Resource[asc.AppStoreVersionLocalizationAttributes], error) {
+	firstPage, err := client.GetAppStoreVersionLocalizations(ctx, versionID, asc.WithAppStoreVersionLocalizationsLimit(200))
+	if err != nil {
+		return nil, err
+	}
+	if firstPage == nil {
+		return nil, fmt.Errorf("empty version localizations response")
+	}
+
+	paginated, err := asc.PaginateAll(ctx, firstPage, func(pageCtx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		nextPage, err := client.GetAppStoreVersionLocalizations(pageCtx, versionID, asc.WithAppStoreVersionLocalizationsNextURL(nextURL))
+		if err != nil {
+			return nil, err
+		}
+		if nextPage == nil {
+			return nil, fmt.Errorf("empty version localizations response")
+		}
+		return nextPage, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	allPages, ok := paginated.(*asc.AppStoreVersionLocalizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected version localization pagination response type")
+	}
+	return allPages.Data, nil
+}
+
+func uploadAppInfoLocalizations(ctx context.Context, client *asc.Client, plan appInfoLocalizationPlan) ([]LocalizationUploadItem, error) {
+	results := make([]LocalizationUploadItem, 0, len(plan.localizations))
+	for _, prepared := range plan.localizations {
+		loc := prepared.localization
+		action := "create"
+		localizationID := prepared.localizationID
 		if localizationID != "" {
 			action = "update"
-			if _, err := client.UpdateAppInfoLocalization(ctx, localizationID, attrs); err != nil {
+			if _, err := client.UpdateAppInfoLocalization(ctx, localizationID, prepared.attributes); err != nil {
 				return nil, fmt.Errorf("migrate import: failed to update app info %s: %w", loc.Locale, err)
 			}
 		} else {
-			resp, err := client.CreateAppInfoLocalization(ctx, appInfoID, attrs)
+			resp, err := client.CreateAppInfoLocalization(ctx, plan.appInfoID, prepared.attributes)
 			if err != nil {
 				return nil, fmt.Errorf("migrate import: failed to create app info %s: %w", loc.Locale, err)
 			}
