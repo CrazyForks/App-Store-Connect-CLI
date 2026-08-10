@@ -429,6 +429,40 @@ func TestAnalyticsResourceEndpointsRejectIDsThatEscapePathSegment(t *testing.T) 
 		call func(*Client) error
 	}{
 		{
+			name: "GetAnalyticsReportRequest",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReportRequest(context.Background(), "req-1/reports")
+				return err
+			},
+		},
+		{
+			name: "DeleteAnalyticsReportRequest",
+			call: func(client *Client) error {
+				return client.DeleteAnalyticsReportRequest(context.Background(), "req-1/reports")
+			},
+		},
+		{
+			name: "GetAnalyticsReport",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReport(context.Background(), "report-1/instances")
+				return err
+			},
+		},
+		{
+			name: "GetAnalyticsReports",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReports(context.Background(), "req-1/reports")
+				return err
+			},
+		},
+		{
+			name: "GetAnalyticsReportInstances",
+			call: func(client *Client) error {
+				_, err := client.GetAnalyticsReportInstances(context.Background(), "report-1/instances")
+				return err
+			},
+		},
+		{
 			name: "GetAnalyticsReportInstance",
 			call: func(client *Client) error {
 				_, err := client.GetAnalyticsReportInstance(context.Background(), "inst-1/relationships/reports")
