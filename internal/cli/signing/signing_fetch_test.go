@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"flag"
@@ -18,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
@@ -501,7 +503,7 @@ func TestResolveSigningAssetsCreatesWhenActiveProfilesLackRequestedCertificate(t
 		case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/v1/profiles/"):
 			return signingFetchJSONResponse(http.StatusOK, `{"data":[{"type":"certificates","id":"cert-mac","attributes":{"certificateType":"MAC_APP_DISTRIBUTION"}}]}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
-			return signingFetchJSONResponse(http.StatusOK, `{"data":[{"type":"certificates","id":"cert-ios","attributes":{"certificateType":"IOS_DISTRIBUTION"}}]}`)
+			return signingFetchJSONResponse(http.StatusOK, `{"data":[{"type":"certificates","id":"cert-ios","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}}]}`)
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
 			return signingFetchJSONResponse(http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}}`)
 		default:
@@ -536,6 +538,196 @@ func TestResolveSigningAssetsCreatesWhenActiveProfilesLackRequestedCertificate(t
 	}
 }
 
+func TestResolveSigningAssetsCreatesAppStoreProfileWithNewestEligibleCertificate(t *testing.T) {
+	var createdWithCertificateIDs []string
+	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
+			return signingFetchJSONResponse(http.StatusOK, `{"data":[]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
+			return signingFetchJSONResponse(http.StatusOK, `{
+				"data":[
+					{"type":"certificates","id":"cert-inactive","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":false,"expirationDate":"2102-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-expired","attributes":{"certificateType":"DISTRIBUTION","activated":true,"expirationDate":"2000-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-older","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-b","attributes":{"certificateType":"DISTRIBUTION","activated":true,"expirationDate":"2101-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-a","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2101-01-01T00:00:00Z"}}
+				]
+			}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
+			createdWithCertificateIDs = profileCreateCertificateIDs(t, req)
+			return signingFetchJSONResponse(http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+		}
+	})
+
+	profile, certificates, created, err := resolveSigningAssets(
+		context.Background(),
+		client,
+		signingAssetsOptions{
+			BundleIDResourceID: "bundle-main",
+			BundleIdentifier:   "com.example.signing.profile",
+			ProfileType:        "IOS_APP_STORE",
+			CreateMissing:      true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveSigningAssets() error: %v", err)
+	}
+	if !created || profile.Data.ID != "profile-created" {
+		t.Fatalf("expected created profile, got created=%v profile=%#v", created, profile)
+	}
+	if got := strings.Join(createdWithCertificateIDs, ","); got != "cert-a" {
+		t.Fatalf("profile certificate IDs = %q, want cert-a", got)
+	}
+	if got := strings.Join(extractIDs(certificates.Data), ","); got != "cert-a" {
+		t.Fatalf("returned certificate IDs = %q, want cert-a", got)
+	}
+}
+
+func TestResolveSigningAssetsPreservesEligibleDevelopmentCertificates(t *testing.T) {
+	var createdWithCertificateIDs []string
+	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
+			return signingFetchJSONResponse(http.StatusOK, `{"data":[]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
+			if got := req.URL.Query().Get("filter[certificateType]"); got != "IOS_DEVELOPMENT,DEVELOPMENT" {
+				t.Fatalf("certificate type filter = %q, want IOS_DEVELOPMENT,DEVELOPMENT", got)
+			}
+			return signingFetchJSONResponse(http.StatusOK, `{
+				"data":[
+					{"type":"certificates","id":"cert-ios","attributes":{"certificateType":"IOS_DEVELOPMENT","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-unified","attributes":{"certificateType":"DEVELOPMENT","activated":true,"expirationDate":"2101-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-inactive","attributes":{"certificateType":"DEVELOPMENT","activated":false,"expirationDate":"2102-01-01T00:00:00Z"}}
+				]
+			}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
+			createdWithCertificateIDs = profileCreateCertificateIDs(t, req)
+			return signingFetchJSONResponse(http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_DEVELOPMENT","profileState":"ACTIVE"}}}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+		}
+	})
+
+	_, certificates, created, err := resolveSigningAssets(
+		context.Background(),
+		client,
+		signingAssetsOptions{
+			BundleIDResourceID: "bundle-main",
+			BundleIdentifier:   "com.example.signing.profile",
+			ProfileType:        "IOS_APP_DEVELOPMENT",
+			DeviceIDs:          []string{"device-1"},
+			CreateMissing:      true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveSigningAssets() error: %v", err)
+	}
+	if !created {
+		t.Fatal("expected created profile")
+	}
+	want := "cert-ios,cert-unified"
+	if got := strings.Join(createdWithCertificateIDs, ","); got != want {
+		t.Fatalf("profile certificate IDs = %q, want %q", got, want)
+	}
+	if got := strings.Join(extractIDs(certificates.Data), ","); got != want {
+		t.Fatalf("returned certificate IDs = %q, want %q", got, want)
+	}
+}
+
+func TestResolveSigningAssetsRejectsProfileCreationWhenAllCertificatesAreIneligible(t *testing.T) {
+	postCalled := false
+	preflightCalled := false
+	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
+			return signingFetchJSONResponse(http.StatusOK, `{"data":[]}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
+			return signingFetchJSONResponse(http.StatusOK, `{
+				"data":[
+					{"type":"certificates","id":"cert-inactive","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":false,"expirationDate":"2100-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-expired","attributes":{"certificateType":"DISTRIBUTION","activated":true,"expirationDate":"2000-01-01T00:00:00Z"}}
+				]
+			}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
+			postCalled = true
+			return signingFetchJSONResponse(http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created"}}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+		}
+	})
+
+	_, _, _, err := resolveSigningAssets(
+		context.Background(),
+		client,
+		signingAssetsOptions{
+			BundleIDResourceID: "bundle-main",
+			BundleIdentifier:   "com.example.signing.profile",
+			ProfileType:        "IOS_APP_STORE",
+			CreateMissing:      true,
+			BeforeCreate: func() error {
+				preflightCalled = true
+				return nil
+			},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "no active, unexpired certificates available") {
+		t.Fatalf("resolveSigningAssets() error = %v, want no eligible certificate error", err)
+	}
+	if preflightCalled {
+		t.Fatal("repository preflight ran without an eligible certificate")
+	}
+	if postCalled {
+		t.Fatal("profile creation ran without an eligible certificate")
+	}
+}
+
+func TestCertificatesForProfileCreationRequiresCompleteLifecycleMetadata(t *testing.T) {
+	now := time.Date(2030, time.January, 1, 0, 0, 0, 0, time.UTC)
+	active := true
+	certificates := []asc.Resource[asc.CertificateAttributes]{
+		{ID: "cert-missing-activation", Attributes: asc.CertificateAttributes{ExpirationDate: "2031-01-01T00:00:00Z"}},
+		{ID: "cert-missing-expiration", Attributes: asc.CertificateAttributes{Activated: &active}},
+		{ID: "cert-malformed-expiration", Attributes: asc.CertificateAttributes{Activated: &active, ExpirationDate: "not-a-date"}},
+		{ID: "cert-expiring-now", Attributes: asc.CertificateAttributes{Activated: &active, ExpirationDate: "2030-01-01T00:00:00Z"}},
+		{ID: "cert-valid", Attributes: asc.CertificateAttributes{Activated: &active, ExpirationDate: "2030-01-01T00:00:01Z"}},
+	}
+
+	got := certificatesForProfileCreation(certificates, "IOS_APP_DEVELOPMENT", now)
+	if ids := strings.Join(extractIDs(got), ","); ids != "cert-valid" {
+		t.Fatalf("eligible certificate IDs = %q, want cert-valid", ids)
+	}
+}
+
+func TestIsAppStoreDistributionProfileMatchesOnlyAppStoreTypes(t *testing.T) {
+	tests := []struct {
+		profileType string
+		want        bool
+	}{
+		{profileType: "IOS_APP_STORE", want: true},
+		{profileType: "TVOS_APP_STORE", want: true},
+		{profileType: "MAC_APP_STORE", want: true},
+		{profileType: " mac_catalyst_app_store ", want: true},
+		{profileType: "IOS_APP_ADHOC", want: false},
+		{profileType: "IOS_APP_INHOUSE", want: false},
+		{profileType: "MAC_APP_DIRECT", want: false},
+		{profileType: "IOS_APP_DEVELOPMENT", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(strings.TrimSpace(tt.profileType), func(t *testing.T) {
+			if got := isAppStoreDistributionProfile(tt.profileType); got != tt.want {
+				t.Fatalf("isAppStoreDistributionProfile(%q) = %v, want %v", tt.profileType, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveSigningAssetsPreflightsBeforeCreatingProfile(t *testing.T) {
 	certificateContent := base64.StdEncoding.EncodeToString([]byte("certificate"))
 	profileContent := base64.StdEncoding.EncodeToString([]byte("profile"))
@@ -550,7 +742,7 @@ func TestResolveSigningAssetsPreflightsBeforeCreatingProfile(t *testing.T) {
 			return signingFetchJSONResponse(
 				http.StatusOK,
 				fmt.Sprintf(
-					`{"data":[{"type":"certificates","id":"cert-1","attributes":{"certificateType":"IOS_DISTRIBUTION","serialNumber":"CERT1","certificateContent":%q}}]}`,
+					`{"data":[{"type":"certificates","id":"cert-1","attributes":{"certificateType":"IOS_DISTRIBUTION","serialNumber":"CERT1","certificateContent":%q,"activated":true,"expirationDate":"2100-01-01T00:00:00Z"}}]}`,
 					certificateContent,
 				),
 			)
@@ -611,7 +803,7 @@ func TestResolveSigningAssetsRefreshesCreateTimeoutAfterPreflight(t *testing.T) 
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
 			return signingFetchJSONResponse(http.StatusOK, `{"data":[]}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
-			return signingFetchJSONResponse(http.StatusOK, `{"data":[{"type":"certificates","id":"cert-1","attributes":{"certificateType":"IOS_DISTRIBUTION"}}]}`)
+			return signingFetchJSONResponse(http.StatusOK, `{"data":[{"type":"certificates","id":"cert-1","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}}]}`)
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
 			return signingFetchJSONResponse(http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}}`)
 		default:
@@ -695,4 +887,21 @@ func signingFetchJSONResponse(status int, body string) *http.Response {
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
+}
+
+func profileCreateCertificateIDs(t *testing.T, req *http.Request) []string {
+	t.Helper()
+
+	var payload asc.ProfileCreateRequest
+	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode profile create request: %v", err)
+	}
+	if payload.Data.Relationships == nil || payload.Data.Relationships.Certificates == nil {
+		t.Fatal("profile create request is missing certificate relationships")
+	}
+	ids := make([]string, 0, len(payload.Data.Relationships.Certificates.Data))
+	for _, certificate := range payload.Data.Relationships.Certificates.Data {
+		ids = append(ids, certificate.ID)
+	}
+	return ids
 }
