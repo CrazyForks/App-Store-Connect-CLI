@@ -3,13 +3,16 @@ package validation
 import (
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const AppleStandardEULAURL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
 
 var (
 	descriptionURLPattern = regexp.MustCompile(`(?i)https?://[^\s]+`)
+	copyrightYearPattern  = regexp.MustCompile(`^([0-9]{4})$`)
 	termsKeywordPattern   = regexp.MustCompile(`(?i)\bterms of use\b|\bterms\b|\beula\b`)
 	termsURLPattern       = regexp.MustCompile(`(^|[^a-z0-9])(terms?|eula|tos|termsofservice)([^a-z0-9]|$)`)
 )
@@ -26,6 +29,15 @@ func legalChecks(copyright string, hasActiveMonetization bool, hasReviewRelevant
 			ResourceType: "appStoreVersion",
 			Message:      "copyright is required",
 			Remediation:  "Set copyright via: asc versions update --version-id VERSION_ID --copyright \"2026 Your Company\"",
+		})
+	} else if !hasValidLeadingCopyrightYear(copyright, time.Now().Year()) {
+		checks = append(checks, CheckResult{
+			ID:           "legal.format.copyright_year",
+			Severity:     SeverityError,
+			Field:        "copyright",
+			ResourceType: "appStoreVersion",
+			Message:      "copyright must start with the four-digit year the rights were obtained",
+			Remediation:  "Use a current or past year followed by the rights owner, for example: \"2020 Your Company\"",
 		})
 	}
 
@@ -122,6 +134,21 @@ func legalChecks(copyright string, hasActiveMonetization bool, hasReviewRelevant
 	}
 
 	return checks
+}
+
+func hasValidLeadingCopyrightYear(value string, currentYear int) bool {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) == 0 {
+		return false
+	}
+
+	match := copyrightYearPattern.FindStringSubmatch(fields[0])
+	if len(match) != 2 {
+		return false
+	}
+
+	year, err := strconv.Atoi(match[1])
+	return err == nil && year > 0 && year <= currentYear
 }
 
 // HasTermsOfUseLink reports whether a description includes a functional Terms of Use / EULA link.
