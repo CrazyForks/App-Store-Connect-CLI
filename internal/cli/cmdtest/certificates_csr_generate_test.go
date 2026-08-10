@@ -320,7 +320,7 @@ func TestCertificatesCSRGenerate_ValidatesLexicallyNestedOutputPaths(t *testing.
 				if !errors.Is(runErr, flag.ErrHelp) {
 					t.Errorf("run error = %v, want flag.ErrHelp", runErr)
 				}
-				if runErr == nil || runErr.Error() != "certificates csr generate: --key-out and --csr-out must not be nested paths" {
+				if runErr == nil || runErr.Error() != "--key-out and --csr-out must not be nested paths" {
 					t.Errorf("run error = %v, want nested-path error", runErr)
 				}
 				if stdout != "" {
@@ -350,6 +350,58 @@ func TestCertificatesCSRGenerate_ValidatesLexicallyNestedOutputPaths(t *testing.
 				}
 			}
 		})
+	}
+}
+
+func TestCertificatesCSRGenerate_RejectsEquivalentSpellingsOfSameOutputPath(t *testing.T) {
+	dir := t.TempDir()
+	keyOut := filepath.Join(dir, "cert.key")
+	if err := os.WriteFile(keyOut, []byte("original-private-key"), 0o600); err != nil {
+		t.Fatalf("WriteFile(keyOut) error: %v", err)
+	}
+	t.Chdir(dir)
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"certificates", "csr", "generate",
+			"--key-out", "cert.key",
+			"--csr-out", keyOut,
+			"--force",
+			"--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if !errors.Is(runErr, flag.ErrHelp) {
+		t.Fatalf("run error = %v, want usage error", runErr)
+	}
+	if got, want := runErr.Error(), "--key-out and --csr-out must be different paths"; got != want {
+		t.Fatalf("run error = %q, want %q", got, want)
+	}
+	if !strings.Contains(stderr, "--key-out and --csr-out must be different paths") {
+		t.Fatalf("stderr = %q, want same-path usage error", stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty output", stdout)
+	}
+	keyContents, err := os.ReadFile(keyOut)
+	if err != nil {
+		t.Fatalf("ReadFile(keyOut) error: %v", err)
+	}
+	if string(keyContents) != "original-private-key" {
+		t.Errorf("key contents = %q, want original key", keyContents)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir(dir) error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("unexpected output artifacts: %v", entries)
 	}
 }
 

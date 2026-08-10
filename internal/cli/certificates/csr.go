@@ -114,8 +114,8 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --csr-out is required")
 				return shared.MissingRequiredUsageError()
 			}
-			if filepath.Clean(keyOutValue) == filepath.Clean(csrOutValue) {
-				return shared.UsageError("--key-out and --csr-out must be different paths")
+			if err := validateCSRPairOutputPaths(keyOutValue, csrOutValue); err != nil {
+				return err
 			}
 
 			result, _, err := generateCSRFiles(csrGenerateOptions{
