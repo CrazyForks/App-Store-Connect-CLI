@@ -557,16 +557,18 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 	const omittedMarker = "OMITTED-DIAGNOSTIC-MARKER"
 
 	tests := []struct {
-		name      string
-		body      string
-		wantError bool
+		name            string
+		body            string
+		wantErrorPrefix string
+		checkDiagnostic bool
 	}{
 		{
 			name: "embedded error after keepalive whitespace and prolog",
 			body: " \r\n\t<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
 				"<Error><Code>InternalError</Code><Message>retry the upload</Message></Error>" +
 				"\x1b" + strings.Repeat("x", diagnosticLimit) + omittedMarker,
-			wantError: true,
+			wantErrorPrefix: "complete multipart upload failed: ",
+			checkDiagnostic: true,
 		},
 		{
 			name: "normal completion result",
@@ -574,6 +576,17 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 				"<CompleteMultipartUploadResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">" +
 				"<Bucket>example</Bucket><Key>archive.zip</Key><ETag>\"etag\"</ETag>" +
 				"</CompleteMultipartUploadResult>",
+		},
+		{
+			name:            "unexpected response root",
+			body:            "<?xml version=\"1.0\"?><UnexpectedResult><Message>unknown</Message></UnexpectedResult>",
+			wantErrorPrefix: "unexpected complete multipart upload response: ",
+		},
+		{
+			name: "truncated completion result",
+			body: "<?xml version=\"1.0\"?>" +
+				"<CompleteMultipartUploadResult><Bucket>example</Bucket>",
+			wantErrorPrefix: "parse complete multipart upload response: ",
 		},
 	}
 
@@ -606,7 +619,7 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 				"upload-123",
 				[]s3CompletedPart{{PartNumber: 1, ETag: "\"etag\""}},
 			)
-			if !tt.wantError {
+			if tt.wantErrorPrefix == "" {
 				if err != nil {
 					t.Fatalf("completeMultipartUpload() error = %v, want nil", err)
 				}
@@ -614,12 +627,16 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 			}
 
 			if err == nil {
-				t.Fatal("completeMultipartUpload() error = nil, want embedded S3 error")
+				t.Fatal("completeMultipartUpload() error = nil, want response classification error")
 			}
+			if !strings.HasPrefix(err.Error(), tt.wantErrorPrefix) {
+				t.Fatalf("error = %q, want prefix %q", err, tt.wantErrorPrefix)
+			}
+			if !tt.checkDiagnostic {
+				return
+			}
+
 			const errorPrefix = "complete multipart upload failed: "
-			if !strings.HasPrefix(err.Error(), errorPrefix) {
-				t.Fatalf("error = %q, want prefix %q", err, errorPrefix)
-			}
 			diagnostic := strings.TrimPrefix(err.Error(), errorPrefix)
 			if !strings.Contains(diagnostic, "<Code>InternalError</Code>") || !strings.Contains(diagnostic, "<Message>retry the upload</Message>") {
 				t.Fatalf("diagnostic = %q, want S3 code and message", diagnostic)
