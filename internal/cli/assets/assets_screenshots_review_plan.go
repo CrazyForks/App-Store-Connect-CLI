@@ -13,6 +13,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/screenshotcatalog"
 	reviewshots "github.com/rudrankriyam/App-Store-Connect-CLI/internal/screenshots"
 )
 
@@ -355,6 +356,10 @@ func executeScreenshotReviewPlan(ctx context.Context, opts screenshotReviewPlanO
 		if !displayTypesValid || len(canonicalDisplayTypes) == 0 {
 			continue
 		}
+		// Manifests written before the iPad slot correction list both the
+		// retired 12.9" slot and its successor for the same size; upload to the
+		// current slot only.
+		canonicalDisplayTypes = screenshotcatalog.PreferCurrentDisplayTypes(canonicalDisplayTypes)
 
 		result.ApprovedReadyEntries++
 		if coverageByLocale[locale] == nil {
