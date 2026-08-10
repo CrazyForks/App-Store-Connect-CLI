@@ -10,8 +10,9 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,12 +20,6 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
-
-type betaTesterCSVConflictTransport func(*http.Request) (*http.Response, error)
-
-func (fn betaTesterCSVConflictTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return fn(req)
-}
 
 func TestBetaTesterGroupConflictAlreadySatisfied(t *testing.T) {
 	tests := []struct {
@@ -64,7 +59,7 @@ func TestBetaTesterGroupConflictAlreadySatisfied(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			requests := 0
-			client := newBetaTesterCSVConflictClient(t, func(req *http.Request) (*http.Response, error) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				pageIndex := requests
 				requests++
 				if req.Method != http.MethodGet {
@@ -75,6 +70,12 @@ func TestBetaTesterGroupConflictAlreadySatisfied(t *testing.T) {
 				}
 				if !strings.HasPrefix(req.Header.Get("Authorization"), "Bearer ") {
 					t.Fatalf("expected bearer authorization, got %q", req.Header.Get("Authorization"))
+				}
+				if pageIndex == 0 && req.URL.Query().Get("limit") != "200" {
+					t.Fatalf("first page limit = %q, want 200", req.URL.Query().Get("limit"))
+				}
+				if pageIndex > 0 && req.URL.Query().Get("cursor") != fmt.Sprint(pageIndex+1) {
+					t.Fatalf("page %d cursor = %q, want %d", pageIndex+1, req.URL.Query().Get("cursor"), pageIndex+1)
 				}
 
 				if pageIndex >= len(test.memberships) {
@@ -91,20 +92,16 @@ func TestBetaTesterGroupConflictAlreadySatisfied(t *testing.T) {
 						pageIndex+2,
 					)
 				}
-				body, err := json.Marshal(map[string]any{
+				w.Header().Set("Content-Type", "application/json")
+				if err := json.NewEncoder(w).Encode(map[string]any{
 					"data":  data,
 					"links": links,
-				})
-				if err != nil {
+				}); err != nil {
 					t.Fatalf("marshal response: %v", err)
 				}
-				return &http.Response{
-					StatusCode: http.StatusOK,
-					Header:     http.Header{"Content-Type": []string{"application/json"}},
-					Body:       io.NopCloser(strings.NewReader(string(body))),
-					Request:    req,
-				}, nil
-			})
+			}))
+			t.Cleanup(server.Close)
+			client := newBetaTesterCSVConflictClient(t, server)
 
 			got, err := betaTesterGroupConflictAlreadySatisfied(
 				context.Background(),
@@ -126,7 +123,7 @@ func TestBetaTesterGroupConflictAlreadySatisfied(t *testing.T) {
 	}
 }
 
-func newBetaTesterCSVConflictClient(t *testing.T, transport betaTesterCSVConflictTransport) *asc.Client {
+func newBetaTesterCSVConflictClient(t *testing.T, server *httptest.Server) *asc.Client {
 	t.Helper()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -140,6 +137,17 @@ func newBetaTesterCSVConflictClient(t *testing.T, transport betaTesterCSVConflic
 	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
 	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
 		t.Fatalf("write private key: %v", err)
+	}
+
+	transport, ok := server.Client().Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("test server transport type = %T, want *http.Transport", server.Client().Transport)
+	}
+	transport = transport.Clone()
+	transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+	transport.TLSClientConfig.ServerName = "example.com"
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
 	}
 
 	client, err := asc.NewClientWithHTTPClient("KEY123", "ISS456", keyPath, &http.Client{Transport: transport})
