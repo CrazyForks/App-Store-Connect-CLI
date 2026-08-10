@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
@@ -41,6 +42,10 @@ func TestNotarizationSubmitValidation(t *testing.T) {
 }
 
 func TestNotarizationSubmitUploadsOpenedArchiveAfterPathReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not permit replacing an open file")
+	}
+
 	originalContents := []byte("AAAAAAAAAAAAAAAA")
 	replacementContents := []byte("BBBBBBBBBBBBBBBB")
 
