@@ -11,9 +11,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestBackgroundAssetsUploadFilesUpdatePreservesValidRequests(t *testing.T) {
@@ -45,30 +47,54 @@ func TestBackgroundAssetsUploadFilesUpdatePreservesValidRequests(t *testing.T) {
 				args = append(args, "--file", filePath, "--checksum")
 			}
 
+			type expectedRequest struct {
+				method string
+				path   string
+			}
+			expectedRequests := []expectedRequest{}
+			if test.withChecksum {
+				expectedRequests = append(expectedRequests, expectedRequest{method: http.MethodGet, path: "/v1/backgroundAssetUploadFiles/UPLOAD_ID"})
+			}
+			expectedRequests = append(expectedRequests, expectedRequest{method: http.MethodPatch, path: "/v1/backgroundAssetUploadFiles/UPLOAD_ID"})
+
 			requestCount := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				requestCount++
-				w.Header().Set("Content-Type", "application/json")
-
-				switch {
-				case req.Method == http.MethodGet && req.URL.Path == "/v1/backgroundAssetUploadFiles/UPLOAD_ID" && test.withChecksum:
-					_, _ = fmt.Fprintf(w, `{"data":{"type":"backgroundAssetUploadFiles","id":"UPLOAD_ID","attributes":{"sourceFileChecksums":{"file":{"hash":%q,"algorithm":"MD5"}}}}}`, expectedHash)
-				case req.Method == http.MethodPatch && req.URL.Path == "/v1/backgroundAssetUploadFiles/UPLOAD_ID":
-					var payload asc.BackgroundAssetUploadFileUpdateRequest
-					if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-						t.Errorf("decode request: %v", err)
-						http.Error(w, "invalid request", http.StatusBadRequest)
-						return
-					}
-					assertBackgroundAssetUploadFileUpdatePayload(t, payload, test.withChecksum, expectedHash)
-					_, _ = io.WriteString(w, `{"data":{"type":"backgroundAssetUploadFiles","id":"UPLOAD_ID","attributes":{"uploaded":true}}}`)
-				default:
+				if requestCount >= len(expectedRequests) {
 					t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
 					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
 				}
+				expected := expectedRequests[requestCount]
+				requestCount++
+				if req.Method != expected.method || req.URL.Path != expected.path {
+					t.Errorf("request %d = %s %s, want %s %s", requestCount, req.Method, req.URL.Path, expected.method, expected.path)
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				if authorization := req.Header.Get("Authorization"); !strings.HasPrefix(authorization, "Bearer ") {
+					t.Errorf("request %d Authorization = %q, want Bearer token", requestCount, authorization)
+					http.Error(w, "missing authorization", http.StatusUnauthorized)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+
+				if req.Method == http.MethodGet {
+					_, _ = fmt.Fprintf(w, `{"data":{"type":"backgroundAssetUploadFiles","id":"UPLOAD_ID","attributes":{"sourceFileChecksums":{"file":{"hash":%q,"algorithm":"MD5"}}}}}`, expectedHash)
+					return
+				}
+
+				var payload asc.BackgroundAssetUploadFileUpdateRequest
+				if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+					t.Errorf("decode request: %v", err)
+					http.Error(w, "invalid request", http.StatusBadRequest)
+					return
+				}
+				assertBackgroundAssetUploadFileUpdatePayload(t, payload, test.withChecksum, expectedHash)
+				_, _ = io.WriteString(w, `{"data":{"type":"backgroundAssetUploadFiles","id":"UPLOAD_ID","attributes":{"uploaded":true}}}`)
 			}))
 			t.Cleanup(server.Close)
-			installDefaultTransportForServer(t, server)
+			client := newReviewTestServerClient(t, server)
+			t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) { return client, nil }))
 
 			root := RootCommand("1.2.3")
 			stdout, stderr := captureOutput(t, func() {
@@ -83,12 +109,8 @@ func TestBackgroundAssetsUploadFilesUpdatePreservesValidRequests(t *testing.T) {
 			if stderr != "" {
 				t.Fatalf("stderr = %q, want empty", stderr)
 			}
-			wantRequests := 1
-			if test.withChecksum {
-				wantRequests = 2
-			}
-			if requestCount != wantRequests {
-				t.Fatalf("request count = %d, want %d", requestCount, wantRequests)
+			if requestCount != len(expectedRequests) {
+				t.Fatalf("request count = %d, want %d", requestCount, len(expectedRequests))
 			}
 			assertBackgroundAssetUploadFileID(t, stdout, "UPLOAD_ID")
 		})
