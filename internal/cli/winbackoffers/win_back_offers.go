@@ -388,10 +388,12 @@ Examples:
 			}
 
 			isFreeTrial := offerModeValue == asc.SubscriptionOfferModeFreeTrial
+			priceProvided := false
+			fs.Visit(func(f *flag.Flag) { priceProvided = priceProvided || f.Name == "price" })
 			prices := shared.SplitCSV(*priceIDs)
 			var freeTrialTerritories []string
 			if isFreeTrial {
-				if len(prices) > 0 {
+				if priceProvided {
 					fmt.Fprintln(os.Stderr, "Error: --price is not supported when --offer-mode is FREE_TRIAL; use --territory to choose territories")
 					return shared.MissingRequiredUsageError()
 				}

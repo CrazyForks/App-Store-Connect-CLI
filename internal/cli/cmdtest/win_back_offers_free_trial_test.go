@@ -192,16 +192,24 @@ func newWinBackOfferTestClient(t *testing.T, server *httptest.Server) *asc.Clien
 }
 
 func TestWinBackOffersCreateFreeTrialRejectsPrice(t *testing.T) {
-	t.Setenv("ASC_APP_ID", "")
-	assertUsageExit(t, winBackFreeTrialCreateArgs(
-		"--territory", "USA",
-		"--price", "eyJzIjoiMTIzNCIsInQiOiJVU0EiLCJwIjoiMTAwOTkifQ",
-	), "--price is not supported when --offer-mode is FREE_TRIAL")
+	for _, value := range []string{
+		"eyJzIjoiMTIzNCIsInQiOiJVU0EiLCJwIjoiMTAwOTkifQ",
+		"",
+		",,",
+	} {
+		t.Run(fmt.Sprintf("price=%q", value), func(t *testing.T) {
+			t.Setenv("ASC_APP_ID", "")
+			assertWinBackOfferUsageBeforeClient(t, winBackFreeTrialCreateArgs(
+				"--territory", "USA",
+				"--price", value,
+			), "--price is not supported when --offer-mode is FREE_TRIAL")
+		})
+	}
 }
 
 func TestWinBackOffersCreateFreeTrialRequiresTerritory(t *testing.T) {
 	t.Setenv("ASC_APP_ID", "")
-	assertUsageExit(t, winBackFreeTrialCreateArgs(),
+	assertWinBackOfferUsageBeforeClient(t, winBackFreeTrialCreateArgs(),
 		"--territory is required when --offer-mode is FREE_TRIAL")
 }
 
@@ -213,6 +221,14 @@ func TestWinBackOffersCreatePaidRejectsTerritory(t *testing.T) {
 			args[i] = "PAY_AS_YOU_GO"
 		}
 	}
-	assertUsageExit(t, args,
+	assertWinBackOfferUsageBeforeClient(t, args,
 		"--territory is only supported when --offer-mode is FREE_TRIAL")
+}
+
+func assertWinBackOfferUsageBeforeClient(t *testing.T, args []string, wantErr string) {
+	t.Helper()
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return nil, fmt.Errorf("unexpected client creation")
+	}))
+	assertUsageExit(t, args, wantErr)
 }
