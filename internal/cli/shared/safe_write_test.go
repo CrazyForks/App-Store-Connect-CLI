@@ -698,7 +698,7 @@ func TestSafeWriteFileNoSymlinkNoOverwriteReportsPublishFailureAgainstDestinatio
 		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want syscall.EIO", err)
 	}
 	message := err.Error()
-	if !strings.Contains(message, destination) {
+	if !strings.Contains(message, fmt.Sprintf("%q", destination)) {
 		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want destination %q", err, destination)
 	}
 	if count := strings.Count(message, filepath.Base(destination)); count != 1 {
@@ -767,7 +767,7 @@ func assertExistingDestinationError(t *testing.T, err error, destination string)
 	if !strings.Contains(message, "output file already exists") {
 		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want existing-output message", err)
 	}
-	if !strings.Contains(message, destination) {
+	if !strings.Contains(message, fmt.Sprintf("%q", destination)) {
 		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want destination %q", err, destination)
 	}
 	if count := strings.Count(message, filepath.Base(destination)); count != 1 {
