@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -305,10 +306,18 @@ func executeAppScreenshotUpload(ctx context.Context, cfg screenshotUploadConfig[
 
 	writtenPath, artifactErr := persistScreenshotUploadFailureArtifact(artifactPath, artifact)
 	if artifactErr != nil {
-		return result, fmt.Errorf("write screenshot upload failure artifact: %w", artifactErr)
+		return result, screenshotUploadArtifactWriteError(uploadErr, artifactErr)
 	}
 	result.FailureArtifactPath = writtenPath
 	return result, screenshotUploadRetryError(progress)
+}
+
+// screenshotUploadArtifactWriteError reports that the upload failed and that no
+// resume artifact could be written for it. The upload error is kept because it
+// is the actionable cause, and the pending-retry framing is dropped because
+// there is no artifact left to resume from.
+func screenshotUploadArtifactWriteError(uploadErr, artifactErr error) error {
+	return errors.Join(uploadErr, fmt.Errorf("write screenshot upload failure artifact: %w", artifactErr))
 }
 
 func resumeAppScreenshotUpload(ctx context.Context, client *asc.Client, artifactPath string) (asc.AppScreenshotUploadResult, error) {
@@ -394,7 +403,7 @@ func resumeAppScreenshotUpload(ctx context.Context, client *asc.Client, artifact
 
 	writtenPath, artifactErr := persistScreenshotUploadFailureArtifact(artifactPath, nextArtifact)
 	if artifactErr != nil {
-		return result, fmt.Errorf("write screenshot upload failure artifact: %w", artifactErr)
+		return result, screenshotUploadArtifactWriteError(uploadErr, artifactErr)
 	}
 	result.FailureArtifactPath = writtenPath
 	return result, screenshotUploadRetryError(progress)

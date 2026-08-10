@@ -615,6 +615,59 @@ func TestResumeScreenshotsDoesNotCreateWhenPendingLookupFails(t *testing.T) {
 	}
 }
 
+func TestExecuteAppScreenshotUploadKeepsUploadErrorWhenArtifactWriteFails(t *testing.T) {
+	workDir := t.TempDir()
+	filePath := writeAssetsTestPNG(t, workDir, "01-home.png")
+
+	// Make the artifact directory unusable by putting a regular file where the
+	// artifact's parent directory has to be.
+	blockedDir := filepath.Join(workDir, "reports")
+	if err := os.WriteFile(blockedDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write blocking file: %v", err)
+	}
+	artifactPath := filepath.Join(blockedDir, "failure-artifact.json")
+
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersionLocalizations/LOC_123/appScreenshotSets":
+			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshotSets","id":"set-1","attributes":{"screenshotDisplayType":"APP_IPHONE_65"}}],"links":{}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshotSets/set-1/appScreenshots":
+			return assetsJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshotSets/set-1/relationships/appScreenshots":
+			return assetsJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/appScreenshots":
+			return assetsJSONResponse(http.StatusUnauthorized, `{"errors":[{"status":"401","code":"NOT_AUTHORIZED","detail":"authentication credentials are missing"}]}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+	t.Cleanup(func() {
+		http.DefaultTransport = origTransport
+	})
+
+	client := newAssetsUploadTestClient(t)
+	_, err := executeAppScreenshotUpload(context.Background(), screenshotUploadConfig[asc.AppScreenshotUploadResult]{
+		Client:         client,
+		LocalizationID: "LOC_123",
+		DisplayType:    "APP_IPHONE_65",
+		Files:          []string{filePath},
+		RequestContext: contextWithAssetUploadTimeout,
+		UploadContext:  contextWithAssetUploadTimeout,
+		Access:         appStoreVersionScreenshotSetAccess,
+	}, artifactPath)
+	if err == nil {
+		t.Fatal("expected executeAppScreenshotUpload() error")
+	}
+	if !strings.Contains(err.Error(), "write screenshot upload failure artifact") {
+		t.Fatalf("expected artifact write failure in error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "authentication credentials are missing") {
+		t.Fatalf("expected the original upload failure to survive, got %v", err)
+	}
+}
+
 func TestExecuteAppScreenshotUploadOrderSyncFailureSurfacesOrderingError(t *testing.T) {
 	workDir := t.TempDir()
 	filePath := writeAssetsTestPNG(t, workDir, "01-home.png")
