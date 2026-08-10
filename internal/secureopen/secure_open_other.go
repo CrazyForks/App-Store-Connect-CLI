@@ -18,7 +18,7 @@ func OpenNewFileNoFollow(path string, perm os.FileMode) (*os.File, error) {
 // checks because a portable O_NOFOLLOW equivalent is not available on this
 // platform.
 func OpenAppendNoFollow(path string, perm os.FileMode) (*os.File, error) {
-	return openNewFileNoFollowBestEffort(path, perm, func(path string, perm os.FileMode) (*os.File, error) {
+	return openAppendFileNoFollowBestEffort(path, perm, func(path string, perm os.FileMode) (*os.File, error) {
 		flags := os.O_WRONLY | os.O_APPEND | os.O_CREATE
 		return os.OpenFile(path, flags, perm)
 	})

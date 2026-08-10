@@ -42,6 +42,14 @@ func openExistingNoFollowBestEffort(path string, opener existingFileOpener) (*os
 // descriptor still maps to the destination path after creation. This reduces,
 // but cannot eliminate, TOCTOU risk on platforms without atomic no-follow open.
 func openNewFileNoFollowBestEffort(path string, perm os.FileMode, creator newFileCreator) (*os.File, error) {
+	return openWritableFileNoFollowBestEffort(path, perm, true, creator)
+}
+
+func openAppendFileNoFollowBestEffort(path string, perm os.FileMode, creator newFileCreator) (*os.File, error) {
+	return openWritableFileNoFollowBestEffort(path, perm, false, creator)
+}
+
+func openWritableFileNoFollowBestEffort(path string, perm os.FileMode, removeCreatedOnFailure bool, creator newFileCreator) (*os.File, error) {
 	if _, err := lstatNoSymlink(path); err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -54,7 +62,18 @@ func openNewFileNoFollowBestEffort(path string, perm os.FileMode, creator newFil
 	}
 
 	if err := verifyOpenedPath(path, file, nil); err != nil {
-		_ = file.Close()
+		if !removeCreatedOnFailure {
+			_ = file.Close()
+			return nil, err
+		}
+		closeErr := file.Close()
+		removeErr := os.Remove(path)
+		if errors.Is(removeErr, os.ErrNotExist) {
+			removeErr = nil
+		}
+		if closeErr != nil || removeErr != nil {
+			return nil, errors.Join(err, closeErr, removeErr)
+		}
 		return nil, err
 	}
 	return file, nil
