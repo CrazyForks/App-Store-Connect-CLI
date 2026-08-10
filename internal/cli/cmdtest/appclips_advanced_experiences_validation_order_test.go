@@ -20,7 +20,6 @@ func TestAppClipsAdvancedExperiencesCreateValidatesSelectorBeforeClient(t *testi
 	}{
 		{
 			name:       "missing app clip and bundle selectors",
-			selector:   []string{"--app", "app-1"},
 			wantStderr: "Error: --app-clip-id or --bundle-id is required\n",
 		},
 		{
@@ -32,44 +31,52 @@ func TestAppClipsAdvancedExperiencesCreateValidatesSelectorBeforeClient(t *testi
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			clientFactoryCalls := 0
-			t.Cleanup(appclipscli.SetClientFactory(func() (*asc.Client, error) {
-				clientFactoryCalls++
-				return nil, errors.New("client factory must not run")
-			}))
-
-			args := []string{
-				"app-clips", "advanced-experiences", "create",
-				"--link", "https://example.com",
-				"--default-language", "EN",
-				"--is-powered-by",
-				"--header-image-id", "img-1",
-				"--language", "EN",
-				"--title", "Order ahead",
-			}
-			args = append(args, test.selector...)
-
-			var exitCode int
-			stdout, stderr := captureOutput(t, func() {
-				exitCode = rootcmd.Run(args, "1.2.3")
-			})
-
-			if exitCode != rootcmd.ExitUsage {
-				t.Fatalf("exit code = %d, want %d", exitCode, rootcmd.ExitUsage)
-			}
-			if stdout != "" {
-				t.Fatalf("stdout = %q, want empty", stdout)
-			}
-			diagnostic, usage, found := strings.Cut(stderr, "DESCRIPTION\n")
-			if !found || usage == "" {
-				t.Fatalf("stderr is missing command usage: %q", stderr)
-			}
-			if diagnostic != test.wantStderr {
-				t.Fatalf("stderr diagnostic = %q, want %q", diagnostic, test.wantStderr)
-			}
-			if clientFactoryCalls != 0 {
-				t.Fatalf("client factory calls = %d, want 0", clientFactoryCalls)
-			}
+			assertAppClipAdvancedExperienceCreateUsageBeforeClient(t, test.selector, test.wantStderr)
 		})
 	}
+}
+
+func assertAppClipAdvancedExperienceCreateUsageBeforeClient(t *testing.T, selector []string, wantStderr string) {
+	t.Helper()
+
+	clientFactoryCalls := 0
+	t.Cleanup(appclipscli.SetClientFactory(func() (*asc.Client, error) {
+		clientFactoryCalls++
+		return nil, errors.New("client factory must not run")
+	}))
+
+	var exitCode int
+	stdout, stderr := captureOutput(t, func() {
+		exitCode = rootcmd.Run(appClipAdvancedExperienceCreateArgs(selector...), "1.2.3")
+	})
+
+	if exitCode != rootcmd.ExitUsage {
+		t.Fatalf("exit code = %d, want %d", exitCode, rootcmd.ExitUsage)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	diagnostic, usage, found := strings.Cut(stderr, "DESCRIPTION\n")
+	if !found || usage == "" {
+		t.Fatalf("stderr is missing command usage: %q", stderr)
+	}
+	if diagnostic != wantStderr {
+		t.Fatalf("stderr diagnostic = %q, want %q", diagnostic, wantStderr)
+	}
+	if clientFactoryCalls != 0 {
+		t.Fatalf("client factory calls = %d, want 0", clientFactoryCalls)
+	}
+}
+
+func appClipAdvancedExperienceCreateArgs(selector ...string) []string {
+	args := []string{
+		"app-clips", "advanced-experiences", "create",
+		"--link", "https://example.com",
+		"--default-language", "EN",
+		"--is-powered-by",
+		"--header-image-id", "img-1",
+		"--language", "EN",
+		"--title", "Order ahead",
+	}
+	return append(args, selector...)
 }

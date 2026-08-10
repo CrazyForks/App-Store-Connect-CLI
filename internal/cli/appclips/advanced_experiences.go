@@ -344,11 +344,11 @@ Examples:
 
 			appClipValue := strings.TrimSpace(*appClipID)
 			bundleValue := strings.TrimSpace(*bundleID)
-			appValue := strings.TrimSpace(shared.ResolveAppID(*appID))
 			if appClipValue == "" && bundleValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app-clip-id or --bundle-id is required")
 				return shared.MissingRequiredUsageError()
 			}
+			appValue := strings.TrimSpace(shared.ResolveAppID(*appID))
 			if appClipValue == "" && appValue == "" {
 				fmt.Fprintln(os.Stderr, "Error: --app is required with --bundle-id")
 				return shared.MissingRequiredUsageError()
