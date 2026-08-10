@@ -3,6 +3,7 @@ package asc
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 )
@@ -162,7 +163,7 @@ func (e *APIError) Is(target error) bool {
 	case ErrBadRequest:
 		return strings.EqualFold(e.Code, "BAD_REQUEST")
 	case ErrConflict:
-		return strings.EqualFold(e.Code, "CONFLICT")
+		return strings.EqualFold(e.Code, "CONFLICT") || e.StatusCode == http.StatusConflict
 	default:
 		return false
 	}
