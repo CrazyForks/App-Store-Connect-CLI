@@ -262,6 +262,159 @@ func TestGitStoreListEncryptedFilesSkipsGitDirAndSymlinks(t *testing.T) {
 	}
 }
 
+func TestRedactRepoURLRemovesCredentials(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "token in password position",
+			raw:  "https://x-access-token:ghp_SUPERSECRET@github.com/team/certs.git",
+			want: "https://%5BREDACTED%5D@github.com/team/certs.git",
+		},
+		{
+			name: "token in user position",
+			raw:  "https://ghp_SUPERSECRET@github.com/team/certs.git",
+			want: "https://%5BREDACTED%5D@github.com/team/certs.git",
+		},
+		{
+			name: "unparseable userinfo",
+			raw:  "https://user:sec ret@github.com/team/certs.git",
+			want: "https://[REDACTED]@github.com/team/certs.git",
+		},
+		{
+			name: "scp style remote keeps its user",
+			raw:  "git@github.com:team/certs.git",
+			want: "git@github.com:team/certs.git",
+		},
+		{
+			name: "scp style remote with credentials",
+			raw:  "user:secret@github.com:team/certs.git",
+			want: "[REDACTED]@github.com:team/certs.git",
+		},
+		{
+			name: "no credentials",
+			raw:  "https://github.com/team/certs.git",
+			want: "https://github.com/team/certs.git",
+		},
+		{
+			name: "local path",
+			raw:  "/srv/git/certs.git",
+			want: "/srv/git/certs.git",
+		},
+		{
+			name: "empty",
+			raw:  "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := RedactRepoURL(tt.raw); got != tt.want {
+				t.Fatalf("RedactRepoURL(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitStoreCloneErrorRedactsRepositoryCredentials(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts require a POSIX shell")
+	}
+
+	binDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 1\n")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GIT_SSH_COMMAND", "")
+	t.Setenv("GIT_SSH", "")
+
+	store := &GitStore{
+		RepoURL:  "https://x-access-token:ghp_SUPERSECRET@github.com/team/certs.git",
+		LocalDir: filepath.Join(t.TempDir(), "clone"),
+		Branch:   "signing",
+	}
+
+	err := store.Clone(context.Background(), false)
+	if err == nil {
+		t.Fatal("expected clone failure for a missing branch")
+	}
+	for _, secret := range []string{"ghp_SUPERSECRET", "x-access-token"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("clone error leaks repository credentials: %v", err)
+		}
+	}
+	if !strings.Contains(err.Error(), "github.com/team/certs.git") {
+		t.Fatalf("clone error should still name the repository host: %v", err)
+	}
+	if !strings.Contains(err.Error(), `branch "signing" not found`) {
+		t.Fatalf("clone error should still report the missing branch: %v", err)
+	}
+}
+
+func TestGitStoreCloneReportsGitConfigProbeFailures(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts require a POSIX shell")
+	}
+
+	tests := []struct {
+		name        string
+		allowCreate bool
+	}{
+		{name: "pull mode"},
+		{name: "push mode", allowCreate: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			callCapture := filepath.Join(t.TempDir(), "git-calls.txt")
+			writeTestExecutable(t, filepath.Join(binDir, "git"), `#!/bin/sh
+set -eu
+printf '%s\n' "$1" >> "$ASC_FAKE_GIT_CALLS"
+if [ "$1" = "config" ]; then
+  printf 'fatal: bad config line 1 in file .gitconfig\n' >&2
+  exit 128
+fi
+exit 0
+`)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("ASC_FAKE_GIT_CALLS", callCapture)
+			t.Setenv("GIT_SSH_COMMAND", "")
+			t.Setenv("GIT_SSH", "")
+
+			store := &GitStore{
+				RepoURL:  "git@github.com:team/certs.git",
+				LocalDir: filepath.Join(t.TempDir(), "clone"),
+				Branch:   "main",
+			}
+
+			err := store.Clone(context.Background(), test.allowCreate)
+			if err == nil {
+				t.Fatal("expected the Git configuration probe failure to surface")
+			}
+			if !strings.Contains(err.Error(), "core.sshCommand") {
+				t.Fatalf("error = %v, want the Git configuration failure", err)
+			}
+			if strings.Contains(err.Error(), "not found") {
+				t.Fatalf("local Git configuration failure reported as a missing branch: %v", err)
+			}
+
+			calls, readErr := os.ReadFile(callCapture)
+			if readErr != nil {
+				t.Fatalf("read fake git calls: %v", readErr)
+			}
+			if got := strings.Count(string(calls), "config"); got != 1 {
+				t.Fatalf("Git configuration probe ran %d times, want 1: %q", got, calls)
+			}
+			if strings.Contains(string(calls), "clone") {
+				t.Fatalf("clone ran despite an unusable Git configuration: %q", calls)
+			}
+		})
+	}
+}
+
 func TestGitStoreGitHelpersUseNonInteractiveExecutables(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts require a POSIX shell")

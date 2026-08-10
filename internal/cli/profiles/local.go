@@ -25,7 +25,9 @@ const profilesLocalDirectoryHelp = `On macOS, the default directory follows the 
   Xcode 16 or newer: ~/Library/Developer/Xcode/UserData/Provisioning Profiles
   Xcode 15 or older: ~/Library/MobileDevice/Provisioning Profiles
 
-Use --install-dir to choose a directory explicitly or when no full Xcode is active.`
+When no full Xcode is active (for example a Command Line Tools only host),
+~/Library/MobileDevice/Provisioning Profiles is used and a note is written to
+stderr. Use --install-dir to choose a directory explicitly.`
 
 // profileUUIDValidationRegex ensures the UUID from a provisioning profile is safe to use
 // as a filename component (prevents absolute paths / path traversal).
@@ -481,22 +483,37 @@ func resolveProfilesInstallDir(ctx context.Context, value string) (string, error
 		return "", errProfilesInstallDirRequired
 	}
 
-	major, err := activeXcodeMajorVersionFn(ctx)
-	if err != nil {
-		return "", fmt.Errorf("determine active Xcode version: %w", err)
-	}
-	if major < 1 {
-		return "", fmt.Errorf("determine active Xcode version: invalid major version %d", major)
-	}
-
 	home, err := profilesUserHomeDirFn()
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory: %w", err)
 	}
+	legacyDir := filepath.Join(home, "Library", "MobileDevice", "Provisioning Profiles")
+
+	major, err := activeXcodeMajorVersionFn(ctx)
+	if err == nil && major < 1 {
+		err = fmt.Errorf("invalid major version %d", major)
+	}
+	if err != nil {
+		// A cancelled or expired context is the caller giving up, not a host
+		// without a full Xcode.
+		if ctxErr := context.Cause(ctx); ctxErr != nil {
+			return "", ctxErr
+		}
+		// Hosts with only Command Line Tools cannot report an Xcode version.
+		// Keep the pre-4.0 default working there instead of failing closed.
+		fmt.Fprintf(
+			os.Stderr,
+			"Note: could not determine the active Xcode version (%v); using %s. Pass --install-dir to choose another directory.\n",
+			err,
+			legacyDir,
+		)
+		return legacyDir, nil
+	}
+
 	if major >= 16 {
 		return filepath.Join(home, "Library", "Developer", "Xcode", "UserData", "Provisioning Profiles"), nil
 	}
-	return filepath.Join(home, "Library", "MobileDevice", "Provisioning Profiles"), nil
+	return legacyDir, nil
 }
 
 func scanLocalProfiles(installDir string, now time.Time) ([]localProfile, []localSkippedItem, error) {

@@ -10,7 +10,55 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/urlsanitize"
 )
+
+// redactedRepoUserinfo replaces credentials that net/url cannot parse.
+const redactedRepoUserinfo = "[REDACTED]"
+
+// RedactRepoURL removes credentials embedded in a repository URL so the remote
+// can be named in errors, diagnostics, and structured output without leaking a
+// token or password.
+func RedactRepoURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	sanitized := urlsanitize.SanitizeURLForLog(trimmed, urlsanitize.DefaultSignedQueryKeys, urlsanitize.DefaultSensitiveQueryKeys)
+	if sanitized != trimmed {
+		// net/url parsed the remote and replaced any embedded userinfo.
+		return sanitized
+	}
+	return redactRemoteUserinfo(trimmed)
+}
+
+// redactRemoteUserinfo strips credentials from remotes that net/url leaves
+// untouched, such as scp-style remotes and unescaped userinfo. An scp-style
+// remote without a password keeps its user name, because it carries no secret.
+func redactRemoteUserinfo(raw string) string {
+	scheme, rest, hasScheme := strings.Cut(raw, "://")
+	if !hasScheme {
+		rest = raw
+	}
+	authority, remainder := rest, ""
+	if index := strings.Index(rest, "/"); index >= 0 {
+		authority, remainder = rest[:index], rest[index:]
+	}
+	credentialsEnd := strings.LastIndex(authority, "@")
+	if credentialsEnd < 0 {
+		return raw
+	}
+	if !hasScheme && !strings.Contains(authority[:credentialsEnd], ":") {
+		return raw
+	}
+
+	redacted := redactedRepoUserinfo + authority[credentialsEnd:] + remainder
+	if hasScheme {
+		return scheme + "://" + redacted
+	}
+	return redacted
+}
 
 // GitStore manages an encrypted git repository of signing assets.
 type GitStore struct {
@@ -34,8 +82,15 @@ func (g *GitStore) Clone(ctx context.Context, allowCreate bool) error {
 		return nil
 	}
 
+	// A local Git configuration failure says nothing about the remote, so it
+	// must not be reported as a missing branch or retried as an empty repo.
+	var configErr gitConfigProbeError
+	if errors.As(err, &configErr) {
+		return err
+	}
+
 	if !allowCreate {
-		return fmt.Errorf("git clone: branch %q not found in %s: %w", branch, g.RepoURL, err)
+		return fmt.Errorf("git clone: branch %q not found in %s: %w", branch, RedactRepoURL(g.RepoURL), err)
 	}
 
 	// Push mode: may be empty repo — clone without branch and init.
@@ -247,6 +302,16 @@ func RejectSymlinkIfExists(path string) error {
 	return nil
 }
 
+// gitConfigProbeError marks a failure of the local Git configuration probe, so
+// callers can tell it apart from a failure of the Git command they asked for.
+type gitConfigProbeError struct {
+	err error
+}
+
+func (e gitConfigProbeError) Error() string { return e.err.Error() }
+
+func (e gitConfigProbeError) Unwrap() error { return e.err }
+
 func newGitCommand(ctx context.Context, dir string, args ...string) (*exec.Cmd, error) {
 	environment := gitEnvironmentWithoutRepositorySelectors(os.Environ(), runtime.GOOS)
 	coreSSHCommandConfigured := false
@@ -348,7 +413,7 @@ func hasConfiguredGitSSHCommand(
 	if !includeRepositoryConfig {
 		neutralRoot, err := os.MkdirTemp("", "asc-git-config-")
 		if err != nil {
-			return false, fmt.Errorf("create neutral Git config probe: %w", err)
+			return false, gitConfigProbeError{fmt.Errorf("create neutral Git config probe: %w", err)}
 		}
 		defer func() {
 			_ = os.Remove(neutralRoot)
@@ -373,7 +438,7 @@ func hasConfiguredGitSSHCommand(
 		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
 			return false, nil
 		}
-		return false, fmt.Errorf("check Git core.sshCommand: %w", err)
+		return false, gitConfigProbeError{fmt.Errorf("check Git core.sshCommand: %w", err)}
 	}
 	return strings.TrimSpace(string(output)) != "", nil
 }
