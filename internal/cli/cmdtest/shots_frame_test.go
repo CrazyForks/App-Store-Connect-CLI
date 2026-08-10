@@ -804,6 +804,14 @@ func TestShotsFrame_RejectsInvalidWatchOptions(t *testing.T) {
 			wantStderr: "--watch-raw-dir requires --watch-review-dir",
 		},
 		{
+			name: "blank review directory",
+			args: []string{
+				"--watch",
+				"--watch-review-dir", "   ",
+			},
+			wantStderr: "--watch-review-dir must not be empty",
+		},
+		{
 			name: "zero debounce",
 			args: []string{
 				"--watch",

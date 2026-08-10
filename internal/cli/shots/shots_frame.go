@@ -126,8 +126,11 @@ framed screenshots whenever the YAML config or referenced raw assets change.`,
 					return shared.UsageError("--watch-raw-dir requires --watch")
 				}
 			}
-			if watchRawDirSet && strings.TrimSpace(*watchReviewDir) == "" {
+			if watchRawDirSet && !watchReviewDirSet {
 				return shared.UsageError("--watch-raw-dir requires --watch-review-dir")
+			}
+			if watchReviewDirSet && strings.TrimSpace(*watchReviewDir) == "" {
+				return shared.UsageError("--watch-review-dir must not be empty")
 			}
 			if watchDebounceSet && *watchDebounce <= 0 {
 				return shared.UsageError("--watch-debounce must be greater than 0")
