@@ -16,12 +16,37 @@ This pattern was validated against a real app using:
 - `asc builds next-build-number` to choose the next build number for a version
 - `asc xcode inject` to materialize deployment metadata into generated Xcode
   plist/config files and asset paths before archiving
+- `asc xcode build` to compile a scheme for an explicit simulator or device
+  destination before the archive/export path
 - `asc xcode archive` to create a deterministic `.xcarchive`
 - `asc xcode export` to create a deterministic `.ipa`
 - `asc publish testflight --group ... --wait` to upload, wait for processing,
   and add the build to a TestFlight group
 - `--submit --confirm` on `asc publish testflight` when the target is an
   external group that should trigger beta app review submission
+
+For a simulator compile check without modifying project files, use the typed
+destination and explicit no-signing flag. For that invocation,
+`--no-code-signing` overrides signing with `CODE_SIGNING_ALLOWED=NO`. Derived
+data defaults to a stable asc cache path outside the checkout; use
+`--derived-data-path` when the workflow needs a specific artifact directory.
+Use `--result-bundle-path` to produce a new `.xcresult` bundle at an explicit
+path; the destination must not already exist and asc does not overwrite it.
+
+Replace the example destination below with a simulator installed on the host.
+
+```bash
+asc xcode build \
+  --project App.xcodeproj \
+  --scheme App \
+  --configuration Debug \
+  --destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=27.0' \
+  --no-code-signing \
+  --output json
+```
+
+Device builds retain Xcode's signing behavior unless `--no-code-signing` is
+provided explicitly.
 
 `asc xcode export` generates archive-specific App Store Connect export options
 automatically when `--export-options` is omitted. It chooses a unique
