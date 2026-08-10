@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
 
 	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestUsersUpdateSendsRolesAndVisibleAppsInOneRequest(t *testing.T) {
@@ -45,8 +48,25 @@ func TestUsersUpdateSendsRolesAndVisibleAppsInOneRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	setupAuth(t)
-	installDefaultTransportForServer(t, server)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	})
+	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
+	writeECDSAPEM(t, keyPath)
+	client, err := asc.NewClientWithHTTPClient("TEST_KEY", "TEST_ISSUER", keyPath, &http.Client{Transport: transport})
+	if err != nil {
+		t.Fatalf("create test client: %v", err)
+	}
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return client, nil
+	}))
 
 	var exitCode int
 	stdout, stderr := captureOutput(t, func() {
