@@ -139,7 +139,7 @@ Examples:
 				return fmt.Errorf("analytics requests: %w", err)
 			}
 			if strings.TrimSpace(*requestID) != "" {
-				if err := validateUUIDFlag("--request-id", *requestID); err != nil {
+				if err := validateAnalyticsRequestID(*requestID); err != nil {
 					return fmt.Errorf("analytics requests: %w", err)
 				}
 			}
@@ -336,7 +336,7 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --request-id is required")
 				return shared.MissingRequiredUsageError()
 			}
-			if err := validateUUIDFlag("--request-id", id); err != nil {
+			if err := validateAnalyticsRequestID(id); err != nil {
 				return fmt.Errorf("analytics requests delete: %w", err)
 			}
 			if !*confirm {
@@ -424,13 +424,13 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 			if strings.TrimSpace(*requestID) != "" {
-				if err := validateUUIDFlag("--request-id", *requestID); err != nil {
+				if err := validateAnalyticsRequestID(*requestID); err != nil {
 					return fmt.Errorf("analytics view: %w", err)
 				}
 			}
 			if strings.TrimSpace(*instanceID) != "" {
-				if err := validateUUIDFlag("--instance-id", *instanceID); err != nil {
-					return fmt.Errorf("analytics view: %w", err)
+				if _, err := asc.ValidateResourcePathSegment(*instanceID); err != nil {
+					return fmt.Errorf("analytics view: --instance-id: %w", err)
 				}
 			}
 			if *limit != 0 && (*limit < 1 || *limit > analyticsMaxLimit) {
@@ -610,19 +610,19 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --instance-id is required")
 				return shared.MissingRequiredUsageError()
 			}
-			if err := validateUUIDFlag("--request-id", *requestID); err != nil {
+			if err := validateAnalyticsRequestID(*requestID); err != nil {
 				return fmt.Errorf("analytics download: %w", err)
 			}
-			if err := validateUUIDFlag("--instance-id", *instanceID); err != nil {
-				return fmt.Errorf("analytics download: %w", err)
+			if _, err := asc.ValidateResourcePathSegment(*instanceID); err != nil {
+				return fmt.Errorf("analytics download: --instance-id: %w", err)
 			}
 			if strings.TrimSpace(*segmentID) != "" {
-				if err := validateUUIDFlag("--segment-id", *segmentID); err != nil {
-					return fmt.Errorf("analytics download: %w", err)
+				if _, err := asc.ValidateResourcePathSegment(*segmentID); err != nil {
+					return fmt.Errorf("analytics download: --segment-id: %w", err)
 				}
 			}
 
-			defaultOutput := fmt.Sprintf("analytics_report_%s_%s.csv.gz", strings.TrimSpace(*requestID), strings.TrimSpace(*instanceID))
+			defaultOutput := analyticsDownloadDefaultOutput(*requestID, *instanceID)
 			compressedPath, decompressedPath := shared.ResolveReportOutputPaths(*output, defaultOutput, ".csv", *decompress)
 
 			client, err := shared.GetASCClient()
