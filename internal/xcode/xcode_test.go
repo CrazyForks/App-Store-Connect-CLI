@@ -1560,6 +1560,27 @@ func TestXcodeDiagnosticBufferRetainsDiagnosticDisplacedByMissingPrefix(t *testi
 	requireBoundedXcodeDiagnosticOutput(t, got, missingDiagnostic, displacedDiagnostic)
 }
 
+func TestXcodeDiagnosticBufferRetainsUncollectedTailBoundaryError(t *testing.T) {
+	var input strings.Builder
+	for i := range 1000 {
+		fmt.Fprintf(&input, "error: early failure %04d\n", i)
+	}
+	boundaryDiagnostic := "error: actionable tail-boundary failure"
+	input.WriteString(boundaryDiagnostic + "\n")
+	input.WriteString(strings.Repeat("x", xcodebuildErrorTailLimit-len(boundaryDiagnostic)-1))
+
+	legacyTail := newTailBuffer(xcodebuildErrorTailLimit)
+	if _, err := io.WriteString(legacyTail, input.String()); err != nil {
+		t.Fatalf("legacy tail Write() error = %v", err)
+	}
+	if !strings.Contains(legacyTail.String(), boundaryDiagnostic) {
+		t.Fatal("test precondition failed: boundary diagnostic is absent from the legacy tail")
+	}
+
+	_, got := renderXcodeDiagnosticOutput(t, input.String())
+	requireBoundedXcodeDiagnosticOutput(t, got, "error: early failure 0000", boundaryDiagnostic)
+}
+
 func TestXcodeDiagnosticBufferDoesNotDeduplicateAgainstBenignTailSubstring(t *testing.T) {
 	diagnostic := "error: root cause"
 	benign := "note: previous error: root cause was discussed"

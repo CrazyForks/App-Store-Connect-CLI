@@ -1484,13 +1484,27 @@ func (b *xcodeDiagnosticBuffer) String() string {
 	}
 
 	tailDiagnostics := newXcodeDiagnosticTailIndex(tail)
+	diagnostics := make([]string, 0, len(tailDiagnostics.diagnostics)+len(b.diagnostics))
+	diagnosticSet := make(map[string]struct{}, cap(diagnostics))
+	for _, diagnostic := range append(tailDiagnostics.diagnostics, b.diagnostics...) {
+		if _, exists := diagnosticSet[diagnostic]; exists {
+			continue
+		}
+		diagnosticSet[diagnostic] = struct{}{}
+		diagnostics = append(diagnostics, diagnostic)
+	}
+
 	prefixBytes := 0
 	for {
 		boundary := max(0, len(tail)-(b.limit-prefixBytes))
 		newPrefixBytes := 0
-		for _, diagnostic := range b.diagnostics {
+		for _, diagnostic := range diagnostics {
 			if !tailDiagnostics.containsAtOrAfter(diagnostic, boundary) {
 				newPrefixBytes += len(diagnostic) + 1
+				if newPrefixBytes >= b.diagnosticBudget() {
+					newPrefixBytes = b.diagnosticBudget()
+					break
+				}
 			}
 		}
 		if newPrefixBytes == prefixBytes {
@@ -1502,12 +1516,15 @@ func (b *xcodeDiagnosticBuffer) String() string {
 
 	var prefix strings.Builder
 	prefix.Grow(prefixBytes)
-	for _, diagnostic := range b.diagnostics {
+	for _, diagnostic := range diagnostics {
 		if tailDiagnostics.containsAtOrAfter(diagnostic, boundary) {
 			continue
 		}
 		prefix.WriteString(diagnostic)
 		prefix.WriteByte('\n')
+		if prefix.Len() >= b.diagnosticBudget() {
+			break
+		}
 	}
 
 	diagnosticPrefix := prefix.String()
@@ -1518,10 +1535,14 @@ func (b *xcodeDiagnosticBuffer) String() string {
 	return diagnosticPrefix + tail
 }
 
-type xcodeDiagnosticTailIndex map[string]int
+type xcodeDiagnosticTailIndex struct {
+	lines       map[string]int
+	diagnostics []string
+}
 
 func newXcodeDiagnosticTailIndex(tail string) xcodeDiagnosticTailIndex {
-	index := make(xcodeDiagnosticTailIndex)
+	index := xcodeDiagnosticTailIndex{lines: make(map[string]int)}
+	diagnosticSet := make(map[string]struct{})
 	offset := 0
 	for {
 		newline := strings.IndexByte(tail[offset:], '\n')
@@ -1533,7 +1554,18 @@ func newXcodeDiagnosticTailIndex(tail string) xcodeDiagnosticTailIndex {
 		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 		if line != "" {
 			lineStart := offset + strings.Index(tail[offset:lineEnd], line)
-			index[line] = max(index[line], lineStart)
+			index.lines[line] = max(index.lines[line], lineStart)
+			diagnostic := line
+			if len(diagnostic) > xcodeDiagnosticLineLimit {
+				const omissionMarker = "…"
+				diagnostic = truncateUTF8Prefix(diagnostic, xcodeDiagnosticLineLimit-len(omissionMarker)) + omissionMarker
+			}
+			if isXcodeErrorDiagnostic(diagnostic) {
+				if _, exists := diagnosticSet[diagnostic]; !exists {
+					diagnosticSet[diagnostic] = struct{}{}
+					index.diagnostics = append(index.diagnostics, diagnostic)
+				}
+			}
 		}
 		if newline < 0 {
 			return index
@@ -1547,7 +1579,7 @@ func (i xcodeDiagnosticTailIndex) containsAtOrAfter(diagnostic string, boundary 
 	if diagnostic == "" {
 		return false
 	}
-	if start, exists := i[diagnostic]; exists && start >= boundary {
+	if start, exists := i.lines[diagnostic]; exists && start >= boundary {
 		return true
 	}
 
@@ -1555,7 +1587,7 @@ func (i xcodeDiagnosticTailIndex) containsAtOrAfter(diagnostic string, boundary 
 		return false
 	}
 	match := strings.TrimSuffix(diagnostic, "…")
-	for line, start := range i {
+	for line, start := range i.lines {
 		if start >= boundary && strings.HasPrefix(line, match) {
 			return true
 		}
