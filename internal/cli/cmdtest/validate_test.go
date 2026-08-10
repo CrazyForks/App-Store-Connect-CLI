@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/validate"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
@@ -378,6 +379,58 @@ func TestValidateVersionAndVersionIDMutuallyExclusive(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "mutually exclusive") {
 		t.Fatalf("expected mutually exclusive error, got %q", stderr)
+	}
+}
+
+func TestValidateReportsCopyrightWithoutLeadingAcquisitionYear(t *testing.T) {
+	fixture := validValidateFixture()
+	fixture.version = strings.Replace(fixture.version, `"copyright":"2026 Test Company"`, `"copyright":"Example Inc."`, 1)
+
+	client := newValidateTestClient(t, fixture)
+	restore := validate.SetClientFactory(func() (*asc.Client, error) {
+		return client, nil
+	})
+	defer restore()
+
+	root := RootCommand("1.2.3")
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"validate", "--app", "app-1", "--version-id", "ver-1", "--output", "json"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if _, ok := errors.AsType[ReportedError](runErr); !ok {
+		t.Fatalf("expected ReportedError, got %T: %v", runErr, runErr)
+	}
+	if got := rootcmd.ExitCodeFromError(runErr); got != rootcmd.ExitError {
+		t.Fatalf("exit code = %d, want %d", got, rootcmd.ExitError)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	var report validation.Report
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("failed to parse JSON output: %v; stdout=%q", err, stdout)
+	}
+
+	var matches []validation.CheckResult
+	for _, check := range report.Checks {
+		if check.ID == "legal.format.copyright_year" {
+			matches = append(matches, check)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected exactly one copyright-year check, got %d: %+v", len(matches), report.Checks)
+	}
+	if report.Summary.Errors != 1 || report.Summary.Blocking != 1 {
+		t.Fatalf("expected one blocking error, got %+v", report.Summary)
+	}
+	check := matches[0]
+	if check.Severity != validation.SeverityError || check.Field != "copyright" || check.ResourceType != "appStoreVersion" {
+		t.Fatalf("unexpected copyright-year check: %+v", check)
 	}
 }
 
