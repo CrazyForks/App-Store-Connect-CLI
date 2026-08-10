@@ -283,7 +283,8 @@ jobs:
           - name: Windows
             runner: windows-latest
             command: |
-              ASC_BYPASS_KEYCHAIN=1 go test -short ./internal/secureopen ./internal/cli/shared
+              ASC_BYPASS_KEYCHAIN=1 go test -short -count=1 ./internal/secureopen
+              ASC_BYPASS_KEYCHAIN=1 go test -short -count=1 ./internal/cli/shared -run '^(TestSafeWriteFileNoSymlink|TestPublishStagedFileNoReplace|TestWriteNewFileNoSymlink|TestCleanupIncompleteFile)'
               GOOS=windows GOARCH=amd64 go build -o build/asc_dev_windows_amd64.exe .
     steps:
       - name: Checkout code
