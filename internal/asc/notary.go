@@ -127,13 +127,23 @@ type S3Credentials struct {
 // GenerateNotaryJWT generates a JWT for the Notary API.
 // It is identical to GenerateJWT but includes the "scope" claim required by the Notary API.
 func GenerateNotaryJWT(keyID, issuerID string, privateKey any) (string, error) {
+	keyID = strings.TrimSpace(keyID)
+	if keyID == "" {
+		return "", ErrMissingKeyID
+	}
+	issuerID = strings.TrimSpace(issuerID)
+
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss":   issuerID,
 		"aud":   "appstoreconnect-v1",
 		"iat":   jwt.NewNumericDate(now),
 		"exp":   jwt.NewNumericDate(now.Add(tokenLifetime)),
 		"scope": []string{"/notary/v2"},
+	}
+	if issuerID == "" {
+		claims["sub"] = "user"
+	} else {
+		claims["iss"] = issuerID
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
