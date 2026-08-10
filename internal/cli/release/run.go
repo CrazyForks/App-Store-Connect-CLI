@@ -164,28 +164,30 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 		Completed:           map[string]bool{},
 	}
 
-	if !opts.DryRun {
-		existing, err := loadCheckpoint(opts.CheckpointFile)
-		if err != nil {
+	// A dry-run loads the checkpoint too, read-only: the plan has to show the
+	// steps the confirmed run would skip, and a checkpoint that no longer
+	// matches the run arguments has to fail the preview rather than only the
+	// confirmed run. Nothing below this point writes a checkpoint in dry-run.
+	existing, err := loadCheckpoint(opts.CheckpointFile)
+	if err != nil {
+		result.Status = "error"
+		result.Error = err.Error()
+		return result, err
+	}
+	if existing != nil {
+		if !checkpointMatchesRunArguments(existing, opts) {
+			err := fmt.Errorf("checkpoint does not match current run arguments")
 			result.Status = "error"
 			result.Error = err.Error()
 			return result, err
 		}
-		if existing != nil {
-			if !checkpointMatchesRunArguments(existing, opts) {
-				err := fmt.Errorf("checkpoint does not match current run arguments")
-				result.Status = "error"
-				result.Error = err.Error()
-				return result, err
-			}
-			checkpoint = *existing
-			checkpoint.RoutingCoverageFile = opts.RoutingCoverageFile
-			if checkpoint.Completed == nil {
-				checkpoint.Completed = map[string]bool{}
-			}
-			result.Resumed = len(checkpoint.Completed) > 0
-			result.VersionID = checkpoint.VersionID
+		checkpoint = *existing
+		checkpoint.RoutingCoverageFile = opts.RoutingCoverageFile
+		if checkpoint.Completed == nil {
+			checkpoint.Completed = map[string]bool{}
 		}
+		result.Resumed = len(checkpoint.Completed) > 0
+		result.VersionID = checkpoint.VersionID
 	}
 
 	client, err := releaseClientFactory()
@@ -230,9 +232,13 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 		start := time.Now()
 		step := stepResult{Name: name}
 
-		if !opts.DryRun && checkpoint.Completed[name] {
+		if checkpoint.Completed[name] {
 			step.Status = "skipped"
 			step.Message = "skipped (already completed in checkpoint)"
+			if opts.DryRun {
+				step.Status = "dry-run"
+				step.Message = "would skip (already completed in checkpoint)"
+			}
 			step.DurationMS = time.Since(start).Milliseconds()
 			result.Steps = append(result.Steps, step)
 			return nil
