@@ -406,6 +406,29 @@ func TestNewGitCommandPreservesConfiguredSSHTransport(t *testing.T) {
 			},
 		},
 		{
+			name:  "unconditional global include for clone",
+			clone: true,
+			configure: func(t *testing.T, transport string) string {
+				includedConfig := filepath.Join(t.TempDir(), "included-gitconfig")
+				configureGitSSHCommand(t, includedConfig, transport)
+				globalConfig := filepath.Join(t.TempDir(), "global-gitconfig")
+				runTestGit(t, "config", "--file", globalConfig, "include.path", includedConfig)
+				t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+				return t.TempDir()
+			},
+		},
+		{
+			name:  "command config for clone",
+			clone: true,
+			configure: func(t *testing.T, transport string) string {
+				t.Setenv("GIT_CONFIG_COUNT", "1")
+				t.Setenv("GIT_CONFIG_KEY_0", "core.sshCommand")
+				t.Setenv("GIT_CONFIG_VALUE_0", transport)
+				t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "missing-gitconfig"))
+				return t.TempDir()
+			},
+		},
+		{
 			name: "repository config",
 			configure: func(t *testing.T, transport string) string {
 				t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "missing-gitconfig"))
@@ -458,56 +481,104 @@ exit 17
 	}
 }
 
-func TestNewGitCommandCloneIgnoresCallerRepositorySSHCommand(t *testing.T) {
+func TestNewGitCommandCloneIgnoresCallerScopedSSHCommands(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts require a POSIX shell")
 	}
 
-	callerRepository := t.TempDir()
-	runTestGit(t, "init", "--quiet", callerRepository)
-	localTransportCapture := filepath.Join(t.TempDir(), "local-transport.txt")
-	localTransport := filepath.Join(t.TempDir(), "local-ssh")
-	writeTestExecutable(t, localTransport, `#!/bin/sh
+	tests := []struct {
+		name      string
+		configure func(t *testing.T, callerRepository, transport string) string
+	}{
+		{
+			name: "local repository config",
+			configure: func(t *testing.T, callerRepository, transport string) string {
+				runTestGit(t, "-C", callerRepository, "config", "core.sshCommand", transport)
+				return filepath.Join(t.TempDir(), "missing-gitconfig")
+			},
+		},
+		{
+			name: "gitdir conditional global config",
+			configure: func(t *testing.T, callerRepository, transport string) string {
+				includedConfig := filepath.Join(t.TempDir(), "included-gitconfig")
+				configureGitSSHCommand(t, includedConfig, transport)
+				globalConfig := filepath.Join(t.TempDir(), "global-gitconfig")
+				resolvedCallerRepository, err := filepath.EvalSymlinks(callerRepository)
+				if err != nil {
+					t.Fatalf("resolve caller repository: %v", err)
+				}
+				conditionKey := "includeIf.gitdir:" + filepath.ToSlash(resolvedCallerRepository) + "/.path"
+				runTestGit(t, "config", "--file", globalConfig, conditionKey, includedConfig)
+
+				cmd := exec.Command("git", "config", "--get", "core.sshCommand")
+				cmd.Dir = callerRepository
+				cmd.Env = replaceCommandEnvironmentValue(
+					standaloneTestGitEnvironment(t),
+					"GIT_CONFIG_GLOBAL",
+					globalConfig,
+					false,
+				)
+				output, err := cmd.Output()
+				if err != nil {
+					t.Fatalf("verify gitdir conditional config: %v", err)
+				}
+				if got := strings.TrimSpace(string(output)); got != transport {
+					t.Fatalf("conditional core.sshCommand = %q, want %q", got, transport)
+				}
+				return globalConfig
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callerRepository := t.TempDir()
+			runTestGit(t, "init", "--quiet", callerRepository)
+			callerTransportCapture := filepath.Join(t.TempDir(), "caller-transport.txt")
+			callerTransport := filepath.Join(t.TempDir(), "caller-ssh")
+			writeTestExecutable(t, callerTransport, `#!/bin/sh
 set -eu
-printf 'local\n' > "$ASC_LOCAL_SSH_CAPTURE"
+printf 'caller\n' > "$ASC_CALLER_SSH_CAPTURE"
 exit 17
 `)
-	runTestGit(t, "-C", callerRepository, "config", "core.sshCommand", localTransport)
+			globalConfig := tt.configure(t, callerRepository, callerTransport)
 
-	binDir := t.TempDir()
-	defaultTransportCapture := filepath.Join(t.TempDir(), "default-transport.txt")
-	writeTestExecutable(t, filepath.Join(binDir, "ssh"), `#!/bin/sh
+			binDir := t.TempDir()
+			defaultTransportCapture := filepath.Join(t.TempDir(), "default-transport.txt")
+			writeTestExecutable(t, filepath.Join(binDir, "ssh"), `#!/bin/sh
 set -eu
 printf '%s\n' "$@" > "$ASC_FAKE_SSH_CAPTURE"
 exit 17
 `)
 
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("ASC_LOCAL_SSH_CAPTURE", localTransportCapture)
-	t.Setenv("ASC_FAKE_SSH_CAPTURE", defaultTransportCapture)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "missing-gitconfig"))
-	t.Setenv("GIT_SSH_COMMAND", "")
-	t.Setenv("GIT_SSH", "")
-	t.Setenv("GIT_SSH_VARIANT", "ssh")
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("ASC_CALLER_SSH_CAPTURE", callerTransportCapture)
+			t.Setenv("ASC_FAKE_SSH_CAPTURE", defaultTransportCapture)
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+			t.Setenv("GIT_SSH_COMMAND", "")
+			t.Setenv("GIT_SSH", "")
+			t.Setenv("GIT_SSH_VARIANT", "ssh")
 
-	destination := filepath.Join(t.TempDir(), "clone")
-	cmd, err := newGitCommand(context.Background(), callerRepository, "clone", "ssh://git@127.0.0.1:1/repository", destination)
-	if err != nil {
-		t.Fatalf("newGitCommand: %v", err)
-	}
-	if err := cmd.Run(); err == nil {
-		t.Fatal("expected fake SSH transport failure")
-	}
-	defaultArguments, err := os.ReadFile(defaultTransportCapture)
-	if err != nil {
-		t.Fatalf("read default SSH transport arguments: %v", err)
-	}
-	if !strings.Contains(string(defaultArguments), "-o\nBatchMode=yes\n") {
-		t.Fatalf("default SSH transport arguments = %q, want BatchMode=yes", defaultArguments)
-	}
-	if _, err := os.Stat(localTransportCapture); !os.IsNotExist(err) {
-		t.Fatalf("caller repository core.sshCommand unexpectedly ran during clone: %v", err)
+			destination := filepath.Join(t.TempDir(), "clone")
+			cmd, err := newGitCommand(context.Background(), callerRepository, "clone", "ssh://git@127.0.0.1:1/repository", destination)
+			if err != nil {
+				t.Fatalf("newGitCommand: %v", err)
+			}
+			if err := cmd.Run(); err == nil {
+				t.Fatal("expected fake SSH transport failure")
+			}
+			defaultArguments, err := os.ReadFile(defaultTransportCapture)
+			if err != nil {
+				t.Fatalf("read default SSH transport arguments: %v", err)
+			}
+			if !strings.Contains(string(defaultArguments), "-o\nBatchMode=yes\n") {
+				t.Fatalf("default SSH transport arguments = %q, want BatchMode=yes", defaultArguments)
+			}
+			if _, err := os.Stat(callerTransportCapture); !os.IsNotExist(err) {
+				t.Fatalf("caller-scoped core.sshCommand unexpectedly ran during clone: %v", err)
+			}
+		})
 	}
 }
 

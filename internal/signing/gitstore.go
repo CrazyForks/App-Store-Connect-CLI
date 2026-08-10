@@ -343,9 +343,29 @@ func hasConfiguredGitSSHCommand(
 	goos string,
 	includeRepositoryConfig bool,
 ) (bool, error) {
+	queryDir := dir
+	queryEnvironment := replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", goos == "windows")
+	if !includeRepositoryConfig {
+		neutralRoot, err := os.MkdirTemp("", "asc-git-config-")
+		if err != nil {
+			return false, fmt.Errorf("create neutral Git config probe: %w", err)
+		}
+		defer func() {
+			_ = os.Remove(neutralRoot)
+		}()
+
+		queryDir = neutralRoot
+		queryEnvironment = replaceCommandEnvironmentValue(
+			queryEnvironment,
+			"GIT_DIR",
+			filepath.Join(neutralRoot, "nonexistent.git"),
+			goos == "windows",
+		)
+	}
+
 	cmd := exec.CommandContext(ctx, "git", "config", "--show-scope", "--null", "--get-all", "core.sshCommand")
-	cmd.Dir = dir
-	cmd.Env = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", goos == "windows")
+	cmd.Dir = queryDir
+	cmd.Env = queryEnvironment
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = os.Stderr
