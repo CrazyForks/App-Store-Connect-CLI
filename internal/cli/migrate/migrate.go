@@ -221,8 +221,10 @@ Examples:
 			}
 
 			var client *asc.Client
-			var requestCtx context.Context
-			var cancel context.CancelFunc
+			// Resolution reads share one request budget. Every later call
+			// derives its own from ctx, so a long import is not capped by this
+			// deadline.
+			requestCtx := ctx
 			needsClient := !*dryRun ||
 				(strings.TrimSpace(*appID) == "" && strings.TrimSpace(inputs.DeliverfileConfig.AppIdentifier) != "") ||
 				(strings.TrimSpace(*versionID) == "" && strings.TrimSpace(inputs.DeliverfileConfig.AppVersion) != "" && strings.TrimSpace(inputs.DeliverfileConfig.Platform) != "")
@@ -231,10 +233,9 @@ Examples:
 				if err != nil {
 					return fmt.Errorf("migrate import: %w", err)
 				}
-				requestCtx, cancel = shared.ContextWithTimeout(ctx)
-				defer cancel()
-			} else {
-				requestCtx = ctx
+				resolveCtx, cancelResolve := migrateRequestContext(ctx)
+				defer cancelResolve()
+				requestCtx = resolveCtx
 			}
 
 			resolvedAppID, err := resolveAppID(requestCtx, client, *appID, inputs.DeliverfileConfig)
@@ -268,24 +269,18 @@ Examples:
 				return printMigrateOutput(presentableImportResult(result, *includeSensitive), *output.Output, *output.Pretty)
 			}
 
-			if client == nil {
-				client, err = shared.GetASCClient()
-				if err != nil {
-					return fmt.Errorf("migrate import: %w", err)
-				}
-			}
-			if requestCtx == nil {
-				requestCtx, cancel = shared.ContextWithTimeout(ctx)
-				defer cancel()
-			}
-
-			if err := verifyExplicitVersionOwnership(requestCtx, client, *versionID, resolvedAppID, resolvedVersionID); err != nil {
+			ownershipCtx, cancelOwnership := migrateRequestContext(ctx)
+			err = verifyExplicitVersionOwnership(ownershipCtx, client, *versionID, resolvedAppID, resolvedVersionID)
+			cancelOwnership()
+			if err != nil {
 				return fmt.Errorf("migrate import: %w", err)
 			}
 
 			localeToID := make(map[string]string)
 			if len(localizations) > 0 || len(screenshotPlan) > 0 {
-				existingLocs, err := fetchVersionLocalizationsForPlan(requestCtx, client, strings.TrimSpace(resolvedVersionID))
+				existingCtx, cancelExisting := migrateRequestContext(ctx)
+				existingLocs, err := fetchVersionLocalizationsForPlan(existingCtx, client, strings.TrimSpace(resolvedVersionID))
+				cancelExisting()
 				if err != nil {
 					return fmt.Errorf("migrate import: failed to fetch existing localizations: %w", err)
 				}
@@ -299,28 +294,32 @@ Examples:
 			if err := validateScreenshotLocalizationCreateLocales(screenshotPlan, localeToID); err != nil {
 				return err
 			}
-			appInfoPlan, err := prepareAppInfoLocalizations(requestCtx, client, resolvedAppID, preparedAppInfoLocalizations)
+			appInfoCtx, cancelAppInfo := migrateRequestContext(ctx)
+			appInfoPlan, err := prepareAppInfoLocalizations(appInfoCtx, client, resolvedAppID, preparedAppInfoLocalizations)
+			cancelAppInfo()
 			if err != nil {
 				return err
 			}
 
 			submitOpts := shared.SubmitReadinessOptions{}
 			if migrateVersionLocalizationsNeedUpdateContext(localizations, localeToID) {
-				submitOpts = shared.ResolveSubmitReadinessOptionsForVersionBestEffort(requestCtx, client, resolvedVersionID, resolvedAppID, "")
+				readinessCtx, cancelReadiness := migrateRequestContext(ctx)
+				submitOpts = shared.ResolveSubmitReadinessOptionsForVersionBestEffort(readinessCtx, client, resolvedVersionID, resolvedAppID, "")
+				cancelReadiness()
 			}
-			uploaded, warnings, err := uploadVersionLocalizations(requestCtx, client, resolvedVersionID, preparedLocalizations, localeToID, submitOpts)
+			uploaded, warnings, err := uploadVersionLocalizations(ctx, client, resolvedVersionID, preparedLocalizations, localeToID, submitOpts)
 			if err != nil {
 				return err
 			}
-			appInfoUploaded, err := uploadAppInfoLocalizations(requestCtx, client, appInfoPlan)
+			appInfoUploaded, err := uploadAppInfoLocalizations(ctx, client, appInfoPlan)
 			if err != nil {
 				return err
 			}
-			reviewResult, err := uploadReviewInformation(requestCtx, client, resolvedVersionID, reviewInfo)
+			reviewResult, err := uploadReviewInformation(ctx, client, resolvedVersionID, reviewInfo)
 			if err != nil {
 				return err
 			}
-			screenshotResults, err := uploadScreenshots(requestCtx, client, resolvedVersionID, localeToID, screenshotPlan)
+			screenshotResults, err := uploadScreenshots(ctx, client, resolvedVersionID, localeToID, screenshotPlan)
 			if err != nil {
 				return err
 			}

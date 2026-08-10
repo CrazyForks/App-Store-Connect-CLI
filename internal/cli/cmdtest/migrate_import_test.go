@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/migrate"
@@ -935,6 +936,123 @@ func TestMigrateImportUploadsAndSkipsExistingScreenshots(t *testing.T) {
 	}
 	if len(result.ScreenshotResults[0].Skipped) != 1 {
 		t.Fatalf("expected 1 skipped screenshot, got %d", len(result.ScreenshotResults[0].Skipped))
+	}
+}
+
+func TestMigrateImportUploadPhaseKeepsFullUploadBudget(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	root := t.TempDir()
+	fastlaneDir := filepath.Join(root, "fastlane")
+	metadataDir := filepath.Join(fastlaneDir, "metadata", "en-US")
+	if err := os.MkdirAll(metadataDir, 0o755); err != nil {
+		t.Fatalf("mkdir metadata: %v", err)
+	}
+	writeFile(t, filepath.Join(metadataDir, "description.txt"), "English description")
+
+	screenshotsDir := filepath.Join(fastlaneDir, "screenshots", "en-US")
+	if err := os.MkdirAll(screenshotsDir, 0o755); err != nil {
+		t.Fatalf("mkdir screenshots: %v", err)
+	}
+	writePNGForMigrate(t, filepath.Join(screenshotsDir, "iphone_65_new.png"), 1242, 2688)
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	budgets := make(map[string]time.Duration)
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		label := req.Method + " " + req.URL.Path
+		if deadline, ok := req.Context().Deadline(); ok {
+			if remaining := time.Until(deadline); remaining > budgets[label] {
+				budgets[label] = remaining
+			}
+		} else {
+			budgets[label] = -1
+		}
+
+		if req.URL.Host == "upload.example.com" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			}, nil
+		}
+
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
+			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
+			return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US"}}]}`), nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/loc-1":
+			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"locale":"en-US"}}}`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersionLocalizations/loc-1/appScreenshotSets":
+			return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshotSets","id":"set-1","attributes":{"screenshotDisplayType":"APP_IPHONE_65"}}]}`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshotSets/set-1/appScreenshots":
+			return migrateJSONResponse(http.StatusOK, `{"data":[]}`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshotSets/set-1/relationships/appScreenshots":
+			return migrateJSONResponse(http.StatusOK, `{"data":[],"links":{}}`), nil
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/appScreenshots":
+			resp := `{"data":{"type":"appScreenshots","id":"shot-new","attributes":{"fileName":"iphone_65_new.png","fileSize":1234,"uploadOperations":[{"method":"PUT","url":"https://upload.example.com/upload/shot-new","length":1234,"offset":0}]}}}`
+			return migrateJSONResponse(http.StatusCreated, resp), nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appScreenshots/shot-new":
+			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appScreenshots","id":"shot-new","attributes":{"fileName":"iphone_65_new.png"}}}`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshots/shot-new":
+			body := `{"data":{"type":"appScreenshots","id":"shot-new","attributes":{"fileName":"iphone_65_new.png","assetDeliveryState":{"state":"COMPLETE"}}}}`
+			return migrateJSONResponse(http.StatusOK, body), nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appScreenshotSets/set-1/relationships/appScreenshots":
+			return migrateJSONResponse(http.StatusNoContent, ""), nil
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+
+	rootCmd := RootCommand("1.2.3")
+	rootCmd.FlagSet.SetOutput(io.Discard)
+
+	_, stderr := captureOutput(t, func() {
+		if err := rootCmd.Parse([]string{
+			"migrate", "import",
+			"--app", "APP_ID",
+			"--version-id", "VERSION_ID",
+			"--fastlane-dir", fastlaneDir,
+			"--confirm",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := rootCmd.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	// The asset transfer runs on the upload client, so its budget shows whether
+	// the mutation phase inherited the planning request deadline.
+	putBudget, ok := budgets["PUT /upload/shot-new"]
+	if !ok {
+		t.Fatalf("no screenshot transfer recorded, got %v", budgets)
+	}
+	if putBudget < 4*time.Minute {
+		t.Fatalf("screenshot transfer budget = %s, want the asset upload budget rather than one request timeout", putBudget)
+	}
+
+	// API calls stay bounded by the ordinary request timeout.
+	for _, label := range []string{
+		"GET /v1/appStoreVersions/VERSION_ID",
+		"PATCH /v1/appStoreVersionLocalizations/loc-1",
+		"POST /v1/appScreenshots",
+	} {
+		budget, ok := budgets[label]
+		if !ok {
+			t.Fatalf("no %s request recorded, got %v", label, budgets)
+		}
+		if budget <= 0 || budget > time.Minute {
+			t.Fatalf("%s budget = %s, want a bounded per-request timeout", label, budget)
+		}
 	}
 }
 

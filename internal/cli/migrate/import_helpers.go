@@ -15,6 +15,19 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
+// migrateRequestContext bounds a single outbound request. It derives from the
+// command context rather than the caller's context so a multi-locale import is
+// not capped by one shared request deadline.
+func migrateRequestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return shared.ContextWithTimeout(shared.ContextWithoutTimeout(ctx))
+}
+
+// migrateUploadContext gives one asset upload the asset upload budget, which a
+// request deadline in the parent chain would otherwise truncate.
+func migrateUploadContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return assets.ContextWithAssetUploadTimeout(shared.ContextWithoutTimeout(ctx))
+}
+
 func resolveAppID(ctx context.Context, client *asc.Client, appFlag string, config DeliverfileConfig) (string, error) {
 	if strings.TrimSpace(appFlag) != "" {
 		return strings.TrimSpace(appFlag), nil
@@ -300,12 +313,16 @@ func uploadVersionLocalizations(ctx context.Context, client *asc.Client, version
 		localizationID := localeToID[loc.Locale]
 		if localizationID != "" {
 			action = "update"
-			_, err := client.UpdateAppStoreVersionLocalization(ctx, localizationID, attrs)
+			requestCtx, cancel := migrateRequestContext(ctx)
+			_, err := client.UpdateAppStoreVersionLocalization(requestCtx, localizationID, attrs)
+			cancel()
 			if err != nil {
 				return nil, nil, fmt.Errorf("migrate import: failed to update %s: %w", loc.Locale, err)
 			}
 		} else {
-			resp, err := client.CreateAppStoreVersionLocalization(ctx, versionID, attrs)
+			requestCtx, cancel := migrateRequestContext(ctx)
+			resp, err := client.CreateAppStoreVersionLocalization(requestCtx, versionID, attrs)
+			cancel()
 			if err != nil {
 				return nil, nil, fmt.Errorf("migrate import: failed to create %s: %w", loc.Locale, err)
 			}
@@ -439,11 +456,16 @@ func uploadAppInfoLocalizations(ctx context.Context, client *asc.Client, plan ap
 		localizationID := prepared.localizationID
 		if localizationID != "" {
 			action = "update"
-			if _, err := client.UpdateAppInfoLocalization(ctx, localizationID, prepared.attributes); err != nil {
+			requestCtx, cancel := migrateRequestContext(ctx)
+			_, err := client.UpdateAppInfoLocalization(requestCtx, localizationID, prepared.attributes)
+			cancel()
+			if err != nil {
 				return nil, fmt.Errorf("migrate import: failed to update app info %s: %w", loc.Locale, err)
 			}
 		} else {
-			resp, err := client.CreateAppInfoLocalization(ctx, plan.appInfoID, prepared.attributes)
+			requestCtx, cancel := migrateRequestContext(ctx)
+			resp, err := client.CreateAppInfoLocalization(requestCtx, plan.appInfoID, prepared.attributes)
+			cancel()
 			if err != nil {
 				return nil, fmt.Errorf("migrate import: failed to create app info %s: %w", loc.Locale, err)
 			}
@@ -466,12 +488,16 @@ func uploadReviewInformation(ctx context.Context, client *asc.Client, versionID 
 		return nil, nil
 	}
 
-	existing, err := client.GetAppStoreReviewDetailForVersion(ctx, versionID)
+	fetchCtx, fetchCancel := migrateRequestContext(ctx)
+	existing, err := client.GetAppStoreReviewDetailForVersion(fetchCtx, versionID)
+	fetchCancel()
 	if err != nil {
 		if !isNotFoundReviewDetail(err) {
 			return nil, fmt.Errorf("migrate import: failed to fetch review information: %w", err)
 		}
-		created, err := client.CreateAppStoreReviewDetail(ctx, versionID, buildReviewDetailCreateAttributes(info))
+		createCtx, createCancel := migrateRequestContext(ctx)
+		created, err := client.CreateAppStoreReviewDetail(createCtx, versionID, buildReviewDetailCreateAttributes(info))
+		createCancel()
 		if err != nil {
 			return nil, fmt.Errorf("migrate import: failed to create review information: %w", err)
 		}
@@ -484,7 +510,10 @@ func uploadReviewInformation(ctx context.Context, client *asc.Client, versionID 
 	if reviewInformationMatches(existing.Data.Attributes, info) {
 		return &ReviewInfoResult{Action: "skip", DetailID: existing.Data.ID}, nil
 	}
-	if _, err := client.UpdateAppStoreReviewDetail(ctx, existing.Data.ID, buildReviewDetailUpdateAttributes(info)); err != nil {
+	updateCtx, updateCancel := migrateRequestContext(ctx)
+	_, err = client.UpdateAppStoreReviewDetail(updateCtx, existing.Data.ID, buildReviewDetailUpdateAttributes(info))
+	updateCancel()
+	if err != nil {
 		return nil, fmt.Errorf("migrate import: failed to update review information: %w", err)
 	}
 	return &ReviewInfoResult{Action: "update", DetailID: existing.Data.ID}, nil
@@ -500,14 +529,13 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 		plansByLocale[plan.Locale] = append(plansByLocale[plan.Locale], plan)
 	}
 
-	uploadCtx, cancel := assets.ContextWithAssetUploadTimeout(ctx)
-	defer cancel()
-
 	results := make([]ScreenshotUploadResult, 0, len(plans))
 	for locale, localePlans := range plansByLocale {
 		localizationID := localeToID[locale]
 		if localizationID == "" {
-			resp, err := client.CreateAppStoreVersionLocalization(uploadCtx, versionID, asc.AppStoreVersionLocalizationAttributes{Locale: locale})
+			createCtx, createCancel := migrateRequestContext(ctx)
+			resp, err := client.CreateAppStoreVersionLocalization(createCtx, versionID, asc.AppStoreVersionLocalizationAttributes{Locale: locale})
+			createCancel()
 			if err != nil {
 				return nil, fmt.Errorf("migrate import: failed to create localization for screenshots %s: %w", locale, err)
 			}
@@ -515,7 +543,9 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 			localeToID[locale] = localizationID
 		}
 
-		existingSets, err := client.GetAppScreenshotSets(uploadCtx, localizationID)
+		setsCtx, setsCancel := migrateRequestContext(ctx)
+		existingSets, err := client.GetAppScreenshotSets(setsCtx, localizationID)
+		setsCancel()
 		if err != nil {
 			return nil, fmt.Errorf("migrate import: failed to fetch screenshot sets for %s: %w", locale, err)
 		}
@@ -525,12 +555,16 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 		existingOrderByType := make(map[string][]string)
 		for _, set := range existingSets.Data {
 			setByType[set.Attributes.ScreenshotDisplayType] = set.ID
-			orderedIDs, err := assets.GetOrderedAppScreenshotIDs(uploadCtx, client, set.ID)
+			orderCtx, orderCancel := migrateRequestContext(ctx)
+			orderedIDs, err := assets.GetOrderedAppScreenshotIDs(orderCtx, client, set.ID)
+			orderCancel()
 			if err != nil {
 				return nil, fmt.Errorf("migrate import: failed to fetch screenshot relationship order for %s: %w", set.ID, err)
 			}
 			existingOrderByType[set.Attributes.ScreenshotDisplayType] = orderedIDs
-			screenshots, err := client.GetAppScreenshots(uploadCtx, set.ID)
+			screenshotsCtx, screenshotsCancel := migrateRequestContext(ctx)
+			screenshots, err := client.GetAppScreenshots(screenshotsCtx, set.ID)
+			screenshotsCancel()
 			if err != nil {
 				return nil, fmt.Errorf("migrate import: failed to fetch screenshots for %s: %w", set.ID, err)
 			}
@@ -553,7 +587,9 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 			canonicalDisplayType := asc.CanonicalScreenshotDisplayTypeForAPI(plan.DisplayType)
 			setID := setByType[canonicalDisplayType]
 			if setID == "" {
-				set, err := client.CreateAppScreenshotSet(uploadCtx, localizationID, canonicalDisplayType)
+				setCtx, setCancel := migrateRequestContext(ctx)
+				set, err := client.CreateAppScreenshotSet(setCtx, localizationID, canonicalDisplayType)
+				setCancel()
 				if err != nil {
 					return nil, fmt.Errorf("migrate import: failed to create screenshot set %s: %w", canonicalDisplayType, err)
 				}
@@ -592,6 +628,10 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 				}
 				var item asc.AssetUploadResultItem
 				var err error
+				// Each asset reserves, transfers, and commits under its own
+				// upload budget; a shared request deadline would truncate the
+				// transfer of the first large screenshot.
+				uploadCtx, uploadCancel := migrateUploadContext(ctx)
 				if opened, ok, openErr := plan.openedFile(filePath); openErr != nil {
 					err = openErr
 				} else if ok {
@@ -605,6 +645,7 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 					// pinned rooted handle.
 					item, err = assets.UploadScreenshotAsset(uploadCtx, client, setID, filePath)
 				}
+				uploadCancel()
 				if err != nil {
 					return nil, fmt.Errorf("migrate import: failed to upload screenshot %s: %w", filePath, err)
 				}
@@ -613,7 +654,10 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 				result.Uploaded = append(result.Uploaded, item)
 			}
 			orderedIDs := buildPlannedScreenshotOrder(plan.Files, existingOrderByType[canonicalDisplayType], fileIDs, uploadedIDsByName)
-			if err := assets.SetOrderedAppScreenshots(uploadCtx, client, setID, orderedIDs); err != nil {
+			reorderCtx, reorderCancel := migrateRequestContext(ctx)
+			err := assets.SetOrderedAppScreenshots(reorderCtx, client, setID, orderedIDs)
+			reorderCancel()
+			if err != nil {
 				return nil, fmt.Errorf("migrate import: failed to reorder screenshots for %s: %w", setID, err)
 			}
 			existingOrderByType[canonicalDisplayType] = orderedIDs
