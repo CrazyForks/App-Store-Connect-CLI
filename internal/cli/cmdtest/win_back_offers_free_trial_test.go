@@ -1,11 +1,20 @@
 package cmdtest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 // Regression coverage for https://github.com/rorkai/App-Store-Connect-CLI/issues/1948:
@@ -34,77 +43,55 @@ func TestWinBackOffersCreateFreeTrialSendsTerritoryOnlyPrices(t *testing.T) {
 	t.Setenv("ASC_APP_ID", "")
 	setupAuth(t)
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	requestBodies := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			t.Fatalf("expected POST request, got %s", req.Method)
+			t.Errorf("expected POST request, got %s", req.Method)
+			http.Error(w, "unexpected method", http.StatusBadRequest)
+			return
 		}
 		if req.URL.Path != "/v1/winBackOffers" {
-			t.Fatalf("unexpected path %q", req.URL.Path)
+			t.Errorf("unexpected path %q", req.URL.Path)
+			http.Error(w, "unexpected path", http.StatusBadRequest)
+			return
+		}
+		if req.URL.RawQuery != "" {
+			t.Errorf("unexpected query %q", req.URL.RawQuery)
+			http.Error(w, "unexpected query", http.StatusBadRequest)
+			return
+		}
+		authorization := req.Header.Get("Authorization")
+		token, ok := strings.CutPrefix(authorization, "Bearer ")
+		if !ok || strings.TrimSpace(token) == "" {
+			t.Errorf("Authorization = %q, want nonempty Bearer token", authorization)
+			http.Error(w, "missing authorization", http.StatusUnauthorized)
+			return
 		}
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
-			t.Fatalf("failed to read request body: %v", err)
+			t.Errorf("failed to read request body: %v", err)
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
 		}
-		var payload struct {
-			Data struct {
-				Attributes struct {
-					OfferMode string `json:"offerMode"`
-				} `json:"attributes"`
-				Relationships struct {
-					Prices struct {
-						Data []struct {
-							Type string `json:"type"`
-							ID   string `json:"id"`
-						} `json:"data"`
-					} `json:"prices"`
-				} `json:"relationships"`
-			} `json:"data"`
-			Included []struct {
-				Type          string                     `json:"type"`
-				ID            string                     `json:"id"`
-				Relationships map[string]json.RawMessage `json:"relationships"`
-			} `json:"included"`
+		select {
+		case requestBodies <- body:
+		default:
+			t.Errorf("unexpected extra request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected extra request", http.StatusBadRequest)
+			return
 		}
-		if err := json.Unmarshal(body, &payload); err != nil {
-			t.Fatalf("failed to decode request body: %v", err)
-		}
-		if payload.Data.Attributes.OfferMode != "FREE_TRIAL" {
-			t.Fatalf("expected offerMode FREE_TRIAL, got %q", payload.Data.Attributes.OfferMode)
-		}
-		if got := len(payload.Data.Relationships.Prices.Data); got != 2 {
-			t.Fatalf("expected 2 price linkages, got %d", got)
-		}
-		if got := len(payload.Included); got != 2 {
-			t.Fatalf("expected 2 included prices, got %d", got)
-		}
-		wantTerritories := []string{"USA", "FRA"}
-		for i, included := range payload.Included {
-			if included.Type != "winBackOfferPrices" {
-				t.Fatalf("included[%d] type = %q, want winBackOfferPrices", i, included.Type)
-			}
-			if _, ok := included.Relationships["subscriptionPricePoint"]; ok {
-				t.Fatalf("included[%d] must not carry subscriptionPricePoint for FREE_TRIAL: %s", i, body)
-			}
-			var territory struct {
-				Data struct {
-					Type string `json:"type"`
-					ID   string `json:"id"`
-				} `json:"data"`
-			}
-			if err := json.Unmarshal(included.Relationships["territory"], &territory); err != nil {
-				t.Fatalf("included[%d] territory decode error: %v", i, err)
-			}
-			if territory.Data.Type != "territories" || territory.Data.ID != wantTerritories[i] {
-				t.Fatalf("included[%d] territory = %+v, want %s", i, territory.Data, wantTerritories[i])
-			}
-		}
-		return jsonResponse(http.StatusCreated, `{"data":{"type":"winBackOffers","id":"offer-1","attributes":{"referenceName":"Yearly winback","offerId":"yearly_winback_1mo"}}}`)
-	})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"data":{"type":"winBackOffers","id":"offer-1","attributes":{"referenceName":"Yearly winback","offerId":"yearly_winback_1mo"}}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	client := newWinBackOfferTestClient(t, server)
+	clientFactoryCalls := 0
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		clientFactoryCalls++
+		return client, nil
+	}))
 
 	root := RootCommand("1.2.3")
 	root.FlagSet.SetOutput(io.Discard)
@@ -121,9 +108,87 @@ func TestWinBackOffersCreateFreeTrialSendsTerritoryOnlyPrices(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if stdout == "" {
-		t.Fatal("expected JSON output")
+	var response asc.WinBackOfferResponse
+	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
+		t.Fatalf("decode stdout JSON: %v; stdout=%q", err, stdout)
 	}
+	if response.Data.Type != asc.ResourceTypeWinBackOffers || response.Data.ID != "offer-1" {
+		t.Fatalf("response data = %+v, want winBackOffers offer-1", response.Data)
+	}
+	body := <-requestBodies
+	var payload asc.WinBackOfferCreateRequest
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode request body: %v; body=%s", err, body)
+	}
+	if payload.Data.Attributes.OfferMode != asc.SubscriptionOfferModeFreeTrial {
+		t.Fatalf("offerMode = %q, want FREE_TRIAL", payload.Data.Attributes.OfferMode)
+	}
+	if bytes.Contains(body, []byte(`"subscriptionPricePoint"`)) {
+		t.Fatalf("FREE_TRIAL payload must omit subscriptionPricePoint: %s", body)
+	}
+	if got := len(payload.Data.Relationships.Prices.Data); got != 2 {
+		t.Fatalf("price linkages = %d, want 2", got)
+	}
+	if got := len(payload.Included); got != 2 {
+		t.Fatalf("included prices = %d, want 2", got)
+	}
+	wantTerritories := []string{"USA", "FRA"}
+	for i, included := range payload.Included {
+		wantID := fmt.Sprintf("${price-%d}", i+1)
+		linkage := payload.Data.Relationships.Prices.Data[i]
+		if linkage.Type != asc.ResourceTypeWinBackOfferPrices || linkage.ID != wantID {
+			t.Fatalf("price linkage[%d] = %+v, want winBackOfferPrices %s", i, linkage, wantID)
+		}
+		if included.Type != asc.ResourceTypeWinBackOfferPrices || included.ID != wantID {
+			t.Fatalf("included[%d] = %s %s, want winBackOfferPrices %s", i, included.Type, included.ID, wantID)
+		}
+		if included.Relationships == nil {
+			t.Fatalf("included[%d] is missing relationships: %s", i, body)
+		}
+		if included.Relationships.SubscriptionPricePoint != nil {
+			t.Fatalf("included[%d] must not carry subscriptionPricePoint: %s", i, body)
+		}
+		territory := included.Relationships.Territory.Data
+		if territory.Type != asc.ResourceTypeTerritories || territory.ID != wantTerritories[i] {
+			t.Fatalf("included[%d] territory = %+v, want %s", i, territory, wantTerritories[i])
+		}
+	}
+	if clientFactoryCalls != 1 {
+		t.Fatalf("client factory calls = %d, want 1", clientFactoryCalls)
+	}
+	select {
+	case extra := <-requestBodies:
+		t.Fatalf("unexpected extra request body: %s", extra)
+	default:
+	}
+}
+
+func newWinBackOfferTestClient(t *testing.T, server *httptest.Server) *asc.Client {
+	t.Helper()
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.Scheme + "://" + req.URL.Host; got != asc.BaseURL {
+			t.Fatalf("request origin = %s, want %s", got, asc.BaseURL)
+		}
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		cloned.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	})
+	client, err := asc.NewClientWithHTTPClient(
+		os.Getenv("ASC_KEY_ID"),
+		os.Getenv("ASC_ISSUER_ID"),
+		os.Getenv("ASC_PRIVATE_KEY_PATH"),
+		&http.Client{Transport: transport},
+	)
+	if err != nil {
+		t.Fatalf("create test client: %v", err)
+	}
+	return client
 }
 
 func TestWinBackOffersCreateFreeTrialRejectsPrice(t *testing.T) {
