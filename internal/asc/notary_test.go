@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -54,6 +55,49 @@ func TestGenerateNotaryJWT(t *testing.T) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		t.Fatalf("expected 3 token parts, got %d", len(parts))
+	}
+}
+
+func TestGenerateNotaryJWT_NormalizesIdentifiers(t *testing.T) {
+	privateKey := testJWTPrivateKey(t)
+
+	tokenString, err := GenerateNotaryJWT("  KEY123\n", "\tISS456  ", privateKey)
+	if err != nil {
+		t.Fatalf("GenerateNotaryJWT() error: %v", err)
+	}
+
+	token, claims := parseJWT(t, tokenString, privateKey)
+	if claims.Issuer != "ISS456" {
+		t.Fatalf("issuer claim = %q, want ISS456", claims.Issuer)
+	}
+	if keyID, ok := token.Header["kid"].(string); !ok || keyID != "KEY123" {
+		t.Fatalf("key ID header = %#v, want KEY123", token.Header["kid"])
+	}
+}
+
+func TestGenerateNotaryJWT_WhitespaceIssuerUsesUserSubjectClaim(t *testing.T) {
+	privateKey := testJWTPrivateKey(t)
+
+	tokenString, err := GenerateNotaryJWT("KEY123", " \t\n ", privateKey)
+	if err != nil {
+		t.Fatalf("GenerateNotaryJWT() error: %v", err)
+	}
+
+	_, claims := parseJWT(t, tokenString, privateKey)
+	if claims.Issuer != "" {
+		t.Fatalf("issuer claim = %q, want empty", claims.Issuer)
+	}
+	if claims.Subject != "user" {
+		t.Fatalf("subject claim = %q, want user", claims.Subject)
+	}
+}
+
+func TestGenerateNotaryJWT_RejectsWhitespaceKeyID(t *testing.T) {
+	privateKey := testJWTPrivateKey(t)
+
+	_, err := GenerateNotaryJWT(" \t\n ", "ISS456", privateKey)
+	if !errors.Is(err, ErrMissingKeyID) {
+		t.Fatalf("GenerateNotaryJWT() error = %v, want ErrMissingKeyID", err)
 	}
 }
 
