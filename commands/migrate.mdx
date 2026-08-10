@@ -290,20 +290,21 @@ screenshots/
 
 **Supported display types:**
 
-* `iphone_65` - iPhone 6.5" (iPhone 14 Plus, etc.)
-* `iphone_61` - iPhone 6.1" (iPhone 14, etc.)
-* `iphone_58` - iPhone 5.8" (iPhone X, etc.)
-* `iphone_55` - iPhone 5.5" (iPhone 8 Plus, etc.)
-* `iphone_47` - iPhone 4.7" (iPhone 8, etc.)
-* `iphone_40` - iPhone 4" (iPhone SE 1st gen)
-* `iphone_35` - iPhone 3.5" (iPhone 4S)
-* `ipad_129` - iPad Pro 12.9"
-* `ipad_pro_11` - iPad Pro 11"
-* `ipad_105` - iPad 10.5"
-* `ipad_97` - iPad 9.7"
-* `applewatch` - Apple Watch
-* `appletv` - Apple TV
-* `mac` - Mac
+The display type is chosen from the image dimensions, so iPhone, iPad, Apple
+Watch, Apple TV, Mac and Apple Vision Pro screenshots exported at App Store
+sizes are classified without any naming convention:
+
+* iPhone 6.9", 6.7", 6.5", 6.1", 5.8", 5.5", 4.7", 4" and 3.5"
+* iPad Pro 12.9"/13", iPad Pro 11", iPad 10.5" and iPad 9.7"
+* Apple Watch Ultra, Series 10, Series 7, Series 4 and Series 3
+* Apple TV, Mac and Apple Vision Pro
+
+A device name in the file name overrides the dimensions, for example
+`vision pro`, `apple tv`, `mac`, `watch ultra`, `watch series 10`,
+`ipad pro 13` or `iphone 6.5`. Apple TV 4K and Apple Vision Pro share the
+3840x2160 size, so those files must carry `apple tv` or `vision pro` in the
+name. A screenshot whose size matches no display type fails the command instead
+of being uploaded to a guessed slot.
 
 ## Validation Issues
 
