@@ -2,6 +2,7 @@ package reviews
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -132,6 +133,43 @@ func TestRatingsAllRenewsCountryOperationDeadlines(t *testing.T) {
 	}
 	if !firstCountryHistogram.deadline.Equal(countryLookups[0].deadline) {
 		t.Fatalf("first country histogram deadline = %s, want country operation deadline %s", firstCountryHistogram.deadline, countryLookups[0].deadline)
+	}
+}
+
+func TestRatingsAllDeadlineDoesNotPrintSuccessOutput(t *testing.T) {
+	t.Setenv("ASC_TIMEOUT", "1ns")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"resultCount":1,"results":[{"trackId":123,"trackName":"Deadline App","averageUserRating":4.5,"userRatingCount":10}]}`)
+	}))
+	defer server.Close()
+
+	client := &itunes.Client{BaseURL: server.URL, HTTPClient: server.Client()}
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	originalStdout := os.Stdout
+	os.Stdout = stdoutWriter
+	commandErr := executeRatingsWithClient(context.Background(), client, "123", "us", true, 1, "json", false)
+	os.Stdout = originalStdout
+	if err := stdoutWriter.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	output, err := io.ReadAll(stdoutReader)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	if err := stdoutReader.Close(); err != nil {
+		t.Fatalf("close stdout reader: %v", err)
+	}
+
+	if !errors.Is(commandErr, context.DeadlineExceeded) {
+		t.Fatalf("executeRatingsWithClient() error = %v, want context.DeadlineExceeded", commandErr)
+	}
+	if len(output) != 0 {
+		t.Fatalf("stdout = %q, want no success output", output)
 	}
 }
 
