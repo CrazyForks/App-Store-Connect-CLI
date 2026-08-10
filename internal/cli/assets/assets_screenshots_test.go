@@ -340,7 +340,7 @@ func TestAssetsScreenshotsUploadCommandRejectsMaxScreenshotsWithResume(t *testin
 	if !errors.Is(runErr, flag.ErrHelp) {
 		t.Fatalf("expected flag.ErrHelp, got %v", runErr)
 	}
-	if !strings.Contains(stderr, "--resume cannot be combined with --skip-existing, --replace, --dry-run, or --max-screenshots") {
+	if !strings.Contains(stderr, "--resume cannot be combined with --skip-existing, --replace, --confirm, --dry-run, or --max-screenshots") {
 		t.Fatalf("expected max-screenshots resume error in stderr, got %q", stderr)
 	}
 }

@@ -64,6 +64,7 @@ func TestAssetsPreviewsUploadCommandRejectsUnsupportedFileBeforeAuth(t *testing.
 		"--path", dir,
 		"--device-type", "IPHONE_65",
 		"--replace",
+		"--confirm",
 	}); err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
