@@ -76,6 +76,77 @@ func TestPrepareRoutingCoverageFileFingerprintsValidatedSnapshot(t *testing.T) {
 	}
 }
 
+func TestPrepareRoutingCoverageFileAcceptsOutOfWorkingDirectoryRegularFiles(t *testing.T) {
+	base := t.TempDir()
+	workingDir := filepath.Join(base, "work")
+	inputDir := filepath.Join(base, "inputs")
+	if err := os.MkdirAll(workingDir, 0o700); err != nil {
+		t.Fatalf("create working directory: %v", err)
+	}
+	if err := os.MkdirAll(inputDir, 0o700); err != nil {
+		t.Fatalf("create input directory: %v", err)
+	}
+	coveragePath := filepath.Join(inputDir, "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	t.Chdir(workingDir)
+
+	for _, path := range []string{
+		coveragePath,
+		filepath.Join("..", "inputs", "coverage.geojson"),
+	} {
+		prepared, err := PrepareRoutingCoverageFile(path)
+		if err != nil {
+			t.Fatalf("PrepareRoutingCoverageFile(%q) error: %v", path, err)
+		}
+		if prepared.Path != coveragePath {
+			t.Fatalf("PrepareRoutingCoverageFile(%q) path = %q, want %q", path, prepared.Path, coveragePath)
+		}
+	}
+}
+
+func TestPrepareRoutingCoverageFileRejectsOutOfWorkingDirectorySymlinks(t *testing.T) {
+	base := t.TempDir()
+	workingDir := filepath.Join(base, "work")
+	inputDir := filepath.Join(base, "inputs")
+	outsideDir := filepath.Join(base, "outside")
+	for _, dir := range []string{workingDir, inputDir, outsideDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("create directory %q: %v", dir, err)
+		}
+	}
+	targetPath := filepath.Join(outsideDir, "coverage.geojson")
+	if err := os.WriteFile(targetPath, []byte(validRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	finalLink := filepath.Join(inputDir, "coverage.geojson")
+	if err := os.Symlink(targetPath, finalLink); err != nil {
+		t.Skipf("create final symlink: %v", err)
+	}
+	parentLink := filepath.Join(base, "linked-inputs")
+	if err := os.Symlink(outsideDir, parentLink); err != nil {
+		t.Skipf("create parent symlink: %v", err)
+	}
+	t.Chdir(workingDir)
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "absolute final symlink", path: finalLink},
+		{name: "parent-relative symlinked parent", path: filepath.Join("..", "linked-inputs", "coverage.geojson")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := PrepareRoutingCoverageFile(tt.path)
+			if !errors.Is(err, rootfs.ErrSymlink) {
+				t.Fatalf("PrepareRoutingCoverageFile(%q) error = %v, want rootfs.ErrSymlink", tt.path, err)
+			}
+		})
+	}
+}
+
 func TestPrepareRoutingCoverageFileRejectsSymlinkedParent(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

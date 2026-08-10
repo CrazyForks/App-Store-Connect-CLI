@@ -92,23 +92,63 @@ func resolveRoutingCoverageSource(path string) (string, string, string, error) {
 		return "", "", "", fmt.Errorf("file is required")
 	}
 
-	rootPath, err := os.Getwd()
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", "", fmt.Errorf("resolve file path: %w", err)
+	}
+	workingDir, err := os.Getwd()
 	if err != nil {
 		return "", "", "", fmt.Errorf("resolve current directory: %w", err)
+	}
+	rootPath, err := routingCoverageSourceRoot(workingDir, absolutePath)
+	if err != nil {
+		return "", "", "", err
 	}
 	root, err := rootfs.New(rootPath)
 	if err != nil {
 		return "", "", "", err
 	}
-	absolutePath, err := root.Resolve(path)
+	relativePath, err := filepath.Rel(root.Path(), absolutePath)
+	if err != nil {
+		return "", "", "", fmt.Errorf("resolve file relative to trusted root: %w", err)
+	}
+	resolvedPath, err := root.Resolve(relativePath)
 	if err != nil {
 		return "", "", "", err
 	}
-	relativePath, err := filepath.Rel(root.Path(), absolutePath)
+	return root.Path(), relativePath, resolvedPath, nil
+}
+
+func routingCoverageSourceRoot(workingDir, absolutePath string) (string, error) {
+	rootPath, err := filepath.Abs(workingDir)
 	if err != nil {
-		return "", "", "", fmt.Errorf("resolve file relative to current directory: %w", err)
+		return "", fmt.Errorf("resolve current directory: %w", err)
 	}
-	return root.Path(), relativePath, absolutePath, nil
+	absolutePath = filepath.Clean(absolutePath)
+	for {
+		if routingCoveragePathWithinRoot(rootPath, absolutePath) {
+			return rootPath, nil
+		}
+		parent := filepath.Dir(rootPath)
+		if parent == rootPath {
+			break
+		}
+		rootPath = parent
+	}
+
+	volumeRoot := filepath.VolumeName(absolutePath) + string(filepath.Separator)
+	if !routingCoveragePathWithinRoot(volumeRoot, absolutePath) {
+		return "", fmt.Errorf("resolve trusted root for file %q", absolutePath)
+	}
+	return filepath.Clean(volumeRoot), nil
+}
+
+func routingCoveragePathWithinRoot(rootPath, path string) bool {
+	relative, err := filepath.Rel(rootPath, path)
+	if err != nil || filepath.IsAbs(relative) {
+		return false
+	}
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func validateRoutingCoverageGeoJSON(reader io.Reader) error {
