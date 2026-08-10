@@ -21,7 +21,7 @@ func ReleaseStageCommand() *ffcli.Command {
 	version := fs.String("version", "", "App Store version string (required)")
 	buildID := fs.String("build", "", "Build ID to attach (required)")
 	metadataDir := fs.String("metadata-dir", "", "Metadata directory to apply")
-	routingCoverageFile := fs.String("routing-coverage-file", "", "Routing app coverage GeoJSON file to reconcile before readiness")
+	routingCoverageFile := fs.String("routing-coverage-file", "", "[experimental] Routing app coverage GeoJSON file to reconcile before readiness")
 	copyMetadataFrom := fs.String("copy-metadata-from", "", "Copy localization metadata from this source version string")
 	copyFields := fs.String("copy-fields", "", "Comma-separated metadata fields to copy: description, keywords, marketingUrl, promotionalText, supportUrl, whatsNew")
 	excludeFields := fs.String("exclude-fields", "", "Comma-separated metadata fields to exclude from copy")
