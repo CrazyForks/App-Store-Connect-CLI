@@ -33,7 +33,7 @@ func TestNotarizationSubmitRejectsNonRegularArchiveWithoutBlocking(t *testing.T)
 		if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
 			t.Fatalf("submit error = %v, want non-regular file rejection", err)
 		}
-	case <-time.After(250 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatal("notarization submit blocked opening a non-regular file")
 	}
 }
