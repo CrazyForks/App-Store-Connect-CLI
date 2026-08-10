@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestProfilesLocalDefaultDiscoveryFailuresAreRuntimeErrors(t *testing.T) {
+func TestProfilesLocalDefaultFallsBackWhenXcodeDiscoveryFails(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("active Xcode profile directory is macOS-specific")
 	}
@@ -20,43 +20,47 @@ func TestProfilesLocalDefaultDiscoveryFailuresAreRuntimeErrors(t *testing.T) {
 		t.Fatalf("write fake xcodebuild: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("HOME", t.TempDir())
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
 	t.Setenv("ASC_BYPASS_KEYCHAIN", "1")
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
 
+	legacyDir := filepath.Join(homeDir, "Library", "MobileDevice", "Provisioning Profiles")
+
 	tests := []struct {
-		name    string
-		args    []string
-		context string
+		name string
+		args []string
 	}{
-		{name: "install", args: []string{"profiles", "local", "install", "--path", filepath.Join(t.TempDir(), "profile.mobileprovision"), "--output", "json"}, context: "profiles local install"},
-		{name: "list", args: []string{"profiles", "local", "list", "--output", "json"}, context: "profiles local list"},
-		{name: "clean", args: []string{"profiles", "local", "clean", "--expired", "--dry-run", "--output", "json"}, context: "profiles local clean"},
+		{name: "list", args: []string{"profiles", "local", "list", "--output", "json"}},
+		{name: "clean", args: []string{"profiles", "local", "clean", "--expired", "--dry-run", "--output", "json"}},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			resetReportFlags(t)
+			exitCode := ExitSuccess
 			stdout, stderr := captureCommandOutput(t, func() {
-				if code := Run(test.args, "test"); code != ExitError {
-					t.Fatalf("Run() exit code = %d, want %d", code, ExitError)
-				}
+				exitCode = Run(test.args, "test")
 			})
+			if exitCode != ExitSuccess {
+				t.Fatalf("Run() exit code = %d, want %d (stderr=%q)", exitCode, ExitSuccess, stderr)
+			}
 
-			if stdout != "" {
-				t.Fatalf("expected empty stdout, got %q", stdout)
+			if !strings.Contains(stdout, legacyDir) {
+				t.Fatalf("stdout %q should report the legacy install directory %q", stdout, legacyDir)
 			}
 			for _, want := range []string{
-				"Error: " + test.context + ": resolve install directory:",
-				"xcodebuild -version failed",
+				"Note: could not determine the active Xcode version",
 				"active developer directory is a command line tools instance",
+				legacyDir,
+				"--install-dir",
 			} {
 				if !strings.Contains(stderr, want) {
 					t.Fatalf("stderr missing %q: %q", want, stderr)
 				}
 			}
-			if strings.Contains(stderr, "Usage:") {
-				t.Fatalf("runtime discovery error must not print usage: %q", stderr)
+			if strings.Contains(stderr, "Error:") {
+				t.Fatalf("fallback must not report an error: %q", stderr)
 			}
 		})
 	}

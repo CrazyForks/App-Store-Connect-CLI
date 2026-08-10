@@ -2,6 +2,7 @@ package reviews
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -49,6 +50,11 @@ Examples:
 			reviewItemsRemoveCommand("remove", "review items remove", `asc review items remove [flags]`, `asc review items remove --id "ITEM_ID" --confirm`),
 		},
 		Exec: func(ctx context.Context, args []string) error {
+			// Name the unknown child (including the removed `view`/`get`
+			// spellings) rather than printing bare group help.
+			if len(args) > 0 {
+				return shared.UsageErrorf("unexpected argument(s): %s", shared.SanitizeTerminal(strings.TrimSpace(args[0])))
+			}
 			return flag.ErrHelp
 		},
 	}
@@ -474,13 +480,47 @@ Examples:
 }
 
 func normalizeReviewSubmissionItemType(value string) (asc.ReviewSubmissionItemType, error) {
-	if strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
 		return "", fmt.Errorf("--item-type is required")
+	}
+	if guidance, ok := removedReviewSubmissionItemTypeGuidance(trimmed); ok {
+		return "", errors.New(guidance)
 	}
 	if itemType, ok := asc.ParseReviewSubmissionItemType(value); ok {
 		return itemType, nil
 	}
 	return "", fmt.Errorf("--item-type must be one of: %s", strings.Join(reviewSubmissionItemTypeList(), ", "))
+}
+
+// Item types App Store Connect stopped accepting as review submission items.
+// They are rejected with targeted migration guidance instead of the generic
+// supported-value list.
+const (
+	removedItemTypeCustomProductPages   = "appCustomProductPages"
+	removedItemTypeExperimentTreatments = "appStoreVersionExperimentTreatments"
+	removedItemTypeExperimentV2Alias    = "appStoreVersionExperimentV2"
+)
+
+func removedReviewSubmissionItemTypeGuidance(value string) (string, bool) {
+	switch value {
+	case removedItemTypeExperimentV2Alias:
+		return fmt.Sprintf(
+			"--item-type %s was removed in 4.0.0; use --item-type %s",
+			removedItemTypeExperimentV2Alias, asc.ReviewSubmissionItemTypeAppStoreVersionExperimentV2,
+		), true
+	case removedItemTypeExperimentTreatments:
+		return fmt.Sprintf(
+			"--item-type %s is deprecated and no longer supported by App Store Connect; experiment treatments cannot be added as review submission items",
+			removedItemTypeExperimentTreatments,
+		), true
+	case removedItemTypeCustomProductPages:
+		return fmt.Sprintf(
+			"--item-type %s is deprecated and no longer supported by App Store Connect; pass an app custom product page version ID with --item-type %s",
+			removedItemTypeCustomProductPages, asc.ReviewSubmissionItemTypeAppCustomProductPageVersion,
+		), true
+	}
+	return "", false
 }
 
 func reviewSubmissionItemTypeList() []string {

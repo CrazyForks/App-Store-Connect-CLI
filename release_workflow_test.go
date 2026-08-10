@@ -408,6 +408,38 @@ func TestReleaseWorkflowRepairsPackageManagersWithoutRebuildingPublishedRelease(
 	}
 }
 
+func TestReleaseWorkflowPublishesPackageManagersWhenBuildIsSkipped(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("read release workflow: %v", err)
+	}
+
+	workflow := string(data)
+	homebrewStart := strings.Index(workflow, "\n  homebrew:\n")
+	wingetStart := strings.Index(workflow, "\n  winget:\n")
+	if homebrewStart == -1 || wingetStart == -1 || homebrewStart >= wingetStart {
+		t.Fatal("release workflow must define homebrew before winget")
+	}
+
+	for _, job := range []struct {
+		name  string
+		block string
+	}{
+		{name: "homebrew", block: workflow[homebrewStart:wingetStart]},
+		{name: "winget", block: workflow[wingetStart:]},
+	} {
+		// publish escapes the skipped build with always(); GitHub propagates that skip
+		// down the whole needs chain, so every publisher must break the chain the same
+		// way or the already-published repair path silently ships nothing.
+		if !strings.Contains(job.block, "always()") {
+			t.Errorf("%s job must use always() so a skipped build does not skip package publication", job.name)
+		}
+		if !strings.Contains(job.block, "needs.publish.result == 'success'") {
+			t.Errorf("%s job must publish exactly when publish succeeded", job.name)
+		}
+	}
+}
+
 func TestVerifyReleaseAssetsRequiresExactChecksumCoverage(t *testing.T) {
 	workflowData, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {

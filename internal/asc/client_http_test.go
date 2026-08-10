@@ -9778,30 +9778,6 @@ func TestRemoveUserVisibleApps_SendsRequest(t *testing.T) {
 	}
 }
 
-func TestSetUserVisibleApps_SendsRequest(t *testing.T) {
-	response := jsonResponse(http.StatusNoContent, ``)
-	client := newTestClient(t, func(req *http.Request) {
-		if req.Method != http.MethodPatch {
-			t.Fatalf("expected PATCH, got %s", req.Method)
-		}
-		if req.URL.Path != "/v1/users/user-1/relationships/visibleApps" {
-			t.Fatalf("expected path /v1/users/user-1/relationships/visibleApps, got %s", req.URL.Path)
-		}
-		var payload RelationshipRequest
-		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
-			t.Fatalf("failed to decode request: %v", err)
-		}
-		if len(payload.Data) != 2 {
-			t.Fatalf("expected 2 relationships, got %d", len(payload.Data))
-		}
-		assertAuthorized(t, req)
-	}, response)
-
-	if err := client.SetUserVisibleApps(context.Background(), "user-1", []string{"app-1", "app-2"}); err != nil {
-		t.Fatalf("SetUserVisibleApps() error: %v", err)
-	}
-}
-
 func TestGetBetaAppReviewDetails_WithAppFilter(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":[{"type":"betaAppReviewDetails","id":"detail-1","attributes":{"contactEmail":"dev@example.com"}}]}`)
 	client := newTestClient(t, func(req *http.Request) {

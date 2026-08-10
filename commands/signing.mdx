@@ -60,7 +60,8 @@ asc signing fetch --bundle-id com.example.app \
 ```bash  theme={null}
 asc signing fetch --bundle-id com.example.app \
   --profile-type IOS_APP_DEVELOPMENT \
-  --device "DEVICE_ID_1,DEVICE_ID_2"
+  --device "DEVICE_ID_1,DEVICE_ID_2" \
+  --create-missing
 ```
 
 * Used for: Local development and testing
@@ -72,7 +73,8 @@ asc signing fetch --bundle-id com.example.app \
 ```bash  theme={null}
 asc signing fetch --bundle-id com.example.app \
   --profile-type IOS_APP_ADHOC \
-  --device "DEVICE_ID_1,DEVICE_ID_2"
+  --device "DEVICE_ID_1,DEVICE_ID_2" \
+  --create-missing
 ```
 
 * Used for: External testing (outside TestFlight)
@@ -327,7 +329,8 @@ asc devices list --platform IOS --output table
 # Add devices to command
 asc signing fetch --bundle-id com.example.app \
   --profile-type IOS_APP_DEVELOPMENT \
-  --device "DEVICE_ID_1,DEVICE_ID_2"
+  --device "DEVICE_ID_1,DEVICE_ID_2" \
+  --create-missing
 ```
 
 ## Related Commands

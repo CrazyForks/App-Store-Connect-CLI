@@ -3,11 +3,21 @@ package shared
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/secureopen"
+)
+
+// Publication primitives are indirected so tests can simulate destination
+// filesystems that do not implement them.
+var (
+	renameNoReplaceInRoot = secureopen.RenameNoReplaceInRoot
+	linkInRoot            = func(root *os.Root, oldName, newName string) error {
+		return root.Link(oldName, newName)
+	}
 )
 
 // SafeWriteFileNoSymlink writes a file to path without following symlinks and with an optional
@@ -37,7 +47,7 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 
 		base := filepath.Base(path)
 		if _, err := parent.Lstat(base); err == nil {
-			return 0, fmt.Errorf("output file already exists: %w", os.ErrExist)
+			return 0, existingOutputError(path, os.ErrExist)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return 0, err
 		}
@@ -54,9 +64,21 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 			return replaceErrorPaths(err, "temporary output", temporaryPath, temporaryName)
 		}
 		displayPublishError := func(err error) error {
+			if err == nil {
+				return nil
+			}
 			err = displayDestinationError(err)
 			if errors.Is(err, os.ErrExist) {
-				return fmt.Errorf("output file already exists: %w", err)
+				return existingOutputError(path, err)
+			}
+			// Publication primitives report failures as *os.LinkError naming the
+			// staged and destination entries relative to the pinned parent, which
+			// reads as the same file twice once the staged operand is rewritten to
+			// the destination. Name the output path once and keep the syscall
+			// error as the wrapped cause.
+			var linkErr *os.LinkError
+			if errors.As(err, &linkErr) {
+				return &displayPathError{err: err, message: fmt.Sprintf("publish output %q: %v", path, linkErr.Err)}
 			}
 			return err
 		}
@@ -80,10 +102,13 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 
 		if err := publishStagedFileNoReplace(temporaryName, base, stagedFilePublishOps{
 			renameFile: func(oldName, newName string) error {
-				return displayPublishError(secureopen.RenameNoReplaceInRoot(parent, oldName, newName))
+				return displayPublishError(renameNoReplaceInRoot(parent, oldName, newName))
 			},
 			linkFile: func(oldName, newName string) error {
-				return displayPublishError(parent.Link(oldName, newName))
+				return displayPublishError(linkInRoot(parent, oldName, newName))
+			},
+			copyFile: func(oldName, newName string) error {
+				return displayPublishError(copyStagedFileNoReplace(parent, oldName, newName, perm))
 			},
 			removeFile: func(name string) error {
 				return displayTemporaryError(removeRootedFile(parent, name))
@@ -106,6 +131,7 @@ type newFileWriteOps struct {
 type stagedFilePublishOps struct {
 	renameFile func(string, string) error
 	linkFile   func(string, string) error
+	copyFile   func(string, string) error
 	removeFile func(string) error
 }
 
@@ -123,6 +149,11 @@ func publishStagedFileNoReplace(temporaryName, destinationName string, ops stage
 			_ = removeStaged()
 		}
 	}()
+	failAfterCleanup := func(err error) error {
+		return cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(string) error {
+			return removeStaged()
+		})
+	}
 
 	renameErr := ops.renameFile(temporaryName, destinationName)
 	if renameErr == nil {
@@ -131,22 +162,66 @@ func publishStagedFileNoReplace(temporaryName, destinationName string, ops stage
 		return nil
 	}
 	if !errors.Is(renameErr, secureopen.ErrRenameNoReplaceUnsupported) {
-		return cleanupIncompleteFile(temporaryName, renameErr, func() error { return nil }, func(string) error {
-			return removeStaged()
-		})
+		return failAfterCleanup(renameErr)
 	}
 
 	// Filesystems without a native no-replace rename may still support hard
 	// links. Link is also atomic and cannot replace an existing destination.
-	if err := ops.linkFile(temporaryName, destinationName); err != nil {
-		return cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(string) error {
-			return removeStaged()
-		})
+	linkErr := ops.linkFile(temporaryName, destinationName)
+	if linkErr == nil {
+		// Once publication succeeds, the complete destination is committed. Cleanup
+		// remains best effort so callers do not retry a write that already succeeded.
+		_ = removeStaged()
+		return nil
 	}
-	// Once publication succeeds, the complete destination is committed. Cleanup
-	// remains best effort so callers do not retry a write that already succeeded.
+	if errors.Is(linkErr, os.ErrExist) {
+		return failAfterCleanup(linkErr)
+	}
+
+	// FAT/exFAT volumes, SMB shares, and several FUSE mounts implement neither
+	// primitive, and they report that with filesystem-specific errors rather
+	// than one portable code. Copying into an exclusively created destination is
+	// the no-clobber publication every filesystem supports, so try it before
+	// discarding a complete download.
+	if err := ops.copyFile(temporaryName, destinationName); err != nil {
+		return failAfterCleanup(err)
+	}
 	_ = removeStaged()
 	return nil
+}
+
+// copyStagedFileNoReplace publishes the staged file by creating the destination
+// with an exclusive, no-follow create and copying the staged bytes into it.
+//
+// Exclusive create cannot clobber an existing destination, so this preserves
+// no-replace semantics on filesystems that support neither an atomic no-replace
+// rename nor hard links. A partially copied destination is removed so callers
+// never observe a truncated output file.
+func copyStagedFileNoReplace(root *os.Root, temporaryName, destinationName string, perm os.FileMode) error {
+	source, err := secureopen.OpenExistingNoFollowInRoot(root, temporaryName)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := secureopen.OpenNewFileNoFollowInRoot(root, destinationName, perm)
+	if err != nil {
+		return err
+	}
+	if err := copyIntoPublishedFile(destination, source); err != nil {
+		return errors.Join(err, removeRootedFile(root, destinationName))
+	}
+	return nil
+}
+
+func copyIntoPublishedFile(destination, source *os.File) error {
+	if _, err := io.Copy(destination, source); err != nil {
+		return errors.Join(err, destination.Close())
+	}
+	if err := destination.Sync(); err != nil {
+		return errors.Join(err, destination.Close())
+	}
+	return destination.Close()
 }
 
 func writeNewFileNoSymlink(path string, file *os.File, write func(*os.File) (int64, error), ops newFileWriteOps) (int64, error) {
@@ -202,6 +277,12 @@ func replaceErrorPaths(err error, replacement string, paths ...string) error {
 		return err
 	}
 	return &displayPathError{err: err, message: message}
+}
+
+// existingOutputError reports a refused overwrite against the output path the
+// caller asked for while keeping the cause matchable with errors.Is.
+func existingOutputError(path string, cause error) error {
+	return &displayPathError{err: cause, message: fmt.Sprintf("output file already exists: %q", path)}
 }
 
 func removeRootedFile(root *os.Root, name string) error {

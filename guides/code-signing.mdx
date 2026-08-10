@@ -49,6 +49,7 @@ asc signing fetch \
   --bundle-id com.example.myapp \
   --profile-type IOS_APP_DEVELOPMENT \
   --device "DEVICE_ID1,DEVICE_ID2" \
+  --create-missing \
   --output ./signing
 ```
 
@@ -436,7 +437,8 @@ asc devices list --platform IOS --output json | jq '.data[] | {name: .attributes
 asc signing fetch \
   --bundle-id com.example.myapp \
   --profile-type IOS_APP_DEVELOPMENT \
-  --device "DEVICE_ID1,DEVICE_ID2"
+  --device "DEVICE_ID1,DEVICE_ID2" \
+  --create-missing
 ```
 
 ### "Failed to create profile"

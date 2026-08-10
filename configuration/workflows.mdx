@@ -228,13 +228,22 @@ or `timeout` to disable it; explicit `null` is rejected.
 
 ## Environment variable precedence
 
-Environment variables are resolved in this order (highest to lowest):
+For steps in the workflow you invoked, variables resolve in this order (highest
+to lowest):
 
 1. **Runtime parameters** (`KEY:VALUE` arguments to `asc workflow run`)
-2. **Step `with` field** (for sub-workflows)
-3. **Workflow `env` field**
+2. **Workflow `env` field**
+3. **Global `env` field**
+4. **System environment variables**
+
+Steps inside a called sub-workflow resolve in this order:
+
+1. **Step `with` field** on the calling `workflow` step
+2. **Runtime parameters**
+3. **Calling workflow's `env` field**
 4. **Global `env` field**
-5. **System environment variables**
+5. **Called workflow's own `env` field**
+6. **System environment variables**
 
 Example:
 
@@ -244,9 +253,24 @@ asc workflow run testflight APP_ID:987654321
 
 This overrides the `APP_ID` defined in the workflow file.
 
+<Warning>
+  Step `with` outranks runtime parameters. A key hardcoded in a sub-workflow
+  call's `with` cannot be overridden with `KEY:VALUE` at run time. Leave the key
+  out of `with` when the caller should control it.
+</Warning>
+
+A called workflow's own `env` sits at the bottom of its own scope, so it acts as
+a set of defaults the caller overrides. `with` values are literal: only
+`${steps.NAME.OUTPUT}` references are interpolated, so `"MESSAGE": "v$VERSION"`
+arrives as the literal text `v$VERSION`.
+
 ## Conditional steps
 
-Use the `if` field to conditionally execute steps:
+The `if` field holds the **name of a variable**, not a shell expression. The step
+runs only when that variable holds a truthy value: `1`, `true`, `yes`, `y`, or
+`on` (case-insensitive, surrounding whitespace ignored). Everything else is
+falsy, including an unset variable, an empty string, and any other non-empty
+value such as an ID, a version string, or a file path.
 
 ```json  theme={null}
 {
@@ -258,13 +282,29 @@ Use the `if` field to conditionally execute steps:
     {
       "name": "Publish to the App Store",
       "run": "asc publish appstore --app $APP_ID --ipa ./build/MyApp.ipa --version $VERSION --submit --confirm",
-      "if": "test \"$AUTO_SUBMIT\" = \"true\""
+      "if": "AUTO_SUBMIT"
     }
   ]
 }
 ```
 
-The `if` condition is evaluated as a shell command. The step runs only if the command exits with code 0.
+Run the workflow with the flag turned on:
+
+```bash  theme={null}
+asc workflow run release AUTO_SUBMIT:true
+```
+
+The variable is resolved from the workflow environment first (runtime
+parameters, `with`, workflow `env`, global `env`) and then from the process
+environment, so `AUTO_SUBMIT=true asc workflow run release` works too.
+
+<Warning>
+  A skipped step is not a failure. The run still reports `"status": "ok"` and
+  exits `0`, and the step appears in `steps[]` with `"status": "skipped"`.
+  Shell-expression forms such as `"if": "test \"$AUTO_SUBMIT\" = \"true\""` are
+  treated as a variable name, never resolve, and silently skip the step, so a
+  `--submit --confirm` step gated that way never runs while CI stays green.
+</Warning>
 
 ## Sub-workflows
 
@@ -367,7 +407,7 @@ Here's a comprehensive workflow for a full release process:
           "name": "Notify team",
           "workflow": "notify",
           "with": {
-            "MESSAGE": "New TestFlight build available: v$VERSION"
+            "MESSAGE": "New TestFlight build available"
           }
         }
       ]
@@ -387,7 +427,7 @@ Here's a comprehensive workflow for a full release process:
           "name": "Notify team",
           "workflow": "notify",
           "with": {
-            "MESSAGE": "v$VERSION submitted to App Store review"
+            "MESSAGE": "Submitted to App Store review"
           }
         }
       ]
@@ -396,7 +436,7 @@ Here's a comprehensive workflow for a full release process:
       "description": "Send Slack notification",
       "private": true,
       "steps": [
-        "curl -X POST $SLACK_WEBHOOK -d '{\"text\":\"$MESSAGE\"}'"
+        "curl -X POST \"$SLACK_WEBHOOK\" -d \"{\\\"text\\\":\\\"$MESSAGE (v$VERSION)\\\"}\""
       ]
     }
   }
@@ -455,10 +495,29 @@ release:
   Workflow files execute arbitrary shell commands. Ensure:
 
   * `.asc/workflow.json` is added to `.gitignore` if it contains secrets
+  * `.asc/runs/` is added to `.gitignore`
   * Use environment variables for sensitive values
   * Review workflow files before execution
   * Run workflows in trusted environments only
 </Warning>
+
+### Run-state files
+
+Every `asc workflow run` writes a run-state file next to the workflow file, in a
+`runs/` directory beside it (`.asc/runs/<run-id>.json` by default). The file is
+what `--resume` reads, and it stores the run parameters and every declared step
+output.
+
+Nothing prunes those files, so add `.asc/runs/` to `.gitignore` and delete old
+runs when you no longer need to resume them:
+
+```bash  theme={null}
+echo '.asc/runs/' >> .gitignore
+rm -rf .asc/runs
+```
+
+Never map a secret into a step's `outputs`: it lands in the run-state file in
+plain text.
 
 ## Troubleshooting
 

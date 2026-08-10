@@ -154,6 +154,43 @@ var apiAliases = map[string]string{
 	"IMESSAGE_APP_IPHONE_69": "IMESSAGE_APP_IPHONE_67",
 }
 
+// supersededDisplayTypes maps a retired display type to the display type App
+// Store Connect now serves the same screenshot size from. Both remain valid API
+// values, so this is not an alias: it only decides which slot a screenshot
+// belongs in when its size matches the retired slot and its successor.
+var supersededDisplayTypes = map[string]string{
+	"APP_IPAD_PRO_129":          "APP_IPAD_PRO_3GEN_129",
+	"IMESSAGE_APP_IPAD_PRO_129": "IMESSAGE_APP_IPAD_PRO_3GEN_129",
+}
+
+// SupersededDisplayType returns the display type that replaces a retired one.
+func SupersededDisplayType(displayType string) (string, bool) {
+	successor, ok := supersededDisplayTypes[strings.ToUpper(strings.TrimSpace(displayType))]
+	return successor, ok
+}
+
+// PreferCurrentDisplayTypes drops retired display types whose successor is
+// already present, preserving input order. Inferring display types from a
+// screenshot size can match a retired slot and its successor, but the
+// screenshot belongs in exactly one of them.
+func PreferCurrentDisplayTypes(displayTypes []string) []string {
+	present := make(map[string]struct{}, len(displayTypes))
+	for _, displayType := range displayTypes {
+		present[strings.ToUpper(strings.TrimSpace(displayType))] = struct{}{}
+	}
+
+	preferred := make([]string, 0, len(displayTypes))
+	for _, displayType := range displayTypes {
+		if successor, ok := SupersededDisplayType(displayType); ok {
+			if _, exists := present[successor]; exists {
+				continue
+			}
+		}
+		preferred = append(preferred, displayType)
+	}
+	return preferred
+}
+
 // DisplayTypes returns all supported display types in stable order.
 func DisplayTypes() []string {
 	types := make([]string, 0, len(registry))

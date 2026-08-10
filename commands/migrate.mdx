@@ -39,6 +39,11 @@ asc migrate import --app "APP_ID" --version-id "VERSION_ID" --fastlane-dir ./fas
 * `--fastlane-dir` - Path to fastlane directory (optional)
 * `--dry-run` - Preview changes without uploading
 * `--confirm` - Confirm uploading the imported metadata and screenshots (required unless `--dry-run`)
+* `--skip-screenshots` - Skip screenshot discovery and upload
+* `--allow-external-metadata` - Trust Deliverfile metadata paths and symlinks outside the selected Fastlane directory
+* `--allow-external-screenshots` - Trust Deliverfile screenshot paths and symlinks outside the selected Fastlane directory
+* `--allow-symlinked-deliverfile` - Trust and follow a symlinked Deliverfile
+* `--include-sensitive` - \[experimental] Print secret values such as demo account passwords instead of redacting them
 * `--output` - Output format: `json`, `table`, `markdown`
 * `--pretty` - Pretty-print JSON output
 
@@ -101,6 +106,7 @@ asc migrate validate --fastlane-dir ./fastlane --output table
 **Flags:**
 
 * `--fastlane-dir` - Path to fastlane directory (required)
+* `--allow-external-metadata` - Trust a metadata symlink outside the selected Fastlane directory
 * `--output` - Output format: `json`, `table`, `markdown`
 * `--pretty` - Pretty-print JSON output
 
@@ -112,6 +118,18 @@ asc migrate validate --fastlane-dir ./fastlane --output table
 * Promotional Text: 170 characters
 * Name: 30 characters
 * Subtitle: 30 characters
+
+Locale directories are checked against the App Store Connect locale catalog with
+the same rule `migrate import` applies when it has to create a localization, so
+a directory such as `metadata/nl` is reported as an error (`nl-NL` is the
+supported code) instead of failing later during an import. `migrate import
+--dry-run` performs the same check before it previews a plan.
+
+`migrate validate` resolves its metadata directory exactly the way `migrate
+import` does: a Deliverfile `metadata_path` wins over the conventional
+`metadata/` directory, `skip_metadata` turns the check off, and an overridden
+conventional directory is reported in `skipped`. Validating a directory the
+import step never reads would green-light a tree the import then rejects.
 
 ## Deliverfile Support
 
@@ -131,9 +149,32 @@ skip_screenshots false
 
 * `app_identifier` - App bundle ID (used to resolve app ID)
 * `app_version` - App version string (used to resolve version ID)
-* `platform` - Platform: `ios`, `osx`, `appletvos`, `visionos`
+* `platform` - Platform: `ios`, `osx` (or `macos`), `appletvos` (or `tvos`), `xros` (or `visionos`)
 * `skip_metadata` - Skip metadata import
 * `skip_screenshots` - Skip screenshot import
+* `metadata_path` - Metadata directory, resolved relative to the Deliverfile
+* `screenshots_path` - Screenshots directory, resolved relative to the Deliverfile
+
+`metadata_path` and `screenshots_path` win over the conventional `metadata/` and
+`screenshots/` directories, including when `--fastlane-dir` selected the
+Deliverfile. When a conventional directory exists but is not read, it is
+reported in `skipped`. A Deliverfile path that points outside the selected
+directory is rejected unless `--allow-external-metadata` or
+`--allow-external-screenshots` is passed, and a Deliverfile path that does not
+exist fails the command instead of falling back.
+
+Both paths resolve relative to the Deliverfile, not to the project root.
+`deliver` resolves them from the directory `fastlane` runs in, so a
+`fastlane/Deliverfile` often carries a project-root-relative value that lands one
+level too deep here:
+
+```ruby  theme={null}
+metadata_path "./fastlane/metadata"  # resolves to fastlane/fastlane/metadata; write "./metadata" instead
+```
+
+That run fails with the resolved path, and when the conventional
+`fastlane/metadata` (or `fastlane/screenshots`) directory exists next to the
+Deliverfile the error says so.
 
 ## Metadata Fields
 
@@ -274,20 +315,54 @@ screenshots/
 
 **Supported display types:**
 
-* `iphone_65` - iPhone 6.5" (iPhone 14 Plus, etc.)
-* `iphone_61` - iPhone 6.1" (iPhone 14, etc.)
-* `iphone_58` - iPhone 5.8" (iPhone X, etc.)
-* `iphone_55` - iPhone 5.5" (iPhone 8 Plus, etc.)
-* `iphone_47` - iPhone 4.7" (iPhone 8, etc.)
-* `iphone_40` - iPhone 4" (iPhone SE 1st gen)
-* `iphone_35` - iPhone 3.5" (iPhone 4S)
-* `ipad_129` - iPad Pro 12.9"
-* `ipad_pro_11` - iPad Pro 11"
-* `ipad_105` - iPad 10.5"
-* `ipad_97` - iPad 9.7"
-* `applewatch` - Apple Watch
-* `appletv` - Apple TV
-* `mac` - Mac
+The display type is chosen from the image dimensions, so iPhone, iPad, Apple
+Watch, Apple TV, Mac and Apple Vision Pro screenshots exported at App Store
+sizes are classified without any naming convention:
+
+* iPhone 6.9", 6.7", 6.5", 6.1", 5.8", 5.5", 4.7", 4" and 3.5"
+* iPad Pro 12.9"/13", iPad Pro 11", iPad 10.5" and iPad 9.7"
+* Apple Watch Ultra, Series 10, Series 7, Series 4 and Series 3
+* Apple TV, Mac and Apple Vision Pro
+
+A device name in the file name overrides the dimensions, for example
+`vision pro`, `apple tv`, `mac`, `watch ultra`, `watch series 10`,
+`ipad pro 13` or `iphone 6.5`. Apple TV 4K and Apple Vision Pro share the
+3840x2160 size, so those files must carry `apple tv` or `vision pro` in the
+name. A screenshot whose size matches no display type fails the command instead
+of being uploaded to a guessed slot.
+
+## Partial Imports
+
+`migrate import --confirm` applies version localizations, App Info
+localizations, review information, and screenshots in that order. When a step
+fails after earlier changes already reached App Store Connect, the command still
+writes the result document to stdout and exits non-zero:
+
+```json  theme={null}
+{
+  "status": "partial",
+  "failureStage": "version_localizations",
+  "failure": "migrate import: failed to update ja: ...",
+  "uploaded": [
+    { "locale": "en-US", "action": "update", "localizationId": "loc-en" }
+  ]
+}
+```
+
+`completedStages` lists the stages that finished before the failure and is
+absent when none did, as above, where the failure happened inside the first
+stage.
+
+A failure before the first change prints nothing to stdout and only reports the
+error, so an empty stdout means nothing was applied. Review information that
+already matched and screenshots that already exist are not changes, so a failure
+after them is a plain error too. The screenshot stage can still create a
+localization for a screenshot-only locale before it fails with nothing to
+report; that locale is named on stderr:
+
+```
+Warning: created localization "fr-FR" before the failure; re-run import or remove it manually
+```
 
 ## Validation Issues
 
@@ -316,18 +391,22 @@ Fastlane uses directory names like `en-US`, `es-ES`, `ja`, etc. The CLI automati
 
 ## Skipped Items
 
-The import command skips non-locale directories and reports them:
+The import command reports directories and files it did not read. Directory
+names that are not locales, symlinked entries, unsupported screenshot files, a
+missing conventional directory, and anything a Deliverfile or flag turned off
+all appear here (`metadata/review_information` and `metadata/default` are read
+as part of the import and are not reported):
 
 ```json  theme={null}
 {
   "skipped": [
     {
-      "path": "metadata/review_information",
-      "reason": "special directory"
+      "path": "fastlane/metadata/trade_representative_contact_information",
+      "reason": "skipped non-locale directory \"trade_representative_contact_information\": locale \"trade_representative_contact_information\" must match pattern like 'en', 'en-US', or 'zh-Hans'"
     },
     {
-      "path": "metadata/trade_representative_contact_information",
-      "reason": "skipped non-locale directory"
+      "path": "fastlane/screenshots",
+      "reason": "skipped by --skip-screenshots"
     }
   ]
 }

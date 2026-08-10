@@ -138,6 +138,9 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --archive-path is required")
 				return shared.MissingRequiredUsageError()
 			}
+			if emptyFlag := firstExplicitlyEmptyFlag(fs, "configuration"); emptyFlag != "" {
+				return shared.UsageErrorf("--%s must not be empty", emptyFlag)
+			}
 
 			result, err := runArchive(ctx, localxcode.ArchiveOptions{
 				WorkspacePath:  strings.TrimSpace(*workspacePath),
@@ -475,6 +478,25 @@ Examples:
 			)
 		},
 	}
+}
+
+// firstExplicitlyEmptyFlag reports the first of names that the caller supplied
+// with a blank value, in the order given. Commands use it to reject values they
+// would otherwise silently ignore, because a supplied-but-empty flag (typically
+// an unset CI variable) is never the same request as an omitted flag.
+func firstExplicitlyEmptyFlag(fs *flag.FlagSet, names ...string) string {
+	empty := make(map[string]struct{}, len(names))
+	fs.Visit(func(f *flag.Flag) {
+		if strings.TrimSpace(f.Value.String()) == "" {
+			empty[f.Name] = struct{}{}
+		}
+	})
+	for _, name := range names {
+		if _, ok := empty[name]; ok {
+			return name
+		}
+	}
+	return ""
 }
 
 func archiveResultRows(result *localxcode.ArchiveResult) [][]string {

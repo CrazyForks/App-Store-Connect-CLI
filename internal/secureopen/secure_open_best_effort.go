@@ -35,20 +35,13 @@ func openExistingNoFollowBestEffort(path string, opener existingFileOpener) (*os
 	return file, nil
 }
 
-// openNewFileNoFollowBestEffort provides a portable, best-effort "no-follow"
-// file-creation path for platforms that do not expose O_NOFOLLOW.
+// openWritableFileNoFollowBestEffort provides a portable, best-effort
+// "no-follow" path for creating or appending to a file on platforms that do not
+// expose O_NOFOLLOW.
 //
-// It rejects symlink paths before creation and verifies the resulting file
-// descriptor still maps to the destination path after creation. This reduces,
-// but cannot eliminate, TOCTOU risk on platforms without atomic no-follow open.
-func openNewFileNoFollowBestEffort(path string, perm os.FileMode, creator newFileCreator) (*os.File, error) {
-	return openWritableFileNoFollowBestEffort(path, perm, creator)
-}
-
-func openAppendFileNoFollowBestEffort(path string, perm os.FileMode, creator newFileCreator) (*os.File, error) {
-	return openWritableFileNoFollowBestEffort(path, perm, creator)
-}
-
+// It rejects symlink paths before the open and verifies the resulting file
+// descriptor still maps to the same path afterwards. This reduces, but cannot
+// eliminate, TOCTOU risk on platforms without atomic no-follow open.
 func openWritableFileNoFollowBestEffort(path string, perm os.FileMode, creator newFileCreator) (*os.File, error) {
 	if _, err := lstatNoSymlink(path); err != nil {
 		if !os.IsNotExist(err) {
@@ -124,14 +117,9 @@ func openExistingNoFollowInRootBestEffort(root *os.Root, name string, opener fun
 	return file, nil
 }
 
-func openNewFileNoFollowInRootBestEffort(root *os.Root, name string, opener func() (*os.File, error)) (*os.File, error) {
-	return openWritableFileNoFollowInRootBestEffort(root, name, opener)
-}
-
-func openAppendFileNoFollowInRootBestEffort(root *os.Root, name string, opener func() (*os.File, error)) (*os.File, error) {
-	return openWritableFileNoFollowInRootBestEffort(root, name, opener)
-}
-
+// openWritableFileNoFollowInRootBestEffort applies the same best-effort
+// no-follow checks as openWritableFileNoFollowBestEffort to a root-relative
+// name, for creating or appending to a file beneath root.
 func openWritableFileNoFollowInRootBestEffort(root *os.Root, name string, opener func() (*os.File, error)) (*os.File, error) {
 	if _, err := rootLstatNoSymlink(root, name); err != nil && !os.IsNotExist(err) {
 		return nil, err
