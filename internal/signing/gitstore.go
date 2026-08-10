@@ -363,40 +363,19 @@ func hasConfiguredGitSSHCommand(
 		)
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "config", "--show-scope", "--null", "--get-all", "core.sshCommand")
+	cmd := exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
 	cmd.Dir = queryDir
 	cmd.Env = queryEnvironment
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	output, err := cmd.Output()
+	if err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
 			return false, nil
 		}
 		return false, fmt.Errorf("check Git core.sshCommand: %w", err)
 	}
-	return configuredGitSSHCommandFromScopedOutput(stdout.Bytes(), includeRepositoryConfig)
-}
-
-func configuredGitSSHCommandFromScopedOutput(output []byte, includeRepositoryConfig bool) (bool, error) {
-	fields := bytes.Split(output, []byte{0})
-	if len(fields) > 0 && len(fields[len(fields)-1]) == 0 {
-		fields = fields[:len(fields)-1]
-	}
-	if len(fields)%2 != 0 {
-		return false, fmt.Errorf("parse Git core.sshCommand scopes: unexpected field count %d", len(fields))
-	}
-
-	configured := false
-	for i := 0; i < len(fields); i += 2 {
-		scope := string(fields[i])
-		if !includeRepositoryConfig && (scope == "local" || scope == "worktree") {
-			continue
-		}
-		configured = strings.TrimSpace(string(fields[i+1])) != ""
-	}
-	return configured, nil
+	return strings.TrimSpace(string(output)) != "", nil
 }
 
 func commandEnvironmentValue(environment []string, key string, caseInsensitive bool) (string, bool) {
@@ -409,18 +388,11 @@ func commandEnvironmentValue(environment []string, key string, caseInsensitive b
 }
 
 func replaceCommandEnvironmentValue(environment []string, key, value string, caseInsensitive bool) []string {
-	updated := make([]string, 0, len(environment)+1)
-	for _, entry := range environment {
-		if _, ok := commandEnvironmentEntryValue(entry, key, caseInsensitive); ok {
-			continue
-		}
-		updated = append(updated, entry)
-	}
-	return append(updated, key+"="+value)
+	return append(removeCommandEnvironmentValue(environment, key, caseInsensitive), key+"="+value)
 }
 
 func removeCommandEnvironmentValue(environment []string, key string, caseInsensitive bool) []string {
-	updated := make([]string, 0, len(environment))
+	updated := make([]string, 0, len(environment)+1)
 	for _, entry := range environment {
 		if _, ok := commandEnvironmentEntryValue(entry, key, caseInsensitive); ok {
 			continue
