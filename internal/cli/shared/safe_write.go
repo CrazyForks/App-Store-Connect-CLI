@@ -18,6 +18,9 @@ import (
 // because the destination exists (notably on Windows), we fall back to a safe replace that uses a
 // backup file to preserve the original if the final move fails.
 func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempPattern string, backupPattern string, write func(*os.File) (int64, error)) (int64, error) {
+	if len(path) > 0 && os.IsPathSeparator(path[len(path)-1]) {
+		return 0, fmt.Errorf("output path %q must be a file", path)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return 0, err
 	}

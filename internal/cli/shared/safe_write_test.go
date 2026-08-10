@@ -4,9 +4,47 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestSafeWriteFileNoSymlinkRejectsTrailingSeparatorBeforeSideEffects(t *testing.T) {
+	separators := []string{string(os.PathSeparator)}
+	if os.PathSeparator != '/' {
+		separators = append(separators, "/")
+	}
+
+	for _, separator := range separators {
+		t.Run(strconv.Quote(separator), func(t *testing.T) {
+			parent := t.TempDir()
+			createdPath := filepath.Join(parent, "result")
+			destination := createdPath + separator
+			callbackCalled := false
+
+			_, err := SafeWriteFileNoSymlink(
+				destination,
+				0o600,
+				false,
+				".safe-write-*",
+				".safe-write-backup-*",
+				func(file *os.File) (int64, error) {
+					callbackCalled = true
+					return 0, nil
+				},
+			)
+			if err == nil || !strings.Contains(err.Error(), strconv.Quote(destination)) {
+				t.Fatalf("SafeWriteFileNoSymlink() error = %v, want exact destination %s", err, strconv.Quote(destination))
+			}
+			if callbackCalled {
+				t.Fatal("write callback was called")
+			}
+			if _, statErr := os.Lstat(createdPath); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("destination-shaped directory was created, stat error = %v", statErr)
+			}
+		})
+	}
+}
 
 func TestSafeWriteFileNoSymlinkNoOverwriteRemovesPartialFileAfterCallbackFailure(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "artifact.bin")
