@@ -186,21 +186,14 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 			return result, err
 		}
 		if existing != nil {
-			if existing.AppID != opts.AppID ||
-				existing.Version != opts.Version ||
-				existing.BuildID != opts.BuildID ||
-				existing.Platform != opts.Platform ||
-				existing.MetadataDir != opts.MetadataDir ||
-				existing.CopyMetadataFrom != opts.CopyMetadataFrom ||
-				existing.RoutingCoverageFile != opts.RoutingCoverageFile ||
-				!equalStringSlices(existing.SelectedCopyFields, opts.SelectedCopyFields) ||
-				!checkpointModeMatches(existing.Mode, opts.Mode) {
+			if !checkpointMatchesRunArguments(existing, opts) {
 				err := fmt.Errorf("checkpoint does not match current run arguments")
 				result.Status = "error"
 				result.Error = err.Error()
 				return result, err
 			}
 			checkpoint = *existing
+			checkpoint.RoutingCoverageFile = opts.RoutingCoverageFile
 			if checkpoint.Completed == nil {
 				checkpoint.Completed = map[string]bool{}
 			}
@@ -731,6 +724,41 @@ func checkpointModeMatches(existingMode, desiredMode string) bool {
 	default:
 		return normalizedExistingMode == desiredMode
 	}
+}
+
+func checkpointMatchesRunArguments(existing *runCheckpoint, opts runOptions) bool {
+	if existing == nil ||
+		existing.AppID != opts.AppID ||
+		existing.Version != opts.Version ||
+		existing.BuildID != opts.BuildID ||
+		existing.Platform != opts.Platform ||
+		existing.MetadataDir != opts.MetadataDir ||
+		existing.CopyMetadataFrom != opts.CopyMetadataFrom ||
+		!equalStringSlices(existing.SelectedCopyFields, opts.SelectedCopyFields) ||
+		!checkpointModeMatches(existing.Mode, opts.Mode) {
+		return false
+	}
+	if existing.RoutingCoverageFile == opts.RoutingCoverageFile {
+		return true
+	}
+	return checkpointCanDropPendingRoutingCoverage(existing, opts.RoutingCoverageFile)
+}
+
+func checkpointCanDropPendingRoutingCoverage(existing *runCheckpoint, desiredFile string) bool {
+	if strings.TrimSpace(existing.RoutingCoverageFile) == "" || strings.TrimSpace(desiredFile) != "" {
+		return false
+	}
+	for name, completed := range existing.Completed {
+		if !completed {
+			continue
+		}
+		switch name {
+		case stepEnsureVersion, stepApplyMetadata:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func equalStringSlices(a, b []string) bool {
