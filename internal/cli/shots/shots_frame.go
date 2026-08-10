@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,6 +17,20 @@ import (
 )
 
 const defaultShotsFrameOutputDir = "./screenshots/framed"
+
+// watchUnsupportedFrameFlags lists the single-shot flags that --watch cannot
+// honor because watch mode renders from the Koubou YAML config on every cycle.
+var watchUnsupportedFrameFlags = []string{
+	"bg-color",
+	"device",
+	"name",
+	"output-dir",
+	"output-path",
+	"subtitle",
+	"subtitle-color",
+	"title",
+	"title-color",
+}
 
 var shotsFrameFn = screenshots.Frame
 
@@ -63,6 +78,12 @@ framed screenshots whenever the YAML config or referenced raw assets change.`,
 			watchDebounceSet := false
 			watchReviewDirSet := false
 			watchRawDirSet := false
+			// Watch mode regenerates straight from the Koubou YAML config, so
+			// the single-shot device, canvas and output flags have nowhere to
+			// apply. Collect the ones the caller set so they are rejected
+			// instead of silently dropped. fs.Visit reports flags in name
+			// order, so the message is stable.
+			watchUnsupportedFlags := make([]string, 0, len(watchUnsupportedFrameFlags))
 			fs.Visit(func(flagValue *flag.Flag) {
 				switch flagValue.Name {
 				case "watch-debounce":
@@ -71,6 +92,10 @@ framed screenshots whenever the YAML config or referenced raw assets change.`,
 					watchReviewDirSet = true
 				case "watch-raw-dir":
 					watchRawDirSet = true
+				default:
+					if slices.Contains(watchUnsupportedFrameFlags, flagValue.Name) {
+						watchUnsupportedFlags = append(watchUnsupportedFlags, "--"+flagValue.Name)
+					}
 				}
 			})
 			if configVal == "" && inputVal == "" {
@@ -84,6 +109,12 @@ framed screenshots whenever the YAML config or referenced raw assets change.`,
 			if *watch && configVal == "" {
 				fmt.Fprintln(os.Stderr, "Error: --watch requires --config")
 				return flag.ErrHelp
+			}
+			if *watch && len(watchUnsupportedFlags) > 0 {
+				return shared.UsageError(fmt.Sprintf(
+					"%s cannot be used with --watch; watch mode regenerates from the Koubou YAML config",
+					strings.Join(watchUnsupportedFlags, ", "),
+				))
 			}
 			if !*watch {
 				switch {
