@@ -145,6 +145,46 @@ func TestPreparedRoutingCoverageFileRechecksRootedParent(t *testing.T) {
 	}
 }
 
+func TestVerifyPreparedRoutingCoverageSourceRejectsAppendDuringChecksum(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "coverage.geojson")
+	if err := os.WriteFile(path, []byte(validRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	t.Chdir(root)
+	prepared, err := PrepareRoutingCoverageFile(path)
+	if err != nil {
+		t.Fatalf("PrepareRoutingCoverageFile() error: %v", err)
+	}
+	source, err := prepared.openSource()
+	if err != nil {
+		t.Fatalf("openSource() error: %v", err)
+	}
+	defer source.Close()
+
+	err = verifyPreparedRoutingCoverageSourceWithChecksum(source, prepared, func(file *os.File, size int64) (*asc.Checksum, error) {
+		checksum, checksumErr := checksumOpenedFile(file, size)
+		if checksumErr != nil {
+			return nil, checksumErr
+		}
+		appender, appendErr := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+		if appendErr != nil {
+			return nil, appendErr
+		}
+		if _, appendErr = appender.WriteString("\n"); appendErr != nil {
+			_ = appender.Close()
+			return nil, appendErr
+		}
+		if appendErr = appender.Close(); appendErr != nil {
+			return nil, appendErr
+		}
+		return checksum, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "file changed after validation") {
+		t.Fatalf("verifyPreparedRoutingCoverageSourceWithChecksum() error = %v, want changed-file diagnostic", err)
+	}
+}
+
 func TestRoutingCoverageCommandShape(t *testing.T) {
 	cmd := RoutingCoverageCommand()
 	if cmd == nil {

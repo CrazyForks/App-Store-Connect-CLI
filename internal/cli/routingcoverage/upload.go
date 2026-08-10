@@ -227,6 +227,14 @@ func discardRoutingCoverageSnapshot(snapshot *os.File) {
 }
 
 func verifyPreparedRoutingCoverageSource(source *os.File, file PreparedRoutingCoverageFile) error {
+	return verifyPreparedRoutingCoverageSourceWithChecksum(source, file, checksumOpenedFile)
+}
+
+func verifyPreparedRoutingCoverageSourceWithChecksum(
+	source *os.File,
+	file PreparedRoutingCoverageFile,
+	checksumFunc func(*os.File, int64) (*asc.Checksum, error),
+) error {
 	info, err := source.Stat()
 	if err != nil {
 		return fmt.Errorf("stat file: %w", err)
@@ -234,9 +242,24 @@ func verifyPreparedRoutingCoverageSource(source *os.File, file PreparedRoutingCo
 	if info.Size() != file.FileSize {
 		return fmt.Errorf("file changed after validation: %q", file.Path)
 	}
-	currentChecksum, err := checksumOpenedFile(source, info.Size())
+	currentChecksum, err := checksumFunc(source, info.Size())
 	if err != nil {
 		return fmt.Errorf("checksum failed: %w", err)
+	}
+	postChecksumInfo, err := source.Stat()
+	if err != nil {
+		return fmt.Errorf("stat file after checksum: %w", err)
+	}
+	if postChecksumInfo.Size() != info.Size() {
+		return fmt.Errorf("file changed after validation: %q", file.Path)
+	}
+	var trailing [1]byte
+	read, readErr := source.ReadAt(trailing[:], info.Size())
+	if read > 0 || readErr == nil {
+		return fmt.Errorf("file changed after validation: %q", file.Path)
+	}
+	if !errors.Is(readErr, io.EOF) {
+		return fmt.Errorf("check file size after checksum: %w", readErr)
 	}
 	if !strings.EqualFold(strings.TrimSpace(currentChecksum.Hash), strings.TrimSpace(file.Checksum)) {
 		return fmt.Errorf("file changed after validation: %q", file.Path)
