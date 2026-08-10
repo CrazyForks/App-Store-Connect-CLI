@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -1246,7 +1247,7 @@ func TestExportRejectsExistingIPAWithoutOverwrite(t *testing.T) {
 	}
 }
 
-func TestRunXcodebuildFailurePreservesBeginningAndEndWithinBound(t *testing.T) {
+func TestRunXcodebuildFailurePreservesRecognizedErrorsAndFinalOutputWithinBound(t *testing.T) {
 	tempDir := t.TempDir()
 	logPath := filepath.Join(tempDir, "commands.log")
 
@@ -1283,8 +1284,7 @@ func TestRunXcodebuildFailurePreservesBeginningAndEndWithinBound(t *testing.T) {
 			for _, want := range []string{
 				"file.m:4:3: error: root cause",
 				"FINAL-DIAGNOSTIC",
-				"output truncated to 65536 bytes; preserving beginning and end",
-				"bytes omitted",
+				"output truncated to 65536 bytes; preserving recognized errors and final output",
 			} {
 				if !strings.Contains(errorText, want) {
 					t.Fatalf("error = %q, want %q", errorText, want)
@@ -1335,7 +1335,7 @@ func TestRunXcodebuildFailureStillStreamsCompleteOutputOnce(t *testing.T) {
 	}
 }
 
-func TestRunXcodebuildInterruptionPreservesBeginningAndEndWithinBound(t *testing.T) {
+func TestRunXcodebuildInterruptionPreservesRecognizedErrorsAndFinalOutputWithinBound(t *testing.T) {
 	tempDir := t.TempDir()
 	restore := overrideTestEnvironment(t)
 	commandContextFn = helperCommandContext(t, filepath.Join(tempDir, "commands.log"))
@@ -1396,7 +1396,7 @@ func TestRunXcodebuildInterruptionPreservesBeginningAndEndWithinBound(t *testing
 			for _, want := range []string{
 				"file.m:4:3: error: root cause",
 				"FINAL-BEFORE-INTERRUPTION",
-				"output truncated to 65536 bytes; preserving beginning and end",
+				"output truncated to 65536 bytes; preserving recognized errors and final output",
 			} {
 				if !strings.Contains(err.Error(), want) {
 					t.Fatalf("error = %q, want %q", err, want)
@@ -1436,8 +1436,8 @@ func TestTailBufferStringRemainsValidUTF8AfterByteTruncation(t *testing.T) {
 	}
 }
 
-func TestHeadTailBufferPreservesUntruncatedOutput(t *testing.T) {
-	buffer := newHeadTailBuffer(8)
+func TestXcodeDiagnosticBufferPreservesUntruncatedOutput(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(8)
 	for _, chunk := range []string{"ab", "cd", "ef"} {
 		if _, err := buffer.Write([]byte(chunk)); err != nil {
 			t.Fatalf("Write(%q) error = %v", chunk, err)
@@ -1452,8 +1452,41 @@ func TestHeadTailBufferPreservesUntruncatedOutput(t *testing.T) {
 	}
 }
 
-func TestHeadTailBufferRenderedOutputStaysWithinLimit(t *testing.T) {
-	buffer := newHeadTailBuffer(xcodeCommandErrorOutputLimit)
+func TestXcodeDiagnosticBufferPreservesMiddleCompilerErrorFromLegacyTail(t *testing.T) {
+	const totalBytes = 90 * 1024
+	diagnostic := "file.m:4:3: error: middle root cause"
+	input := strings.Repeat("h", 40*1024) + "\n" + diagnostic + "\n"
+	input += strings.Repeat("t", totalBytes-len(input))
+
+	legacyTail := newTailBuffer(xcodeCommandErrorOutputLimit)
+	if _, err := legacyTail.Write([]byte(input)); err != nil {
+		t.Fatalf("legacy tail Write() error = %v", err)
+	}
+	if !strings.Contains(legacyTail.String(), diagnostic) {
+		t.Fatal("test precondition failed: legacy 64 KiB tail does not contain middle diagnostic")
+	}
+
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	got := buffer.String()
+	if !strings.Contains(got, diagnostic) {
+		t.Fatalf("String() dropped middle compiler diagnostic retained by legacy tail")
+	}
+	if got != legacyTail.String() {
+		t.Fatalf("String() did not preserve legacy tail when diagnostic was already present")
+	}
+	if len(got) > xcodeCommandErrorOutputLimit {
+		t.Fatalf("rendered bytes = %d, limit = %d", len(got), xcodeCommandErrorOutputLimit)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("String() returned invalid UTF-8")
+	}
+}
+
+func TestXcodeDiagnosticBufferRenderedOutputStaysWithinLimit(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
 	input := "file.m:4:3: error: root cause\n" +
 		strings.Repeat("界", xcodeCommandErrorOutputLimit) +
 		"\nFINAL-DIAGNOSTIC\n"
@@ -1468,15 +1501,15 @@ func TestHeadTailBufferRenderedOutputStaysWithinLimit(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Fatalf("String() returned invalid UTF-8 after truncation: %q", got)
 	}
-	for _, want := range []string{"file.m:4:3: error: root cause", "FINAL-DIAGNOSTIC", "bytes omitted"} {
+	for _, want := range []string{"file.m:4:3: error: root cause", "FINAL-DIAGNOSTIC"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("String() = %q, want %q", got, want)
 		}
 	}
 }
 
-func TestHeadTailBufferRepairsUTF8AtBothTruncationBoundaries(t *testing.T) {
-	buffer := newHeadTailBuffer(40)
+func TestXcodeDiagnosticBufferRepairsUTF8AtTailBoundary(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(40)
 	if _, err := buffer.Write([]byte("始" + strings.Repeat("界", 20) + "終")); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
@@ -1485,23 +1518,21 @@ func TestHeadTailBufferRepairsUTF8AtBothTruncationBoundaries(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Fatalf("String() returned invalid UTF-8 after truncation: %q", got)
 	}
-	for _, want := range []string{"始", "終", "54 bytes omitted"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("String() = %q, want %q", got, want)
-		}
+	if !strings.Contains(got, "終") {
+		t.Fatalf("String() = %q, want trailing marker", got)
 	}
 	if len(got) > buffer.limit {
 		t.Fatalf("rendered bytes = %d, limit = %d", len(got), buffer.limit)
 	}
-	if stored := len(buffer.head) + len(buffer.tail.data); stored > buffer.limit {
+	if stored := len(buffer.tail.data) + buffer.diagnosticBytes; stored > buffer.limit+buffer.diagnosticBudget() {
 		t.Fatalf("stored bytes = %d, limit = %d", stored, buffer.limit)
 	}
 }
 
-func TestHeadTailBufferHandlesZeroAndSingleByteLimits(t *testing.T) {
+func TestXcodeDiagnosticBufferHandlesZeroAndSingleByteLimits(t *testing.T) {
 	for _, limit := range []int{0, 1} {
 		t.Run(strconv.Itoa(limit), func(t *testing.T) {
-			buffer := newHeadTailBuffer(limit)
+			buffer := newXcodeDiagnosticBuffer(limit)
 			if _, err := buffer.Write([]byte("ab")); err != nil {
 				t.Fatalf("Write() error = %v", err)
 			}
@@ -1514,8 +1545,316 @@ func TestHeadTailBufferHandlesZeroAndSingleByteLimits(t *testing.T) {
 			if rendered := len(buffer.String()); rendered > limit {
 				t.Fatalf("rendered bytes = %d, limit = %d", rendered, limit)
 			}
-			if stored := len(buffer.head) + len(buffer.tail.data); stored > limit {
+			if stored := len(buffer.tail.data) + buffer.diagnosticBytes; stored > limit+buffer.diagnosticBudget() {
 				t.Fatalf("stored bytes = %d, limit = %d", stored, limit)
+			}
+		})
+	}
+}
+
+func TestXcodeDiagnosticBufferRetainsMissingErrorsOnce(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	diagnostic := "error: earliest root cause"
+	benign := "Build summary mentions error: only as prose"
+	input := diagnostic + "\n" + diagnostic + "\n" + benign + "\n"
+	input += strings.Repeat("x", xcodeCommandErrorOutputLimit+128) + "\nFINAL-DIAGNOSTIC\n"
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if count := strings.Count(got, diagnostic); count != 1 {
+		t.Fatalf("diagnostic count = %d, want 1", count)
+	}
+	if strings.Contains(got, benign) {
+		t.Fatalf("String() retained benign prose as a diagnostic: %q", got)
+	}
+	if !strings.Contains(got, "FINAL-DIAGNOSTIC") {
+		t.Fatalf("String() dropped final output marker")
+	}
+	if len(got) > xcodeCommandErrorOutputLimit || !utf8.ValidString(got) {
+		t.Fatalf("rendered output bytes = %d, valid UTF-8 = %t", len(got), utf8.ValidString(got))
+	}
+}
+
+func TestXcodeDiagnosticBufferDoesNotPrependDiagnosticAlreadyInTail(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	diagnostic := "error: repeated root cause"
+	input := diagnostic + "\n" + strings.Repeat("x", xcodeCommandErrorOutputLimit+128)
+	input += "\n" + diagnostic + "\nFINAL-DIAGNOSTIC\n"
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if count := strings.Count(got, diagnostic); count != 1 {
+		t.Fatalf("diagnostic count = %d, want 1", count)
+	}
+	if !strings.Contains(got, "FINAL-DIAGNOSTIC") {
+		t.Fatalf("String() dropped final output marker")
+	}
+}
+
+func TestXcodeDiagnosticBufferRetainsDiagnosticDisplacedByMissingPrefix(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	missingDiagnostic := "error: " + strings.Repeat("a", 1024)
+	displacedDiagnostic := "error: displaced from the start of the legacy tail"
+	tail := "\n" + displacedDiagnostic + "\n"
+	tail += strings.Repeat("x", xcodeCommandErrorOutputLimit-len(tail))
+	input := missingDiagnostic + "\n" + strings.Repeat("o", 128) + tail
+
+	legacyTail := newTailBuffer(xcodeCommandErrorOutputLimit)
+	if _, err := legacyTail.Write([]byte(input)); err != nil {
+		t.Fatalf("legacy tail Write() error = %v", err)
+	}
+	if !strings.Contains(legacyTail.String(), displacedDiagnostic) {
+		t.Fatal("test precondition failed: displaced diagnostic is absent from the legacy tail")
+	}
+	if strings.Contains(legacyTail.String(), missingDiagnostic) {
+		t.Fatal("test precondition failed: missing diagnostic is present in the legacy tail")
+	}
+
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	got := buffer.String()
+	for _, diagnostic := range []string{missingDiagnostic, displacedDiagnostic} {
+		if !strings.Contains(got, diagnostic) {
+			t.Fatalf("String() dropped diagnostic %q", diagnostic)
+		}
+	}
+	if len(got) > xcodeCommandErrorOutputLimit || !utf8.ValidString(got) {
+		t.Fatalf("rendered output bytes = %d, valid UTF-8 = %t", len(got), utf8.ValidString(got))
+	}
+}
+
+func TestXcodeDiagnosticBufferDoesNotDeduplicateAgainstBenignTailSubstring(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	diagnostic := "error: root cause"
+	benign := "note: previous error: root cause was discussed"
+	input := diagnostic + "\n" + strings.Repeat("x", xcodeCommandErrorOutputLimit+128)
+	input += "\n" + benign + "\nFINAL-DIAGNOSTIC\n"
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	exactCount := 0
+	for _, line := range strings.Split(got, "\n") {
+		if strings.TrimSpace(line) == diagnostic {
+			exactCount++
+		}
+	}
+	if exactCount != 1 {
+		t.Fatalf("exact diagnostic line count = %d, want 1", exactCount)
+	}
+	if !strings.Contains(got, benign) {
+		t.Fatalf("String() dropped benign final output")
+	}
+}
+
+func TestXcodeDiagnosticBufferRetainsPathOnlyErrorOutsideTail(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	diagnostic := "/tmp/App/Assets.xcassets: error: App icon set missing"
+	input := diagnostic + "\n" + strings.Repeat("x", xcodeCommandErrorOutputLimit+128)
+	input += "\nFINAL-DIAGNOSTIC\n"
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if !strings.Contains(got, diagnostic) {
+		t.Fatalf("String() dropped path-only Xcode diagnostic")
+	}
+	if !strings.Contains(got, "FINAL-DIAGNOSTIC") {
+		t.Fatalf("String() dropped final output marker")
+	}
+}
+
+func TestXcodeDiagnosticBufferDoesNotLetVersionedProseExhaustDiagnosticBudget(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	var input strings.Builder
+	for i := range 1000 {
+		fmt.Fprintf(&input, "Build 1.%d: error: only prose\n", i)
+	}
+	diagnostic := "error: actual root cause"
+	input.WriteString(diagnostic + "\n")
+	input.WriteString(strings.Repeat("x", xcodeCommandErrorOutputLimit+128))
+	input.WriteString("\nFINAL-DIAGNOSTIC\n")
+	if _, err := buffer.Write([]byte(input.String())); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if !strings.Contains(got, diagnostic) {
+		t.Fatalf("String() dropped real diagnostic after versioned prose")
+	}
+	if strings.Contains(got, "error: only prose") {
+		t.Fatalf("String() retained versioned prose as diagnostics")
+	}
+}
+
+func TestXcodeDiagnosticBufferIndexesDenseTailOnce(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	var input strings.Builder
+	for i := range 32 {
+		fmt.Fprintf(&input, "error: early failure %02d\n", i)
+	}
+	input.WriteString(strings.Repeat("\n", xcodeCommandErrorOutputLimit+128))
+	if _, err := buffer.Write([]byte(input.String())); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	if allocations := testing.AllocsPerRun(1, func() {
+		_ = buffer.String()
+	}); allocations > 16 {
+		t.Fatalf("String() allocations = %.0f, want at most 16", allocations)
+	}
+}
+
+func TestXcodeDiagnosticBufferBoundsVeryLongErrorLine(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	longDiagnostic := "error: " + strings.Repeat("界", xcodeDiagnosticLineLimit)
+	input := longDiagnostic + strings.Repeat("x", xcodeCommandErrorOutputLimit+128)
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if !strings.Contains(got, "error: ") {
+		t.Fatalf("String() dropped bounded long diagnostic")
+	}
+	if len(got) > xcodeCommandErrorOutputLimit || !utf8.ValidString(got) {
+		t.Fatalf("rendered output bytes = %d, valid UTF-8 = %t", len(got), utf8.ValidString(got))
+	}
+	if buffer.diagnosticBytes > buffer.diagnosticBudget() {
+		t.Fatalf("stored diagnostic bytes = %d, budget = %d", buffer.diagnosticBytes, buffer.diagnosticBudget())
+	}
+	for _, diagnostic := range buffer.diagnostics {
+		if len(diagnostic) > xcodeDiagnosticLineLimit {
+			t.Fatalf("stored diagnostic bytes = %d, line limit = %d", len(diagnostic), xcodeDiagnosticLineLimit)
+		}
+	}
+}
+
+func TestXcodeDiagnosticBufferBoundsManyUniqueErrors(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	var input strings.Builder
+	for i := range 5000 {
+		fmt.Fprintf(&input, "error: distinct failure %04d\n", i)
+	}
+	input.WriteString(strings.Repeat("x", xcodeCommandErrorOutputLimit+128))
+	input.WriteString("\nFINAL-DIAGNOSTIC\n")
+	if _, err := buffer.Write([]byte(input.String())); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if len(got) > xcodeCommandErrorOutputLimit || !utf8.ValidString(got) {
+		t.Fatalf("rendered output bytes = %d, valid UTF-8 = %t", len(got), utf8.ValidString(got))
+	}
+	if buffer.diagnosticBytes > buffer.diagnosticBudget() {
+		t.Fatalf("stored diagnostic bytes = %d, budget = %d", buffer.diagnosticBytes, buffer.diagnosticBudget())
+	}
+	if !strings.Contains(got, "error: distinct failure 0000") {
+		t.Fatalf("String() dropped earliest bounded diagnostic")
+	}
+	if !strings.Contains(got, "FINAL-DIAGNOSTIC") {
+		t.Fatalf("String() dropped final output marker")
+	}
+}
+
+func TestXcodeDiagnosticBufferKeepsStreamFragmentsIndependent(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	stdout := buffer.newStreamWriter(nil)
+	stderr := buffer.newStreamWriter(nil)
+	if _, err := stdout.Write([]byte("file.m:4:3: err")); err != nil {
+		t.Fatalf("stdout Write() error = %v", err)
+	}
+	if _, err := stderr.Write([]byte("or: cross-stream false positive\n")); err != nil {
+		t.Fatalf("stderr Write() error = %v", err)
+	}
+	if _, err := stdout.Write([]byte("\n")); err != nil {
+		t.Fatalf("stdout newline Write() error = %v", err)
+	}
+	if _, err := buffer.Write([]byte(strings.Repeat("x", xcodeCommandErrorOutputLimit+128))); err != nil {
+		t.Fatalf("tail Write() error = %v", err)
+	}
+
+	_ = buffer.String()
+	if len(buffer.diagnostics) != 0 {
+		t.Fatalf("captured cross-stream diagnostic fragments: %q", buffer.diagnostics)
+	}
+}
+
+func TestXcodeDiagnosticBufferRecognizesLineSplitWithinStream(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	stream := buffer.newStreamWriter(nil)
+	for _, chunk := range []string{
+		"Sources/App.swift:12:7: er",
+		"ror: split root cause",
+		"\n",
+		strings.Repeat("x", xcodeCommandErrorOutputLimit+128),
+	} {
+		if _, err := stream.Write([]byte(chunk)); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+	}
+
+	if got := buffer.String(); !strings.Contains(got, "Sources/App.swift:12:7: error: split root cause") {
+		t.Fatalf("String() dropped diagnostic split across writes")
+	}
+}
+
+func TestXcodeDiagnosticBufferSerializesConcurrentStreamWrites(t *testing.T) {
+	buffer := newXcodeDiagnosticBuffer(xcodeCommandErrorOutputLimit)
+	var streamed bytes.Buffer
+	stdout := buffer.newStreamWriter(&streamed)
+	stderr := buffer.newStreamWriter(&streamed)
+
+	var writers sync.WaitGroup
+	for _, writer := range []io.Writer{stdout, stderr} {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			for range 100 {
+				if _, err := writer.Write([]byte("ordinary build output\n")); err != nil {
+					t.Errorf("Write() error = %v", err)
+					return
+				}
+			}
+		}()
+	}
+	writers.Wait()
+
+	if got := buffer.String(); got != streamed.String() {
+		t.Fatalf("captured output differs from streamed output")
+	}
+}
+
+func TestIsXcodeErrorDiagnostic(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{name: "source location", line: "Sources/App.swift:12:7: error: cannot find value", want: true},
+		{name: "line leading", line: "error: emit-module command failed", want: true},
+		{name: "fatal line leading", line: "fatal error: module map missing", want: true},
+		{name: "known tool", line: "clang: error: linker command failed", want: true},
+		{name: "xcrun tool", line: "xcrun: error: invalid active developer path", want: true},
+		{name: "path only", line: "/tmp/App/Assets.xcassets: error: App icon set missing", want: true},
+		{name: "project path only", line: "App.xcodeproj: error: Missing package product", want: true},
+		{name: "benign prose", line: "Build summary mentions error: only as prose"},
+		{name: "versioned prose", line: "Build 1.2: error: only prose"},
+		{name: "quoted note", line: "note: error: appeared in generated documentation"},
+		{name: "empty error", line: "error:"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isXcodeErrorDiagnostic(test.line); got != test.want {
+				t.Fatalf("isXcodeErrorDiagnostic(%q) = %t, want %t", test.line, got, test.want)
 			}
 		})
 	}
