@@ -210,6 +210,15 @@ Examples:
 			if err != nil {
 				return err
 			}
+			if *dryRun {
+				// A preview has no remote localization list that could exempt an
+				// already existing locale, so run the locale half of the apply
+				// preflight here. Without it a clean plan is followed by a hard
+				// failure on the --confirm run for a purely local reason.
+				if err := validateCreateTargetLocales(preparedLocalizations, preparedAppInfoLocalizations, screenshotPlan); err != nil {
+					return err
+				}
+			}
 
 			var client *asc.Client
 			var requestCtx context.Context
@@ -991,6 +1000,12 @@ Examples:
 
 			for _, loc := range localizations {
 				locales = append(locales, loc.Locale)
+				// migrate import rejects these locales when it has to create a
+				// localization, so report them here instead of passing a tree
+				// the import step refuses.
+				if issue := localeCreateIssue(loc.Locale); issue != nil {
+					issues = append(issues, *issue)
+				}
 				issues = append(issues, validateVersionLocalization(loc)...)
 			}
 

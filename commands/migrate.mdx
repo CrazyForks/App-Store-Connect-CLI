@@ -113,6 +113,12 @@ asc migrate validate --fastlane-dir ./fastlane --output table
 * Name: 30 characters
 * Subtitle: 30 characters
 
+Locale directories are checked against the App Store Connect locale catalog with
+the same rule `migrate import` applies when it has to create a localization, so
+a directory such as `metadata/nl` is reported as an error (`nl-NL` is the
+supported code) instead of failing later during an import. `migrate import
+--dry-run` performs the same check before it previews a plan.
+
 ## Deliverfile Support
 
 The import command supports reading configuration from a `Deliverfile`:

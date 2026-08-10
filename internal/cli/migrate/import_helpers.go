@@ -226,6 +226,47 @@ func validateLocalizationCreateTarget(locale, localizationID string) error {
 	return nil
 }
 
+// validateCreateTargetLocales applies the locale half of the apply-time create
+// preflight to every discovered locale. It is what a dry run can check without
+// the remote localization list, and it reports the same error --confirm would.
+func validateCreateTargetLocales(localizations []preparedVersionLocalization, appInfos []preparedAppInfoLocalization, screenshots []ScreenshotPlan) error {
+	locales := make([]string, 0, len(localizations)+len(appInfos)+len(screenshots))
+	for _, prepared := range localizations {
+		locales = append(locales, prepared.localization.Locale)
+	}
+	for _, prepared := range appInfos {
+		locales = append(locales, prepared.localization.Locale)
+	}
+	for _, screenshot := range screenshots {
+		locales = append(locales, screenshot.Locale)
+	}
+	seen := make(map[string]struct{}, len(locales))
+	for _, locale := range locales {
+		if _, ok := seen[locale]; ok {
+			continue
+		}
+		seen[locale] = struct{}{}
+		if err := validateLocalizationCreateTarget(locale, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// localeCreateIssue reports the locale rejection migrate import performs when a
+// localization has to be created, so validate and import agree.
+func localeCreateIssue(locale string) *ValidationIssue {
+	if _, err := shared.CanonicalizeAppStoreLocalizationLocale(locale); err != nil {
+		return &ValidationIssue{
+			Locale:   locale,
+			Field:    "locale",
+			Severity: "error",
+			Message:  err.Error(),
+		}
+	}
+	return nil
+}
+
 func prepareAppInfoLocalizationAttributes(localizations []AppInfoFastlaneLocalization) ([]preparedAppInfoLocalization, error) {
 	prepared := make([]preparedAppInfoLocalization, 0, len(localizations))
 	for _, loc := range localizations {

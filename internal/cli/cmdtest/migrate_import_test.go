@@ -1318,6 +1318,46 @@ func TestMigrateImportDryRunDeliverfileSkipScreenshotsAllowsMissingFastlaneScree
 	}
 }
 
+func TestMigrateImportDryRunRejectsUnsupportedCreateLocale(t *testing.T) {
+	root := t.TempDir()
+	localeDir := filepath.Join(root, "metadata", "nl")
+	if err := os.MkdirAll(localeDir, 0o755); err != nil {
+		t.Fatalf("mkdir metadata: %v", err)
+	}
+	writeFile(t, filepath.Join(localeDir, "description.txt"), "Dutch description")
+
+	factoryCalls := 0
+	restore := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		factoryCalls++
+		return nil, errors.New("client factory must not run during a local dry-run")
+	})
+	t.Cleanup(restore)
+
+	rootCmd := RootCommand("1.2.3")
+	rootCmd.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := rootCmd.Parse([]string{
+			"migrate", "import",
+			"--app", "APP_ID",
+			"--version-id", "VERSION_ID",
+			"--fastlane-dir", root,
+			"--skip-screenshots",
+			"--dry-run",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = rootCmd.Run(context.Background())
+	})
+
+	const wantError = `migrate import: locale "nl": unsupported locale "nl"; did you mean: nl-NL`
+	assertMigrateImportError(t, stdout, stderr, runErr, wantError)
+	if factoryCalls != 0 {
+		t.Fatalf("client factory calls = %d, want zero", factoryCalls)
+	}
+}
+
 func TestMigrateImportFastlaneDirHonorsDeliverfileMetadataPath(t *testing.T) {
 	root := t.TempDir()
 	fastlaneDir := filepath.Join(root, "fastlane")
