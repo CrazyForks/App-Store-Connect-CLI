@@ -256,7 +256,7 @@ After a failed wait or distribution step, use the run ID printed by
 `asc workflow`:
 
 ```bash
-asc workflow run --resume RUN_ID
+asc workflow run testflight_external --resume RUN_ID
 ```
 
 The upload step is not executed again because its declared outputs were already
