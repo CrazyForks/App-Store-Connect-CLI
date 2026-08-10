@@ -12,7 +12,6 @@ import (
 	"github.com/peterbourgon/ff/v3/ffcli"
 
 	signingpkg "github.com/rudrankriyam/App-Store-Connect-CLI/internal/signing"
-	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/urlsanitize"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
@@ -348,7 +347,7 @@ func syncPullCommand() *ffcli.Command {
 }
 
 func sanitizeRepoURLForOutput(raw string) string {
-	return urlsanitize.SanitizeURLForLog(raw, urlsanitize.DefaultSignedQueryKeys, urlsanitize.DefaultSensitiveQueryKeys)
+	return signingpkg.RedactRepoURL(raw)
 }
 
 func writeDecryptedOutputFile(outDir, relPath string, plaintext []byte) error {

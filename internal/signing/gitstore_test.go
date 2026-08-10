@@ -262,6 +262,97 @@ func TestGitStoreListEncryptedFilesSkipsGitDirAndSymlinks(t *testing.T) {
 	}
 }
 
+func TestRedactRepoURLRemovesCredentials(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "token in password position",
+			raw:  "https://x-access-token:ghp_SUPERSECRET@github.com/team/certs.git",
+			want: "https://%5BREDACTED%5D@github.com/team/certs.git",
+		},
+		{
+			name: "token in user position",
+			raw:  "https://ghp_SUPERSECRET@github.com/team/certs.git",
+			want: "https://%5BREDACTED%5D@github.com/team/certs.git",
+		},
+		{
+			name: "unparseable userinfo",
+			raw:  "https://user:sec ret@github.com/team/certs.git",
+			want: "https://[REDACTED]@github.com/team/certs.git",
+		},
+		{
+			name: "scp style remote keeps its user",
+			raw:  "git@github.com:team/certs.git",
+			want: "git@github.com:team/certs.git",
+		},
+		{
+			name: "scp style remote with credentials",
+			raw:  "user:secret@github.com:team/certs.git",
+			want: "[REDACTED]@github.com:team/certs.git",
+		},
+		{
+			name: "no credentials",
+			raw:  "https://github.com/team/certs.git",
+			want: "https://github.com/team/certs.git",
+		},
+		{
+			name: "local path",
+			raw:  "/srv/git/certs.git",
+			want: "/srv/git/certs.git",
+		},
+		{
+			name: "empty",
+			raw:  "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := RedactRepoURL(tt.raw); got != tt.want {
+				t.Fatalf("RedactRepoURL(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitStoreCloneErrorRedactsRepositoryCredentials(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts require a POSIX shell")
+	}
+
+	binDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(binDir, "git"), "#!/bin/sh\nexit 1\n")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GIT_SSH_COMMAND", "")
+	t.Setenv("GIT_SSH", "")
+
+	store := &GitStore{
+		RepoURL:  "https://x-access-token:ghp_SUPERSECRET@github.com/team/certs.git",
+		LocalDir: filepath.Join(t.TempDir(), "clone"),
+		Branch:   "signing",
+	}
+
+	err := store.Clone(context.Background(), false)
+	if err == nil {
+		t.Fatal("expected clone failure for a missing branch")
+	}
+	for _, secret := range []string{"ghp_SUPERSECRET", "x-access-token"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("clone error leaks repository credentials: %v", err)
+		}
+	}
+	if !strings.Contains(err.Error(), "github.com/team/certs.git") {
+		t.Fatalf("clone error should still name the repository host: %v", err)
+	}
+	if !strings.Contains(err.Error(), `branch "signing" not found`) {
+		t.Fatalf("clone error should still report the missing branch: %v", err)
+	}
+}
+
 func TestGitStoreGitHelpersUseNonInteractiveExecutables(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts require a POSIX shell")
