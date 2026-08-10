@@ -1038,28 +1038,56 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
-			metadataDir, err := resolveFastlaneChild(*fastlaneDir, "metadata", *allowExternalMetadata)
+			workDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("migrate validate: %w", err)
+			}
+
+			// Resolve the metadata directory exactly the way migrate import
+			// does, so a Deliverfile metadata_path cannot leave validate
+			// checking a directory the import step never reads.
+			inputs, skipped, err := resolveImportInputs(importInputOptions{
+				WorkDir:               workDir,
+				FastlaneDir:           *fastlaneDir,
+				MetadataOnly:          true,
+				AllowExternalMetadata: *allowExternalMetadata,
+			})
+			if err != nil {
+				return fmt.Errorf("migrate validate: %w", err)
+			}
+
+			metadataDir := inputs.MetadataDir
+			if inputs.DeliverfileConfig.SkipMetadata && metadataDir != "" {
+				skipped = append(skipped, SkippedItem{
+					Path:   metadataDir,
+					Reason: "skip_metadata in Deliverfile",
+				})
+				metadataDir = ""
 			}
 
 			// Read metadata from fastlane structure
-			localeDirs, skipped, err := scanFastlaneMetadataLocaleDirs(metadataDir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return fmt.Errorf("migrate validate: metadata directory not found: %s", metadataDir)
+			var localizations []FastlaneLocalization
+			var appInfoLocs []AppInfoFastlaneLocalization
+			if metadataDir != "" {
+				localeDirs, metadataSkipped, err := scanFastlaneMetadataLocaleDirs(metadataDir)
+				if err != nil {
+					if os.IsNotExist(err) {
+						return fmt.Errorf("migrate validate: metadata directory not found: %s", metadataDir)
+					}
+					return fmt.Errorf("migrate validate: %w", err)
 				}
-				return fmt.Errorf("migrate validate: %w", err)
-			}
-			localizations, err := readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
-			if err != nil {
-				return fmt.Errorf("migrate validate: %w", err)
-			}
+				skipped = append(skipped, metadataSkipped...)
 
-			// Read App Info metadata (name, subtitle)
-			appInfoLocs, err := readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
-			if err != nil {
-				return fmt.Errorf("migrate validate: %w", err)
+				localizations, err = readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
+				if err != nil {
+					return fmt.Errorf("migrate validate: %w", err)
+				}
+
+				// Read App Info metadata (name, subtitle)
+				appInfoLocs, err = readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
+				if err != nil {
+					return fmt.Errorf("migrate validate: %w", err)
+				}
 			}
 
 			// Validate and collect issues

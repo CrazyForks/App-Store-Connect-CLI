@@ -125,6 +125,12 @@ a directory such as `metadata/nl` is reported as an error (`nl-NL` is the
 supported code) instead of failing later during an import. `migrate import
 --dry-run` performs the same check before it previews a plan.
 
+`migrate validate` resolves its metadata directory exactly the way `migrate
+import` does: a Deliverfile `metadata_path` wins over the conventional
+`metadata/` directory, `skip_metadata` turns the check off, and an overridden
+conventional directory is reported in `skipped`. Validating a directory the
+import step never reads would green-light a tree the import then rejects.
+
 ## Deliverfile Support
 
 The import command supports reading configuration from a `Deliverfile`:

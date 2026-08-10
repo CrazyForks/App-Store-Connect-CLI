@@ -23,6 +23,11 @@ type importInputOptions struct {
 	MetadataDir     string
 	ScreenshotsDir  string
 	SkipScreenshots bool
+	// MetadataOnly resolves the metadata directory alone. migrate validate
+	// reads metadata files and binds no screenshot trust flag, so resolving a
+	// screenshots directory it never opens would reject trees that migrate
+	// import accepts.
+	MetadataOnly bool
 	// The allow options preserve legacy Fastlane layouts only when the operator
 	// explicitly trusts paths that repository-controlled configuration can
 	// redirect outside the selected checkout.
@@ -78,11 +83,14 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 	if err != nil {
 		return importInputs{}, nil, err
 	}
-	screenshots, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots", "screenshots_path", opts.AllowExternalScreenshots)
-	if err != nil {
-		return importInputs{}, nil, err
+	var screenshots resolvedImportPath
+	if !opts.MetadataOnly {
+		screenshots, err = resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots", "screenshots_path", opts.AllowExternalScreenshots)
+		if err != nil {
+			return importInputs{}, nil, err
+		}
 	}
-	skipScreenshots := opts.SkipScreenshots || config.SkipScreenshots
+	skipScreenshots := opts.MetadataOnly || opts.SkipScreenshots || config.SkipScreenshots
 
 	skipped := []SkippedItem{}
 	skipped = noteOverriddenConventionalDir(skipped, metadata)
