@@ -416,6 +416,40 @@ func TestResolveSigningCertificateTypesIncludesCompatibleCertificatesForIOSAndTV
 	}
 }
 
+func TestResolveSigningCertificateTypesIncludesCompatibleCertificatesForMacProfiles(t *testing.T) {
+	tests := []struct {
+		profileType string
+		want        string
+	}{
+		{profileType: "MAC_APP_DEVELOPMENT", want: "MAC_APP_DEVELOPMENT,DEVELOPMENT"},
+		{profileType: "MAC_CATALYST_APP_DEVELOPMENT", want: "MAC_APP_DEVELOPMENT,DEVELOPMENT"},
+		{profileType: "MAC_APP_STORE", want: "MAC_APP_DISTRIBUTION,DISTRIBUTION"},
+		{profileType: "MAC_CATALYST_APP_STORE", want: "MAC_APP_DISTRIBUTION,DISTRIBUTION"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.profileType, func(t *testing.T) {
+			got, err := resolveSigningCertificateTypes(tt.profileType, "")
+			if err != nil {
+				t.Fatalf("resolveSigningCertificateTypes() error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("resolveSigningCertificateTypes() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveSigningCertificateTypesPreservesExplicitSelection(t *testing.T) {
+	got, err := resolveSigningCertificateTypes("MAC_APP_STORE", "mac_app_distribution")
+	if err != nil {
+		t.Fatalf("resolveSigningCertificateTypes() error: %v", err)
+	}
+	if got != "MAC_APP_DISTRIBUTION" {
+		t.Fatalf("resolveSigningCertificateTypes() = %q, want %q", got, "MAC_APP_DISTRIBUTION")
+	}
+}
+
 func TestResolveSigningAssetsChecksEveryActiveProfileForInferredCertificateType(t *testing.T) {
 	requestPaths := []string{}
 	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
