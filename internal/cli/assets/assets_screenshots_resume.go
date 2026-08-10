@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -506,6 +507,10 @@ func screenshotArtifactSourcePaths(artifact screenshotUploadFailureArtifact) []s
 }
 
 func resolveScreenshotUploadRoot(rootPath string, filePaths []string) (string, error) {
+	if err := validateScreenshotSourceAncestry(filePaths); err != nil {
+		return "", err
+	}
+
 	rootPath = strings.TrimSpace(rootPath)
 	if rootPath != "" {
 		absolute, err := filepath.Abs(rootPath)
@@ -591,6 +596,63 @@ func resolveScreenshotUploadRoot(rootPath string, filePaths []string) (string, e
 		}
 	}
 	return trustedRoot.Path(), nil
+}
+
+func validateScreenshotSourceAncestry(filePaths []string) error {
+	for _, filePath := range filePaths {
+		filePath = strings.TrimSpace(filePath)
+		if filePath == "" {
+			continue
+		}
+		absolute, err := filepath.Abs(filePath)
+		if err != nil {
+			return err
+		}
+		validationRoot := screenshotSourceValidationRoot(absolute)
+		root, err := rootfs.New(validationRoot)
+		if err != nil {
+			return err
+		}
+		if err := root.CheckContained(absolute); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func screenshotSourceValidationRoot(absolutePath string) string {
+	absolutePath = filepath.Clean(absolutePath)
+	volume := filepath.VolumeName(absolutePath)
+	best := string(filepath.Separator)
+	if volume != "" {
+		best = volume + string(filepath.Separator)
+	}
+
+	candidates := make([]string, 0, 3)
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, cwd)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, home)
+	}
+	if temporary := strings.TrimSpace(os.TempDir()); temporary != "" {
+		candidates = append(candidates, temporary)
+	}
+	for _, candidate := range candidates {
+		candidate, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		candidate = filepath.Clean(candidate)
+		relative, err := filepath.Rel(candidate, absolutePath)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if len(candidate) > len(best) {
+			best = candidate
+		}
+	}
+	return best
 }
 
 func persistScreenshotUploadFailureArtifact(path string, artifact screenshotUploadFailureArtifact) (string, error) {

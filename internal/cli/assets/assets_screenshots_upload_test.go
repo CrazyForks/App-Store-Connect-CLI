@@ -53,13 +53,16 @@ func TestUploadScreenshotsReplaceValidatesRootBeforeDeletingExistingScreenshots(
 
 func TestUploadScreenshotsDryRunValidatesSourceRootBeforePreview(t *testing.T) {
 	rootDir := t.TempDir()
-	outsideDir := t.TempDir()
+	outsideDir := filepath.Join(t.TempDir(), "nested")
+	if err := os.Mkdir(outsideDir, 0o700); err != nil {
+		t.Fatalf("create outside directory: %v", err)
+	}
 	writeAssetsTestPNG(t, outsideDir, "01-home.png")
 	linkDir := filepath.Join(rootDir, "linked")
-	if err := os.Symlink(outsideDir, linkDir); err != nil {
+	if err := os.Symlink(filepath.Dir(outsideDir), linkDir); err != nil {
 		t.Fatalf("create source symlink: %v", err)
 	}
-	filePath := filepath.Join(linkDir, "01-home.png")
+	filePath := filepath.Join(linkDir, filepath.Base(outsideDir), "01-home.png")
 
 	requests := 0
 	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

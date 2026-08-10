@@ -54,6 +54,44 @@ func TestExecuteAppScreenshotUploadDryRunValidatesSourceRootBeforePreview(t *tes
 	}
 }
 
+func TestExecuteAppScreenshotUploadDryRunRejectsSymlinkAboveSelectedFileRoot(t *testing.T) {
+	rootDir := t.TempDir()
+	outsideDir := filepath.Join(t.TempDir(), "nested")
+	if err := os.Mkdir(outsideDir, 0o700); err != nil {
+		t.Fatalf("create outside directory: %v", err)
+	}
+	writeAssetsTestPNG(t, outsideDir, "01-home.png")
+	linkDir := filepath.Join(rootDir, "linked")
+	if err := os.Symlink(filepath.Dir(outsideDir), linkDir); err != nil {
+		t.Fatalf("create source symlink: %v", err)
+	}
+	filePath := filepath.Join(linkDir, filepath.Base(outsideDir), "01-home.png")
+
+	requests := 0
+	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests++
+		writeAssetsTestJSON(w, http.StatusOK, `{"data":[],"links":{}}`)
+	}))
+
+	_, err := executeAppScreenshotUpload(context.Background(), screenshotUploadConfig[asc.AppScreenshotUploadResult]{
+		Client:         client,
+		LocalizationID: "LOC_123",
+		DisplayType:    "APP_IPHONE_65",
+		RootPath:       filePath,
+		Files:          []string{filePath},
+		DryRun:         true,
+		RequestContext: contextWithAssetUploadTimeout,
+		UploadContext:  contextWithAssetUploadTimeout,
+		Access:         appStoreVersionScreenshotSetAccess,
+	}, "")
+	if !errors.Is(err, rootfs.ErrSymlink) {
+		t.Fatalf("executeAppScreenshotUpload() error = %v, want rootfs.ErrSymlink", err)
+	}
+	if requests != 0 {
+		t.Fatalf("expected source validation before API lookup, got %d requests", requests)
+	}
+}
+
 func TestExecuteAppScreenshotUploadSkipExistingDoesNotPatchOrderingWhenAlreadyMatched(t *testing.T) {
 	filePath := writeAssetsTestPNG(t, t.TempDir(), "01-home.png")
 	checksum, err := computeFileChecksum(filePath)
