@@ -335,13 +335,14 @@ func TestNewGitCommandSSHSelection(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		setup       string
-		clone       bool
-		wantDefault bool
+		name              string
+		setup             string
+		clone             bool
+		wantDefault       bool
+		wantLowerPriority bool
 	}{
-		{name: "explicit GIT_SSH_COMMAND", setup: "environment-command", clone: true},
-		{name: "inherited GIT_SSH", setup: "environment-ssh", clone: true},
+		{name: "GIT_SSH_COMMAND overrides GIT_SSH and core config", setup: "command-precedence", clone: true},
+		{name: "GIT_SSH and core config suppress default injection", setup: "ssh-and-core", clone: true, wantLowerPriority: true},
 		{name: "global config for clone", setup: "global", clone: true},
 		{name: "unconditional global include for clone", setup: "include", clone: true},
 		{name: "command config for clone", setup: "command", clone: true},
@@ -363,6 +364,13 @@ set -eu
 printf '%s\n' "$@" > "$ASC_CONFIGURED_SSH_CAPTURE"
 exit 17
 `)
+			lowerPriorityCapture := filepath.Join(t.TempDir(), "lower-priority-transport.txt")
+			lowerPriorityTransport := filepath.Join(t.TempDir(), "lower-priority-ssh")
+			writeTestExecutable(t, lowerPriorityTransport, `#!/bin/sh
+set -eu
+printf '%s\n' "$@" > "$ASC_LOWER_PRIORITY_SSH_CAPTURE"
+exit 17
+`)
 			binDir := t.TempDir()
 			defaultCapture := filepath.Join(t.TempDir(), "default-transport.txt")
 			writeTestExecutable(t, filepath.Join(binDir, "ssh"), `#!/bin/sh
@@ -374,6 +382,7 @@ exit 17
 			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("ASC_CONFIGURED_SSH_CAPTURE", configuredCapture)
+			t.Setenv("ASC_LOWER_PRIORITY_SSH_CAPTURE", lowerPriorityCapture)
 			t.Setenv("ASC_DEFAULT_SSH_CAPTURE", defaultCapture)
 			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 			t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "missing-global-config"))
@@ -384,9 +393,16 @@ exit 17
 			t.Setenv("GIT_SSH_VARIANT", "ssh")
 
 			switch tt.setup {
-			case "environment-command":
+			case "command-precedence":
+				globalConfig := filepath.Join(t.TempDir(), "global-gitconfig")
+				runTestGit(t, "config", "--file", globalConfig, "core.sshCommand", lowerPriorityTransport)
+				t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+				t.Setenv("GIT_SSH", lowerPriorityTransport)
 				t.Setenv("GIT_SSH_COMMAND", configuredTransport+` --identity 'release key'`)
-			case "environment-ssh":
+			case "ssh-and-core":
+				globalConfig := filepath.Join(t.TempDir(), "global-gitconfig")
+				runTestGit(t, "config", "--file", globalConfig, "core.sshCommand", lowerPriorityTransport)
+				t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
 				t.Setenv("GIT_SSH", configuredTransport)
 			case "global":
 				globalConfig := filepath.Join(t.TempDir(), "global-gitconfig")
@@ -447,9 +463,11 @@ exit 17
 				t.Fatal("expected fake SSH transport failure")
 			}
 
-			selectedCapture, unselectedCapture := configuredCapture, defaultCapture
+			selectedCapture := configuredCapture
 			if tt.wantDefault {
-				selectedCapture, unselectedCapture = defaultCapture, configuredCapture
+				selectedCapture = defaultCapture
+			} else if tt.wantLowerPriority {
+				selectedCapture = lowerPriorityCapture
 			}
 			selectedArguments, err := os.ReadFile(selectedCapture)
 			if err != nil {
@@ -458,8 +476,13 @@ exit 17
 			if tt.wantDefault && !strings.Contains(string(selectedArguments), "-o\nBatchMode=yes\n") {
 				t.Fatalf("default SSH transport arguments = %q, want BatchMode=yes", selectedArguments)
 			}
-			if _, err := os.Stat(unselectedCapture); !os.IsNotExist(err) {
-				t.Fatalf("unselected SSH transport unexpectedly ran: %v", err)
+			for _, capture := range []string{configuredCapture, lowerPriorityCapture, defaultCapture} {
+				if capture == selectedCapture {
+					continue
+				}
+				if _, err := os.Stat(capture); !os.IsNotExist(err) {
+					t.Fatalf("unselected SSH transport unexpectedly ran: %v", err)
+				}
 			}
 		})
 	}
