@@ -1562,10 +1562,14 @@ func TestXcodeDiagnosticBufferRetainsDiagnosticDisplacedByMissingPrefix(t *testi
 
 func TestXcodeDiagnosticBufferRetainsUncollectedTailBoundaryError(t *testing.T) {
 	var input strings.Builder
+	expectedDiagnostics := make(map[string]struct{})
 	for i := range 1000 {
-		fmt.Fprintf(&input, "error: early failure %04d\n", i)
+		diagnostic := fmt.Sprintf("error: early failure %04d", i)
+		expectedDiagnostics[diagnostic] = struct{}{}
+		input.WriteString(diagnostic + "\n")
 	}
 	boundaryDiagnostic := "error: actionable tail-boundary failure"
+	expectedDiagnostics[boundaryDiagnostic] = struct{}{}
 	input.WriteString(boundaryDiagnostic + "\n")
 	input.WriteString(strings.Repeat("x", xcodebuildErrorTailLimit-len(boundaryDiagnostic)-1))
 
@@ -1579,6 +1583,13 @@ func TestXcodeDiagnosticBufferRetainsUncollectedTailBoundaryError(t *testing.T) 
 
 	_, got := renderXcodeDiagnosticOutput(t, input.String())
 	requireBoundedXcodeDiagnosticOutput(t, got, "error: early failure 0000", boundaryDiagnostic)
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(line, "error:") {
+			if _, exists := expectedDiagnostics[line]; !exists {
+				t.Fatalf("String() emitted partial diagnostic line prefix %q", truncateUTF8Prefix(line, 120))
+			}
+		}
+	}
 }
 
 func TestXcodeDiagnosticBufferDoesNotDeduplicateAgainstBenignTailSubstring(t *testing.T) {

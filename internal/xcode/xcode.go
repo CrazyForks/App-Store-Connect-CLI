@@ -1456,17 +1456,14 @@ func (b *xcodeDiagnosticBuffer) addDiagnosticLocked(line string) {
 	}
 
 	remaining := b.diagnosticBudget() - b.diagnosticBytes
-	if remaining <= 1 {
-		return
-	}
-	line = truncateUTF8Prefix(line, remaining-1)
-	if line == "" {
+	required := len(line) + 1
+	if required > remaining {
 		return
 	}
 
 	b.diagnosticSet[line] = struct{}{}
 	b.diagnostics = append(b.diagnostics, line)
-	b.diagnosticBytes += len(line) + 1
+	b.diagnosticBytes += required
 }
 
 func (b *xcodeDiagnosticBuffer) diagnosticBudget() int {
@@ -1497,17 +1494,10 @@ func (b *xcodeDiagnosticBuffer) String() string {
 	prefixBytes := 0
 	for {
 		boundary := max(0, len(tail)-(b.limit-prefixBytes))
-		newPrefixBytes := 0
-		for _, diagnostic := range diagnostics {
-			if !tailDiagnostics.containsAtOrAfter(diagnostic, boundary) {
-				newPrefixBytes += len(diagnostic) + 1
-				if newPrefixBytes >= b.diagnosticBudget() {
-					newPrefixBytes = b.diagnosticBudget()
-					break
-				}
-			}
-		}
-		if newPrefixBytes == prefixBytes {
+		newPrefixBytes := appendMissingXcodeDiagnostics(
+			nil, diagnostics, tailDiagnostics, boundary, b.diagnosticBudget(),
+		)
+		if newPrefixBytes <= prefixBytes {
 			break
 		}
 		prefixBytes = newPrefixBytes
@@ -1516,23 +1506,36 @@ func (b *xcodeDiagnosticBuffer) String() string {
 
 	var prefix strings.Builder
 	prefix.Grow(prefixBytes)
+	appendMissingXcodeDiagnostics(&prefix, diagnostics, tailDiagnostics, boundary, b.diagnosticBudget())
+	diagnosticPrefix := prefix.String()
+	// Preserve the calculated tail boundary when complete-line packing leaves unused prefix space.
+	tail = truncateUTF8Suffix(tail, b.limit-prefixBytes)
+	return diagnosticPrefix + tail
+}
+
+func appendMissingXcodeDiagnostics(
+	destination *strings.Builder,
+	diagnostics []string,
+	tailDiagnostics xcodeDiagnosticTailIndex,
+	boundary int,
+	limit int,
+) int {
+	written := 0
 	for _, diagnostic := range diagnostics {
 		if tailDiagnostics.containsAtOrAfter(diagnostic, boundary) {
 			continue
 		}
-		prefix.WriteString(diagnostic)
-		prefix.WriteByte('\n')
-		if prefix.Len() >= b.diagnosticBudget() {
-			break
+		required := len(diagnostic) + 1
+		if required > limit-written {
+			continue
 		}
+		if destination != nil {
+			destination.WriteString(diagnostic)
+			destination.WriteByte('\n')
+		}
+		written += required
 	}
-
-	diagnosticPrefix := prefix.String()
-	if len(diagnosticPrefix) > b.diagnosticBudget() {
-		diagnosticPrefix = truncateUTF8Prefix(diagnosticPrefix, b.diagnosticBudget())
-	}
-	tail = truncateUTF8Suffix(tail, b.limit-len(diagnosticPrefix))
-	return diagnosticPrefix + tail
+	return written
 }
 
 type xcodeDiagnosticTailIndex struct {
