@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+func useTierCacheDirForTest(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	tierCacheDirOverrideMu.Lock()
+	previous := tierCacheDirOverride
+	tierCacheDirOverride = dir
+	tierCacheDirOverrideMu.Unlock()
+
+	t.Cleanup(func() {
+		tierCacheDirOverrideMu.Lock()
+		tierCacheDirOverride = previous
+		tierCacheDirOverrideMu.Unlock()
+	})
+	return dir
+}
+
 func TestTierCacheRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -39,15 +56,9 @@ func TestTierCacheRoundTrip(t *testing.T) {
 }
 
 func TestTierCacheSaveRejectsSymlinkAndPreservesTarget(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	cacheDir := useTierCacheDirForTest(t)
 
-	cacheDir := filepath.Join(home, ".asc", "cache")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		t.Fatalf("mkdir cache dir: %v", err)
-	}
-
-	sentinelPath := filepath.Join(home, "sentinel.txt")
+	sentinelPath := filepath.Join(t.TempDir(), "sentinel.txt")
 	const sentinel = "keep this content"
 	if err := os.WriteFile(sentinelPath, []byte(sentinel), 0o600); err != nil {
 		t.Fatalf("write sentinel: %v", err)

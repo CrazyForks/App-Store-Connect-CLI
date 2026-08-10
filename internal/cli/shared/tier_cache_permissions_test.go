@@ -4,6 +4,7 @@ package shared
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -16,12 +17,14 @@ func TestTierCacheSaveUsesPrivatePermissions(t *testing.T) {
 		{name: "existing restrictive cache", existing: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			home := t.TempDir()
-			t.Setenv("HOME", home)
+			cacheDir := useTierCacheDirForTest(t)
 
 			cachePath, err := tierCachePath("app123", "USA")
 			if err != nil {
 				t.Fatalf("tierCachePath() error: %v", err)
+			}
+			if got := filepath.Dir(cachePath); got != cacheDir {
+				t.Fatalf("cache dir = %q, want %q", got, cacheDir)
 			}
 			if tc.existing {
 				if err := os.WriteFile(cachePath, []byte("existing cache"), 0o600); err != nil {
