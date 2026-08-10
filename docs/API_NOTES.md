@@ -7,9 +7,7 @@ Quirks and tips for specific App Store Connect API endpoints.
 - Although Apple's current Sales Reports documentation describes `YYYY-MM-DD` for non-daily dates, the live endpoint requires `YYYY-MM` for monthly reports and `YYYY` for yearly reports. The CLI accepts either form and reduces full monthly or yearly dates to those live period identifiers before the request.
 - Vendor number comes from Sales and Trends → Reports URL (`vendorNumber=...`)
 - Sales Reports validates the complete report type/subtype/frequency/version tuple against Apple's endpoint table. Although the current table lists `SUBSCRIPTION` `1_3`, live verification in PR #1842 proved `1_4` succeeds and is required by some accounts, so both are accepted and `1_4` remains the default.
-- `asc analytics requests --state` is a deprecated compatibility flag. Apple rejects `filter[state]`; the CLI now fails before HTTP and directs callers to the supported `--access-type` filter.
 - Use `--paginate` with `asc analytics view --processing-date` to search every report page; the CLI forwards the value as `filter[processingDate]` when fetching instances
-- `asc analytics view --date` is a deprecated compatibility flag. It preserves the previous local match against either `reportDate` or `processingDate` and warns callers to migrate to the explicit server-side `--processing-date` filter.
 - Use `--granularity "DAILY,WEEKLY,MONTHLY"` with `asc analytics view` to filter instances by one or more documented granularities
 - Long analytics runs may require raising `ASC_TIMEOUT`
 
