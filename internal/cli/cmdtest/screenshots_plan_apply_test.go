@@ -568,6 +568,86 @@ func TestScreenshotsPlanRejectsActualImageDimensionsThatDoNotMatchPlannedDisplay
 	}
 }
 
+func TestScreenshotsPlanRejectsEmptyReviewDisplayType(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	t.Setenv("ASC_APP_ID", "")
+
+	reviewDir, _ := writeScreenshotReviewArtifactsWithPlannedDisplayType(t, 1260, 2736, 1260, 2736, []string{"APP_IPHONE_67", "   "})
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/v1/apps/123456789/appStoreVersions":
+			return statusJSONResponse(`{"data":[{"type":"appStoreVersions","id":"version-1","attributes":{"versionString":"1.2.3","platform":"IOS"}}]}`), nil
+		case "/v1/appStoreVersions/version-1/appStoreVersionLocalizations":
+			return statusJSONResponse(`{"data":[{"type":"appStoreVersionLocalizations","id":"LOC_123","attributes":{"locale":"en-US"}}]}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"screenshots", "plan",
+			"--app", "123456789",
+			"--version", "1.2.3",
+			"--review-output-dir", reviewDir,
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+
+	if runErr == nil {
+		t.Fatal("expected empty display type validation error")
+	}
+	if stdout == "" {
+		t.Fatal("expected structured output describing the blocking issue")
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v\nstdout=%s", err, stdout)
+	}
+	if payload["approvedReadyEntries"] != float64(0) {
+		t.Fatalf("expected approvedReadyEntries=0, got %v", payload["approvedReadyEntries"])
+	}
+	if payload["plannedGroups"] != float64(0) {
+		t.Fatalf("expected plannedGroups=0, got %v", payload["plannedGroups"])
+	}
+	if payload["errorCount"].(float64) < 1 {
+		t.Fatalf("expected at least one blocking error, got %v", payload["errorCount"])
+	}
+	issues, ok := payload["issues"].([]any)
+	if !ok || len(issues) == 0 {
+		t.Fatalf("expected issues slice, got %T %v", payload["issues"], payload["issues"])
+	}
+	found := false
+	for _, rawIssue := range issues {
+		message := fmt.Sprint(rawIssue.(map[string]any)["message"])
+		if strings.Contains(message, "empty screenshot display type") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected empty display type issue, got %v", issues)
+	}
+}
+
 func writeScreenshotReviewArtifacts(t *testing.T) (string, string) {
 	return writeScreenshotReviewArtifactsWithSize(t, 1284, 2778)
 }
