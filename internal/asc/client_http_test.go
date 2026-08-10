@@ -11578,7 +11578,7 @@ func TestCreateWinBackOffer_SendsRequest(t *testing.T) {
 					Territory: Relationship{
 						Data: ResourceData{Type: ResourceTypeTerritories, ID: "USA"},
 					},
-					SubscriptionPricePoint: Relationship{
+					SubscriptionPricePoint: &Relationship{
 						Data: ResourceData{Type: ResourceTypeSubscriptionPricePoints, ID: "price-point-1"},
 					},
 				},
