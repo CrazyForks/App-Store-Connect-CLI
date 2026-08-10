@@ -727,7 +727,10 @@ func TestBuildsNextBuildNumberHelpExplainsChronologicalAndNumericValues(t *testi
 	usage := usageForCommand(t, "builds", "next-build-number")
 	for _, want := range []string{
 		"latestProcessedBuildNumber reports the most recently uploaded matching build",
-		"latestObservedBuildNumber and nextBuildNumber use the highest numeric matching",
+		"zero-style placeholders are reported as null",
+		"latestObservedBuildNumber and nextBuildNumber use the highest positive numeric",
+		"sourcesConsidered is empty",
+		"nextBuildNumber uses --initial-build-number",
 	} {
 		if !strings.Contains(usage, want) {
 			t.Fatalf("expected next-build-number help to contain %q, got %q", want, usage)

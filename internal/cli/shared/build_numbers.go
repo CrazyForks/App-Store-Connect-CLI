@@ -97,14 +97,17 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 	var latestProcessedValue buildNumber
 	hasLatestProcessed := false
 	if selection.LatestBuild != nil {
-		parsed, err := parseBuildNumber(selection.LatestBuild.Data.Attributes.Version, fmt.Sprintf("processed build %s", selection.LatestBuild.Data.ID))
-		if err != nil {
-			return nil, err
+		latestVersion := selection.LatestBuild.Data.Attributes.Version
+		if !isNonPositiveNumericBuildNumber(latestVersion) {
+			parsed, err := parseBuildNumber(latestVersion, fmt.Sprintf("processed build %s", selection.LatestBuild.Data.ID))
+			if err != nil {
+				return nil, err
+			}
+			latestProcessedValue = parsed
+			value := parsed.String()
+			latestProcessedNumber = &value
+			hasLatestProcessed = true
 		}
-		latestProcessedValue = parsed
-		value := parsed.String()
-		latestProcessedNumber = &value
-		hasLatestProcessed = true
 	}
 
 	highestProcessedValue := latestProcessedValue

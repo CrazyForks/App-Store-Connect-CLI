@@ -194,6 +194,32 @@ func TestBuildsNextBuildNumberUsesHighestProcessedNumber(t *testing.T) {
 			wantNext:          "101",
 		},
 		{
+			name: "latest zero placeholder",
+			chronologicalBody: `{"data":[
+				{"type":"builds","id":"build-new-zero","attributes":{"version":"0","uploadedDate":"2026-02-03T00:00:00Z"}},
+				{"type":"builds","id":"build-old-100","attributes":{"version":"100","uploadedDate":"2026-02-02T00:00:00Z"}}
+			]}`,
+			wantObserved: "100",
+			wantNext:     "101",
+		},
+		{
+			name: "latest zero-style placeholder",
+			chronologicalBody: `{"data":[
+				{"type":"builds","id":"build-new-zero-dot","attributes":{"version":"0.1","uploadedDate":"2026-02-03T00:00:00Z"}},
+				{"type":"builds","id":"build-old-100","attributes":{"version":"100","uploadedDate":"2026-02-02T00:00:00Z"}}
+			]}`,
+			wantObserved: "100",
+			wantNext:     "101",
+		},
+		{
+			name: "only non-positive placeholders",
+			chronologicalBody: `{"data":[
+				{"type":"builds","id":"build-new-zero","attributes":{"version":"0","uploadedDate":"2026-02-03T00:00:00Z"}},
+				{"type":"builds","id":"build-old-zero-dot","attributes":{"version":"0.1","uploadedDate":"2026-02-02T00:00:00Z"}}
+			]}`,
+			wantNext: "1",
+		},
+		{
 			name: "older non-positive placeholders",
 			chronologicalBody: `{"data":[
 				{"type":"builds","id":"build-new-50","attributes":{"version":"50","uploadedDate":"2026-02-03T00:00:00Z"}},
@@ -230,12 +256,28 @@ func TestBuildsNextBuildNumberUsesHighestProcessedNumber(t *testing.T) {
 				t.Fatalf("stderr = %q, want empty", stderr)
 			}
 			output := decodeProcessedMaximumOutput(t, stdout)
-			requireProcessedMaximumValue(t, "latestProcessedBuildNumber", output.LatestProcessedBuildNumber, test.wantLatest)
-			requireProcessedMaximumValue(t, "latestObservedBuildNumber", output.LatestObservedBuildNumber, test.wantObserved)
+			if test.wantLatest == "" {
+				if output.LatestProcessedBuildNumber != nil {
+					t.Fatalf("latestProcessedBuildNumber = %q, want nil for non-positive placeholder", *output.LatestProcessedBuildNumber)
+				}
+			} else {
+				requireProcessedMaximumValue(t, "latestProcessedBuildNumber", output.LatestProcessedBuildNumber, test.wantLatest)
+			}
+			if test.wantObserved == "" {
+				if output.LatestObservedBuildNumber != nil {
+					t.Fatalf("latestObservedBuildNumber = %q, want nil without a positive build number", *output.LatestObservedBuildNumber)
+				}
+			} else {
+				requireProcessedMaximumValue(t, "latestObservedBuildNumber", output.LatestObservedBuildNumber, test.wantObserved)
+			}
 			if output.NextBuildNumber != test.wantNext {
 				t.Fatalf("nextBuildNumber = %q, want %q", output.NextBuildNumber, test.wantNext)
 			}
-			if len(output.SourcesConsidered) != 1 || output.SourcesConsidered[0] != "processed_builds" {
+			if test.wantObserved == "" {
+				if len(output.SourcesConsidered) != 0 {
+					t.Fatalf("sourcesConsidered = %v, want empty without a positive build number", output.SourcesConsidered)
+				}
+			} else if len(output.SourcesConsidered) != 1 || output.SourcesConsidered[0] != "processed_builds" {
 				t.Fatalf("sourcesConsidered = %v, want [processed_builds]", output.SourcesConsidered)
 			}
 		})
@@ -292,6 +334,27 @@ func TestBuildsNextBuildNumberRejectsMalformedOlderProcessedNumber(t *testing.T)
 	}
 	if !strings.Contains(runErr.Error(), `processed build build-old-bad build number "not-a-number" is not numeric`) {
 		t.Fatalf("run error = %v, want malformed processed build context", runErr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+}
+
+func TestBuildsNextBuildNumberRejectsMalformedLatestProcessedNumber(t *testing.T) {
+	responseBody := `{"data":[
+				{"type":"builds","id":"build-new-bad","attributes":{"version":"not-a-number","uploadedDate":"2026-02-03T00:00:00Z"}},
+				{"type":"builds","id":"build-old-50","attributes":{"version":"50","uploadedDate":"2026-02-02T00:00:00Z"}}
+			]}`
+	setProcessedMaximumTestClient(t, []processedMaximumRequestStep{
+		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: responseBody},
+	})
+
+	stdout, _, runErr := runProcessedMaximumCommand(t)
+	if runErr == nil {
+		t.Fatal("expected malformed latest processed build number error")
+	}
+	if !strings.Contains(runErr.Error(), `processed build build-new-bad build number "not-a-number" is not numeric`) {
+		t.Fatalf("run error = %v, want malformed latest processed build context", runErr)
 	}
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
