@@ -245,21 +245,57 @@ func RejectSymlinkIfExists(path string) error {
 	return nil
 }
 
-func (g *GitStore) gitRun(ctx context.Context, dir string, args ...string) error {
+func newGitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	if dir != "" {
-		cmd.Dir = dir
+	cmd.Dir = dir
+	cmd.Env = gitCommandEnvironment(os.Environ())
+	return cmd
+}
+
+func gitCommandEnvironment(environment []string) []string {
+	environment = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0")
+
+	sshCommand, ok := commandEnvironmentValue(environment, "GIT_SSH_COMMAND")
+	if !ok || strings.TrimSpace(sshCommand) == "" {
+		sshCommand = "ssh -o BatchMode=yes"
 	}
+
+	// A caller-provided command may contain shell quoting or invoke a wrapper.
+	// Preserve it verbatim instead of trying to append or rewrite SSH options.
+	return replaceCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", sshCommand)
+}
+
+func commandEnvironmentValue(environment []string, key string) (string, bool) {
+	prefix := key + "="
+	for i := len(environment) - 1; i >= 0; i-- {
+		if strings.HasPrefix(environment[i], prefix) {
+			return strings.TrimPrefix(environment[i], prefix), true
+		}
+	}
+	return "", false
+}
+
+func replaceCommandEnvironmentValue(environment []string, key, value string) []string {
+	prefix := key + "="
+	updated := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		updated = append(updated, entry)
+	}
+	return append(updated, prefix+value)
+}
+
+func (g *GitStore) gitRun(ctx context.Context, dir string, args ...string) error {
+	cmd := newGitCommand(ctx, dir, args...)
 	cmd.Stdout = os.Stderr // progress to stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
 func (g *GitStore) gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
+	cmd := newGitCommand(ctx, dir, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = os.Stderr
