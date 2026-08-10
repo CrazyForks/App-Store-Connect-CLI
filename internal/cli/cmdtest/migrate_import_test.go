@@ -380,6 +380,68 @@ func TestMigrateImportPreflightsWouldCreateScreenshotLocalesBeforeMutations(t *t
 	api.assertComplete(t, 0)
 }
 
+func TestMigrateImportAllowsVersionLocalizationUpdatesFromLaterPages(t *testing.T) {
+	root := writeMigrateImportMetadata(t, map[string]map[string]string{
+		"en-US": {"description.txt": "English description"},
+		"ja": {
+			"description.txt":   "Japanese description",
+			"release_notes.txt": "Japanese release notes",
+		},
+	})
+	expectations := []migrateImportExpectation{
+		{
+			method:   http.MethodGet,
+			path:     "/v1/appStoreVersions/VERSION_ID",
+			response: `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`,
+		},
+		{
+			method:   http.MethodGet,
+			path:     "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations",
+			response: `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}}],"links":{"next":"https://api.appstoreconnect.apple.com/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations?cursor=page-2&limit=200"}}`,
+		},
+		{
+			method:               http.MethodGet,
+			path:                 "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations",
+			rawQuery:             "cursor=page-2&limit=200",
+			requireAuthorization: true,
+			response:             `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}],"links":{"next":""}}`,
+		},
+		{
+			method:   http.MethodPatch,
+			path:     "/v1/appStoreVersionLocalizations/loc-en",
+			body:     `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"description":"English description"}}}`,
+			response: `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}}}`,
+		},
+		{
+			method: http.MethodPatch,
+			path:   "/v1/appStoreVersionLocalizations/loc-ja",
+			body: `{"data":{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{` +
+				`"description":"Japanese description","whatsNew":"Japanese release notes"}}}`,
+			response: `{"data":{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}}`,
+		},
+	}
+	api := newMigrateImportAPI(t, expectations...)
+
+	stdout, stderr, runErr := runMigrateImport(t, root)
+	if runErr != nil {
+		t.Fatalf("run error: %v", runErr)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	var result migrate.MigrateImportResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if len(result.Uploaded) != 2 || result.Uploaded[1].Action != "update" || result.Uploaded[1].LocalizationID != "loc-ja" {
+		t.Fatalf("unexpected version localization uploads: %#v", result.Uploaded)
+	}
+	if got := api.queries[1]; got != "limit=200" {
+		t.Fatalf("first version localization query = %q, want %q", got, "limit=200")
+	}
+	api.assertComplete(t, 2)
+}
+
 func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesFromLaterPages(t *testing.T) {
 	root := writeMigrateImportMetadata(t, validMigrateAppInfoMetadata())
 	expectations := append(migrateImportPlanningExpectations(

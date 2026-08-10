@@ -276,11 +276,11 @@ Examples:
 
 			localeToID := make(map[string]string)
 			if len(localizations) > 0 || len(screenshotPlan) > 0 {
-				existingLocs, err := client.GetAppStoreVersionLocalizations(requestCtx, strings.TrimSpace(resolvedVersionID), asc.WithAppStoreVersionLocalizationsLimit(200))
+				existingLocs, err := fetchVersionLocalizationsForPlan(requestCtx, client, strings.TrimSpace(resolvedVersionID))
 				if err != nil {
 					return fmt.Errorf("migrate import: failed to fetch existing localizations: %w", err)
 				}
-				for _, loc := range existingLocs.Data {
+				for _, loc := range existingLocs {
 					localeToID[loc.Attributes.Locale] = loc.ID
 				}
 			}

@@ -357,6 +357,35 @@ func fetchAppInfoLocalizationsForPlan(ctx context.Context, client *asc.Client, a
 	return allPages.Data, nil
 }
 
+func fetchVersionLocalizationsForPlan(ctx context.Context, client *asc.Client, versionID string) ([]asc.Resource[asc.AppStoreVersionLocalizationAttributes], error) {
+	firstPage, err := client.GetAppStoreVersionLocalizations(ctx, versionID, asc.WithAppStoreVersionLocalizationsLimit(200))
+	if err != nil {
+		return nil, err
+	}
+	if firstPage == nil {
+		return nil, fmt.Errorf("empty version localizations response")
+	}
+
+	paginated, err := asc.PaginateAll(ctx, firstPage, func(pageCtx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		nextPage, err := client.GetAppStoreVersionLocalizations(pageCtx, versionID, asc.WithAppStoreVersionLocalizationsNextURL(nextURL))
+		if err != nil {
+			return nil, err
+		}
+		if nextPage == nil {
+			return nil, fmt.Errorf("empty version localizations response")
+		}
+		return nextPage, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	allPages, ok := paginated.(*asc.AppStoreVersionLocalizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected version localization pagination response type")
+	}
+	return allPages.Data, nil
+}
+
 func uploadAppInfoLocalizations(ctx context.Context, client *asc.Client, plan appInfoLocalizationPlan) ([]LocalizationUploadItem, error) {
 	results := make([]LocalizationUploadItem, 0, len(plan.localizations))
 	for _, prepared := range plan.localizations {
