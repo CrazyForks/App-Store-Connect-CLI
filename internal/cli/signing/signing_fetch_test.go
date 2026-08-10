@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -539,13 +541,13 @@ func TestResolveSigningAssetsCreatesWhenActiveProfilesLackRequestedCertificate(t
 }
 
 func TestResolveSigningAssetsCreatesAppStoreProfileWithNewestEligibleCertificate(t *testing.T) {
-	var createdWithCertificateIDs []string
-	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+	var profileCreateBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
-			return signingFetchJSONResponse(http.StatusOK, `{"data":[]}`)
+			signingFetchWriteJSON(t, w, http.StatusOK, `{"data":[]}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
-			return signingFetchJSONResponse(http.StatusOK, `{
+			signingFetchWriteJSON(t, w, http.StatusOK, `{
 				"data":[
 					{"type":"certificates","id":"cert-inactive","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":false,"expirationDate":"2102-01-01T00:00:00Z"}},
 					{"type":"certificates","id":"cert-expired","attributes":{"certificateType":"DISTRIBUTION","activated":true,"expirationDate":"2000-01-01T00:00:00Z"}},
@@ -555,13 +557,21 @@ func TestResolveSigningAssetsCreatesAppStoreProfileWithNewestEligibleCertificate
 				]
 			}`)
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
-			createdWithCertificateIDs = profileCreateCertificateIDs(t, req)
-			return signingFetchJSONResponse(http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}}`)
+			var err error
+			profileCreateBody, err = io.ReadAll(req.Body)
+			if err != nil {
+				t.Errorf("read profile create request: %v", err)
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			signingFetchWriteJSON(t, w, http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}}`)
 		default:
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-			return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
 		}
-	})
+	}))
+	t.Cleanup(server.Close)
+	client := newSigningFetchServerTestClient(t, server)
 
 	profile, certificates, created, err := resolveSigningAssets(
 		context.Background(),
@@ -579,6 +589,7 @@ func TestResolveSigningAssetsCreatesAppStoreProfileWithNewestEligibleCertificate
 	if !created || profile.Data.ID != "profile-created" {
 		t.Fatalf("expected created profile, got created=%v profile=%#v", created, profile)
 	}
+	createdWithCertificateIDs := profileCreateCertificateIDs(t, bytes.NewReader(profileCreateBody))
 	if got := strings.Join(createdWithCertificateIDs, ","); got != "cert-a" {
 		t.Fatalf("profile certificate IDs = %q, want cert-a", got)
 	}
@@ -588,16 +599,16 @@ func TestResolveSigningAssetsCreatesAppStoreProfileWithNewestEligibleCertificate
 }
 
 func TestResolveSigningAssetsPreservesEligibleDevelopmentCertificates(t *testing.T) {
-	var createdWithCertificateIDs []string
-	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+	var profileCreateBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
-			return signingFetchJSONResponse(http.StatusOK, `{"data":[]}`)
+			signingFetchWriteJSON(t, w, http.StatusOK, `{"data":[]}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
 			if got := req.URL.Query().Get("filter[certificateType]"); got != "IOS_DEVELOPMENT,DEVELOPMENT" {
-				t.Fatalf("certificate type filter = %q, want IOS_DEVELOPMENT,DEVELOPMENT", got)
+				t.Errorf("certificate type filter = %q, want IOS_DEVELOPMENT,DEVELOPMENT", got)
 			}
-			return signingFetchJSONResponse(http.StatusOK, `{
+			signingFetchWriteJSON(t, w, http.StatusOK, `{
 				"data":[
 					{"type":"certificates","id":"cert-ios","attributes":{"certificateType":"IOS_DEVELOPMENT","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}},
 					{"type":"certificates","id":"cert-unified","attributes":{"certificateType":"DEVELOPMENT","activated":true,"expirationDate":"2101-01-01T00:00:00Z"}},
@@ -605,13 +616,21 @@ func TestResolveSigningAssetsPreservesEligibleDevelopmentCertificates(t *testing
 				]
 			}`)
 		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
-			createdWithCertificateIDs = profileCreateCertificateIDs(t, req)
-			return signingFetchJSONResponse(http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_DEVELOPMENT","profileState":"ACTIVE"}}}`)
+			var err error
+			profileCreateBody, err = io.ReadAll(req.Body)
+			if err != nil {
+				t.Errorf("read profile create request: %v", err)
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			signingFetchWriteJSON(t, w, http.StatusCreated, `{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_DEVELOPMENT","profileState":"ACTIVE"}}}`)
 		default:
-			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-			return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
 		}
-	})
+	}))
+	t.Cleanup(server.Close)
+	client := newSigningFetchServerTestClient(t, server)
 
 	_, certificates, created, err := resolveSigningAssets(
 		context.Background(),
@@ -630,6 +649,7 @@ func TestResolveSigningAssetsPreservesEligibleDevelopmentCertificates(t *testing
 	if !created {
 		t.Fatal("expected created profile")
 	}
+	createdWithCertificateIDs := profileCreateCertificateIDs(t, bytes.NewReader(profileCreateBody))
 	want := "cert-ios,cert-unified"
 	if got := strings.Join(createdWithCertificateIDs, ","); got != want {
 		t.Fatalf("profile certificate IDs = %q, want %q", got, want)
@@ -857,6 +877,38 @@ func (fn signingFetchRoundTripFunc) RoundTrip(req *http.Request) (*http.Response
 
 func newSigningFetchTestClient(t *testing.T, fn signingFetchRoundTripFunc) *asc.Client {
 	t.Helper()
+	return newSigningFetchHTTPClient(t, &http.Client{Transport: fn})
+}
+
+type signingFetchServerRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn signingFetchServerRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func newSigningFetchServerTestClient(t *testing.T, server *httptest.Server) *asc.Client {
+	t.Helper()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	httpClient := server.Client()
+	serverTransport := httpClient.Transport
+	httpClient.Transport = signingFetchServerRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		routedReq := req.Clone(req.Context())
+		routedURL := *req.URL
+		routedURL.Scheme = serverURL.Scheme
+		routedURL.Host = serverURL.Host
+		routedReq.URL = &routedURL
+		routedReq.Host = serverURL.Host
+		return serverTransport.RoundTrip(routedReq)
+	})
+	return newSigningFetchHTTPClient(t, httpClient)
+}
+
+func newSigningFetchHTTPClient(t *testing.T, httpClient *http.Client) *asc.Client {
+	t.Helper()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -871,9 +923,7 @@ func newSigningFetchTestClient(t *testing.T, fn signingFetchRoundTripFunc) *asc.
 		t.Fatalf("write key: %v", err)
 	}
 
-	client, err := asc.NewClientWithHTTPClient("KEY123", "ISS456", keyPath, &http.Client{
-		Transport: fn,
-	})
+	client, err := asc.NewClientWithHTTPClient("KEY123", "ISS456", keyPath, httpClient)
 	if err != nil {
 		t.Fatalf("NewClientWithHTTPClient() error: %v", err)
 	}
@@ -889,11 +939,20 @@ func signingFetchJSONResponse(status int, body string) *http.Response {
 	}
 }
 
-func profileCreateCertificateIDs(t *testing.T, req *http.Request) []string {
+func signingFetchWriteJSON(t *testing.T, w http.ResponseWriter, status int, body string) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if _, err := io.WriteString(w, body); err != nil {
+		t.Errorf("write JSON response: %v", err)
+	}
+}
+
+func profileCreateCertificateIDs(t *testing.T, body io.Reader) []string {
 	t.Helper()
 
 	var payload asc.ProfileCreateRequest
-	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(body).Decode(&payload); err != nil {
 		t.Fatalf("decode profile create request: %v", err)
 	}
 	if payload.Data.Relationships == nil || payload.Data.Relationships.Certificates == nil {
