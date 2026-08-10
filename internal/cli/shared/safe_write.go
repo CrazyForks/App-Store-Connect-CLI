@@ -27,14 +27,53 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 			}
 			return 0, err
 		}
-		defer file.Close()
-
-		written, err := write(file)
-		if err != nil {
-			return 0, err
-		}
-		return written, file.Sync()
+		return writeNewFileNoSymlink(path, file, write, newFileWriteOps{
+			syncFile:   file.Sync,
+			closeFile:  file.Close,
+			removeFile: os.Remove,
+		})
 	}
 
 	return writeFileNoSymlinkOverwrite(path, perm, tempPattern, backupPattern, write)
+}
+
+type newFileWriteOps struct {
+	syncFile   func() error
+	closeFile  func() error
+	removeFile func(string) error
+}
+
+func writeNewFileNoSymlink(path string, file *os.File, write func(*os.File) (int64, error), ops newFileWriteOps) (int64, error) {
+	closed := false
+	closeFile := func() error {
+		if closed {
+			return nil
+		}
+		closed = true
+		return ops.closeFile()
+	}
+	defer func() {
+		_ = closeFile()
+	}()
+
+	written, err := write(file)
+	if err != nil {
+		return 0, cleanupIncompleteFile(path, err, closeFile, ops.removeFile)
+	}
+	if err := ops.syncFile(); err != nil {
+		return written, cleanupIncompleteFile(path, err, closeFile, ops.removeFile)
+	}
+	if err := closeFile(); err != nil {
+		return written, cleanupIncompleteFile(path, err, closeFile, ops.removeFile)
+	}
+	return written, nil
+}
+
+func cleanupIncompleteFile(path string, primaryErr error, closeFile func() error, removeFile func(string) error) error {
+	closeErr := closeFile()
+	removeErr := removeFile(path)
+	if closeErr == nil && removeErr == nil {
+		return primaryErr
+	}
+	return errors.Join(primaryErr, closeErr, removeErr)
 }
