@@ -53,6 +53,13 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 		displayTemporaryError := func(err error) error {
 			return replaceErrorPaths(err, "temporary output", temporaryPath, temporaryName)
 		}
+		displayPublishError := func(err error) error {
+			err = displayDestinationError(err)
+			if errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("output file already exists: %w", err)
+			}
+			return err
+		}
 		written, err := writeNewFileNoSymlink(temporaryName, file, func(file *os.File) (int64, error) {
 			written, err := write(file)
 			return written, displayDestinationError(err)
@@ -72,14 +79,11 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 		}
 
 		if err := publishStagedFileNoReplace(temporaryName, base, stagedFilePublishOps{
+			renameFile: func(oldName, newName string) error {
+				return displayPublishError(secureopen.RenameNoReplaceInRoot(parent, oldName, newName))
+			},
 			linkFile: func(oldName, newName string) error {
-				// A same-directory hard link publishes the complete file atomically
-				// and fails rather than replacing a concurrently created destination.
-				err := displayDestinationError(parent.Link(oldName, newName))
-				if errors.Is(err, os.ErrExist) {
-					return fmt.Errorf("output file already exists: %w", err)
-				}
-				return err
+				return displayPublishError(parent.Link(oldName, newName))
 			},
 			removeFile: func(name string) error {
 				return displayTemporaryError(removeRootedFile(parent, name))
@@ -100,6 +104,7 @@ type newFileWriteOps struct {
 }
 
 type stagedFilePublishOps struct {
+	renameFile func(string, string) error
 	linkFile   func(string, string) error
 	removeFile func(string) error
 }
@@ -119,6 +124,20 @@ func publishStagedFileNoReplace(temporaryName, destinationName string, ops stage
 		}
 	}()
 
+	renameErr := ops.renameFile(temporaryName, destinationName)
+	if renameErr == nil {
+		// Rename consumes the staged name, so no cleanup remains.
+		removed = true
+		return nil
+	}
+	if !errors.Is(renameErr, secureopen.ErrRenameNoReplaceUnsupported) {
+		return cleanupIncompleteFile(temporaryName, renameErr, func() error { return nil }, func(string) error {
+			return removeStaged()
+		})
+	}
+
+	// Filesystems without a native no-replace rename may still support hard
+	// links. Link is also atomic and cannot replace an existing destination.
 	if err := ops.linkFile(temporaryName, destinationName); err != nil {
 		return cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(string) error {
 			return removeStaged()

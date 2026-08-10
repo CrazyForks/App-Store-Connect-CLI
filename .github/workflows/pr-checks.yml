@@ -282,7 +282,9 @@ jobs:
               GOOS=linux GOARCH=arm64 go build -o build/asc_dev_linux_arm64 .
           - name: Windows
             runner: windows-latest
-            command: GOOS=windows GOARCH=amd64 go build -o build/asc_dev_windows_amd64.exe .
+            command: |
+              ASC_BYPASS_KEYCHAIN=1 go test -short ./internal/secureopen ./internal/cli/shared
+              GOOS=windows GOARCH=amd64 go build -o build/asc_dev_windows_amd64.exe .
     steps:
       - name: Checkout code
         uses: actions/checkout@v7

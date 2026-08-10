@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/secureopen"
 )
 
 func TestSafeWriteFileNoSymlinkRejectsTrailingSeparatorBeforeSideEffects(t *testing.T) {
@@ -302,6 +304,9 @@ func TestPublishStagedFileNoReplaceTreatsPostPublishCleanupAsBestEffort(t *testi
 		".safe-write-staged",
 		"artifact.bin",
 		stagedFilePublishOps{
+			renameFile: func(string, string) error {
+				return secureopen.ErrRenameNoReplaceUnsupported
+			},
 			linkFile: func(oldName, newName string) error {
 				linkCalled = true
 				if oldName != ".safe-write-staged" || newName != "artifact.bin" {
@@ -329,6 +334,119 @@ func TestPublishStagedFileNoReplaceTreatsPostPublishCleanupAsBestEffort(t *testi
 	}
 	if removeCalls != 2 {
 		t.Fatalf("remove calls = %d, want immediate attempt and deferred retry", removeCalls)
+	}
+}
+
+func TestPublishStagedFileNoReplaceUsesRenameFirst(t *testing.T) {
+	renameCalled := false
+	linkCalled := false
+	removeCalled := false
+
+	err := publishStagedFileNoReplace(
+		".safe-write-staged",
+		"artifact.bin",
+		stagedFilePublishOps{
+			renameFile: func(oldName, newName string) error {
+				renameCalled = true
+				if oldName != ".safe-write-staged" || newName != "artifact.bin" {
+					t.Fatalf("rename names = %q, %q", oldName, newName)
+				}
+				return nil
+			},
+			linkFile: func(string, string) error {
+				linkCalled = true
+				return nil
+			},
+			removeFile: func(string) error {
+				removeCalled = true
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("publishStagedFileNoReplace() error = %v", err)
+	}
+	if !renameCalled {
+		t.Fatal("rename was not called")
+	}
+	if linkCalled {
+		t.Fatal("link fallback was called after successful rename")
+	}
+	if removeCalled {
+		t.Fatal("remove was called after rename consumed the staged path")
+	}
+}
+
+func TestPublishStagedFileNoReplaceFallsBackOnlyWhenRenameIsUnsupported(t *testing.T) {
+	linkCalled := false
+	removeCalled := false
+
+	err := publishStagedFileNoReplace(
+		".safe-write-staged",
+		"artifact.bin",
+		stagedFilePublishOps{
+			renameFile: func(string, string) error {
+				return secureopen.ErrRenameNoReplaceUnsupported
+			},
+			linkFile: func(oldName, newName string) error {
+				linkCalled = true
+				if oldName != ".safe-write-staged" || newName != "artifact.bin" {
+					t.Fatalf("link names = %q, %q", oldName, newName)
+				}
+				return nil
+			},
+			removeFile: func(name string) error {
+				removeCalled = true
+				if name != ".safe-write-staged" {
+					t.Fatalf("remove name = %q", name)
+				}
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("publishStagedFileNoReplace() error = %v", err)
+	}
+	if !linkCalled {
+		t.Fatal("link fallback was not called")
+	}
+	if !removeCalled {
+		t.Fatal("staged hard-link name was not removed")
+	}
+}
+
+func TestPublishStagedFileNoReplaceDoesNotFallbackWhenDestinationExists(t *testing.T) {
+	linkCalled := false
+	removeCalled := false
+
+	err := publishStagedFileNoReplace(
+		".safe-write-staged",
+		"artifact.bin",
+		stagedFilePublishOps{
+			renameFile: func(string, string) error {
+				return os.ErrExist
+			},
+			linkFile: func(string, string) error {
+				linkCalled = true
+				return nil
+			},
+			removeFile: func(name string) error {
+				removeCalled = true
+				if name != ".safe-write-staged" {
+					t.Fatalf("remove name = %q", name)
+				}
+				return nil
+			},
+		},
+	)
+	if !errors.Is(err, os.ErrExist) {
+		t.Fatalf("publishStagedFileNoReplace() error = %v, want os.ErrExist", err)
+	}
+	if linkCalled {
+		t.Fatal("link fallback was called for an existing destination")
+	}
+	if !removeCalled {
+		t.Fatal("staged path was not cleaned up")
 	}
 }
 
