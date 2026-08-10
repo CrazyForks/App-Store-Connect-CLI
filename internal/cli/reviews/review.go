@@ -63,7 +63,6 @@ Examples:
 			ReviewItemsAddCommand(),
 			ReviewItemsUpdateCommand(),
 			ReviewItemsRemoveCommand(),
-			ReviewItemsGetCommand(),
 		},
 		Exec: func(ctx context.Context, args []string) error {
 			return flag.ErrHelp
