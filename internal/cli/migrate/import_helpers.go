@@ -317,14 +317,16 @@ func uploadVersionLocalizations(ctx context.Context, client *asc.Client, version
 			_, err := client.UpdateAppStoreVersionLocalization(requestCtx, localizationID, attrs)
 			cancel()
 			if err != nil {
-				return nil, nil, fmt.Errorf("migrate import: failed to update %s: %w", loc.Locale, err)
+				// Report what already landed in App Store Connect; the caller
+				// prints it before failing.
+				return results, shared.NormalizeSubmitReadinessCreateWarnings(warnings), fmt.Errorf("migrate import: failed to update %s: %w", loc.Locale, err)
 			}
 		} else {
 			requestCtx, cancel := migrateRequestContext(ctx)
 			resp, err := client.CreateAppStoreVersionLocalization(requestCtx, versionID, attrs)
 			cancel()
 			if err != nil {
-				return nil, nil, fmt.Errorf("migrate import: failed to create %s: %w", loc.Locale, err)
+				return results, shared.NormalizeSubmitReadinessCreateWarnings(warnings), fmt.Errorf("migrate import: failed to create %s: %w", loc.Locale, err)
 			}
 			localizationID = resp.Data.ID
 			localeToID[loc.Locale] = localizationID
@@ -460,14 +462,14 @@ func uploadAppInfoLocalizations(ctx context.Context, client *asc.Client, plan ap
 			_, err := client.UpdateAppInfoLocalization(requestCtx, localizationID, prepared.attributes)
 			cancel()
 			if err != nil {
-				return nil, fmt.Errorf("migrate import: failed to update app info %s: %w", loc.Locale, err)
+				return results, fmt.Errorf("migrate import: failed to update app info %s: %w", loc.Locale, err)
 			}
 		} else {
 			requestCtx, cancel := migrateRequestContext(ctx)
 			resp, err := client.CreateAppInfoLocalization(requestCtx, plan.appInfoID, prepared.attributes)
 			cancel()
 			if err != nil {
-				return nil, fmt.Errorf("migrate import: failed to create app info %s: %w", loc.Locale, err)
+				return results, fmt.Errorf("migrate import: failed to create app info %s: %w", loc.Locale, err)
 			}
 			localizationID = resp.Data.ID
 		}
@@ -537,7 +539,7 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 			resp, err := client.CreateAppStoreVersionLocalization(createCtx, versionID, asc.AppStoreVersionLocalizationAttributes{Locale: locale})
 			createCancel()
 			if err != nil {
-				return nil, fmt.Errorf("migrate import: failed to create localization for screenshots %s: %w", locale, err)
+				return sortedScreenshotResults(results), fmt.Errorf("migrate import: failed to create localization for screenshots %s: %w", locale, err)
 			}
 			localizationID = resp.Data.ID
 			localeToID[locale] = localizationID
@@ -547,7 +549,7 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 		existingSets, err := client.GetAppScreenshotSets(setsCtx, localizationID)
 		setsCancel()
 		if err != nil {
-			return nil, fmt.Errorf("migrate import: failed to fetch screenshot sets for %s: %w", locale, err)
+			return sortedScreenshotResults(results), fmt.Errorf("migrate import: failed to fetch screenshot sets for %s: %w", locale, err)
 		}
 		setByType := make(map[string]string)
 		existingFiles := make(map[string]map[string]bool)
@@ -559,14 +561,14 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 			orderedIDs, err := assets.GetOrderedAppScreenshotIDs(orderCtx, client, set.ID)
 			orderCancel()
 			if err != nil {
-				return nil, fmt.Errorf("migrate import: failed to fetch screenshot relationship order for %s: %w", set.ID, err)
+				return sortedScreenshotResults(results), fmt.Errorf("migrate import: failed to fetch screenshot relationship order for %s: %w", set.ID, err)
 			}
 			existingOrderByType[set.Attributes.ScreenshotDisplayType] = orderedIDs
 			screenshotsCtx, screenshotsCancel := migrateRequestContext(ctx)
 			screenshots, err := client.GetAppScreenshots(screenshotsCtx, set.ID)
 			screenshotsCancel()
 			if err != nil {
-				return nil, fmt.Errorf("migrate import: failed to fetch screenshots for %s: %w", set.ID, err)
+				return sortedScreenshotResults(results), fmt.Errorf("migrate import: failed to fetch screenshots for %s: %w", set.ID, err)
 			}
 			fileNames := make(map[string]bool)
 			fileIDs := make(map[string]string)
@@ -591,7 +593,7 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 				set, err := client.CreateAppScreenshotSet(setCtx, localizationID, canonicalDisplayType)
 				setCancel()
 				if err != nil {
-					return nil, fmt.Errorf("migrate import: failed to create screenshot set %s: %w", canonicalDisplayType, err)
+					return sortedScreenshotResults(results), fmt.Errorf("migrate import: failed to create screenshot set %s: %w", canonicalDisplayType, err)
 				}
 				setID = set.Data.ID
 				setByType[canonicalDisplayType] = setID
@@ -647,7 +649,10 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 				}
 				uploadCancel()
 				if err != nil {
-					return nil, fmt.Errorf("migrate import: failed to upload screenshot %s: %w", filePath, err)
+					// Keep the assets that already uploaded for this set so the
+					// caller can report them.
+					results = append(results, result)
+					return sortedScreenshotResults(results), fmt.Errorf("migrate import: failed to upload screenshot %s: %w", filePath, err)
 				}
 				fileNames[name] = true
 				uploadedIDsByName[name] = item.AssetID
@@ -658,7 +663,8 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 			err := assets.SetOrderedAppScreenshots(reorderCtx, client, setID, orderedIDs)
 			reorderCancel()
 			if err != nil {
-				return nil, fmt.Errorf("migrate import: failed to reorder screenshots for %s: %w", setID, err)
+				results = append(results, result)
+				return sortedScreenshotResults(results), fmt.Errorf("migrate import: failed to reorder screenshots for %s: %w", setID, err)
 			}
 			existingOrderByType[canonicalDisplayType] = orderedIDs
 			for name, id := range uploadedIDsByName {
@@ -671,13 +677,17 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 		}
 	}
 
+	return sortedScreenshotResults(results), nil
+}
+
+func sortedScreenshotResults(results []ScreenshotUploadResult) []ScreenshotUploadResult {
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].Locale == results[j].Locale {
 			return results[i].DisplayType < results[j].DisplayType
 		}
 		return results[i].Locale < results[j].Locale
 	})
-	return results, nil
+	return results
 }
 
 func buildPlannedScreenshotOrder(planFiles []string, existingOrder []string, existingIDsByName map[string]string, uploadedIDsByName map[string]string) []string {

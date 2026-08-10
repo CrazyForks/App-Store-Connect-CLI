@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -307,27 +308,60 @@ Examples:
 				submitOpts = shared.ResolveSubmitReadinessOptionsForVersionBestEffort(readinessCtx, client, resolvedVersionID, resolvedAppID, "")
 				cancelReadiness()
 			}
-			uploaded, warnings, err := uploadVersionLocalizations(ctx, client, resolvedVersionID, preparedLocalizations, localeToID, submitOpts)
-			if err != nil {
-				return err
-			}
-			appInfoUploaded, err := uploadAppInfoLocalizations(ctx, client, appInfoPlan)
-			if err != nil {
-				return err
-			}
-			reviewResult, err := uploadReviewInformation(ctx, client, resolvedVersionID, reviewInfo)
-			if err != nil {
-				return err
-			}
-			screenshotResults, err := uploadScreenshots(ctx, client, resolvedVersionID, localeToID, screenshotPlan)
-			if err != nil {
-				return err
+			// Each stage records what it applied before the failure so an
+			// interrupted import still reports the App Store Connect state it
+			// left behind instead of printing nothing.
+			completedStages := make([]string, 0, 4)
+			reportPartialFailure := func(stage string, failure error) error {
+				if !migrateImportAppliedAnything(result) {
+					return failure
+				}
+				result.Status = migratePartialStatus
+				result.FailureStage = stage
+				result.Failure = shared.SanitizeTerminal(failure.Error())
+				result.CompletedStages = append([]string(nil), completedStages...)
+				shared.WarnIncludeSensitive(os.Stderr, *includeSensitive)
+				if printErr := printMigrateOutput(presentableImportResult(result, *includeSensitive), *output.Output, *output.Pretty); printErr != nil {
+					return errors.Join(failure, fmt.Errorf(migrateImportPartialResultPrintErrorFormat, printErr))
+				}
+				return failure
 			}
 
+			uploaded, warnings, err := uploadVersionLocalizations(ctx, client, resolvedVersionID, preparedLocalizations, localeToID, submitOpts)
 			result.Uploaded = uploaded
+			if err != nil {
+				return reportPartialFailure(migrateStageVersionLocalizations, err)
+			}
+			if len(uploaded) > 0 {
+				completedStages = append(completedStages, migrateStageVersionLocalizations)
+			}
+
+			appInfoUploaded, err := uploadAppInfoLocalizations(ctx, client, appInfoPlan)
 			result.AppInfoUploaded = appInfoUploaded
+			if err != nil {
+				return reportPartialFailure(migrateStageAppInfoLocalizations, err)
+			}
+			if len(appInfoUploaded) > 0 {
+				completedStages = append(completedStages, migrateStageAppInfoLocalizations)
+			}
+
+			reviewResult, err := uploadReviewInformation(ctx, client, resolvedVersionID, reviewInfo)
 			result.ReviewInfoResult = reviewResult
+			if err != nil {
+				return reportPartialFailure(migrateStageReviewInformation, err)
+			}
+			if reviewResult != nil {
+				completedStages = append(completedStages, migrateStageReviewInformation)
+			}
+
+			screenshotResults, err := uploadScreenshots(ctx, client, resolvedVersionID, localeToID, screenshotPlan)
 			result.ScreenshotResults = screenshotResults
+			if err != nil {
+				return reportPartialFailure(migrateStageScreenshots, err)
+			}
+			if len(screenshotResults) > 0 {
+				completedStages = append(completedStages, migrateStageScreenshots)
+			}
 
 			shared.WarnIncludeSensitive(os.Stderr, *includeSensitive)
 			if err := printMigrateOutput(presentableImportResult(result, *includeSensitive), *output.Output, *output.Pretty); err != nil {
@@ -336,6 +370,24 @@ Examples:
 			return shared.PrintSubmitReadinessCreateWarnings(os.Stderr, warnings)
 		},
 	}
+}
+
+// migrateImportAppliedAnything reports whether the run already changed App
+// Store Connect. A failure before the first mutation keeps the plain error and
+// an empty stdout.
+func migrateImportAppliedAnything(result *MigrateImportResult) bool {
+	if result == nil {
+		return false
+	}
+	if len(result.Uploaded) > 0 || len(result.AppInfoUploaded) > 0 || result.ReviewInfoResult != nil {
+		return true
+	}
+	for _, screenshot := range result.ScreenshotResults {
+		if len(screenshot.Uploaded) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func migrateVersionLocalizationsNeedUpdateContext(localizations []FastlaneLocalization, localeToID map[string]string) bool {
@@ -536,9 +588,22 @@ type SkippedItem struct {
 	Reason string `json:"reason"`
 }
 
+const (
+	migratePartialStatus                       = "partial"
+	migrateStageVersionLocalizations           = "version_localizations"
+	migrateStageAppInfoLocalizations           = "app_info_localizations"
+	migrateStageReviewInformation              = "review_information"
+	migrateStageScreenshots                    = "screenshots"
+	migrateImportPartialResultPrintErrorFormat = "print partial migrate import result: %w"
+)
+
 // MigrateImportResult is the result of a migrate import operation.
 type MigrateImportResult struct {
 	DryRun               bool                          `json:"dryRun"`
+	Status               string                        `json:"status,omitempty"`
+	FailureStage         string                        `json:"failureStage,omitempty"`
+	Failure              string                        `json:"failure,omitempty"`
+	CompletedStages      []string                      `json:"completedStages,omitempty"`
 	VersionID            string                        `json:"versionId"`
 	AppID                string                        `json:"appId,omitempty"`
 	DeliverfilePath      string                        `json:"deliverfilePath,omitempty"`
