@@ -187,15 +187,16 @@ func TestOpenNewFileNoFollowBestEffortPreservesReplacementAfterVerificationFailu
 			_ = created.Close()
 			return nil, err
 		}
+		if err := created.Close(); err != nil {
+			return nil, err
+		}
 		if err := os.Rename(path, displacedPath); err != nil {
-			_ = created.Close()
 			return nil, err
 		}
 		if err := os.WriteFile(path, []byte("replacement"), 0o600); err != nil {
-			_ = created.Close()
 			return nil, err
 		}
-		return created, nil
+		return os.Open(displacedPath)
 	})
 	if file != nil {
 		_ = file.Close()
@@ -406,25 +407,24 @@ func TestOpenNewFileNoFollowInRootBestEffortPreservesReplacementAfterVerificatio
 			_ = created.Close()
 			return nil, err
 		}
+		if err := created.Close(); err != nil {
+			return nil, err
+		}
 		if err := root.Rename(name, displacedName); err != nil {
-			_ = created.Close()
 			return nil, err
 		}
 		replacement, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
-			_ = created.Close()
 			return nil, err
 		}
 		if _, err := replacement.Write([]byte("replacement")); err != nil {
 			_ = replacement.Close()
-			_ = created.Close()
 			return nil, err
 		}
 		if err := replacement.Close(); err != nil {
-			_ = created.Close()
 			return nil, err
 		}
-		return created, nil
+		return root.Open(displacedName)
 	})
 	if file != nil {
 		_ = file.Close()
