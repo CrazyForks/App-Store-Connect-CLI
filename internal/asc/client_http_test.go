@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -431,6 +432,65 @@ func TestGetApps_RetryExhaustedExposesHTTPStatus(t *testing.T) {
 	var statusErr interface{ HTTPStatusCode() int }
 	if !errors.As(err, &statusErr) || statusErr.HTTPStatusCode() != http.StatusServiceUnavailable {
 		t.Fatalf("expected HTTPStatusCode() to report %d, got %v", http.StatusServiceUnavailable, err)
+	}
+}
+
+func TestClientDo_ConflictStatusMatchesSentinelAndPreservesDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", req.Method)
+		}
+		if req.URL.Path != "/v1/apps" {
+			t.Fatalf("expected path /v1/apps, got %s", req.URL.Path)
+		}
+		assertAuthorized(t, req)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{
+			"errors": [{
+				"status": "409",
+				"code": "STATE_ERROR.ENTITY_STATE_INVALID",
+				"title": "The resource is not in a valid state",
+				"detail": "Resolve the conflicting state before retrying."
+			}]
+		}`)
+	}))
+	t.Cleanup(server.Close)
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error: %v", err)
+	}
+	client := &Client{
+		httpClient: server.Client(),
+		keyID:      "KEY123",
+		issuerID:   "ISS456",
+		privateKey: key,
+	}
+
+	_, err = client.do(context.Background(), http.MethodPost, server.URL+"/v1/apps", nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	apiErr, ok := errors.AsType[*APIError](err)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.StatusCode != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, apiErr.StatusCode)
+	}
+	if apiErr.Code != "STATE_ERROR.ENTITY_STATE_INVALID" {
+		t.Fatalf("expected structured code to be preserved, got %q", apiErr.Code)
+	}
+	if apiErr.Title != "The resource is not in a valid state" {
+		t.Fatalf("expected structured title to be preserved, got %q", apiErr.Title)
+	}
+	if apiErr.Detail != "Resolve the conflicting state before retrying." {
+		t.Fatalf("expected structured detail to be preserved, got %q", apiErr.Detail)
+	}
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected HTTP 409 to match ErrConflict, got %v", err)
 	}
 }
 
