@@ -81,7 +81,8 @@ submission items).
   already blank; only the table shape changes.
 * `asc migrate import --confirm` can now print a JSON result with
   `status: "partial"` while exiting non-zero, listing `failureStage`,
-  `failure`, `completedStages`, and everything that was applied. Automation
+  `failure`, everything that was applied, and `completedStages` when at least
+  one stage finished (the key is absent when nothing completed). Automation
   that treated non-empty stdout as success must check `status`.
 * `asc release stage` runs a new `validate_build` step first, so `steps[]`
   gains an entry at index `0`. Anything that indexes steps positionally must be
@@ -98,9 +99,12 @@ submission items).
 * Build upload, app event media, and subscription review-screenshot errors now
   append App Store Connect's description to the error code, for example
   `ERROR_ITMS_90XXX (Invalid Bundle. ...)`.
-* Output-file errors changed text: `output file already exists: "<path>"` and
-  `publish output "<path>": <reason>`. `errors.Is(err, os.ErrExist)` still
-  matches.
+* Output-file errors changed text for writes routed through the shared
+  safe-write path (for example `asc screenshots download` and publish outputs):
+  `output file already exists: "<path>"` and `publish output "<path>":
+  <reason>`. `asc certificates csr` and `asc xcode-cloud artifacts download`
+  keep their previous pathless `output file already exists` text.
+  `errors.Is(err, os.ErrExist)` still matches.
 
 ## Changed defaults and selection rules
 
@@ -133,10 +137,13 @@ uploads, instead of the number attached to the single most recent build. Apps
 whose newest build carries a lower number than an older one will see a
 different, higher answer.
 
-Builds whose `CFBundleVersion` is blank or non-numeric (for example `1.0b2`)
-are skipped with a warning on stderr rather than aborting the command, and the
-answer is computed from the remaining numeric history. If nothing usable
-remains, `nextBuildNumber` falls back to `--initial-build-number`.
+Processed builds whose `CFBundleVersion` is blank or non-numeric (for example
+`1.0b2`) are skipped with a warning on stderr rather than aborting the
+command, and the answer is computed from the remaining numeric history. If
+nothing usable remains, `nextBuildNumber` falls back to
+`--initial-build-number`. Known limitation: an in-flight build upload whose
+`cfBundleVersion` is blank or non-numeric still fails the command — the CLI
+refuses to guess while an upload may hold the next number.
 
 ### Workflow resume
 
@@ -172,11 +179,21 @@ directory now fails loudly instead of silently falling back to
 `<fastlane-dir>/metadata`. Use `--allow-external-metadata` or
 `--allow-external-screenshots` when the paths are intentionally outside.
 
+Deliverfile paths resolve relative to the Deliverfile itself. A Deliverfile
+written with project-root-relative values — fastlane's common
+`metadata_path "./fastlane/metadata"` — resolves to
+`<fastlane-dir>/fastlane/metadata` under `--fastlane-dir` and fails with a
+no-such-directory error. Change it to `metadata_path "./metadata"` (and
+`screenshots_path "./screenshots"`), or override with `--metadata-dir` /
+`--screenshots-dir`.
+
 Deliverfile `platform "osx"` and `platform "xros"` now resolve, screenshot
 uploads get the upload timeout (`ASC_UPLOAD_TIMEOUT`) rather than the 30-second
 request timeout, and locale directories App Store Connect cannot create (for
-example `metadata/nl`, which needs `nl-NL`) now fail `asc migrate validate` and
-`asc migrate import --dry-run` rather than only the confirmed run.
+example `metadata/nl`, which needs `nl-NL`) are now caught before the
+confirmed run: `asc migrate validate` reports them as errors in its report
+body (`valid: false`, non-zero `errorCount`) while still exiting 0, and
+`asc migrate import --dry-run` exits non-zero.
 
 ### Other defaults
 
@@ -221,10 +238,10 @@ require `--confirm`. `--replace --dry-run` is unchanged and needs no
 * `asc pass-type-ids list` and `asc pass-type-ids view` require
   `--include certificates` before `--certificate-fields` or
   `--limit-certificates`.
-* `asc xcode build` and `asc xcode archive` reject explicitly empty values for
-  `--configuration`, `--destination`, `--derived-data-path`, and
-  `--result-bundle-path` (typically an unset CI variable). Omitting the flags
-  is unchanged.
+* `asc xcode build` rejects explicitly empty values for `--configuration`,
+  `--destination`, `--derived-data-path`, and `--result-bundle-path`
+  (typically an unset CI variable); `asc xcode archive` rejects an empty
+  `--configuration`. Omitting the flags is unchanged.
 
 ### Stricter values
 
@@ -251,9 +268,8 @@ require `--confirm`. `--replace --dry-run` is unchanged and needs no
   `asc app-clips advanced-experiences create ...`,
   `asc versions view --include ...`,
   `asc migrate` localization payloads, `asc app-setup` ambiguous localizations,
-  screenshot review targets and source roots, `asc signing` certificate-type
-  filters, `asc notify` null Slack blocks, and `asc xcode` team ID, signing
-  style, and build action combinations.
+  screenshot review targets and source roots, `asc notify` null Slack blocks,
+  and `asc xcode` team ID, signing style, and build action combinations.
 
 ### Validation warnings
 
