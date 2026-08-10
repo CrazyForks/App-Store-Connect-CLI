@@ -93,11 +93,60 @@ func TestExecuteAppScreenshotUploadDryRunRejectsSymlinkAboveSelectedFileRoot(t *
 	}
 }
 
-func TestExecuteAppScreenshotUploadDryRunAllowsSystemTemporaryAlias(t *testing.T) {
+func TestExecuteAppScreenshotUploadDryRunAllowsSystemAliasedSourceDirectories(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("system /tmp alias is Unix-only")
+		t.Skip("system directory aliases are Unix-only")
 	}
-	workDir, err := os.MkdirTemp("/tmp", "asc-screenshot-source-*")
+
+	// macOS reaches /tmp, /var and /etc through symlinks into /private, so a
+	// source path under any of them must not be reported as an untrusted
+	// symlink the caller never wrote.
+	for _, base := range []string{"/tmp", "/var/tmp"} {
+		t.Run(base, func(t *testing.T) {
+			workDir, err := os.MkdirTemp(base, "asc-screenshot-source-*")
+			if err != nil {
+				t.Fatalf("create temporary screenshot directory: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(workDir); err != nil {
+					t.Errorf("remove temporary screenshot directory: %v", err)
+				}
+			})
+			filePath := writeAssetsTestPNG(t, workDir, "01-home.png")
+
+			requests := 0
+			client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests++
+				writeAssetsTestJSON(w, http.StatusOK, `{"data":[],"links":{}}`)
+			}))
+
+			_, err = executeAppScreenshotUpload(context.Background(), screenshotUploadConfig[asc.AppScreenshotUploadResult]{
+				Client:         client,
+				LocalizationID: "LOC_123",
+				DisplayType:    "APP_IPHONE_65",
+				Files:          []string{filePath},
+				DryRun:         true,
+				RequestContext: contextWithAssetUploadTimeout,
+				UploadContext:  contextWithAssetUploadTimeout,
+				Access:         appStoreVersionScreenshotSetAccess,
+			}, "")
+			if err != nil {
+				t.Fatalf("executeAppScreenshotUpload() error: %v", err)
+			}
+			if requests == 0 {
+				t.Fatal("expected dry-run API lookup after source validation")
+			}
+		})
+	}
+}
+
+func TestResolveScreenshotUploadRootRejectsSymlinkedSourceFileOutsideTrustedRoots(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("system directory aliases are Unix-only")
+	}
+
+	targetPath := writeAssetsTestPNG(t, t.TempDir(), "real.png")
+	workDir, err := os.MkdirTemp("/var/tmp", "asc-screenshot-source-*")
 	if err != nil {
 		t.Fatalf("create temporary screenshot directory: %v", err)
 	}
@@ -106,29 +155,13 @@ func TestExecuteAppScreenshotUploadDryRunAllowsSystemTemporaryAlias(t *testing.T
 			t.Errorf("remove temporary screenshot directory: %v", err)
 		}
 	})
-	filePath := writeAssetsTestPNG(t, workDir, "01-home.png")
-
-	requests := 0
-	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		requests++
-		writeAssetsTestJSON(w, http.StatusOK, `{"data":[],"links":{}}`)
-	}))
-
-	_, err = executeAppScreenshotUpload(context.Background(), screenshotUploadConfig[asc.AppScreenshotUploadResult]{
-		Client:         client,
-		LocalizationID: "LOC_123",
-		DisplayType:    "APP_IPHONE_65",
-		Files:          []string{filePath},
-		DryRun:         true,
-		RequestContext: contextWithAssetUploadTimeout,
-		UploadContext:  contextWithAssetUploadTimeout,
-		Access:         appStoreVersionScreenshotSetAccess,
-	}, "")
-	if err != nil {
-		t.Fatalf("executeAppScreenshotUpload() error: %v", err)
+	linkPath := filepath.Join(workDir, "01-home.png")
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		t.Fatalf("create screenshot symlink: %v", err)
 	}
-	if requests == 0 {
-		t.Fatal("expected dry-run API lookup after source validation")
+
+	if _, err := resolveScreenshotUploadRoot("", []string{linkPath}); !errors.Is(err, rootfs.ErrSymlink) {
+		t.Fatalf("resolveScreenshotUploadRoot() error = %v, want rootfs.ErrSymlink", err)
 	}
 }
 
