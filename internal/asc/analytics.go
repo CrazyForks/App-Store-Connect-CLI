@@ -611,7 +611,10 @@ func (c *Client) GetAnalyticsReportInstances(ctx context.Context, reportID strin
 
 // GetAnalyticsReportInstance retrieves a specific report instance by ID.
 func (c *Client) GetAnalyticsReportInstance(ctx context.Context, instanceID string) (*AnalyticsReportInstanceResponse, error) {
-	path := fmt.Sprintf("/v1/analyticsReportInstances/%s", strings.TrimSpace(instanceID))
+	path, err := resourcePath("/v1/analyticsReportInstances/%s", instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("analytics report instance: %w", err)
+	}
 	data, err := c.do(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -626,6 +629,13 @@ func (c *Client) GetAnalyticsReportInstance(ctx context.Context, instanceID stri
 
 // GetAnalyticsReportInstanceSegmentsRelationships retrieves segment linkages for a report instance.
 func (c *Client) GetAnalyticsReportInstanceSegmentsRelationships(ctx context.Context, instanceID string, opts ...LinkagesOption) (*AnalyticsReportInstanceSegmentsLinkagesResponse, error) {
+	if strings.TrimSpace(instanceID) != "" {
+		var err error
+		instanceID, err = validateResourcePathSegment(instanceID)
+		if err != nil {
+			return nil, fmt.Errorf("analytics report instance segments relationship: %w", err)
+		}
+	}
 	return getTypedResourceLinkages[AnalyticsReportInstanceSegmentsLinkagesResponse](
 		c,
 		ctx,
@@ -645,15 +655,22 @@ func (c *Client) GetAnalyticsReportSegments(ctx context.Context, instanceID stri
 		opt(query)
 	}
 
-	path := fmt.Sprintf("/v1/analyticsReportInstances/%s/segments", strings.TrimSpace(instanceID))
+	var path string
 	if query.nextURL != "" {
 		// Validate nextURL to prevent credential exfiltration
 		if err := validateNextURL(query.nextURL); err != nil {
 			return nil, fmt.Errorf("analyticsReportSegments: %w", err)
 		}
 		path = query.nextURL
-	} else if queryString := buildAnalyticsReportSegmentsQuery(query); queryString != "" {
-		path += "?" + queryString
+	} else {
+		var err error
+		path, err = resourcePath("/v1/analyticsReportInstances/%s/segments", instanceID)
+		if err != nil {
+			return nil, fmt.Errorf("analytics report segments: %w", err)
+		}
+		if queryString := buildAnalyticsReportSegmentsQuery(query); queryString != "" {
+			path += "?" + queryString
+		}
 	}
 
 	data, err := c.do(ctx, "GET", path, nil)
