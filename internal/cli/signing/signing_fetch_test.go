@@ -443,6 +443,122 @@ func TestResolveSigningAssetsFiltersExistingProfileCertificatesByRequestedType(t
 	}
 }
 
+func TestResolveSigningAssetsSkipsUnusableExistingProfileCertificates(t *testing.T) {
+	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+		switch req.URL.Path {
+		case "/v1/bundleIds/bundle-main/profiles":
+			return signingFetchJSONResponse(
+				http.StatusOK,
+				`{"data":[{"type":"profiles","id":"profile-main","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}]}`,
+			)
+		case "/v1/profiles/profile-main/certificates":
+			return signingFetchJSONResponse(
+				http.StatusOK,
+				`{"data":[
+					{"type":"certificates","id":"cert-expired","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2000-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-deactivated","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":false,"expirationDate":"2100-01-01T00:00:00Z"}},
+					{"type":"certificates","id":"cert-undated","attributes":{"certificateType":"IOS_DISTRIBUTION"}},
+					{"type":"certificates","id":"cert-valid","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}}
+				]}`,
+			)
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+		}
+	})
+
+	_, certificates, created, err := resolveSigningAssets(
+		context.Background(),
+		client,
+		signingAssetsOptions{
+			BundleIDResourceID: "bundle-main",
+			BundleIdentifier:   "com.example.signing.profile",
+			ProfileType:        "IOS_APP_STORE",
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveSigningAssets() error: %v", err)
+	}
+	if created {
+		t.Fatal("expected the existing profile to be reused")
+	}
+	// Certificates whose metadata does not prove they are unusable are kept.
+	want := "cert-undated,cert-valid"
+	if got := strings.Join(extractIDs(certificates.Data), ","); got != want {
+		t.Fatalf("certificate IDs = %q, want %q", got, want)
+	}
+}
+
+func TestResolveSigningAssetsTreatsProfileWithOnlyUnusableCertificatesAsNoMatch(t *testing.T) {
+	requestPaths := []string{}
+	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {
+		requestPaths = append(requestPaths, req.Method+" "+req.URL.Path)
+		switch {
+		case req.URL.Path == "/v1/bundleIds/bundle-main/profiles":
+			return signingFetchJSONResponse(
+				http.StatusOK,
+				`{"data":[{"type":"profiles","id":"profile-main","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}]}`,
+			)
+		case req.URL.Path == "/v1/profiles/profile-main/certificates":
+			return signingFetchJSONResponse(
+				http.StatusOK,
+				`{"data":[{"type":"certificates","id":"cert-expired","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2000-01-01T00:00:00Z"}}]}`,
+			)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/certificates":
+			return signingFetchJSONResponse(
+				http.StatusOK,
+				`{"data":[{"type":"certificates","id":"cert-fresh","attributes":{"certificateType":"IOS_DISTRIBUTION","activated":true,"expirationDate":"2100-01-01T00:00:00Z"}}]}`,
+			)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/profiles":
+			return signingFetchJSONResponse(
+				http.StatusCreated,
+				`{"data":{"type":"profiles","id":"profile-created","attributes":{"profileType":"IOS_APP_STORE","profileState":"ACTIVE"}}}`,
+			)
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return signingFetchJSONResponse(http.StatusInternalServerError, `{}`)
+		}
+	})
+
+	_, _, _, err := resolveSigningAssets(
+		context.Background(),
+		client,
+		signingAssetsOptions{
+			BundleIDResourceID: "bundle-main",
+			BundleIdentifier:   "com.example.signing.profile",
+			ProfileType:        "IOS_APP_STORE",
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "no active, unexpired associated certificates") {
+		t.Fatalf("resolveSigningAssets() error = %v, want unusable certificate error", err)
+	}
+
+	requestPaths = requestPaths[:0]
+	profile, certificates, created, err := resolveSigningAssets(
+		context.Background(),
+		client,
+		signingAssetsOptions{
+			BundleIDResourceID: "bundle-main",
+			BundleIdentifier:   "com.example.signing.profile",
+			ProfileType:        "IOS_APP_STORE",
+			CreateMissing:      true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveSigningAssets() error: %v", err)
+	}
+	if !created || profile.Data.ID != "profile-created" {
+		t.Fatalf("expected a new profile, got created=%v profile=%#v", created, profile)
+	}
+	if got := strings.Join(extractIDs(certificates.Data), ","); got != "cert-fresh" {
+		t.Fatalf("certificate IDs = %q, want cert-fresh", got)
+	}
+	wantPaths := "GET /v1/bundleIds/bundle-main/profiles,GET /v1/profiles/profile-main/certificates,GET /v1/certificates,POST /v1/profiles"
+	if strings.Join(requestPaths, ",") != wantPaths {
+		t.Fatalf("unexpected lookup order: %v", requestPaths)
+	}
+}
+
 func TestResolveSigningAssetsRejectsUnknownCertificateTypesBeforeLookup(t *testing.T) {
 	requests := 0
 	client := newSigningFetchTestClient(t, func(req *http.Request) *http.Response {

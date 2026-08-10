@@ -497,7 +497,33 @@ func findProfileCertificates(ctx context.Context, client *asc.Client, profileID,
 		}
 		return nil, fmt.Errorf("profile %s has no associated certificates: %w", profileID, errNoMatchingProfileCertificates)
 	}
-	return &asc.CertificatesResponse{Data: all, Links: links}, nil
+
+	usable := usableProfileCertificates(all, time.Now())
+	if len(usable) == 0 {
+		return nil, fmt.Errorf("profile %s has no active, unexpired associated certificates: %w", profileID, errNoMatchingProfileCertificates)
+	}
+	return &asc.CertificatesResponse{Data: usable, Links: links}, nil
+}
+
+// usableProfileCertificates drops the certificates an existing profile is
+// associated with that App Store Connect reports as deactivated or expired, so
+// signing fetch never writes and signing sync push never publishes a dead
+// certificate. Unlike the creation path this keeps certificates whose metadata
+// does not prove they are unusable, because a resolved profile must stay
+// usable when the API omits those attributes.
+func usableProfileCertificates(certificates []asc.Resource[asc.CertificateAttributes], now time.Time) []asc.Resource[asc.CertificateAttributes] {
+	usable := make([]asc.Resource[asc.CertificateAttributes], 0, len(certificates))
+	for _, certificate := range certificates {
+		if activated := certificate.Attributes.Activated; activated != nil && !*activated {
+			continue
+		}
+		expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(certificate.Attributes.ExpirationDate))
+		if err == nil && !expiresAt.After(now) {
+			continue
+		}
+		usable = append(usable, certificate)
+	}
+	return usable
 }
 
 func createProfile(ctx context.Context, client *asc.Client, bundleIDResourceID, profileName, profileType string, certIDs, deviceIDs []string) (*asc.ProfileResponse, error) {
