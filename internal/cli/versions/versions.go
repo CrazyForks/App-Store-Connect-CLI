@@ -173,6 +173,14 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
+			includeValues, err := normalizeAppStoreVersionInclude(*include)
+			if err != nil {
+				return shared.UsageErrorf("versions view: %v", err)
+			}
+			if len(includeValues) > 0 && (*includeBuild || *includeSubmission) {
+				return shared.UsageError("--include cannot be used with --include-build or --include-submission")
+			}
+
 			client, err := shared.GetASCClient()
 			if err != nil {
 				return fmt.Errorf("versions view: %w", err)
@@ -181,16 +189,7 @@ Examples:
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
-			includeValues, err := normalizeAppStoreVersionInclude(*include)
-			if err != nil {
-				return fmt.Errorf("versions view: %w", err)
-			}
 			if len(includeValues) > 0 {
-				if *includeBuild || *includeSubmission {
-					fmt.Fprintln(os.Stderr, "Error: --include cannot be used with --include-build or --include-submission")
-					return flag.ErrHelp
-				}
-
 				apiIncludes, includeAgeRating := splitCompatAppStoreVersionIncludes(includeValues)
 				var versionResp *asc.AppStoreVersionResponse
 				if len(apiIncludes) > 0 {
