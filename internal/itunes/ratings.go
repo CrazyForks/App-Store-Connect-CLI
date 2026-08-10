@@ -115,9 +115,17 @@ func (c *Client) fetchHistogram(ctx context.Context, appID, country string, rati
 }
 
 // GetAllRatings fetches rating statistics for an app across all supported countries.
-func (c *Client) GetAllRatings(ctx context.Context, appID string, workers int) (*GlobalRatings, error) {
+func (c *Client) GetAllRatings(
+	ctx context.Context,
+	appID string,
+	workers int,
+	newCountryContext func(context.Context) (context.Context, context.CancelFunc),
+) (*GlobalRatings, error) {
 	if workers < 1 {
 		workers = 10
+	}
+	if newCountryContext == nil {
+		return nil, fmt.Errorf("country context factory is required")
 	}
 
 	countries := AllCountries()
@@ -148,7 +156,9 @@ func (c *Client) GetAllRatings(ctx context.Context, appID string, workers int) (
 				defer func() { <-sem }()
 			}
 
-			ratings, err := c.GetRatings(ctx, appID, country)
+			countryCtx, countryCancel := newCountryContext(ctx)
+			ratings, err := c.GetRatings(countryCtx, appID, country)
+			countryCancel()
 			if err != nil {
 				return
 			}

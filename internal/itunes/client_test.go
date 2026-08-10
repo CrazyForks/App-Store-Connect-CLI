@@ -2,6 +2,7 @@ package itunes
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -271,7 +272,7 @@ func TestGetAllRatings_Aggregation(t *testing.T) {
 		},
 	}
 
-	global, err := client.GetAllRatings(context.Background(), "123", 5)
+	global, err := client.GetAllRatings(context.Background(), "123", 5, context.WithCancel)
 	if err != nil {
 		t.Fatalf("GetAllRatings() error: %v", err)
 	}
@@ -318,12 +319,12 @@ func TestGetAllRatings_InvalidWorkers(t *testing.T) {
 	}
 
 	// Should not panic with workers < 1
-	_, err := client.GetAllRatings(context.Background(), "123", 0)
+	_, err := client.GetAllRatings(context.Background(), "123", 0, context.WithCancel)
 	if err != nil {
 		t.Logf("GetAllRatings with workers=0 returned: %v", err)
 	}
 
-	_, err = client.GetAllRatings(context.Background(), "123", -5)
+	_, err = client.GetAllRatings(context.Background(), "123", -5, context.WithCancel)
 	if err != nil {
 		t.Logf("GetAllRatings with workers=-5 returned: %v", err)
 	}
@@ -359,7 +360,7 @@ func TestGetAllRatings_NoRatings(t *testing.T) {
 		},
 	}
 
-	global, err := client.GetAllRatings(context.Background(), "123", 5)
+	global, err := client.GetAllRatings(context.Background(), "123", 5, context.WithCancel)
 	if err != nil {
 		t.Fatalf("GetAllRatings() error: %v", err)
 	}
@@ -390,9 +391,9 @@ func TestGetAllRatings_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, err := client.GetAllRatings(ctx, "123", 5)
-	if err == nil {
-		t.Log("GetAllRatings completed despite cancelled context (may have cached)")
+	_, err := client.GetAllRatings(ctx, "123", 5, context.WithCancel)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetAllRatings() error = %v, want context.Canceled", err)
 	}
 }
 
