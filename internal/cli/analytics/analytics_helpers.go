@@ -184,6 +184,32 @@ func validateAnalyticsRequestID(value string) error {
 	return nil
 }
 
+func analyticsDownloadDefaultOutput(requestID, instanceID string) string {
+	return fmt.Sprintf("analytics_report_%s_%s.csv.gz", strings.TrimSpace(requestID), sanitizeAnalyticsFilenameComponent(instanceID))
+}
+
+func sanitizeAnalyticsFilenameComponent(value string) string {
+	trimmed := strings.TrimSpace(value)
+	var sanitized strings.Builder
+	sanitized.Grow(len(trimmed))
+	for _, r := range trimmed {
+		isASCIIAlpha := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		isDigit := r >= '0' && r <= '9'
+		switch {
+		case isASCIIAlpha || isDigit || r == '.' || r == '-' || r == '_':
+			sanitized.WriteRune(r)
+		default:
+			sanitized.WriteByte('_')
+		}
+	}
+
+	result := strings.Trim(sanitized.String(), "._-")
+	if result == "" {
+		return "instance"
+	}
+	return result
+}
+
 func normalizeReportDate(value string, frequency asc.SalesReportFrequency) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

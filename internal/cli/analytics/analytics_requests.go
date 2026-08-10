@@ -609,7 +609,7 @@ Examples:
 				return fmt.Errorf("analytics download: %w", err)
 			}
 
-			defaultOutput := fmt.Sprintf("analytics_report_%s_%s.csv.gz", strings.TrimSpace(*requestID), strings.TrimSpace(*instanceID))
+			defaultOutput := analyticsDownloadDefaultOutput(*requestID, *instanceID)
 			compressedPath, decompressedPath := shared.ResolveReportOutputPaths(*output, defaultOutput, ".csv", *decompress)
 
 			client, err := shared.GetASCClient()
