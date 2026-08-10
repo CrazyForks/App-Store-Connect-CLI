@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -100,19 +101,22 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 	var latestObservedNumber *string
 	sourcesConsidered := make([]string, 0, 2)
 
+	skipped := &skippedBuildNumberReporter{}
+
 	var latestProcessedValue buildNumber
 	hasLatestProcessed := false
 	if selection.LatestBuild != nil {
 		latestVersion := selection.LatestBuild.Data.Attributes.Version
 		if !isNonPositiveNumericBuildNumber(latestVersion) {
-			parsed, err := parseBuildNumber(latestVersion, fmt.Sprintf("processed build %s", selection.LatestBuild.Data.ID))
-			if err != nil {
-				return nil, err
+			parsed, ok := parseProcessedBuildNumber(latestVersion)
+			if !ok {
+				skipped.warn(selection.LatestBuild.Data.ID, latestVersion)
+			} else {
+				latestProcessedValue = parsed
+				value := parsed.String()
+				latestProcessedNumber = &value
+				hasLatestProcessed = true
 			}
-			latestProcessedValue = parsed
-			value := parsed.String()
-			latestProcessedNumber = &value
-			hasLatestProcessed = true
 		}
 	}
 
@@ -124,6 +128,7 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 		client,
 		selection,
 		opts.LatestBuildSelectionOptions,
+		skipped,
 	)
 	if err != nil {
 		return nil, err
@@ -322,6 +327,7 @@ func findHighestProcessedBuildNumber(
 	client *asc.Client,
 	selection *latestBuildSelectionResult,
 	opts LatestBuildSelectionOptions,
+	skipped *skippedBuildNumberReporter,
 ) (buildNumber, *string, bool, error) {
 	if selection.HasPreReleaseFilters && len(selection.PreReleaseVersionIDs) == 0 {
 		return buildNumber{}, nil, false, nil
@@ -351,14 +357,15 @@ func findHighestProcessedBuildNumber(
 	var highestValue buildNumber
 	var highestNumber *string
 	hasBuild := false
-	processPage := func(page *asc.BuildsResponse) error {
+	processPage := func(page *asc.BuildsResponse) {
 		for _, build := range page.Data {
 			if isNonPositiveNumericBuildNumber(build.Attributes.Version) {
 				continue
 			}
-			parsed, err := parseBuildNumber(build.Attributes.Version, fmt.Sprintf("processed build %s", build.ID))
-			if err != nil {
-				return err
+			parsed, ok := parseProcessedBuildNumber(build.Attributes.Version)
+			if !ok {
+				skipped.warn(build.ID, build.Attributes.Version)
+				continue
 			}
 			if !hasBuild || parsed.Compare(highestValue) > 0 {
 				highestValue = parsed
@@ -367,7 +374,6 @@ func findHighestProcessedBuildNumber(
 				hasBuild = true
 			}
 		}
-		return nil
 	}
 
 	err = asc.PaginateEach(ctx, builds, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
@@ -379,7 +385,8 @@ func findHighestProcessedBuildNumber(
 		if !ok {
 			return fmt.Errorf("unexpected builds page type %T", page)
 		}
-		return processPage(resp)
+		processPage(resp)
+		return nil
 	})
 	if err != nil {
 		return buildNumber{}, nil, false, fmt.Errorf("failed to paginate processed build history: %w", err)
@@ -672,6 +679,43 @@ func buildUploadHistoryError(appID, operation string, err error) error {
 		appID,
 		err,
 	)
+}
+
+// skippedBuildNumberReporter warns once per processed build whose build number
+// cannot be interpreted as a positive integer, so a single legacy
+// CFBundleVersion anywhere in an app's history never aborts build number
+// resolution.
+type skippedBuildNumberReporter struct {
+	warned map[string]struct{}
+}
+
+func (r *skippedBuildNumberReporter) warn(buildID, rawBuildNumber string) {
+	if r == nil {
+		return
+	}
+	if r.warned == nil {
+		r.warned = make(map[string]struct{})
+	}
+	if _, seen := r.warned[buildID]; seen {
+		return
+	}
+	r.warned[buildID] = struct{}{}
+	fmt.Fprintf(
+		os.Stderr,
+		"Warning: skipping processed build %s: build number %q is not a positive integer\n",
+		buildID,
+		rawBuildNumber,
+	)
+}
+
+// parseProcessedBuildNumber parses a processed build's number and reports
+// whether it is usable. Callers skip unusable values instead of failing.
+func parseProcessedBuildNumber(raw string) (buildNumber, bool) {
+	parsed, err := parseBuildNumber(raw, "processed build")
+	if err != nil {
+		return buildNumber{}, false
+	}
+	return parsed, true
 }
 
 func isNonPositiveNumericBuildNumber(raw string) bool {

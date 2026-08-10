@@ -163,6 +163,29 @@ func requireFreshBuildHistoryScanDeadlines(t *testing.T, recorder *buildHistoryS
 	}
 }
 
+func requireBuildHistoryScanWarnings(t *testing.T, stderr string, want []string) {
+	t.Helper()
+
+	got := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
+	if stderr == "" {
+		got = nil
+	}
+	if len(got) != len(want) {
+		t.Fatalf("stderr lines = %d (%q), want %d warnings (%q)", len(got), stderr, len(want), want)
+	}
+	for _, wantLine := range want {
+		matches := 0
+		for _, gotLine := range got {
+			if gotLine == wantLine {
+				matches++
+			}
+		}
+		if matches != 1 {
+			t.Fatalf("stderr contained %d copies of %q, want exactly 1; stderr=%q", matches, wantLine, stderr)
+		}
+	}
+}
+
 func TestBuildsNextBuildNumberRefreshesDeadlinesAcrossHistoryPages(t *testing.T) {
 	const page2 = "https://api.appstoreconnect.apple.com/v1/builds?cursor=page-2"
 	const page3 = "https://api.appstoreconnect.apple.com/v1/builds?cursor=page-3"
@@ -195,5 +218,50 @@ func TestBuildsNextBuildNumberRefreshesDeadlinesAcrossHistoryPages(t *testing.T)
 		t.Fatalf("nextBuildNumber = %q, want 101", output.NextBuildNumber)
 	}
 
+	requireFreshBuildHistoryScanDeadlines(t, recorder, []string{"", "page-2", "", "page-2", "page-3"})
+}
+
+func TestBuildsNextBuildNumberSkipsUnparseableHistoricalBuildNumbers(t *testing.T) {
+	const page2 = "https://api.appstoreconnect.apple.com/v1/builds?cursor=page-2"
+	const page3 = "https://api.appstoreconnect.apple.com/v1/builds?cursor=page-3"
+	recorder := setBuildHistoryScanTestClient(t, map[string]string{
+		"": `{"data":[{"type":"builds","id":"build-new-50","attributes":{"version":"50","uploadedDate":"2026-02-03T00:00:00Z"}}],"links":{"next":"` + page2 + `"}}`,
+		"page-2": `{"data":[
+			{"type":"builds","id":"build-legacy-beta","attributes":{"version":"1.0b2","uploadedDate":"2026-02-02T00:00:00Z"}},
+			{"type":"builds","id":"build-blank","attributes":{"uploadedDate":"2026-02-01T12:00:00Z"}},
+			{"type":"builds","id":"build-old-100","attributes":{"version":"100","uploadedDate":"2026-02-01T00:00:00Z"}}
+		],"links":{"next":"` + page3 + `"}}`,
+		"page-3": `{"data":[
+			{"type":"builds","id":"build-legacy-rc","attributes":{"version":"2021.08.10-rc1","uploadedDate":"2026-01-31T00:00:00Z"}},
+			{"type":"builds","id":"build-old-zero","attributes":{"version":"0","uploadedDate":"2026-01-30T00:00:00Z"}},
+			{"type":"builds","id":"build-old-40","attributes":{"version":"40","uploadedDate":"2026-01-29T00:00:00Z"}}
+		],"links":{"next":""}}`,
+	})
+
+	root := RootCommand("test")
+	root.FlagSet.SetOutput(io.Discard)
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{"builds", "next-build-number", "--app", "100000001", "--output", "json"}); err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if runErr != nil {
+		t.Fatalf("run: %v", runErr)
+	}
+
+	output := decodeProcessedMaximumOutput(t, stdout)
+	requireProcessedMaximumValue(t, "latestProcessedBuildNumber", output.LatestProcessedBuildNumber, "50")
+	requireProcessedMaximumValue(t, "latestObservedBuildNumber", output.LatestObservedBuildNumber, "100")
+	if output.NextBuildNumber != "101" {
+		t.Fatalf("nextBuildNumber = %q, want 101", output.NextBuildNumber)
+	}
+
+	requireBuildHistoryScanWarnings(t, stderr, []string{
+		`Warning: skipping processed build build-legacy-beta: build number "1.0b2" is not a positive integer`,
+		`Warning: skipping processed build build-blank: build number "" is not a positive integer`,
+		`Warning: skipping processed build build-legacy-rc: build number "2021.08.10-rc1" is not a positive integer`,
+	})
 	requireFreshBuildHistoryScanDeadlines(t, recorder, []string{"", "page-2", "", "page-2", "page-3"})
 }

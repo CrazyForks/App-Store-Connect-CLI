@@ -318,7 +318,7 @@ func TestBuildsNextBuildNumberScansEveryProcessedPageForMaximum(t *testing.T) {
 	}
 }
 
-func TestBuildsNextBuildNumberRejectsMalformedOlderProcessedNumber(t *testing.T) {
+func TestBuildsNextBuildNumberSkipsMalformedOlderProcessedNumber(t *testing.T) {
 	responseBody := `{"data":[
 				{"type":"builds","id":"build-new-50","attributes":{"version":"50","uploadedDate":"2026-02-03T00:00:00Z"}},
 				{"type":"builds","id":"build-old-bad","attributes":{"version":"not-a-number","uploadedDate":"2026-02-02T00:00:00Z"}}
@@ -326,37 +326,56 @@ func TestBuildsNextBuildNumberRejectsMalformedOlderProcessedNumber(t *testing.T)
 	setProcessedMaximumTestClient(t, []processedMaximumRequestStep{
 		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: responseBody},
 		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: responseBody},
+		{
+			path:         "/v1/apps/100000001/buildUploads",
+			rawQuery:     processedBuildUploadsQuery,
+			responseBody: `{"data":[],"links":{"next":""}}`,
+		},
 	})
 
-	stdout, _, runErr := runProcessedMaximumCommand(t)
-	if runErr == nil {
-		t.Fatal("expected malformed processed build number error")
+	stdout, stderr, runErr := runProcessedMaximumCommand(t)
+	if runErr != nil {
+		t.Fatalf("run: %v", runErr)
 	}
-	if !strings.Contains(runErr.Error(), `processed build build-old-bad build number "not-a-number" is not numeric`) {
-		t.Fatalf("run error = %v, want malformed processed build context", runErr)
+	output := decodeProcessedMaximumOutput(t, stdout)
+	requireProcessedMaximumValue(t, "latestProcessedBuildNumber", output.LatestProcessedBuildNumber, "50")
+	requireProcessedMaximumValue(t, "latestObservedBuildNumber", output.LatestObservedBuildNumber, "50")
+	if output.NextBuildNumber != "51" {
+		t.Fatalf("nextBuildNumber = %q, want 51", output.NextBuildNumber)
 	}
-	if stdout != "" {
-		t.Fatalf("stdout = %q, want empty", stdout)
-	}
+	requireBuildHistoryScanWarnings(t, stderr, []string{
+		`Warning: skipping processed build build-old-bad: build number "not-a-number" is not a positive integer`,
+	})
 }
 
-func TestBuildsNextBuildNumberRejectsMalformedLatestProcessedNumber(t *testing.T) {
+func TestBuildsNextBuildNumberSkipsMalformedLatestProcessedNumber(t *testing.T) {
 	responseBody := `{"data":[
 				{"type":"builds","id":"build-new-bad","attributes":{"version":"not-a-number","uploadedDate":"2026-02-03T00:00:00Z"}},
 				{"type":"builds","id":"build-old-50","attributes":{"version":"50","uploadedDate":"2026-02-02T00:00:00Z"}}
 			]}`
 	setProcessedMaximumTestClient(t, []processedMaximumRequestStep{
 		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: responseBody},
+		{path: "/v1/builds", rawQuery: processedBuildsQuery, responseBody: responseBody},
+		{
+			path:         "/v1/apps/100000001/buildUploads",
+			rawQuery:     processedBuildUploadsQuery,
+			responseBody: `{"data":[],"links":{"next":""}}`,
+		},
 	})
 
-	stdout, _, runErr := runProcessedMaximumCommand(t)
-	if runErr == nil {
-		t.Fatal("expected malformed latest processed build number error")
+	stdout, stderr, runErr := runProcessedMaximumCommand(t)
+	if runErr != nil {
+		t.Fatalf("run: %v", runErr)
 	}
-	if !strings.Contains(runErr.Error(), `processed build build-new-bad build number "not-a-number" is not numeric`) {
-		t.Fatalf("run error = %v, want malformed latest processed build context", runErr)
+	output := decodeProcessedMaximumOutput(t, stdout)
+	if output.LatestProcessedBuildNumber != nil {
+		t.Fatalf("latestProcessedBuildNumber = %q, want nil for an unusable build number", *output.LatestProcessedBuildNumber)
 	}
-	if stdout != "" {
-		t.Fatalf("stdout = %q, want empty", stdout)
+	requireProcessedMaximumValue(t, "latestObservedBuildNumber", output.LatestObservedBuildNumber, "50")
+	if output.NextBuildNumber != "51" {
+		t.Fatalf("nextBuildNumber = %q, want 51", output.NextBuildNumber)
 	}
+	requireBuildHistoryScanWarnings(t, stderr, []string{
+		`Warning: skipping processed build build-new-bad: build number "not-a-number" is not a positive integer`,
+	})
 }
