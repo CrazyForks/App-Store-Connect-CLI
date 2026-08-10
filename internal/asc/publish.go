@@ -47,6 +47,7 @@ type TestFlightPublishStageResult struct {
 	BuildNumber            string                            `json:"buildNumber,omitempty"`
 	GroupIDs               []string                          `json:"groupIds,omitempty"`
 	Uploaded               bool                              `json:"uploaded"`
+	UploadOnly             bool                              `json:"uploadOnly,omitempty"`
 	ProcessingState        string                            `json:"processingState,omitempty"`
 	Notified               *bool                             `json:"notified,omitempty"`
 	NotificationAction     BuildBetaGroupsNotificationAction `json:"notificationAction,omitempty"`
@@ -79,6 +80,7 @@ type TestFlightPublishResult struct {
 	BuildNumber            string                            `json:"buildNumber,omitempty"`
 	GroupIDs               []string                          `json:"groupIds,omitempty"`
 	Uploaded               bool                              `json:"uploaded"`
+	UploadOnly             bool                              `json:"uploadOnly,omitempty"`
 	ProcessingState        string                            `json:"processingState,omitempty"`
 	Notified               *bool                             `json:"notified,omitempty"`
 	NotificationAction     BuildBetaGroupsNotificationAction `json:"notificationAction,omitempty"`
