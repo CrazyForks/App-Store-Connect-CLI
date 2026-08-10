@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -628,7 +629,7 @@ func screenshotSourceValidationRoot(absolutePath string) string {
 		best = volume + string(filepath.Separator)
 	}
 
-	candidates := make([]string, 0, 3)
+	candidates := make([]string, 0, 4)
 	if cwd, err := os.Getwd(); err == nil {
 		candidates = append(candidates, cwd)
 	}
@@ -637,6 +638,9 @@ func screenshotSourceValidationRoot(absolutePath string) string {
 	}
 	if temporary := strings.TrimSpace(os.TempDir()); temporary != "" {
 		candidates = append(candidates, temporary)
+	}
+	if runtime.GOOS != "windows" {
+		candidates = append(candidates, "/tmp")
 	}
 	for _, candidate := range candidates {
 		candidate, err := filepath.Abs(candidate)

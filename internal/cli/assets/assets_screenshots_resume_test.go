@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +90,45 @@ func TestExecuteAppScreenshotUploadDryRunRejectsSymlinkAboveSelectedFileRoot(t *
 	}
 	if requests != 0 {
 		t.Fatalf("expected source validation before API lookup, got %d requests", requests)
+	}
+}
+
+func TestExecuteAppScreenshotUploadDryRunAllowsSystemTemporaryAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("system /tmp alias is Unix-only")
+	}
+	workDir, err := os.MkdirTemp("/tmp", "asc-screenshot-source-*")
+	if err != nil {
+		t.Fatalf("create temporary screenshot directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(workDir); err != nil {
+			t.Errorf("remove temporary screenshot directory: %v", err)
+		}
+	})
+	filePath := writeAssetsTestPNG(t, workDir, "01-home.png")
+
+	requests := 0
+	client := newAssetsUploadTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests++
+		writeAssetsTestJSON(w, http.StatusOK, `{"data":[],"links":{}}`)
+	}))
+
+	_, err = executeAppScreenshotUpload(context.Background(), screenshotUploadConfig[asc.AppScreenshotUploadResult]{
+		Client:         client,
+		LocalizationID: "LOC_123",
+		DisplayType:    "APP_IPHONE_65",
+		Files:          []string{filePath},
+		DryRun:         true,
+		RequestContext: contextWithAssetUploadTimeout,
+		UploadContext:  contextWithAssetUploadTimeout,
+		Access:         appStoreVersionScreenshotSetAccess,
+	}, "")
+	if err != nil {
+		t.Fatalf("executeAppScreenshotUpload() error: %v", err)
+	}
+	if requests == 0 {
+		t.Fatal("expected dry-run API lookup after source validation")
 	}
 }
 
