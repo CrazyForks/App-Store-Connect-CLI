@@ -153,9 +153,13 @@ func buildAppInfoFilePlans(localizations []AppInfoFastlaneLocalization) []Locali
 	return plans
 }
 
-func uploadVersionLocalizations(ctx context.Context, client *asc.Client, versionID string, localizations []FastlaneLocalization, localeToID map[string]string, submitOpts shared.SubmitReadinessOptions) ([]LocalizationUploadItem, []shared.SubmitReadinessCreateWarning, error) {
-	results := make([]LocalizationUploadItem, 0, len(localizations))
-	warnings := make([]shared.SubmitReadinessCreateWarning, 0, len(localizations))
+type preparedVersionLocalization struct {
+	localization FastlaneLocalization
+	attributes   asc.AppStoreVersionLocalizationAttributes
+}
+
+func prepareVersionLocalizations(localizations []FastlaneLocalization) ([]preparedVersionLocalization, error) {
+	prepared := make([]preparedVersionLocalization, 0, len(localizations))
 	for _, loc := range localizations {
 		attrs := asc.AppStoreVersionLocalizationAttributes{
 			Locale:          loc.Locale,
@@ -167,8 +171,22 @@ func uploadVersionLocalizations(ctx context.Context, client *asc.Client, version
 			MarketingURL:    loc.MarketingURL,
 		}
 		if err := shared.ValidateVersionLocalizationAttributes(attrs); err != nil {
-			return nil, nil, fmt.Errorf("migrate import: locale %q: %w", loc.Locale, err)
+			return nil, fmt.Errorf("migrate import: locale %q: %w", loc.Locale, err)
 		}
+		prepared = append(prepared, preparedVersionLocalization{
+			localization: loc,
+			attributes:   attrs,
+		})
+	}
+	return prepared, nil
+}
+
+func uploadVersionLocalizations(ctx context.Context, client *asc.Client, versionID string, localizations []preparedVersionLocalization, localeToID map[string]string, submitOpts shared.SubmitReadinessOptions) ([]LocalizationUploadItem, []shared.SubmitReadinessCreateWarning, error) {
+	results := make([]LocalizationUploadItem, 0, len(localizations))
+	warnings := make([]shared.SubmitReadinessCreateWarning, 0, len(localizations))
+	for _, prepared := range localizations {
+		loc := prepared.localization
+		attrs := prepared.attributes
 		action := "create"
 		localizationID := localeToID[loc.Locale]
 		if localizationID != "" {

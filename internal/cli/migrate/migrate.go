@@ -202,6 +202,10 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --app is required (or set ASC_APP_ID or Deliverfile app_identifier)")
 				return shared.MissingRequiredUsageError()
 			}
+			preparedLocalizations, err := prepareVersionLocalizations(localizations)
+			if err != nil {
+				return err
+			}
 
 			var client *asc.Client
 			var requestCtx context.Context
@@ -281,7 +285,7 @@ Examples:
 			if migrateVersionLocalizationsNeedUpdateContext(localizations, localeToID) {
 				submitOpts = shared.ResolveSubmitReadinessOptionsForVersionBestEffort(requestCtx, client, resolvedVersionID, resolvedAppID, "")
 			}
-			uploaded, warnings, err := uploadVersionLocalizations(requestCtx, client, resolvedVersionID, localizations, localeToID, submitOpts)
+			uploaded, warnings, err := uploadVersionLocalizations(requestCtx, client, resolvedVersionID, preparedLocalizations, localeToID, submitOpts)
 			if err != nil {
 				return err
 			}

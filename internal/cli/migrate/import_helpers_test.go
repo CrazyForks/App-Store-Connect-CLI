@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
-	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 type migrateUploadRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -112,38 +111,46 @@ func TestUploadScreenshots_ReordersPlannedFilesBeforeUntouchedRemoteExtras(t *te
 	}
 }
 
-func TestUploadVersionLocalizations_RejectsOverLimitKeywordBytesBeforeRequests(t *testing.T) {
-	origTransport := http.DefaultTransport
-	requestCount := 0
-	http.DefaultTransport = migrateUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requestCount++
-		t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
-		return nil, nil
-	})
-	t.Cleanup(func() {
-		http.DefaultTransport = origTransport
-	})
-
-	client := newMigrateUploadTestClient(t)
-	_, _, err := uploadVersionLocalizations(
-		context.Background(),
-		client,
-		"version-1",
-		[]FastlaneLocalization{{
-			Locale:   "ja",
-			Keywords: strings.Repeat("語", 101),
-		}},
-		map[string]string{},
-		shared.SubmitReadinessOptions{},
-	)
+func TestPrepareVersionLocalizationsRejectsOverLimitKeywords(t *testing.T) {
+	_, err := prepareVersionLocalizations([]FastlaneLocalization{{
+		Locale:   "ja",
+		Keywords: strings.Repeat("語", 101),
+	}})
 	if err == nil {
-		t.Fatal("expected upload validation error")
+		t.Fatal("expected localization validation error")
 	}
-	if !strings.Contains(err.Error(), "keywords exceed 100 characters") {
-		t.Fatalf("expected keyword character-limit error, got %v", err)
+	const wantError = `migrate import: locale "ja": keywords exceed 100 characters`
+	if err.Error() != wantError {
+		t.Fatalf("prepareVersionLocalizations() error = %q, want %q", err, wantError)
 	}
-	if requestCount != 0 {
-		t.Fatalf("expected no HTTP requests, got %d", requestCount)
+}
+
+func TestPrepareVersionLocalizationsPreservesOrderAndDuplicates(t *testing.T) {
+	localizations := []FastlaneLocalization{
+		{Locale: "en-US", Description: "first"},
+		{Locale: "en-US", Description: "second"},
+		{Locale: "fr-FR", Description: "third"},
+	}
+
+	prepared, err := prepareVersionLocalizations(localizations)
+	if err != nil {
+		t.Fatalf("prepareVersionLocalizations() error: %v", err)
+	}
+	if len(prepared) != len(localizations) {
+		t.Fatalf("prepared localization count = %d, want %d", len(prepared), len(localizations))
+	}
+
+	gotLocales := make([]string, 0, len(prepared))
+	gotDescriptions := make([]string, 0, len(prepared))
+	for _, item := range prepared {
+		gotLocales = append(gotLocales, item.localization.Locale)
+		gotDescriptions = append(gotDescriptions, item.attributes.Description)
+	}
+	if want := []string{"en-US", "en-US", "fr-FR"}; !reflect.DeepEqual(gotLocales, want) {
+		t.Fatalf("prepared locales = %v, want %v", gotLocales, want)
+	}
+	if want := []string{"first", "second", "third"}; !reflect.DeepEqual(gotDescriptions, want) {
+		t.Fatalf("prepared descriptions = %v, want %v", gotDescriptions, want)
 	}
 }
 
