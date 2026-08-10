@@ -1020,6 +1020,83 @@ func TestMigrateImportReportsPartiallyAppliedLocalesOnFailure(t *testing.T) {
 	}
 }
 
+func TestMigrateImportPartialFailureStillWarnsForCreatedLocales(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	root := t.TempDir()
+	fastlaneDir := filepath.Join(root, "fastlane")
+	for locale, description := range map[string]string{
+		"en-US": "English description",
+		"ja":    "Japanese description",
+	} {
+		localeDir := filepath.Join(fastlaneDir, "metadata", locale)
+		if err := os.MkdirAll(localeDir, 0o755); err != nil {
+			t.Fatalf("mkdir metadata %s: %v", locale, err)
+		}
+		writeFile(t, filepath.Join(localeDir, "description.txt"), description)
+	}
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	creates := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
+			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
+			return migrateJSONResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/appStoreVersionLocalizations":
+			creates++
+			if creates > 1 {
+				return migrateJSONResponse(http.StatusConflict, `{"errors":[{"status":"409","code":"STATE_ERROR","title":"Request failed","detail":"locale rejected"}]}`), nil
+			}
+			return migrateJSONResponse(http.StatusCreated, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US","description":"English description"}}}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+
+	rootCmd := RootCommand("1.2.3")
+	rootCmd.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := rootCmd.Parse([]string{
+			"migrate", "import",
+			"--app", "APP_ID",
+			"--version-id", "VERSION_ID",
+			"--fastlane-dir", fastlaneDir,
+			"--skip-screenshots",
+			"--confirm",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = rootCmd.Run(context.Background())
+	})
+
+	if runErr == nil {
+		t.Fatal("expected migrate import to fail on the second locale")
+	}
+
+	var result migrate.MigrateImportResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("unmarshal partial result from %q: %v", stdout, err)
+	}
+	if result.Status != "partial" {
+		t.Fatalf("status = %q, want partial", result.Status)
+	}
+	if len(result.Uploaded) != 1 || result.Uploaded[0].Action != "create" {
+		t.Fatalf("uploaded = %+v, want the created en-US localization", result.Uploaded)
+	}
+	if !strings.Contains(stderr, "created locale en-US now participates in submission validation") {
+		t.Fatalf("stderr = %q, want the create warning for the locale that landed", stderr)
+	}
+}
+
 func TestMigrateImportUploadPhaseKeepsFullUploadBudget(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))

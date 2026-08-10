@@ -312,6 +312,7 @@ Examples:
 			// interrupted import still reports the App Store Connect state it
 			// left behind instead of printing nothing.
 			completedStages := make([]string, 0, 4)
+			var createWarnings []shared.SubmitReadinessCreateWarning
 			reportPartialFailure := func(stage string, failure error) error {
 				if !migrateImportAppliedAnything(result) {
 					return failure
@@ -324,11 +325,17 @@ Examples:
 				if printErr := printMigrateOutput(presentableImportResult(result, *includeSensitive), *output.Output, *output.Pretty); printErr != nil {
 					return errors.Join(failure, fmt.Errorf(migrateImportPartialResultPrintErrorFormat, printErr))
 				}
+				// Locales created before the failure still need the submission
+				// fields the warning names, so report them here too.
+				if warnErr := shared.PrintSubmitReadinessCreateWarnings(os.Stderr, createWarnings); warnErr != nil {
+					return errors.Join(failure, warnErr)
+				}
 				return failure
 			}
 
 			uploaded, warnings, err := uploadVersionLocalizations(ctx, client, resolvedVersionID, preparedLocalizations, localeToID, submitOpts)
 			result.Uploaded = uploaded
+			createWarnings = warnings
 			if err != nil {
 				return reportPartialFailure(migrateStageVersionLocalizations, err)
 			}
@@ -367,7 +374,7 @@ Examples:
 			if err := printMigrateOutput(presentableImportResult(result, *includeSensitive), *output.Output, *output.Pretty); err != nil {
 				return err
 			}
-			return shared.PrintSubmitReadinessCreateWarnings(os.Stderr, warnings)
+			return shared.PrintSubmitReadinessCreateWarnings(os.Stderr, createWarnings)
 		},
 	}
 }
