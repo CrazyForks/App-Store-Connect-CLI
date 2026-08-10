@@ -135,11 +135,15 @@ func GenerateNotaryJWT(keyID, issuerID string, privateKey any) (string, error) {
 
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss":   issuerID,
 		"aud":   "appstoreconnect-v1",
 		"iat":   jwt.NewNumericDate(now),
 		"exp":   jwt.NewNumericDate(now.Add(tokenLifetime)),
 		"scope": []string{"/notary/v2"},
+	}
+	if issuerID == "" {
+		claims["sub"] = "user"
+	} else {
+		claims["iss"] = issuerID
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)

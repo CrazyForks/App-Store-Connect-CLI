@@ -76,6 +76,23 @@ func TestGenerateNotaryJWT_NormalizesIdentifiers(t *testing.T) {
 	}
 }
 
+func TestGenerateNotaryJWT_WhitespaceIssuerUsesUserSubjectClaim(t *testing.T) {
+	privateKey := testJWTPrivateKey(t)
+
+	tokenString, err := GenerateNotaryJWT("KEY123", " \t\n ", privateKey)
+	if err != nil {
+		t.Fatalf("GenerateNotaryJWT() error: %v", err)
+	}
+
+	_, claims := parseJWT(t, tokenString, privateKey)
+	if claims.Issuer != "" {
+		t.Fatalf("issuer claim = %q, want empty", claims.Issuer)
+	}
+	if claims.Subject != "user" {
+		t.Fatalf("subject claim = %q, want user", claims.Subject)
+	}
+}
+
 func TestGenerateNotaryJWT_RejectsWhitespaceKeyID(t *testing.T) {
 	privateKey := testJWTPrivateKey(t)
 
