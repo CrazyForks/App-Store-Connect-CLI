@@ -353,6 +353,68 @@ func TestGitStoreCloneErrorRedactsRepositoryCredentials(t *testing.T) {
 	}
 }
 
+func TestGitStoreCloneReportsGitConfigProbeFailures(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts require a POSIX shell")
+	}
+
+	tests := []struct {
+		name        string
+		allowCreate bool
+	}{
+		{name: "pull mode"},
+		{name: "push mode", allowCreate: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			callCapture := filepath.Join(t.TempDir(), "git-calls.txt")
+			writeTestExecutable(t, filepath.Join(binDir, "git"), `#!/bin/sh
+set -eu
+printf '%s\n' "$1" >> "$ASC_FAKE_GIT_CALLS"
+if [ "$1" = "config" ]; then
+  printf 'fatal: bad config line 1 in file .gitconfig\n' >&2
+  exit 128
+fi
+exit 0
+`)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("ASC_FAKE_GIT_CALLS", callCapture)
+			t.Setenv("GIT_SSH_COMMAND", "")
+			t.Setenv("GIT_SSH", "")
+
+			store := &GitStore{
+				RepoURL:  "git@github.com:team/certs.git",
+				LocalDir: filepath.Join(t.TempDir(), "clone"),
+				Branch:   "main",
+			}
+
+			err := store.Clone(context.Background(), test.allowCreate)
+			if err == nil {
+				t.Fatal("expected the Git configuration probe failure to surface")
+			}
+			if !strings.Contains(err.Error(), "core.sshCommand") {
+				t.Fatalf("error = %v, want the Git configuration failure", err)
+			}
+			if strings.Contains(err.Error(), "not found") {
+				t.Fatalf("local Git configuration failure reported as a missing branch: %v", err)
+			}
+
+			calls, readErr := os.ReadFile(callCapture)
+			if readErr != nil {
+				t.Fatalf("read fake git calls: %v", readErr)
+			}
+			if got := strings.Count(string(calls), "config"); got != 1 {
+				t.Fatalf("Git configuration probe ran %d times, want 1: %q", got, calls)
+			}
+			if strings.Contains(string(calls), "clone") {
+				t.Fatalf("clone ran despite an unusable Git configuration: %q", calls)
+			}
+		})
+	}
+}
+
 func TestGitStoreGitHelpersUseNonInteractiveExecutables(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts require a POSIX shell")

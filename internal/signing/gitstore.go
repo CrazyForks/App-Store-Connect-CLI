@@ -82,6 +82,13 @@ func (g *GitStore) Clone(ctx context.Context, allowCreate bool) error {
 		return nil
 	}
 
+	// A local Git configuration failure says nothing about the remote, so it
+	// must not be reported as a missing branch or retried as an empty repo.
+	var configErr gitConfigProbeError
+	if errors.As(err, &configErr) {
+		return err
+	}
+
 	if !allowCreate {
 		return fmt.Errorf("git clone: branch %q not found in %s: %w", branch, RedactRepoURL(g.RepoURL), err)
 	}
@@ -295,6 +302,16 @@ func RejectSymlinkIfExists(path string) error {
 	return nil
 }
 
+// gitConfigProbeError marks a failure of the local Git configuration probe, so
+// callers can tell it apart from a failure of the Git command they asked for.
+type gitConfigProbeError struct {
+	err error
+}
+
+func (e gitConfigProbeError) Error() string { return e.err.Error() }
+
+func (e gitConfigProbeError) Unwrap() error { return e.err }
+
 func newGitCommand(ctx context.Context, dir string, args ...string) (*exec.Cmd, error) {
 	environment := gitEnvironmentWithoutRepositorySelectors(os.Environ(), runtime.GOOS)
 	coreSSHCommandConfigured := false
@@ -396,7 +413,7 @@ func hasConfiguredGitSSHCommand(
 	if !includeRepositoryConfig {
 		neutralRoot, err := os.MkdirTemp("", "asc-git-config-")
 		if err != nil {
-			return false, fmt.Errorf("create neutral Git config probe: %w", err)
+			return false, gitConfigProbeError{fmt.Errorf("create neutral Git config probe: %w", err)}
 		}
 		defer func() {
 			_ = os.Remove(neutralRoot)
@@ -421,7 +438,7 @@ func hasConfiguredGitSSHCommand(
 		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
 			return false, nil
 		}
-		return false, fmt.Errorf("check Git core.sshCommand: %w", err)
+		return false, gitConfigProbeError{fmt.Errorf("check Git core.sshCommand: %w", err)}
 	}
 	return strings.TrimSpace(string(output)) != "", nil
 }
