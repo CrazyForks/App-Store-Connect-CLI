@@ -24,6 +24,41 @@ func TestLegalChecks_CopyrightPresent(t *testing.T) {
 	}
 }
 
+func TestLegalChecks_CopyrightAcceptsAppStoreConnectFreeTextForms(t *testing.T) {
+	for _, value := range []string{
+		"© 2026 Acme Inc.",
+		"(c) 2026 Acme Inc.",
+		"Copyright 2026 Acme Inc.",
+		"2019-2026 Acme Inc.",
+		"2026, Acme Inc.",
+	} {
+		checks := legalChecks(value, false, false, nil, nil)
+		if hasCheckID(checks, "legal.format.copyright_year") {
+			t.Fatalf("copyright %q reported legal.format.copyright_year, want no year check", value)
+		}
+	}
+}
+
+func TestLegalChecks_CopyrightYearAdvisesInsteadOfBlocking(t *testing.T) {
+	checks := legalChecks("Acme Inc.", false, false, nil, nil)
+
+	var found []CheckResult
+	for _, check := range checks {
+		if check.ID == "legal.format.copyright_year" {
+			found = append(found, check)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("copyright-year checks = %+v, want exactly one", checks)
+	}
+	if found[0].Severity != SeverityWarning {
+		t.Fatalf("copyright-year severity = %q, want %q", found[0].Severity, SeverityWarning)
+	}
+	if summarize(checks, false).Blocking != 0 {
+		t.Fatalf("copyright-year check is blocking in non-strict mode: %+v", summarize(checks, false))
+	}
+}
+
 func TestHasValidLeadingCopyrightYear(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -36,6 +71,20 @@ func TestHasValidLeadingCopyrightYear(t *testing.T) {
 		{name: "surrounding whitespace", value: "  2026 Acme  ", want: true},
 		{name: "unicode whitespace", value: "\u00a02026\tAcme\u00a0", want: true},
 		{name: "year without owner grammar", value: "2026", want: true},
+		{name: "copyright sign prefix", value: "\u00a9 2026 Acme Inc.", want: true},
+		{name: "copyright sign joined to year", value: "\u00a92026 Acme Inc.", want: true},
+		{name: "parenthesized c prefix", value: "(c) 2026 Acme", want: true},
+		{name: "parenthesized uppercase c prefix", value: "(C) 2026 Acme", want: true},
+		{name: "copyright word prefix", value: "Copyright 2026 Acme", want: true},
+		{name: "copyright word and sign prefix", value: "Copyright \u00a9 2026 Acme", want: true},
+		{name: "lowercase copyright word prefix", value: "copyright 2026 Acme", want: true},
+		{name: "year range", value: "2019-2026 Acme Inc.", want: true},
+		{name: "spaced year range", value: "2019 - 2026 Acme Inc.", want: true},
+		{name: "en dash year range", value: "2019\u20132026 Acme Inc.", want: true},
+		{name: "copyright sign with year range", value: "\u00a9 2019-2026 Acme Inc.", want: true},
+		{name: "comma after year", value: "2026, Acme", want: true},
+		{name: "period after year", value: "2026. Acme", want: true},
+		{name: "marker without year", value: "\u00a9 Acme Inc.", want: false},
 		{name: "year zero", value: "0000 Acme", want: false},
 		{name: "missing year", value: "Acme", want: false},
 		{name: "year is not leading", value: "Acme 2026", want: false},
