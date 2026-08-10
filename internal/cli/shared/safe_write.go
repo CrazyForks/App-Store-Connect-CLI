@@ -3,11 +3,21 @@ package shared
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/secureopen"
+)
+
+// Publication primitives are indirected so tests can simulate destination
+// filesystems that do not implement them.
+var (
+	renameNoReplaceInRoot = secureopen.RenameNoReplaceInRoot
+	linkInRoot            = func(root *os.Root, oldName, newName string) error {
+		return root.Link(oldName, newName)
+	}
 )
 
 // SafeWriteFileNoSymlink writes a file to path without following symlinks and with an optional
@@ -80,10 +90,13 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 
 		if err := publishStagedFileNoReplace(temporaryName, base, stagedFilePublishOps{
 			renameFile: func(oldName, newName string) error {
-				return displayPublishError(secureopen.RenameNoReplaceInRoot(parent, oldName, newName))
+				return displayPublishError(renameNoReplaceInRoot(parent, oldName, newName))
 			},
 			linkFile: func(oldName, newName string) error {
-				return displayPublishError(parent.Link(oldName, newName))
+				return displayPublishError(linkInRoot(parent, oldName, newName))
+			},
+			copyFile: func(oldName, newName string) error {
+				return displayPublishError(copyStagedFileNoReplace(parent, oldName, newName, perm))
 			},
 			removeFile: func(name string) error {
 				return displayTemporaryError(removeRootedFile(parent, name))
@@ -106,6 +119,7 @@ type newFileWriteOps struct {
 type stagedFilePublishOps struct {
 	renameFile func(string, string) error
 	linkFile   func(string, string) error
+	copyFile   func(string, string) error
 	removeFile func(string) error
 }
 
@@ -123,6 +137,11 @@ func publishStagedFileNoReplace(temporaryName, destinationName string, ops stage
 			_ = removeStaged()
 		}
 	}()
+	failAfterCleanup := func(err error) error {
+		return cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(string) error {
+			return removeStaged()
+		})
+	}
 
 	renameErr := ops.renameFile(temporaryName, destinationName)
 	if renameErr == nil {
@@ -131,22 +150,66 @@ func publishStagedFileNoReplace(temporaryName, destinationName string, ops stage
 		return nil
 	}
 	if !errors.Is(renameErr, secureopen.ErrRenameNoReplaceUnsupported) {
-		return cleanupIncompleteFile(temporaryName, renameErr, func() error { return nil }, func(string) error {
-			return removeStaged()
-		})
+		return failAfterCleanup(renameErr)
 	}
 
 	// Filesystems without a native no-replace rename may still support hard
 	// links. Link is also atomic and cannot replace an existing destination.
-	if err := ops.linkFile(temporaryName, destinationName); err != nil {
-		return cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(string) error {
-			return removeStaged()
-		})
+	linkErr := ops.linkFile(temporaryName, destinationName)
+	if linkErr == nil {
+		// Once publication succeeds, the complete destination is committed. Cleanup
+		// remains best effort so callers do not retry a write that already succeeded.
+		_ = removeStaged()
+		return nil
 	}
-	// Once publication succeeds, the complete destination is committed. Cleanup
-	// remains best effort so callers do not retry a write that already succeeded.
+	if errors.Is(linkErr, os.ErrExist) {
+		return failAfterCleanup(linkErr)
+	}
+
+	// FAT/exFAT volumes, SMB shares, and several FUSE mounts implement neither
+	// primitive, and they report that with filesystem-specific errors rather
+	// than one portable code. Copying into an exclusively created destination is
+	// the no-clobber publication every filesystem supports, so try it before
+	// discarding a complete download.
+	if err := ops.copyFile(temporaryName, destinationName); err != nil {
+		return failAfterCleanup(err)
+	}
 	_ = removeStaged()
 	return nil
+}
+
+// copyStagedFileNoReplace publishes the staged file by creating the destination
+// with an exclusive, no-follow create and copying the staged bytes into it.
+//
+// Exclusive create cannot clobber an existing destination, so this preserves
+// no-replace semantics on filesystems that support neither an atomic no-replace
+// rename nor hard links. A partially copied destination is removed so callers
+// never observe a truncated output file.
+func copyStagedFileNoReplace(root *os.Root, temporaryName, destinationName string, perm os.FileMode) error {
+	source, err := secureopen.OpenExistingNoFollowInRoot(root, temporaryName)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := secureopen.OpenNewFileNoFollowInRoot(root, destinationName, perm)
+	if err != nil {
+		return err
+	}
+	if err := copyIntoPublishedFile(destination, source); err != nil {
+		return errors.Join(err, removeRootedFile(root, destinationName))
+	}
+	return nil
+}
+
+func copyIntoPublishedFile(destination, source *os.File) error {
+	if _, err := io.Copy(destination, source); err != nil {
+		return errors.Join(err, destination.Close())
+	}
+	if err := destination.Sync(); err != nil {
+		return errors.Join(err, destination.Close())
+	}
+	return destination.Close()
 }
 
 func writeNewFileNoSymlink(path string, file *os.File, write func(*os.File) (int64, error), ops newFileWriteOps) (int64, error) {

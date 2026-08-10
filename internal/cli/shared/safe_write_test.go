@@ -2,10 +2,12 @@ package shared
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/secureopen"
@@ -476,6 +478,218 @@ func TestPublishStagedFileNoReplaceDoesNotFallbackWhenDestinationExists(t *testi
 	}
 	if !removeCalled {
 		t.Fatal("staged path was not cleaned up")
+	}
+}
+
+func TestPublishStagedFileNoReplaceCopiesWhenRenameAndLinkAreUnsupported(t *testing.T) {
+	copyCalled := false
+	removeCalled := false
+	linkErr := fmt.Errorf("linkat: %w", syscall.ENOTSUP)
+
+	err := publishStagedFileNoReplace(
+		".safe-write-staged",
+		"artifact.bin",
+		stagedFilePublishOps{
+			renameFile: func(string, string) error {
+				return secureopen.ErrRenameNoReplaceUnsupported
+			},
+			linkFile: func(string, string) error {
+				return linkErr
+			},
+			copyFile: func(oldName, newName string) error {
+				copyCalled = true
+				if oldName != ".safe-write-staged" || newName != "artifact.bin" {
+					t.Fatalf("copy names = %q, %q", oldName, newName)
+				}
+				return nil
+			},
+			removeFile: func(name string) error {
+				removeCalled = true
+				if name != ".safe-write-staged" {
+					t.Fatalf("remove name = %q", name)
+				}
+				return nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("publishStagedFileNoReplace() error = %v", err)
+	}
+	if !copyCalled {
+		t.Fatal("copy fallback was not called")
+	}
+	if !removeCalled {
+		t.Fatal("staged file was not removed after the copy fallback")
+	}
+}
+
+func TestPublishStagedFileNoReplaceDoesNotCopyWhenLinkFindsExistingDestination(t *testing.T) {
+	copyCalled := false
+	removeCalled := false
+
+	err := publishStagedFileNoReplace(
+		".safe-write-staged",
+		"artifact.bin",
+		stagedFilePublishOps{
+			renameFile: func(string, string) error {
+				return secureopen.ErrRenameNoReplaceUnsupported
+			},
+			linkFile: func(string, string) error {
+				return os.ErrExist
+			},
+			copyFile: func(string, string) error {
+				copyCalled = true
+				return nil
+			},
+			removeFile: func(string) error {
+				removeCalled = true
+				return nil
+			},
+		},
+	)
+	if !errors.Is(err, os.ErrExist) {
+		t.Fatalf("publishStagedFileNoReplace() error = %v, want os.ErrExist", err)
+	}
+	if copyCalled {
+		t.Fatal("copy fallback was called for an existing destination")
+	}
+	if !removeCalled {
+		t.Fatal("staged path was not cleaned up")
+	}
+}
+
+func TestPublishStagedFileNoReplaceReportsCopyFailure(t *testing.T) {
+	copyErr := errors.New("simulated copy failure")
+	removeCalled := false
+
+	err := publishStagedFileNoReplace(
+		".safe-write-staged",
+		"artifact.bin",
+		stagedFilePublishOps{
+			renameFile: func(string, string) error {
+				return secureopen.ErrRenameNoReplaceUnsupported
+			},
+			linkFile: func(string, string) error {
+				return syscall.ENOTSUP
+			},
+			copyFile: func(string, string) error {
+				return copyErr
+			},
+			removeFile: func(string) error {
+				removeCalled = true
+				return nil
+			},
+		},
+	)
+	if !errors.Is(err, copyErr) {
+		t.Fatalf("publishStagedFileNoReplace() error = %v, want %v", err, copyErr)
+	}
+	if !removeCalled {
+		t.Fatal("staged path was not cleaned up after the copy failure")
+	}
+}
+
+func TestSafeWriteFileNoSymlinkNoOverwritePublishesWithoutRenameOrLinkSupport(t *testing.T) {
+	stubUnsupportedPublishPrimitives(t)
+
+	directory := t.TempDir()
+	destination := filepath.Join(directory, "artifact.bin")
+	content := []byte("complete")
+
+	written, err := SafeWriteFileNoSymlink(
+		destination,
+		0o600,
+		false,
+		".safe-write-*",
+		".safe-write-backup-*",
+		func(file *os.File) (int64, error) {
+			written, err := file.Write(content)
+			return int64(written), err
+		},
+	)
+	if err != nil {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v", err)
+	}
+	if written != int64(len(content)) {
+		t.Fatalf("SafeWriteFileNoSymlink() written = %d, want %d", written, len(content))
+	}
+	got, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != string(content) {
+		t.Fatalf("destination content = %q, want %q", got, content)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(destination) {
+		t.Fatalf("directory entries = %v, want only %q", entries, filepath.Base(destination))
+	}
+}
+
+func TestSafeWriteFileNoSymlinkNoOverwriteCopyFallbackPreservesExistingDestination(t *testing.T) {
+	stubUnsupportedPublishPrimitives(t)
+
+	directory := t.TempDir()
+	destination := filepath.Join(directory, "artifact.bin")
+	concurrent := []byte("concurrent")
+
+	_, err := SafeWriteFileNoSymlink(
+		destination,
+		0o600,
+		false,
+		".safe-write-*",
+		".safe-write-backup-*",
+		func(file *os.File) (int64, error) {
+			written, err := file.Write([]byte("complete"))
+			if err != nil {
+				return int64(written), err
+			}
+			if err := os.WriteFile(destination, concurrent, 0o600); err != nil {
+				return int64(written), err
+			}
+			return int64(written), nil
+		},
+	)
+	if !errors.Is(err, os.ErrExist) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want os.ErrExist", err)
+	}
+	got, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != string(concurrent) {
+		t.Fatalf("destination content = %q, want %q", got, concurrent)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(destination) {
+		t.Fatalf("directory entries = %v, want only %q", entries, filepath.Base(destination))
+	}
+}
+
+// stubUnsupportedPublishPrimitives simulates a destination filesystem such as
+// FAT/exFAT, SMB, or FUSE that implements neither an atomic no-replace rename
+// nor hard links.
+func stubUnsupportedPublishPrimitives(t *testing.T) {
+	t.Helper()
+
+	previousRename := renameNoReplaceInRoot
+	previousLink := linkInRoot
+	t.Cleanup(func() {
+		renameNoReplaceInRoot = previousRename
+		linkInRoot = previousLink
+	})
+
+	renameNoReplaceInRoot = func(_ *os.Root, oldName, newName string) error {
+		return &os.LinkError{Op: "renameat2", Old: oldName, New: newName, Err: errors.Join(secureopen.ErrRenameNoReplaceUnsupported, syscall.EINVAL)}
+	}
+	linkInRoot = func(_ *os.Root, oldName, newName string) error {
+		return &os.LinkError{Op: "linkat", Old: oldName, New: newName, Err: syscall.ENOTSUP}
 	}
 }
 
