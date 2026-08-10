@@ -3,11 +3,10 @@
 package cmdtest
 
 import (
+	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"testing"
-
-	"golang.org/x/sys/unix"
 )
 
 func TestAppClipsAdvancedExperiencesCreateMissingSelectorDoesNotReadConfig(t *testing.T) {
@@ -27,57 +26,29 @@ func TestAppClipsAdvancedExperiencesCreateMissingSelectorDoesNotReadConfig(t *te
 		}
 	})
 
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := unix.Mkfifo(configPath, 0o600); err != nil {
+	configReader, configWriter, err := os.Pipe()
+	if err != nil {
 		t.Fatalf("create config sentinel: %v", err)
 	}
-	t.Setenv("ASC_CONFIG_PATH", configPath)
-
-	configOpened := make(chan struct{})
-	writerResult := make(chan error, 1)
-	go func() {
-		file, err := os.OpenFile(configPath, os.O_WRONLY, 0o600)
-		if err != nil {
-			writerResult <- err
-			return
-		}
-		close(configOpened)
-		if _, err := file.WriteString("{}"); err != nil {
-			_ = file.Close()
-			writerResult <- err
-			return
-		}
-		writerResult <- file.Close()
-	}()
-	t.Cleanup(func() {
-		select {
-		case <-configOpened:
-		case err := <-writerResult:
-			if err != nil {
-				t.Errorf("config sentinel writer: %v", err)
-			}
-			return
-		default:
-			fd, err := unix.Open(configPath, unix.O_RDONLY|unix.O_NONBLOCK, 0)
-			if err != nil {
-				t.Errorf("open config sentinel reader: %v", err)
-				return
-			}
-			defer unix.Close(fd)
-		}
-		if err := <-writerResult; err != nil {
-			t.Errorf("config sentinel writer: %v", err)
-		}
-	})
+	t.Cleanup(func() { _ = configReader.Close() })
+	if _, err := configWriter.WriteString("{}"); err != nil {
+		t.Fatalf("write config sentinel: %v", err)
+	}
+	if err := configWriter.Close(); err != nil {
+		t.Fatalf("close config sentinel: %v", err)
+	}
+	t.Setenv("ASC_CONFIG_PATH", fmt.Sprintf("/dev/fd/%d", configReader.Fd()))
 
 	assertAppClipAdvancedExperienceCreateUsageBeforeClient(
 		t,
 		nil,
 		"Error: --app-clip-id or --bundle-id is required\n",
 	)
-	select {
-	case <-configOpened:
+	remainingConfig, err := io.ReadAll(configReader)
+	if err != nil {
+		t.Fatalf("read config sentinel: %v", err)
+	}
+	if string(remainingConfig) != "{}" {
 		t.Fatal("configuration was read before selector validation")
-	default:
 	}
 }
