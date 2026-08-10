@@ -74,23 +74,26 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 		DeliverfileConfig: config,
 	}
 
-	metadataDir, metadataSource, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.MetadataDir, config.MetadataPath, "metadata", opts.AllowExternalMetadata)
+	metadata, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.MetadataDir, config.MetadataPath, "metadata", "metadata_path", opts.AllowExternalMetadata)
 	if err != nil {
 		return importInputs{}, nil, err
 	}
-	screenshotsDir, screenshotsSource, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots", opts.AllowExternalScreenshots)
+	screenshots, err := resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots", "screenshots_path", opts.AllowExternalScreenshots)
 	if err != nil {
 		return importInputs{}, nil, err
 	}
 	skipScreenshots := opts.SkipScreenshots || config.SkipScreenshots
 
 	skipped := []SkippedItem{}
-	metadataDir, skipped, err = validateResolvedDir(metadataDir, metadataSource, "metadata", skipped)
+	skipped = noteOverriddenConventionalDir(skipped, metadata)
+	metadataDir, skipped, err := validateResolvedDir(metadata, skipped)
 	if err != nil {
 		return importInputs{}, nil, err
 	}
+	screenshotsDir := screenshots.path
 	if !skipScreenshots {
-		screenshotsDir, skipped, err = validateResolvedDir(screenshotsDir, screenshotsSource, "screenshots", skipped)
+		skipped = noteOverriddenConventionalDir(skipped, screenshots)
+		screenshotsDir, skipped, err = validateResolvedDir(screenshots, skipped)
 		if err != nil {
 			return importInputs{}, nil, err
 		}
@@ -98,45 +101,98 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 
 	inputs.MetadataDir = metadataDir
 	inputs.ScreenshotsDir = screenshotsDir
-	inputs.MetadataSource = metadataSource
-	inputs.ScreenshotsSource = screenshotsSource
+	inputs.MetadataSource = metadata.source
+	inputs.ScreenshotsSource = screenshots.source
 
 	return inputs, skipped, nil
 }
 
-func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deliverfilePathValue, defaultDir string, allowExternal bool) (string, pathSource, error) {
+// resolvedImportPath records where an import directory came from so callers can
+// report an overridden conventional directory and fail with the directive that
+// selected a missing one.
+type resolvedImportPath struct {
+	path   string
+	source pathSource
+	label  string
+	// directive and value describe the Deliverfile entry that selected the
+	// path; they are empty for every other source.
+	directive string
+	value     string
+	// conventional is the fastlane default directory that exists but was not
+	// selected, empty when the default was chosen or does not exist.
+	conventional string
+}
+
+func resolveImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deliverfilePathValue, defaultDir, directive string, allowExternal bool) (resolvedImportPath, error) {
 	if strings.TrimSpace(explicitPath) != "" {
-		return explicitPath, pathSourceFlag, nil
+		return resolvedImportPath{path: explicitPath, source: pathSourceFlag, label: defaultDir}, nil
+	}
+	base := workDir
+	if strings.TrimSpace(fastlaneDir) != "" {
+		base = fastlaneDir
+	}
+	if deliverfilePath != "" {
+		base = filepath.Dir(deliverfilePath)
+	}
+	// A Deliverfile's own metadata_path/screenshots_path wins over the
+	// conventional layout in both modes: --fastlane-dir selects which
+	// Deliverfile is read, it does not discard the directives inside it.
+	if strings.TrimSpace(deliverfilePathValue) != "" {
+		root := workDir
+		if strings.TrimSpace(fastlaneDir) != "" {
+			root = fastlaneDir
+		}
+		resolved, err := containDeliverfilePath(root, base, deliverfilePathValue)
+		if err != nil {
+			if !allowExternal {
+				return resolvedImportPath{}, err
+			}
+			resolved, err = resolveTrustedDeliverfilePath(base, deliverfilePathValue)
+			if err != nil {
+				return resolvedImportPath{}, err
+			}
+		}
+		return resolvedImportPath{
+			path:         resolved,
+			source:       pathSourceDeliverfile,
+			label:        defaultDir,
+			directive:    directive,
+			value:        deliverfilePathValue,
+			conventional: overriddenConventionalDir(base, defaultDir, resolved),
+		}, nil
 	}
 	if strings.TrimSpace(fastlaneDir) != "" {
 		resolved, err := resolveFastlaneChild(fastlaneDir, defaultDir, allowExternal)
 		if err != nil {
-			return "", pathSourceFlag, err
+			return resolvedImportPath{}, err
 		}
-		return resolved, pathSourceFlag, nil
+		return resolvedImportPath{path: resolved, source: pathSourceFlag, label: defaultDir}, nil
 	}
-	if strings.TrimSpace(deliverfilePathValue) != "" {
-		base := workDir
-		if deliverfilePath != "" {
-			base = filepath.Dir(deliverfilePath)
-		}
-		resolved, err := containDeliverfilePath(workDir, base, deliverfilePathValue)
-		if err != nil {
-			if !allowExternal {
-				return "", pathSourceDeliverfile, err
-			}
-			resolved, err = resolveTrustedDeliverfilePath(base, deliverfilePathValue)
-			if err != nil {
-				return "", pathSourceDeliverfile, err
-			}
-		}
-		return resolved, pathSourceDeliverfile, nil
+	return resolvedImportPath{path: filepath.Join(base, defaultDir), source: pathSourceDefault, label: defaultDir}, nil
+}
+
+func overriddenConventionalDir(base, defaultDir, resolved string) string {
+	conventional := filepath.Join(base, defaultDir)
+	if conventional == filepath.Clean(resolved) {
+		return ""
 	}
-	base := workDir
-	if deliverfilePath != "" {
-		base = filepath.Dir(deliverfilePath)
+	return conventional
+}
+
+// noteOverriddenConventionalDir reports a conventional fastlane directory that
+// exists but is not read because the Deliverfile selected another one, so the
+// precedence is visible instead of silently changing which files are published.
+func noteOverriddenConventionalDir(skipped []SkippedItem, resolved resolvedImportPath) []SkippedItem {
+	if resolved.source != pathSourceDeliverfile || resolved.conventional == "" {
+		return skipped
 	}
-	return filepath.Join(base, defaultDir), pathSourceDefault, nil
+	if err := ensureDirExists(resolved.conventional); err != nil {
+		return skipped
+	}
+	return append(skipped, SkippedItem{
+		Path:   resolved.conventional,
+		Reason: fmt.Sprintf("unused because Deliverfile %s %q selects another directory", resolved.directive, resolved.value),
+	})
 }
 
 func resolveFastlaneChild(fastlaneDir, child string, allowExternal bool) (string, error) {
@@ -179,13 +235,14 @@ func containFastlaneChild(fastlaneDir, child string) (string, error) {
 
 // containDeliverfilePath resolves a repository-controlled Deliverfile path
 // value against the Deliverfile's own directory and requires the result to stay
-// inside the working directory, because the Deliverfile ships with the checkout
-// and must not select files outside it.
-func containDeliverfilePath(workDir, base, value string) (string, error) {
+// inside the trusted root for the run (the working directory, or the selected
+// Fastlane directory), because the Deliverfile ships with the checkout and must
+// not select files outside it.
+func containDeliverfilePath(rootPath, base, value string) (string, error) {
 	if err := rootfs.ValidateRelativeAllowingTraversal(value); err != nil {
 		return "", fmt.Errorf("deliverfile path %q: %w", value, err)
 	}
-	root, err := rootfs.New(workDir)
+	root, err := rootfs.New(rootPath)
 	if err != nil {
 		return "", err
 	}
@@ -203,21 +260,27 @@ func containDeliverfilePath(workDir, base, value string) (string, error) {
 	return resolved, nil
 }
 
-func validateResolvedDir(path string, source pathSource, label string, skipped []SkippedItem) (string, []SkippedItem, error) {
-	if strings.TrimSpace(path) == "" {
+func validateResolvedDir(resolved resolvedImportPath, skipped []SkippedItem) (string, []SkippedItem, error) {
+	if strings.TrimSpace(resolved.path) == "" {
 		return "", skipped, nil
 	}
-	if err := ensureDirExists(path); err != nil {
-		if source == pathSourceDefault {
+	if err := ensureDirExists(resolved.path); err != nil {
+		switch resolved.source {
+		case pathSourceDefault:
 			skipped = append(skipped, SkippedItem{
-				Path:   path,
-				Reason: fmt.Sprintf("default %s directory not found", label),
+				Path:   resolved.path,
+				Reason: fmt.Sprintf("default %s directory not found", resolved.label),
 			})
 			return "", skipped, nil
+		case pathSourceDeliverfile:
+			// Name the directive so an operator can tell a stale Deliverfile
+			// path apart from a missing conventional directory.
+			return "", skipped, fmt.Errorf("deliverfile %s %q resolves to %s: %w", resolved.directive, resolved.value, resolved.path, err)
+		default:
+			return "", skipped, err
 		}
-		return "", skipped, err
 	}
-	return path, skipped, nil
+	return resolved.path, skipped, nil
 }
 
 func discoverDeliverfilePath(workDir, fastlaneDir string) (string, error) {
