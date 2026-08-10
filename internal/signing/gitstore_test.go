@@ -480,8 +480,10 @@ exit 17
 				if capture == selectedCapture {
 					continue
 				}
-				if _, err := os.Stat(capture); !os.IsNotExist(err) {
-					t.Fatalf("unselected SSH transport unexpectedly ran: %v", err)
+				if _, err := os.Stat(capture); err == nil {
+					t.Fatalf("unselected SSH transport %q unexpectedly ran", capture)
+				} else if !os.IsNotExist(err) {
+					t.Fatalf("stat unselected SSH transport %q: %v", capture, err)
 				}
 			}
 		})
@@ -740,16 +742,35 @@ func runTestGitWithEnvironment(t *testing.T, environment []string, args ...strin
 	runTestGitOutput(t, environment, t.TempDir(), args...)
 }
 
+func TestRunTestGitOutputSeparatesStandardError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts require a POSIX shell")
+	}
+
+	binDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(binDir, "git"), `#!/bin/sh
+printf 'configured transport\n'
+printf 'warning: diagnostic only\n' >&2
+`)
+	t.Setenv("PATH", binDir)
+	environment := replaceCommandEnvironmentValue(standaloneTestGitEnvironment(t), "PATH", binDir, false)
+	if got := runTestGitOutput(t, environment, t.TempDir(), "config", "--get", "core.sshCommand"); got != "configured transport\n" {
+		t.Fatalf("runTestGitOutput() = %q, want stdout only", got)
+	}
+}
+
 func runTestGitOutput(t *testing.T, environment []string, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = environment
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, output)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, stderr.String())
 	}
-	return string(output)
+	return stdout.String()
 }
 
 func standaloneTestGitConfigValue(t *testing.T, environment []string, repository, key string) (string, bool) {
