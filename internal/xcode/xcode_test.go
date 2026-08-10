@@ -423,6 +423,107 @@ func TestValidateRunsAltoolWithTVOSPlatform(t *testing.T) {
 	}
 }
 
+func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
+	tests := []struct {
+		name           string
+		stdout         string
+		output         string
+		wantErr        bool
+		wantDetail     string
+		maxDetailBytes int
+	}{
+		{
+			name:       "timestamped server error",
+			output:     "2026-08-10 06:47:56.580 ERROR: [ContentDelivery.Uploader] The bundle version must be higher than the previously uploaded version.\n",
+			wantErr:    true,
+			wantDetail: "The bundle version must be higher than the previously uploaded version.",
+		},
+		{
+			name:       "legacy error",
+			output:     "*** Error: Unable to validate archive './artifacts/Demo.ipa'.\n",
+			wantErr:    true,
+			wantDetail: "Unable to validate archive './artifacts/Demo.ipa'.",
+		},
+		{
+			name:       "timestamped error before long diagnostics",
+			output:     "2026-08-10 06:47:56.580 ERROR: Early server rejection.\n" + strings.Repeat("x", xcodebuildErrorTailLimit+1) + "\n",
+			wantErr:    true,
+			wantDetail: "Early server rejection.",
+		},
+		{
+			name:       "unterminated stdout before timestamped stderr",
+			stdout:     "Upload progress",
+			output:     "2026-08-10 06:47:56.580 ERROR: Server rejected the archive.\n",
+			wantErr:    true,
+			wantDetail: "Server rejected the archive.",
+		},
+		{
+			name:           "aggregate details from both streams stay bounded",
+			stdout:         "2026-08-10 06:47:56.580 ERROR: " + strings.Repeat("a", xcodebuildErrorTailLimit/2) + "\n",
+			output:         "*** Error: " + strings.Repeat("b", xcodebuildErrorTailLimit/2) + "\n",
+			wantErr:        true,
+			wantDetail:     strings.Repeat("a", 32),
+			maxDetailBytes: xcodebuildErrorTailLimit,
+		},
+		{
+			name:   "benign output containing error text",
+			output: "2026-08-10 06:47:56.580 INFO: Validation completed.\nDiagnostic: no ERROR: records were returned.\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			ipaPath := filepath.Join(tempDir, "Demo.ipa")
+			if err := writeTestIPA(ipaPath); err != nil {
+				t.Fatalf("writeTestIPA() error: %v", err)
+			}
+			logPath := filepath.Join(tempDir, "commands.log")
+			t.Setenv("ASC_XCODE_HELPER_VALIDATE_STDOUT", tt.stdout)
+			t.Setenv("ASC_XCODE_HELPER_VALIDATE_OUTPUT", tt.output)
+
+			restore := overrideTestEnvironment(t)
+			runtimeGOOS = "darwin"
+			lookPathFn = func(file string) (string, error) {
+				switch file {
+				case "xcodebuild":
+					return "/usr/bin/xcodebuild", nil
+				case "xcrun":
+					return "/usr/bin/xcrun", nil
+				default:
+					return "", exec.ErrNotFound
+				}
+			}
+			commandContextFn = helperCommandContext(t, logPath)
+			t.Cleanup(restore)
+
+			result, err := Validate(context.Background(), ValidateOptions{IPAPath: ipaPath})
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Validate() error = nil, want server validation failure; result = %+v", result)
+				}
+				if !strings.Contains(err.Error(), tt.wantDetail) {
+					t.Fatalf("Validate() error = %q, want detail %q", err, tt.wantDetail)
+				}
+				if tt.maxDetailBytes > 0 {
+					detail := strings.TrimPrefix(err.Error(), "xcrun altool validate failed: ")
+					if len(detail) > tt.maxDetailBytes {
+						t.Fatalf("Validate() detail bytes = %d, want at most %d", len(detail), tt.maxDetailBytes)
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Validate() error: %v", err)
+			}
+			if result == nil || !result.Validated {
+				t.Fatalf("Validate() result = %+v, want validated success", result)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsOversizedInfoPlistBeforeAltool(t *testing.T) {
 	tempDir := t.TempDir()
 	ipaPath := writeIPAWithRawInfoPlist(t, buildSizedAppInfoPlist(t, infoplist.MaxBytes+1))
@@ -1333,6 +1434,13 @@ func TestXcodeHelperProcess(t *testing.T) {
 		if _, err := valueAfter(commandArgs[2:], "--file"); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
+		}
+		if output := os.Getenv("ASC_XCODE_HELPER_VALIDATE_STDOUT"); output != "" {
+			fmt.Fprint(os.Stdout, output)
+			time.Sleep(50 * time.Millisecond)
+		}
+		if output := os.Getenv("ASC_XCODE_HELPER_VALIDATE_OUTPUT"); output != "" {
+			fmt.Fprint(os.Stderr, output)
 		}
 		os.Exit(0)
 	}
