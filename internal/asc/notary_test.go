@@ -552,6 +552,92 @@ func TestUploadToS3_Validation(t *testing.T) {
 	}
 }
 
+func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
+	const diagnosticLimit = 200
+	const omittedMarker = "OMITTED-DIAGNOSTIC-MARKER"
+
+	tests := []struct {
+		name      string
+		body      string
+		wantError bool
+	}{
+		{
+			name: "embedded error after keepalive whitespace and prolog",
+			body: " \r\n\t<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+				"<Error><Code>InternalError</Code><Message>retry the upload</Message></Error>" +
+				"\x1b" + strings.Repeat("x", diagnosticLimit) + omittedMarker,
+			wantError: true,
+		},
+		{
+			name: "normal completion result",
+			body: "\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+				"<CompleteMultipartUploadResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">" +
+				"<Bucket>example</Bucket><Key>archive.zip</Key><ETag>\"etag\"</ETag>" +
+				"</CompleteMultipartUploadResult>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalClient := http.DefaultClient
+			http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.Method != http.MethodPost {
+					t.Fatalf("method = %s, want POST", req.Method)
+				}
+				if req.URL.Path != "/archive.zip" {
+					t.Fatalf("path = %q, want /archive.zip", req.URL.Path)
+				}
+				if req.URL.Query().Get("uploadId") != "upload-123" {
+					t.Fatalf("uploadId = %q, want upload-123", req.URL.Query().Get("uploadId"))
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(tt.body)),
+					Request:    req,
+				}, nil
+			})}
+			t.Cleanup(func() { http.DefaultClient = originalClient })
+
+			err := completeMultipartUpload(
+				context.Background(),
+				"example.s3.us-west-2.amazonaws.com",
+				"/archive.zip",
+				S3Credentials{AccessKeyID: "key", SecretAccessKey: "secret"},
+				"upload-123",
+				[]s3CompletedPart{{PartNumber: 1, ETag: "\"etag\""}},
+			)
+			if !tt.wantError {
+				if err != nil {
+					t.Fatalf("completeMultipartUpload() error = %v, want nil", err)
+				}
+				return
+			}
+
+			if err == nil {
+				t.Fatal("completeMultipartUpload() error = nil, want embedded S3 error")
+			}
+			const errorPrefix = "complete multipart upload failed: "
+			if !strings.HasPrefix(err.Error(), errorPrefix) {
+				t.Fatalf("error = %q, want prefix %q", err, errorPrefix)
+			}
+			diagnostic := strings.TrimPrefix(err.Error(), errorPrefix)
+			if !strings.Contains(diagnostic, "<Code>InternalError</Code>") || !strings.Contains(diagnostic, "<Message>retry the upload</Message>") {
+				t.Fatalf("diagnostic = %q, want S3 code and message", diagnostic)
+			}
+			if strings.Contains(diagnostic, "\x1b") {
+				t.Fatalf("diagnostic contains control character: %q", diagnostic)
+			}
+			if strings.Contains(diagnostic, omittedMarker) {
+				t.Fatalf("diagnostic contains content beyond limit: %q", diagnostic)
+			}
+			if len(diagnostic) > diagnosticLimit {
+				t.Fatalf("diagnostic length = %d, want <= %d", len(diagnostic), diagnosticLimit)
+			}
+		})
+	}
+}
+
 func TestEncodeS3Query(t *testing.T) {
 	values := url.Values{}
 	values.Set("uploads", "")

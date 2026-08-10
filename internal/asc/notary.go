@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -598,9 +599,31 @@ func completeMultipartUpload(ctx context.Context, host, encodedPath string, cred
 		return fmt.Errorf("complete multipart upload failed: %w", err)
 	}
 	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("complete multipart upload failed with status %d: %s", resp.StatusCode, sanitizeErrorBody(respBody))
+	}
+	if err != nil {
+		return fmt.Errorf("read complete multipart upload response: %w", err)
+	}
+
+	decoder := xml.NewDecoder(bytes.NewReader(respBody))
+	for {
+		token, decodeErr := decoder.Token()
+		if errors.Is(decodeErr, io.EOF) {
+			break
+		}
+		if decodeErr != nil {
+			return fmt.Errorf("parse complete multipart upload response: %w", decodeErr)
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if start.Name.Local == "Error" {
+			return fmt.Errorf("complete multipart upload failed: %s", sanitizeErrorBody(respBody))
+		}
+		break
 	}
 	return nil
 }
