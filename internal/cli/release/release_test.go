@@ -110,6 +110,20 @@ func newReleaseTestServerClient(t *testing.T, handler http.Handler) (*asc.Client
 	return client, server.URL
 }
 
+// releaseBuildAppLinkageResponse answers the build ownership precondition read
+// the pipeline performs before any mutation, for the BUILD_123/APP_123 fixture
+// pair the pipeline tests share.
+func releaseBuildAppLinkageResponse(req *http.Request) (*http.Response, bool) {
+	if req.Method != http.MethodGet || req.URL.Path != "/v1/builds/BUILD_123/relationships/app" {
+		return nil, false
+	}
+	resp, err := releaseJSONResponse(http.StatusOK, `{"data":{"type":"apps","id":"APP_123"}}`)
+	if err != nil {
+		return nil, false
+	}
+	return resp, true
+}
+
 func writeReleaseTestJSON(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -259,6 +273,9 @@ func TestExecuteStageResumesPartialCheckpointAfterRemovingRoutingCoverage(t *tes
 	})
 
 	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
@@ -314,8 +331,8 @@ func TestExecuteStageResumesPartialCheckpointAfterRemovingRoutingCoverage(t *tes
 	if !result.Resumed {
 		t.Fatal("executeStage() resumed = false, want true")
 	}
-	if len(result.Steps) != 4 {
-		t.Fatalf("executeStage() steps = %#v, want four steps without routing coverage", result.Steps)
+	if len(result.Steps) != 5 {
+		t.Fatalf("executeStage() steps = %#v, want five steps without routing coverage", result.Steps)
 	}
 	for _, step := range result.Steps {
 		if step.Name == stepApplyRoutingCoverage {
@@ -446,6 +463,9 @@ func TestExecuteStageResumesCheckpointAfterAddingRoutingCoverage(t *testing.T) {
 	}
 
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
@@ -488,14 +508,14 @@ func TestExecuteStageResumesCheckpointAfterAddingRoutingCoverage(t *testing.T) {
 	if metadataRuns != 1 || readinessRuns != 1 || !coverageCommitted {
 		t.Fatalf("executeStage() metadata=%d readiness=%d coverageCommitted=%t, want 1, 1, true", metadataRuns, readinessRuns, coverageCommitted)
 	}
-	if len(result.Steps) != 5 {
-		t.Fatalf("executeStage() steps = %#v, want five steps", result.Steps)
+	if len(result.Steps) != 6 {
+		t.Fatalf("executeStage() steps = %#v, want six steps", result.Steps)
 	}
-	if result.Steps[0].Status != "skipped" || result.Steps[3].Status != "skipped" {
+	if result.Steps[1].Status != "skipped" || result.Steps[4].Status != "skipped" {
 		t.Fatalf("executeStage() did not preserve verified ensure/build completions: %#v", result.Steps)
 	}
-	if result.Steps[2].Name != stepApplyRoutingCoverage || result.Steps[2].Status != "ok" {
-		t.Fatalf("executeStage() routing step = %#v, want newly applied coverage", result.Steps[2])
+	if result.Steps[3].Name != stepApplyRoutingCoverage || result.Steps[3].Status != "ok" {
+		t.Fatalf("executeStage() routing step = %#v, want newly applied coverage", result.Steps[3])
 	}
 
 	saved, err := loadCheckpoint(checkpointPath)
@@ -551,6 +571,9 @@ func TestExecuteStage_ResumesCompletedCheckpoint(t *testing.T) {
 	})
 
 	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
@@ -617,18 +640,18 @@ func TestExecuteStage_ResumesCompletedCheckpoint(t *testing.T) {
 	if result.Status != "ok" {
 		t.Fatalf("expected status ok, got %q", result.Status)
 	}
-	if len(result.Steps) != 4 {
-		t.Fatalf("expected 4 steps, got %d", len(result.Steps))
+	if len(result.Steps) != 5 {
+		t.Fatalf("expected 5 steps, got %d", len(result.Steps))
 	}
 	if metadataRuns != 1 || readinessRuns != 1 {
 		t.Fatalf("expected unprovable local steps to rerun once, got metadata=%d readiness=%d", metadataRuns, readinessRuns)
 	}
-	for _, index := range []int{0, 2} {
+	for _, index := range []int{1, 3} {
 		if result.Steps[index].Status != "skipped" {
 			t.Fatalf("expected remotely verified step %d skipped, got %q", index, result.Steps[index].Status)
 		}
 	}
-	for _, index := range []int{1, 3} {
+	for _, index := range []int{2, 4} {
 		if result.Steps[index].Status == "skipped" {
 			t.Fatalf("expected unprovable local step %d to rerun", index)
 		}
@@ -678,6 +701,9 @@ func TestExecuteStage_SuccessPath(t *testing.T) {
 	}
 
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions":
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS","appStoreState":"PREPARE_FOR_SUBMISSION"}}]}`)
@@ -713,8 +739,8 @@ func TestExecuteStage_SuccessPath(t *testing.T) {
 	if result.VersionID != "VERSION_123" {
 		t.Fatalf("expected versionID VERSION_123, got %q", result.VersionID)
 	}
-	if len(result.Steps) != 4 {
-		t.Fatalf("expected 4 steps, got %d", len(result.Steps))
+	if len(result.Steps) != 5 {
+		t.Fatalf("expected 5 steps, got %d", len(result.Steps))
 	}
 	if !metadataCalled {
 		t.Fatal("expected metadata step to be executed")
@@ -722,8 +748,8 @@ func TestExecuteStage_SuccessPath(t *testing.T) {
 	if !readinessCalled {
 		t.Fatal("expected readiness checks to be executed")
 	}
-	if result.Steps[3].Message != "readiness checks passed with 1 advisory; App Privacy may still block submission" {
-		t.Fatalf("expected readiness advisory message, got %q", result.Steps[3].Message)
+	if result.Steps[4].Message != "readiness checks passed with 1 advisory; App Privacy may still block submission" {
+		t.Fatalf("expected readiness advisory message, got %q", result.Steps[4].Message)
 	}
 }
 
@@ -797,6 +823,9 @@ func TestExecuteStage_CopyMetadataSuccessPath(t *testing.T) {
 	}
 
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions":
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS","appStoreState":"PREPARE_FOR_SUBMISSION"}}]}`)
@@ -837,20 +866,23 @@ func TestExecuteStage_CopyMetadataSuccessPath(t *testing.T) {
 	if result.VersionID != "VERSION_123" {
 		t.Fatalf("expected versionID VERSION_123, got %q", result.VersionID)
 	}
-	if len(result.Steps) != 4 {
-		t.Fatalf("expected 4 steps, got %d", len(result.Steps))
+	if len(result.Steps) != 5 {
+		t.Fatalf("expected 5 steps, got %d", len(result.Steps))
 	}
-	if result.Steps[0].Name != stepEnsureVersion {
-		t.Fatalf("expected first step %q, got %q", stepEnsureVersion, result.Steps[0].Name)
+	if result.Steps[0].Name != stepValidateBuild {
+		t.Fatalf("expected first step %q, got %q", stepValidateBuild, result.Steps[0].Name)
 	}
-	if result.Steps[1].Name != stepApplyMetadata {
-		t.Fatalf("expected second step %q, got %q", stepApplyMetadata, result.Steps[1].Name)
+	if result.Steps[1].Name != stepEnsureVersion {
+		t.Fatalf("expected second step %q, got %q", stepEnsureVersion, result.Steps[1].Name)
 	}
-	if result.Steps[2].Name != stepAttachBuild {
-		t.Fatalf("expected third step %q, got %q", stepAttachBuild, result.Steps[2].Name)
+	if result.Steps[2].Name != stepApplyMetadata {
+		t.Fatalf("expected third step %q, got %q", stepApplyMetadata, result.Steps[2].Name)
 	}
-	if result.Steps[3].Name != stepValidateReadiness {
-		t.Fatalf("expected fourth step %q, got %q", stepValidateReadiness, result.Steps[3].Name)
+	if result.Steps[3].Name != stepAttachBuild {
+		t.Fatalf("expected fourth step %q, got %q", stepAttachBuild, result.Steps[3].Name)
+	}
+	if result.Steps[4].Name != stepValidateReadiness {
+		t.Fatalf("expected fifth step %q, got %q", stepValidateReadiness, result.Steps[4].Name)
 	}
 	if !copyCalled {
 		t.Fatal("expected metadata copy executor to be called")
@@ -858,8 +890,8 @@ func TestExecuteStage_CopyMetadataSuccessPath(t *testing.T) {
 	if !readinessCalled {
 		t.Fatal("expected readiness checks to be called")
 	}
-	if result.Steps[3].Message != "readiness checks passed with 1 advisory; App Privacy may still block submission" {
-		t.Fatalf("expected readiness advisory message, got %q", result.Steps[3].Message)
+	if result.Steps[4].Message != "readiness checks passed with 1 advisory; App Privacy may still block submission" {
+		t.Fatalf("expected readiness advisory message, got %q", result.Steps[4].Message)
 	}
 }
 
@@ -894,6 +926,9 @@ func TestExecuteStageAppliesRoutingCoverageBeforeReadiness(t *testing.T) {
 	}
 
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions":
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS","appStoreState":"PREPARE_FOR_SUBMISSION"}}]}`)
@@ -936,10 +971,10 @@ func TestExecuteStageAppliesRoutingCoverageBeforeReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeStage() error: %v", err)
 	}
-	if len(result.Steps) != 5 {
-		t.Fatalf("expected five stage steps, got %#v", result.Steps)
+	if len(result.Steps) != 6 {
+		t.Fatalf("expected six stage steps, got %#v", result.Steps)
 	}
-	wantSteps := []string{stepEnsureVersion, stepApplyMetadata, stepApplyRoutingCoverage, stepAttachBuild, stepValidateReadiness}
+	wantSteps := []string{stepValidateBuild, stepEnsureVersion, stepApplyMetadata, stepApplyRoutingCoverage, stepAttachBuild, stepValidateReadiness}
 	for i, want := range wantSteps {
 		if result.Steps[i].Name != want {
 			t.Fatalf("step %d = %q, want %q", i, result.Steps[i].Name, want)
@@ -981,6 +1016,9 @@ func TestExecuteStage_DryRunReadinessStepMarkedDryRun(t *testing.T) {
 	}
 
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions":
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS","appStoreState":"PREPARE_FOR_SUBMISSION"}}]}`)
@@ -1009,14 +1047,14 @@ func TestExecuteStage_DryRunReadinessStepMarkedDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("executeStage error: %v", err)
 	}
-	if len(result.Steps) != 4 {
-		t.Fatalf("expected 4 steps, got %d", len(result.Steps))
+	if len(result.Steps) != 5 {
+		t.Fatalf("expected 5 steps, got %d", len(result.Steps))
 	}
-	if result.Steps[3].Name != stepValidateReadiness {
-		t.Fatalf("expected step 4 to be %q, got %q", stepValidateReadiness, result.Steps[3].Name)
+	if result.Steps[4].Name != stepValidateReadiness {
+		t.Fatalf("expected step 5 to be %q, got %q", stepValidateReadiness, result.Steps[4].Name)
 	}
-	if result.Steps[3].Status != "dry-run" {
-		t.Fatalf("expected readiness step dry-run status, got %q", result.Steps[3].Status)
+	if result.Steps[4].Status != "dry-run" {
+		t.Fatalf("expected readiness step dry-run status, got %q", result.Steps[4].Status)
 	}
 }
 
@@ -1042,6 +1080,9 @@ func TestExecuteStage_DryRunDefersAttachWhenVersionWouldBeCreated(t *testing.T) 
 	}
 
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		if req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions" {
 			return releaseJSONResponse(http.StatusOK, `{"data":[]}`)
 		}
@@ -1069,14 +1110,14 @@ func TestExecuteStage_DryRunDefersAttachWhenVersionWouldBeCreated(t *testing.T) 
 	if result.Status != "dry-run" {
 		t.Fatalf("expected status dry-run, got %q", result.Status)
 	}
-	if len(result.Steps) != 4 {
-		t.Fatalf("expected 4 steps, got %d", len(result.Steps))
+	if len(result.Steps) != 5 {
+		t.Fatalf("expected 5 steps, got %d", len(result.Steps))
 	}
-	if result.Steps[2].Name != stepAttachBuild || result.Steps[2].Message != "build attach deferred until version exists" {
-		t.Fatalf("expected attach step deferred, got %+v", result.Steps[2])
+	if result.Steps[3].Name != stepAttachBuild || result.Steps[3].Message != "build attach deferred until version exists" {
+		t.Fatalf("expected attach step deferred, got %+v", result.Steps[3])
 	}
-	if result.Steps[3].Name != stepValidateReadiness || result.Steps[3].Message != "readiness checks deferred until version exists" {
-		t.Fatalf("expected readiness step deferred, got %+v", result.Steps[3])
+	if result.Steps[4].Name != stepValidateReadiness || result.Steps[4].Message != "readiness checks deferred until version exists" {
+		t.Fatalf("expected readiness step deferred, got %+v", result.Steps[4])
 	}
 }
 
@@ -1102,6 +1143,9 @@ func TestExecuteStage_TimeoutCancelsPipeline(t *testing.T) {
 	}
 
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		if req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions" {
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS","appStoreState":"PREPARE_FOR_SUBMISSION"}}]}`)
 		}

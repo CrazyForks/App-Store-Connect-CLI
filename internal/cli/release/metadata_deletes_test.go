@@ -44,6 +44,9 @@ func TestExecuteStagePropagatesMetadataDeleteFlags(t *testing.T) {
 		return validation.Report{Summary: validation.Summary{}}, nil
 	}
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions":
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"}}]}`)
@@ -112,6 +115,9 @@ func TestExecuteStageDryRunRejectsPlannedDeletesWithoutAllowDeletes(t *testing.T
 		return validation.Report{}, nil
 	}
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		if req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions" {
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"}}]}`)
 		}
@@ -139,10 +145,10 @@ func TestExecuteStageDryRunRejectsPlannedDeletesWithoutAllowDeletes(t *testing.T
 	if result.Status != "error" || result.FailedStep != stepApplyMetadata {
 		t.Fatalf("expected apply_metadata failure, got status %q step %q", result.Status, result.FailedStep)
 	}
-	if len(result.Steps) != 2 {
-		t.Fatalf("expected two steps, got %#v", result.Steps)
+	if len(result.Steps) != 3 {
+		t.Fatalf("expected three steps, got %#v", result.Steps)
 	}
-	metadataStep := result.Steps[1]
+	metadataStep := result.Steps[2]
 	if !strings.Contains(metadataStep.Remediation, "--allow-deletes") {
 		t.Fatalf("expected an actionable remediation naming --allow-deletes, got %q", metadataStep.Remediation)
 	}
@@ -182,6 +188,9 @@ func TestExecuteStageDryRunPlansDeletesWithAllowDeletes(t *testing.T) {
 		return validation.Report{Summary: validation.Summary{}}, nil
 	}
 	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions":
 			return releaseJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"}}]}`)
@@ -214,8 +223,8 @@ func TestExecuteStageDryRunPlansDeletesWithAllowDeletes(t *testing.T) {
 	if !pushOptions.AllowDeletes || !pushOptions.DryRun {
 		t.Fatalf("expected an authorized dry-run plan, got %#v", pushOptions)
 	}
-	if result.Steps[1].Status != "dry-run" {
-		t.Fatalf("expected metadata plan step, got %#v", result.Steps[1])
+	if result.Steps[2].Name != stepApplyMetadata || result.Steps[2].Status != "dry-run" {
+		t.Fatalf("expected metadata plan step, got %#v", result.Steps[2])
 	}
 }
 

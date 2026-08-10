@@ -410,6 +410,9 @@ func TestExecuteStage_PersistsDiscardedCompletionsBeforeMutating(t *testing.T) {
 	var checkpointAtFirstMutation *runCheckpoint
 	attached := false
 	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		if req.Method != http.MethodGet && checkpointAtFirstMutation == nil {
 			persisted, loadErr := loadCheckpoint(checkpointPath)
 			if loadErr != nil {

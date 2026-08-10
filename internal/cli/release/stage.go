@@ -39,11 +39,12 @@ func ReleaseStageCommand() *ffcli.Command {
 		ShortUsage: "asc release stage --app \"APP_ID\" --version \"2.4.0\" --build \"BUILD_ID\" (--metadata-dir \"./metadata/version/2.4.0\" | --copy-metadata-from \"2.3.2\") [--routing-coverage-file \"./coverage.geojson\"] [flags]",
 		ShortHelp:  "Run version + metadata + attach + validate.",
 		LongHelp: `Run a deterministic pre-submit App Store staging pipeline:
-1. Ensure/create version
-2. Apply metadata/localizations or copy metadata from another version
-3. Reconcile routing app coverage when --routing-coverage-file is set
-4. Attach selected build
-5. Run readiness checks
+1. Verify --build exists and belongs to --app
+2. Ensure/create version
+3. Apply metadata/localizations or copy metadata from another version
+4. Reconcile routing app coverage when --routing-coverage-file is set
+5. Attach selected build
+6. Run readiness checks
 
 Stops before creating a review submission.
 Supports dry-run planning, step-level structured output, and checkpointed resume.

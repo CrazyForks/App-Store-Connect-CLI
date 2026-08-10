@@ -21,6 +21,7 @@ import (
 )
 
 const (
+	stepValidateBuild        = "validate_build"
 	stepEnsureVersion        = "ensure_version"
 	stepApplyMetadata        = "apply_metadata"
 	stepApplyRoutingCoverage = "apply_routing_coverage"
@@ -116,7 +117,7 @@ func executeStage(ctx context.Context, opts runOptions) (runResult, error) {
 }
 
 func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
-	stepCapacity := 4
+	stepCapacity := 5
 	if strings.TrimSpace(opts.RoutingCoverageFile) != "" {
 		stepCapacity++
 	}
@@ -290,6 +291,40 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 		}
 
 		return nil
+	}
+
+	// attach_build runs after the metadata and routing coverage steps, both of
+	// which mutate. Resolve the requested build before any of them so a build
+	// that does not exist, or belongs to another app, fails the run (and the
+	// dry-run preview) instead of the version being left half-updated.
+	if err := runStep(stepValidateBuild, "Pass a --build that exists and belongs to --app (try `asc builds list --app <id>`).", func() (stepOutcome, error) {
+		buildAppID, buildErr := resolveBuildOwningApp(requestCtx, client, opts.BuildID)
+		if buildErr != nil {
+			return stepOutcome{}, fmt.Errorf("validate build: %w", buildErr)
+		}
+		if !strings.EqualFold(buildAppID, strings.TrimSpace(opts.AppID)) {
+			return stepOutcome{}, fmt.Errorf(
+				"validate build: build %s belongs to app %s, not %s",
+				strings.TrimSpace(opts.BuildID),
+				buildAppID,
+				strings.TrimSpace(opts.AppID),
+			)
+		}
+
+		status := "ok"
+		message := "build belongs to app"
+		if opts.DryRun {
+			status = "dry-run"
+			message = "build belongs to app (no action needed)"
+		}
+		return stepOutcome{
+			Status:  status,
+			Message: message,
+			Details: map[string]any{"buildId": strings.TrimSpace(opts.BuildID), "appId": buildAppID},
+			Persist: false,
+		}, nil
+	}); err != nil {
+		return result, err
 	}
 
 	if err := runStep(stepEnsureVersion, "Verify app/version/platform and ensure only one matching version exists.", func() (stepOutcome, error) {
@@ -572,6 +607,26 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 	}
 
 	return result, nil
+}
+
+// resolveBuildOwningApp reads the build's app linkage, which both proves the
+// build exists and reports the app that owns it.
+func resolveBuildOwningApp(ctx context.Context, client *asc.Client, buildID string) (string, error) {
+	trimmedBuildID := strings.TrimSpace(buildID)
+	if trimmedBuildID == "" {
+		return "", fmt.Errorf("build ID is required")
+	}
+	linkage, err := client.GetBuildAppRelationship(ctx, trimmedBuildID)
+	if err != nil {
+		if asc.IsNotFound(err) {
+			return "", fmt.Errorf("build %s was not found", trimmedBuildID)
+		}
+		return "", fmt.Errorf("resolve app for build %s: %w", trimmedBuildID, err)
+	}
+	if linkage == nil || strings.TrimSpace(linkage.Data.ID) == "" {
+		return "", fmt.Errorf("build %s is missing a related app ID", trimmedBuildID)
+	}
+	return strings.TrimSpace(linkage.Data.ID), nil
 }
 
 func releaseReadinessSuccessMessage(report validation.Report, dryRun bool) string {

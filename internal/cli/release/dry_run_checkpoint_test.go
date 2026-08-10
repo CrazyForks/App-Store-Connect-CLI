@@ -37,6 +37,9 @@ func TestExecuteStageDryRunHonorsExistingCheckpoint(t *testing.T) {
 	}
 
 	client := newCheckpointBindingClient(t, func(req *http.Request) (*http.Response, error) {
+		if resp, ok := releaseBuildAppLinkageResponse(req); ok {
+			return resp, nil
+		}
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123":
 			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_123","attributes":{"versionString":"2.4.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_123"}}}}}`)
@@ -88,17 +91,17 @@ func TestExecuteStageDryRunHonorsExistingCheckpoint(t *testing.T) {
 	if result.VersionID != "VERSION_123" {
 		t.Fatalf("expected the checkpoint version in the plan, got %q", result.VersionID)
 	}
-	if len(result.Steps) != 4 {
-		t.Fatalf("expected four steps, got %#v", result.Steps)
+	if len(result.Steps) != 5 {
+		t.Fatalf("expected five steps, got %#v", result.Steps)
 	}
-	for _, index := range []int{0, 2} {
+	for _, index := range []int{1, 3} {
 		step := result.Steps[index]
 		if !strings.Contains(step.Message, "already completed in checkpoint") {
 			t.Fatalf("expected step %d to preview a checkpoint skip, got %#v", index, step)
 		}
 	}
-	if result.Steps[1].Name != stepApplyMetadata || strings.Contains(result.Steps[1].Message, "checkpoint") {
-		t.Fatalf("expected the metadata step to be planned again, got %#v", result.Steps[1])
+	if result.Steps[2].Name != stepApplyMetadata || strings.Contains(result.Steps[2].Message, "checkpoint") {
+		t.Fatalf("expected the metadata step to be planned again, got %#v", result.Steps[2])
 	}
 
 	after, err := os.ReadFile(checkpointPath)

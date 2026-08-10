@@ -73,10 +73,15 @@ func TestReleaseStage_DryRunCopyMetadataFromVersion(t *testing.T) {
 	requestCount := 0
 	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requestCount++
-		if req.Method != http.MethodGet || req.URL.Path != "/v1/apps/APP_123/appStoreVersions" {
+		body := ""
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/builds/BUILD_123/relationships/app":
+			body = `{"data":{"type":"apps","id":"APP_123"}}`
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_123/appStoreVersions":
+			body = `{"data":[]}`
+		default:
 			t.Fatalf("unexpected request %d: %s %s", requestCount, req.Method, req.URL.String())
 		}
-		body := `{"data":[]}`
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(body)),
@@ -120,7 +125,10 @@ func TestReleaseStage_DryRunCopyMetadataFromVersion(t *testing.T) {
 	if !strings.Contains(stdout, `"message":"metadata copy plan deferred until version exists"`) {
 		t.Fatalf("expected deferred metadata copy message, got %q", stdout)
 	}
-	if requestCount != 1 {
-		t.Fatalf("expected exactly one request, got %d", requestCount)
+	if !strings.Contains(stdout, `"name":"validate_build","status":"dry-run"`) {
+		t.Fatalf("expected the build precondition check in the plan, got %q", stdout)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected the build check and the version lookup, got %d requests", requestCount)
 	}
 }
