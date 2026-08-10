@@ -20,10 +20,11 @@ import (
 const (
 	// buildHistoryScanTimeout stands in for asc.DefaultTimeout so a slow
 	// multi-page scan can be simulated without a 30 second test.
-	buildHistoryScanTimeout = 400 * time.Millisecond
+	buildHistoryScanTimeout = 800 * time.Millisecond
 	// buildHistoryScanDelay makes every page slow enough that two pages
-	// together exceed a single request deadline.
-	buildHistoryScanDelay = 250 * time.Millisecond
+	// together exceed a single request deadline, while leaving each single
+	// page a wide margin inside one refreshed deadline.
+	buildHistoryScanDelay = 450 * time.Millisecond
 )
 
 type buildHistoryScanRequest struct {
