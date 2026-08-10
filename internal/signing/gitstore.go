@@ -3,6 +3,7 @@ package signing
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -246,29 +247,117 @@ func RejectSymlinkIfExists(path string) error {
 	return nil
 }
 
-func newGitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
+func newGitCommand(ctx context.Context, dir string, args ...string) (*exec.Cmd, error) {
+	environment := gitEnvironmentWithoutRepositorySelectors(os.Environ(), runtime.GOOS)
+	coreSSHCommandConfigured := false
+	if gitCommandMayUseSSH(args) && !hasGitSSHEnvironmentOverride(environment, runtime.GOOS) {
+		var err error
+		coreSSHCommandConfigured, err = hasConfiguredGitSSHCommand(ctx, dir, environment, runtime.GOOS)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = gitCommandEnvironment(os.Environ())
-	return cmd
+	cmd.Env = gitCommandEnvironmentWithConfig(environment, runtime.GOOS, coreSSHCommandConfigured)
+	return cmd, nil
+}
+
+var gitRepositorySelectorEnvironmentKeys = []string{
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_IMPLICIT_WORK_TREE",
+	"GIT_GRAFT_FILE",
+	"GIT_INDEX_FILE",
+	"GIT_NO_REPLACE_OBJECTS",
+	"GIT_REPLACE_REF_BASE",
+	"GIT_PREFIX",
+	"GIT_INTERNAL_SUPER_PREFIX",
+	"GIT_SHALLOW_FILE",
+	"GIT_COMMON_DIR",
+}
+
+func gitEnvironmentWithoutRepositorySelectors(environment []string, goos string) []string {
+	caseInsensitive := goos == "windows"
+	for _, key := range gitRepositorySelectorEnvironmentKeys {
+		environment = removeCommandEnvironmentValue(environment, key, caseInsensitive)
+	}
+	return environment
 }
 
 func gitCommandEnvironment(environment []string) []string {
-	return gitCommandEnvironmentForGOOS(environment, runtime.GOOS)
+	return gitCommandEnvironmentWithConfig(environment, runtime.GOOS, false)
 }
 
 func gitCommandEnvironmentForGOOS(environment []string, goos string) []string {
+	return gitCommandEnvironmentWithConfig(environment, goos, false)
+}
+
+func gitCommandEnvironmentWithConfig(environment []string, goos string, coreSSHCommandConfigured bool) []string {
 	caseInsensitive := goos == "windows"
 	environment = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", caseInsensitive)
 
 	sshCommand, ok := commandEnvironmentValue(environment, "GIT_SSH_COMMAND", caseInsensitive)
-	if !ok || strings.TrimSpace(sshCommand) == "" {
-		sshCommand = "ssh -o BatchMode=yes"
+	if ok && strings.TrimSpace(sshCommand) != "" {
+		// A caller-provided command may contain shell quoting or invoke a wrapper.
+		// Preserve it verbatim instead of trying to append or rewrite SSH options.
+		return replaceCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", sshCommand, caseInsensitive)
 	}
+	environment = removeCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", caseInsensitive)
 
-	// A caller-provided command may contain shell quoting or invoke a wrapper.
-	// Preserve it verbatim instead of trying to append or rewrite SSH options.
-	return replaceCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", sshCommand, caseInsensitive)
+	gitSSH, ok := commandEnvironmentValue(environment, "GIT_SSH", caseInsensitive)
+	if ok && strings.TrimSpace(gitSSH) != "" {
+		return environment
+	}
+	environment = removeCommandEnvironmentValue(environment, "GIT_SSH", caseInsensitive)
+
+	if coreSSHCommandConfigured {
+		return environment
+	}
+	return replaceCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", "ssh -o BatchMode=yes", caseInsensitive)
+}
+
+func hasGitSSHEnvironmentOverride(environment []string, goos string) bool {
+	caseInsensitive := goos == "windows"
+	for _, key := range []string{"GIT_SSH_COMMAND", "GIT_SSH"} {
+		value, ok := commandEnvironmentValue(environment, key, caseInsensitive)
+		if ok && strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func gitCommandMayUseSSH(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "clone", "fetch", "ls-remote", "pull", "push", "submodule":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasConfiguredGitSSHCommand(ctx context.Context, dir string, environment []string, goos string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
+	cmd.Dir = dir
+	cmd.Env = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", goos == "windows")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("check Git core.sshCommand: %w", err)
+	}
+	return strings.TrimSpace(stdout.String()) != "", nil
 }
 
 func commandEnvironmentValue(environment []string, key string, caseInsensitive bool) (string, bool) {
@@ -291,6 +380,17 @@ func replaceCommandEnvironmentValue(environment []string, key, value string, cas
 	return append(updated, key+"="+value)
 }
 
+func removeCommandEnvironmentValue(environment []string, key string, caseInsensitive bool) []string {
+	updated := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		if _, ok := commandEnvironmentEntryValue(entry, key, caseInsensitive); ok {
+			continue
+		}
+		updated = append(updated, entry)
+	}
+	return updated
+}
+
 func commandEnvironmentEntryValue(entry, key string, caseInsensitive bool) (string, bool) {
 	entryKey, value, ok := strings.Cut(entry, "=")
 	if !ok {
@@ -303,17 +403,23 @@ func commandEnvironmentEntryValue(entry, key string, caseInsensitive bool) (stri
 }
 
 func (g *GitStore) gitRun(ctx context.Context, dir string, args ...string) error {
-	cmd := newGitCommand(ctx, dir, args...)
+	cmd, err := newGitCommand(ctx, dir, args...)
+	if err != nil {
+		return err
+	}
 	cmd.Stdout = os.Stderr // progress to stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
 func (g *GitStore) gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := newGitCommand(ctx, dir, args...)
+	cmd, err := newGitCommand(ctx, dir, args...)
+	if err != nil {
+		return "", err
+	}
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = os.Stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	return stdout.String(), err
 }

@@ -3,7 +3,9 @@ package signing
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -271,6 +273,9 @@ func TestGitStoreGitHelpersUseNonInteractiveExecutables(t *testing.T) {
 
 	writeTestExecutable(t, filepath.Join(binDir, "git"), `#!/bin/sh
 set -eu
+if [ "${1-}" = "config" ] && [ "${2-}" = "--get" ] && [ "${3-}" = "core.sshCommand" ]; then
+  exit 1
+fi
 printf '%s|%s\n' "${GIT_TERMINAL_PROMPT-}" "${GIT_SSH_COMMAND-}" >> "$ASC_FAKE_GIT_CAPTURE"
 sh -c "$GIT_SSH_COMMAND \"\$@\"" asc-fake-git "$@"
 if [ "${1-}" = "status" ]; then
@@ -327,9 +332,15 @@ set -eu
 func TestNewGitCommandUsesNonInteractiveEnvironment(t *testing.T) {
 	t.Setenv("GIT_TERMINAL_PROMPT", "1")
 	t.Setenv("GIT_SSH_COMMAND", " ")
+	t.Setenv("GIT_SSH", "")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "missing-gitconfig"))
 
 	dir := t.TempDir()
-	cmd := newGitCommand(context.Background(), dir, "status", "--porcelain")
+	cmd, err := newGitCommand(context.Background(), dir, "status", "--porcelain")
+	if err != nil {
+		t.Fatalf("newGitCommand: %v", err)
+	}
 
 	if cmd.Dir != dir {
 		t.Fatalf("newGitCommand() dir = %q, want %q", cmd.Dir, dir)
@@ -339,6 +350,230 @@ func TestNewGitCommandUsesNonInteractiveEnvironment(t *testing.T) {
 	}
 	if got := commandEnvironmentValues(cmd.Env, "GIT_SSH_COMMAND"); len(got) != 1 || got[0] != "ssh -o BatchMode=yes" {
 		t.Fatalf("GIT_SSH_COMMAND values = %v, want [ssh -o BatchMode=yes]", got)
+	}
+}
+
+func TestNewGitCommandPreservesGitSSHTransport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts require a POSIX shell")
+	}
+
+	transportCapture := filepath.Join(t.TempDir(), "transport-args.txt")
+	transport := filepath.Join(t.TempDir(), "team-ssh")
+	writeTestExecutable(t, transport, `#!/bin/sh
+set -eu
+printf '%s\n' "$@" > "$ASC_FAKE_SSH_CAPTURE"
+exit 17
+`)
+
+	t.Setenv("ASC_FAKE_SSH_CAPTURE", transportCapture)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "missing-gitconfig"))
+	t.Setenv("GIT_SSH_COMMAND", "")
+	t.Setenv("GIT_SSH", transport)
+	t.Setenv("GIT_SSH_VARIANT", "ssh")
+
+	cmd, err := newGitCommand(context.Background(), "", "ls-remote", "ssh://git@127.0.0.1:1/repository")
+	if err != nil {
+		t.Fatalf("newGitCommand: %v", err)
+	}
+	if err := cmd.Run(); err == nil {
+		t.Fatal("expected fake SSH transport failure")
+	}
+	if _, err := os.Stat(transportCapture); err != nil {
+		t.Fatalf("expected inherited GIT_SSH transport to run: %v", err)
+	}
+}
+
+func TestNewGitCommandPreservesConfiguredSSHTransport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts require a POSIX shell")
+	}
+
+	tests := []struct {
+		name      string
+		configure func(t *testing.T, transport string) string
+	}{
+		{
+			name: "global config",
+			configure: func(t *testing.T, transport string) string {
+				configPath := filepath.Join(t.TempDir(), "gitconfig")
+				configureGitSSHCommand(t, configPath, transport)
+				t.Setenv("GIT_CONFIG_GLOBAL", configPath)
+				return t.TempDir()
+			},
+		},
+		{
+			name: "repository config",
+			configure: func(t *testing.T, transport string) string {
+				t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "missing-gitconfig"))
+				repositoryDir := t.TempDir()
+				runTestGit(t, "init", "--quiet", repositoryDir)
+				runTestGit(t, "-C", repositoryDir, "config", "core.sshCommand", transport)
+				return repositoryDir
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			standaloneEnvironment := standaloneTestGitEnvironment(t)
+			sentinelRepository := filepath.Join(t.TempDir(), "sentinel")
+			runStandaloneTestGit(t, standaloneEnvironment, "init", "--quiet", sentinelRepository)
+			transportCapture := filepath.Join(t.TempDir(), "transport-args.txt")
+			transport := filepath.Join(t.TempDir(), "configured-ssh")
+			writeTestExecutable(t, transport, `#!/bin/sh
+set -eu
+printf '%s\n' "$@" > "$ASC_FAKE_SSH_CAPTURE"
+exit 17
+`)
+
+			t.Setenv("ASC_FAKE_SSH_CAPTURE", transportCapture)
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			t.Setenv("GIT_SSH_COMMAND", "")
+			t.Setenv("GIT_SSH", "")
+			t.Setenv("GIT_SSH_VARIANT", "ssh")
+			t.Setenv("GIT_DIR", filepath.Join(sentinelRepository, ".git"))
+			t.Setenv("GIT_WORK_TREE", sentinelRepository)
+			t.Setenv("GIT_COMMON_DIR", filepath.Join(sentinelRepository, ".git"))
+			dir := tt.configure(t, transport)
+
+			cmd, err := newGitCommand(context.Background(), dir, "ls-remote", "ssh://git@127.0.0.1:1/repository")
+			if err != nil {
+				t.Fatalf("newGitCommand: %v", err)
+			}
+			if err := cmd.Run(); err == nil {
+				t.Fatal("expected fake SSH transport failure")
+			}
+			if _, err := os.Stat(transportCapture); err != nil {
+				t.Fatalf("expected configured SSH transport to run: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewGitCommandDefaultsForBlankConfiguredSSHCommand(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "gitconfig")
+	configureGitSSHCommand(t, configPath, "")
+
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", configPath)
+	t.Setenv("GIT_SSH_COMMAND", "")
+	t.Setenv("GIT_SSH", "")
+
+	cmd, err := newGitCommand(context.Background(), t.TempDir(), "clone", "source", "destination")
+	if err != nil {
+		t.Fatalf("newGitCommand: %v", err)
+	}
+	if got := commandEnvironmentValues(cmd.Env, "GIT_SSH_COMMAND"); len(got) != 1 || got[0] != "ssh -o BatchMode=yes" {
+		t.Fatalf("GIT_SSH_COMMAND values = %v, want [ssh -o BatchMode=yes]", got)
+	}
+}
+
+func TestNewGitCommandFailsClosedWhenSSHConfigLookupFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts require a POSIX shell")
+	}
+
+	binDir := t.TempDir()
+	mainCommandCapture := filepath.Join(t.TempDir(), "main-command.txt")
+	writeTestExecutable(t, filepath.Join(binDir, "git"), `#!/bin/sh
+set -eu
+if [ "${1-}" = "config" ] && [ "${2-}" = "--get" ] && [ "${3-}" = "core.sshCommand" ]; then
+  printf 'invalid git configuration\n' >&2
+  exit 2
+fi
+printf 'invoked\n' > "$ASC_FAKE_GIT_CAPTURE"
+`)
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("ASC_FAKE_GIT_CAPTURE", mainCommandCapture)
+	t.Setenv("GIT_SSH_COMMAND", "")
+	t.Setenv("GIT_SSH", "")
+
+	cmd, err := newGitCommand(context.Background(), "", "clone", "source", "destination")
+	if err == nil {
+		t.Fatalf("newGitCommand() = %v, want SSH config lookup error", cmd)
+	}
+	if !strings.Contains(err.Error(), "core.sshCommand") {
+		t.Fatalf("newGitCommand() error = %q, want core.sshCommand context", err)
+	}
+	if _, statErr := os.Stat(mainCommandCapture); !os.IsNotExist(statErr) {
+		t.Fatalf("network-capable Git command ran after lookup failure: %v", statErr)
+	}
+}
+
+func TestNewGitCommandIgnoresInheritedRepositorySelectors(t *testing.T) {
+	sentinelRepository := filepath.Join(t.TempDir(), "sentinel")
+	targetRepository := filepath.Join(t.TempDir(), "target")
+	standaloneEnvironment := standaloneTestGitEnvironment(t)
+	runStandaloneTestGit(t, standaloneEnvironment, "init", "--quiet", sentinelRepository)
+	runStandaloneTestGit(t, standaloneEnvironment, "init", "--quiet", targetRepository)
+
+	globalConfig := filepath.Join(t.TempDir(), "global-config")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "missing-system-config"))
+	t.Setenv("GIT_DIR", filepath.Join(sentinelRepository, ".git"))
+	t.Setenv("GIT_WORK_TREE", sentinelRepository)
+	t.Setenv("GIT_COMMON_DIR", filepath.Join(sentinelRepository, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(sentinelRepository, ".git", "index"))
+	t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(sentinelRepository, ".git", "objects"))
+	t.Setenv("GIT_SSH", "/opt/team/bin/ssh-wrapper")
+	t.Setenv("GIT_TERMINAL_PROMPT", "1")
+
+	cmd, err := newGitCommand(context.Background(), targetRepository, "config", "core.testMarker", "target-command")
+	if err != nil {
+		t.Fatalf("newGitCommand: %v", err)
+	}
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run Git command: %v", err)
+	}
+
+	targetValue, targetConfigured := standaloneTestGitConfigValue(t, standaloneEnvironment, targetRepository, "core.testMarker")
+	if !targetConfigured || targetValue != "target-command" {
+		t.Errorf("target core.testMarker = %q, configured = %t; want target-command in target repository", targetValue, targetConfigured)
+	}
+	sentinelValue, sentinelConfigured := standaloneTestGitConfigValue(t, standaloneEnvironment, sentinelRepository, "core.testMarker")
+	if sentinelConfigured {
+		t.Errorf("sentinel core.testMarker = %q; inherited repository selectors redirected Git", sentinelValue)
+	}
+	if got := commandEnvironmentValues(cmd.Env, "GIT_DIR"); len(got) != 0 {
+		t.Errorf("GIT_DIR values = %v, want none", got)
+	}
+	if got := commandEnvironmentValues(cmd.Env, "GIT_CONFIG_GLOBAL"); len(got) != 1 || got[0] != globalConfig {
+		t.Errorf("GIT_CONFIG_GLOBAL values = %v, want [%s]", got, globalConfig)
+	}
+	if got := commandEnvironmentValues(cmd.Env, "GIT_SSH"); len(got) != 1 || got[0] != "/opt/team/bin/ssh-wrapper" {
+		t.Errorf("GIT_SSH values = %v, want preserved transport", got)
+	}
+	if got := commandEnvironmentValues(cmd.Env, "GIT_TERMINAL_PROMPT"); len(got) != 1 || got[0] != "0" {
+		t.Errorf("GIT_TERMINAL_PROMPT values = %v, want [0]", got)
+	}
+}
+
+func TestRunTestGitIsolatesRepositoryEnvironment(t *testing.T) {
+	sentinelRepository := filepath.Join(t.TempDir(), "sentinel")
+	targetRepository := filepath.Join(t.TempDir(), "target")
+	standaloneEnvironment := standaloneTestGitEnvironment(t)
+	runStandaloneTestGit(t, standaloneEnvironment, "init", "--quiet", sentinelRepository)
+	runStandaloneTestGit(t, standaloneEnvironment, "init", "--quiet", targetRepository)
+
+	t.Setenv("GIT_DIR", filepath.Join(sentinelRepository, ".git"))
+	t.Setenv("GIT_WORK_TREE", sentinelRepository)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "missing-global-config"))
+	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "missing-system-config"))
+	t.Setenv("HOME", t.TempDir())
+	runTestGit(t, "-C", targetRepository, "config", "core.sshCommand", "target-command")
+
+	targetValue, targetConfigured := standaloneTestGitConfigValue(t, standaloneEnvironment, targetRepository, "core.sshCommand")
+	if !targetConfigured || targetValue != "target-command" {
+		t.Errorf("target core.sshCommand = %q, configured = %t; want target-command in target repository", targetValue, targetConfigured)
+	}
+	sentinelValue, sentinelConfigured := standaloneTestGitConfigValue(t, standaloneEnvironment, sentinelRepository, "core.sshCommand")
+	if sentinelConfigured {
+		t.Fatalf("sentinel core.sshCommand = %q; inherited repository selectors escaped test isolation", sentinelValue)
 	}
 }
 
@@ -377,6 +612,23 @@ func TestGitCommandEnvironmentPreservesCustomSSHCommand(t *testing.T) {
 				t.Fatalf("GIT_SSH_COMMAND values = %v, want [%s]", got, tt.sshCommand)
 			}
 		})
+	}
+}
+
+func TestGitCommandEnvironmentPreservesGitSSH(t *testing.T) {
+	environment := gitCommandEnvironment([]string{
+		"PATH=/usr/bin",
+		"GIT_TERMINAL_PROMPT=1",
+		"GIT_SSH_COMMAND= \t",
+		"GIT_SSH=/opt/team/bin/ssh-wrapper",
+	})
+	want := []string{
+		"PATH=/usr/bin",
+		"GIT_SSH=/opt/team/bin/ssh-wrapper",
+		"GIT_TERMINAL_PROMPT=0",
+	}
+	if !slices.Equal(environment, want) {
+		t.Fatalf("gitCommandEnvironment() = %v, want %v", environment, want)
 	}
 }
 
@@ -425,6 +677,42 @@ func TestGitCommandEnvironmentForWindowsMatchesKeysCaseInsensitively(t *testing.
 	}
 }
 
+func TestGitCommandEnvironmentForWindowsPreservesGitSSH(t *testing.T) {
+	environment := gitCommandEnvironmentForGOOS([]string{
+		"PATH=C:\\Windows\\System32",
+		"git_terminal_prompt=1",
+		"git_ssh_command= ",
+		`git_ssh=C:\tools\team-ssh.exe`,
+	}, "windows")
+	want := []string{
+		"PATH=C:\\Windows\\System32",
+		`git_ssh=C:\tools\team-ssh.exe`,
+		"GIT_TERMINAL_PROMPT=0",
+	}
+	if !slices.Equal(environment, want) {
+		t.Fatalf("gitCommandEnvironmentForGOOS() = %v, want %v", environment, want)
+	}
+}
+
+func TestGitEnvironmentWithoutRepositorySelectorsMatchesWindowsKeysCaseInsensitively(t *testing.T) {
+	environment := gitEnvironmentWithoutRepositorySelectors([]string{
+		"PATH=C:\\Windows\\System32",
+		`git_dir=C:\sensitive\repo\.git`,
+		`Git_Work_Tree=C:\sensitive\repo`,
+		`GIT_COMMON_DIR=C:\sensitive\repo\.git`,
+		`GIT_CONFIG_GLOBAL=C:\config\gitconfig`,
+		`GIT_SSH=C:\tools\team-ssh.exe`,
+	}, "windows")
+	want := []string{
+		"PATH=C:\\Windows\\System32",
+		`GIT_CONFIG_GLOBAL=C:\config\gitconfig`,
+		`GIT_SSH=C:\tools\team-ssh.exe`,
+	}
+	if !slices.Equal(environment, want) {
+		t.Fatalf("gitEnvironmentWithoutRepositorySelectors() = %v, want %v", environment, want)
+	}
+}
+
 func TestGitCommandEnvironmentForPOSIXKeepsKeysCaseSensitive(t *testing.T) {
 	environment := gitCommandEnvironmentForGOOS([]string{
 		"PATH=/usr/bin",
@@ -459,4 +747,57 @@ func writeTestExecutable(t *testing.T, path, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
 		t.Fatalf("write executable %s: %v", path, err)
 	}
+}
+
+func configureGitSSHCommand(t *testing.T, configPath, command string) {
+	t.Helper()
+	runTestGit(t, "config", "--file", configPath, "core.sshCommand", command)
+}
+
+func runTestGit(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = t.TempDir()
+	cmd.Env = standaloneTestGitEnvironment(t)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, output)
+	}
+}
+
+func standaloneTestGitEnvironment(t *testing.T) []string {
+	t.Helper()
+	return []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + t.TempDir(),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + filepath.Join(t.TempDir(), "missing-global-config"),
+		"GIT_CONFIG_SYSTEM=" + filepath.Join(t.TempDir(), "missing-system-config"),
+	}
+}
+
+func runStandaloneTestGit(t *testing.T, environment []string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = t.TempDir()
+	cmd.Env = environment
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("standalone git %s: %v: %s", strings.Join(args, " "), err, output)
+	}
+}
+
+func standaloneTestGitConfigValue(t *testing.T, environment []string, repository, key string) (string, bool) {
+	t.Helper()
+	cmd := exec.Command("git", "--git-dir", filepath.Join(repository, ".git"), "config", "--get", key)
+	cmd.Dir = t.TempDir()
+	cmd.Env = environment
+	output, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(output)), true
+	}
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+		return "", false
+	}
+	t.Fatalf("standalone git config --get %s: %v", key, err)
+	return "", false
 }
