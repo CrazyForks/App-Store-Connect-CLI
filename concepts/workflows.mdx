@@ -59,7 +59,7 @@ Workflows are defined in `.asc/workflow.json` (or a custom path with `--file`).
 | ------------ | ------ | --------------------------------------------------------------- |
 | `env`        | object | Global environment variables available to all workflows         |
 | `before_all` | string | Shell command run before any workflow                           |
-| `after_all`  | string | Shell command run after workflow completes (success or failure) |
+| `after_all`  | string | Shell command run only after the workflow completes successfully |
 | `error`      | string | Shell command run only on workflow failure                      |
 | `workflows`  | object | Map of named workflows                                          |
 
@@ -303,7 +303,7 @@ Use for authentication checks, environment validation, or setup tasks.
 
 ### after\_all
 
-Runs **once** after the workflow completes (success or failure):
+Runs **once** after the workflow completes **successfully**:
 
 ```json  theme={null}
 {
@@ -312,7 +312,14 @@ Runs **once** after the workflow completes (success or failure):
 }
 ```
 
-Use for cleanup, notifications, or logging.
+Use for success notifications or logging.
+
+<Warning>
+  `after_all` is skipped when any step, or `before_all`, fails. Cleanup that has
+  to happen on every run belongs in `error` as well, or in the CI job that
+  invoked `asc`. A run that fails executes `before_all`, the steps up to the
+  failure, and then `error`.
+</Warning>
 
 ### error
 

@@ -135,6 +135,40 @@ func TestDocWorkflowExamplesDemonstrateTruthyGates(t *testing.T) {
 	}
 }
 
+// TestDocsDescribeAfterAllAsSuccessOnly keeps the pages aligned with Run: a step
+// failure returns before the after_all block, so after_all never runs on the
+// failure path (see TestRun_AfterAllDoesNotRunOnStepFailure). Documenting it as
+// a "success or failure" hook sends cleanup into the one path it never covers.
+func TestDocsDescribeAfterAllAsSuccessOnly(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+
+	for _, page := range docWorkflowPages {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(page)))
+		if err != nil {
+			t.Fatalf("read %s: %v", page, err)
+		}
+		inAfterAllSection := false
+		for i, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				inAfterAllSection = mentionsAfterAll(line)
+			}
+			if !inAfterAllSection && !mentionsAfterAll(line) {
+				continue
+			}
+			if strings.Contains(strings.ToLower(line), "or failure") {
+				t.Errorf("%s:%d claims after_all runs on failure, but the runner skips it on the failure path: %s", page, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}
+
+func mentionsAfterAll(line string) bool {
+	return strings.Contains(line, "after_all") || strings.Contains(line, `after\_all`)
+}
+
 func pageShowsTruthyValue(page, name string) bool {
 	for _, truthy := range []string{"1", "true", "yes", "y", "on"} {
 		if strings.Contains(page, name+":"+truthy) || strings.Contains(page, name+"="+truthy) {
