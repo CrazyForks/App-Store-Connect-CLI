@@ -136,9 +136,18 @@ func extractDeclaredOutputs(outputDecls map[string]string, stdout []byte) (map[s
 		return nil, fmt.Errorf("extract outputs: command stdout was empty")
 	}
 
+	// Decode numbers as json.Number so declared outputs keep the exact literal the
+	// command emitted. Decoding into float64 would rewrite build numbers and IDs
+	// (42 -> 42.000000) and silently lose precision beyond 2^53.
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.UseNumber()
+
 	var payload any
-	if err := json.Unmarshal(trimmed, &payload); err != nil {
+	if err := decoder.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("extract outputs: parse command stdout as JSON: %w", err)
+	}
+	if decoder.More() {
+		return nil, fmt.Errorf("extract outputs: parse command stdout as JSON: invalid character after top-level value")
 	}
 
 	results := make(map[string]string, len(outputDecls))
@@ -181,8 +190,8 @@ func evaluateJSONPath(payload any, expr string) (string, error) {
 			return "true", nil
 		}
 		return "false", nil
-	case float64:
-		return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%f", value), "0"), "."), nil
+	case json.Number:
+		return value.String(), nil
 	default:
 		data, err := json.Marshal(value)
 		if err != nil {
