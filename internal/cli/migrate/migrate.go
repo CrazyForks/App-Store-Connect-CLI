@@ -287,6 +287,9 @@ Examples:
 			if err := validateVersionLocalizationCreateLocales(preparedLocalizations, localeToID); err != nil {
 				return err
 			}
+			if err := validateScreenshotLocalizationCreateLocales(screenshotPlan, localeToID); err != nil {
+				return err
+			}
 			appInfoPlan, err := prepareAppInfoLocalizations(requestCtx, client, resolvedAppID, preparedAppInfoLocalizations)
 			if err != nil {
 				return err

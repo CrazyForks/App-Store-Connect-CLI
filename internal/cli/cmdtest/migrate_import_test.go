@@ -361,6 +361,25 @@ func TestMigrateImportPreflightsWouldCreateAppInfoLocalesBeforeMutations(t *test
 	api.assertComplete(t, 0)
 }
 
+func TestMigrateImportPreflightsWouldCreateScreenshotLocalesBeforeMutations(t *testing.T) {
+	root := writeMigrateImportMetadata(t, map[string]map[string]string{
+		"en-US": {"description.txt": "English description"},
+	})
+	screenshotsDir := filepath.Join(root, "screenshots", "nl")
+	if err := os.MkdirAll(screenshotsDir, 0o755); err != nil {
+		t.Fatalf("mkdir screenshots: %v", err)
+	}
+	writePNGForMigrate(t, filepath.Join(screenshotsDir, "iphone_65_screen.png"), 1242, 2688)
+
+	planning := migrateImportPlanningExpectations(`{"data":[]}`)
+	api := newMigrateImportAPI(t, planning[:2]...)
+
+	stdout, stderr, runErr := runMigrateImportWithOptions(t, root)
+	const wantError = `migrate import: locale "nl": unsupported locale "nl"; did you mean: nl-NL`
+	assertMigrateImportError(t, stdout, stderr, runErr, wantError)
+	api.assertComplete(t, 0)
+}
+
 func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesAfterPlanning(t *testing.T) {
 	root := writeMigrateImportMetadata(t, validMigrateAppInfoMetadata())
 	expectations := append(migrateImportPlanningExpectations(
@@ -549,19 +568,26 @@ func writeMigrateImportMetadata(t *testing.T, localeFiles map[string]map[string]
 
 func runMigrateImport(t *testing.T, root string) (string, string, error) {
 	t.Helper()
+	return runMigrateImportWithOptions(t, root, "--skip-screenshots")
+}
+
+func runMigrateImportWithOptions(t *testing.T, root string, options ...string) (string, string, error) {
+	t.Helper()
 	rootCmd := RootCommand("1.2.3")
 	rootCmd.FlagSet.SetOutput(io.Discard)
 
+	args := []string{
+		"migrate", "import",
+		"--app", "APP_ID",
+		"--version-id", "VERSION_ID",
+		"--fastlane-dir", root,
+		"--confirm",
+	}
+	args = append(args, options...)
+
 	var runErr error
 	stdout, stderr := captureOutput(t, func() {
-		if err := rootCmd.Parse([]string{
-			"migrate", "import",
-			"--app", "APP_ID",
-			"--version-id", "VERSION_ID",
-			"--fastlane-dir", root,
-			"--confirm",
-			"--skip-screenshots",
-		}); err != nil {
+		if err := rootCmd.Parse(args); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		runErr = rootCmd.Run(context.Background())

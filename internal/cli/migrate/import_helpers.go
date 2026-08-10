@@ -203,6 +203,15 @@ func validateVersionLocalizationCreateLocales(localizations []preparedVersionLoc
 	return nil
 }
 
+func validateScreenshotLocalizationCreateLocales(screenshots []ScreenshotPlan, localeToID map[string]string) error {
+	for _, screenshot := range screenshots {
+		if err := validateLocalizationCreateTarget(screenshot.Locale, localeToID[screenshot.Locale]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateLocalizationCreateTarget(locale, localizationID string) error {
 	if localizationID != "" {
 		return nil
