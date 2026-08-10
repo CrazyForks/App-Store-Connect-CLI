@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
@@ -225,8 +224,8 @@ func TestBackgroundAssetsUploadFilesUpdateCommand_FileRequiresChecksumBeforeFile
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected flag.ErrHelp when --file is used without --checksum, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "--file requires --checksum") {
-		t.Fatalf("expected file/checksum validation error, got %v", err)
+	if got, want := err.Error(), "--file requires --checksum"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
 	}
 	if clientFactoryCalled {
 		t.Fatal("client factory ran before --file/--checksum validation")
