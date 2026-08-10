@@ -5,8 +5,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestAssetListCommandsRenewRequestTimeout(t *testing.T) {
@@ -49,21 +55,9 @@ func TestAssetListCommandsRenewRequestTimeout(t *testing.T) {
 			t.Setenv("ASC_TIMEOUT_SECONDS", "")
 			t.Setenv("ASC_MAX_RETRIES", "0")
 
-			originalTransport := http.DefaultTransport
-			t.Cleanup(func() {
-				http.DefaultTransport = originalTransport
-			})
-
-			requestDeadlines := make([]time.Time, 0, 2)
 			callCount := 0
-			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				callCount++
-				deadline, ok := req.Context().Deadline()
-				if !ok {
-					t.Fatal("request context has no deadline")
-				}
-				requestDeadlines = append(requestDeadlines, deadline)
-
 				var body string
 				switch callCount {
 				case 1:
@@ -81,8 +75,42 @@ func TestAssetListCommandsRenewRequestTimeout(t *testing.T) {
 					t.Fatalf("unexpected request count %d", callCount)
 				}
 
-				return jsonHTTPResponse(http.StatusOK, body), nil
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, body)
+			}))
+			t.Cleanup(server.Close)
+
+			serverURL, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatalf("parse test server URL: %v", err)
+			}
+			requestDeadlines := make([]time.Time, 0, 2)
+			serverTransport := server.Client().Transport
+			transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				deadline, ok := req.Context().Deadline()
+				if !ok {
+					t.Fatal("request context has no deadline")
+				}
+				requestDeadlines = append(requestDeadlines, deadline)
+
+				cloned := req.Clone(req.Context())
+				cloned.URL.Scheme = serverURL.Scheme
+				cloned.URL.Host = serverURL.Host
+				return serverTransport.RoundTrip(cloned)
 			})
+			client, err := asc.NewClientWithHTTPClient(
+				os.Getenv("ASC_KEY_ID"),
+				os.Getenv("ASC_ISSUER_ID"),
+				os.Getenv("ASC_PRIVATE_KEY_PATH"),
+				&http.Client{Transport: transport},
+			)
+			if err != nil {
+				t.Fatalf("create asset list timeout test client: %v", err)
+			}
+			t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+				return client, nil
+			}))
 
 			root := RootCommand("1.2.3")
 			root.FlagSet.SetOutput(io.Discard)
