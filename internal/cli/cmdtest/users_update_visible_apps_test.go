@@ -153,8 +153,9 @@ func TestUsersUpdateRejectedRequestDoesNotChangeAccess(t *testing.T) {
 	gotState := state
 	mu.Unlock()
 
-	if exitCode != rootcmd.ExitHTTPUnprocessable {
-		t.Fatalf("exit code = %d, want %d; stderr=%q", exitCode, rootcmd.ExitHTTPUnprocessable, stderr)
+	wantExitCode := rootcmd.HTTPStatusToExitCode(http.StatusUnprocessableEntity)
+	if exitCode != wantExitCode {
+		t.Fatalf("exit code = %d, want %d; stderr=%q", exitCode, wantExitCode, stderr)
 	}
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
