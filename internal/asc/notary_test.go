@@ -1,6 +1,7 @@
 package asc
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -12,8 +13,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -360,15 +359,9 @@ func TestListNotarizations_ErrorResponse(t *testing.T) {
 }
 
 func TestComputeFileSHA256(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.txt")
-
 	content := []byte("hello world")
-	if err := os.WriteFile(path, content, 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-
-	got, err := ComputeFileSHA256(path)
+	file := bytes.NewReader(content)
+	got, err := ComputeFileSHA256(file)
 	if err != nil {
 		t.Fatalf("ComputeFileSHA256() error: %v", err)
 	}
@@ -380,24 +373,17 @@ func TestComputeFileSHA256(t *testing.T) {
 	if got != want {
 		t.Errorf("got %s, want %s", got, want)
 	}
-}
-
-func TestComputeFileSHA256_FileNotFound(t *testing.T) {
-	_, err := ComputeFileSHA256("/nonexistent/file.txt")
-	if err == nil {
-		t.Fatal("expected error for nonexistent file")
+	replayed, err := io.ReadAll(file)
+	if err != nil {
+		t.Fatalf("read rewound file: %v", err)
+	}
+	if !bytes.Equal(replayed, content) {
+		t.Fatalf("rewound contents = %q, want %q", replayed, content)
 	}
 }
 
 func TestComputeFileSHA256_EmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "empty.txt")
-
-	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-
-	got, err := ComputeFileSHA256(path)
+	got, err := ComputeFileSHA256(bytes.NewReader(nil))
 	if err != nil {
 		t.Fatalf("ComputeFileSHA256() error: %v", err)
 	}
