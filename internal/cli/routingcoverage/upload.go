@@ -219,6 +219,14 @@ func validateRoutingCoverageGeoJSON(reader io.Reader) error {
 						return fmt.Errorf("polygon %d ring %d point %d coordinate component %d must be a number", polygonIndex, ringIndex, pointIndex, componentIndex)
 					}
 				}
+				longitude := *point[0]
+				if longitude < -180 || longitude > 180 {
+					return fmt.Errorf("polygon %d ring %d point %d longitude must be between -180 and 180 (got %g)", polygonIndex, ringIndex, pointIndex, longitude)
+				}
+				latitude := *point[1]
+				if latitude < -90 || latitude > 90 {
+					return fmt.Errorf("polygon %d ring %d point %d latitude must be between -90 and 90 (got %g)", polygonIndex, ringIndex, pointIndex, latitude)
+				}
 			}
 			if !equalCoordinates(ring[0], ring[len(ring)-1]) {
 				return fmt.Errorf("polygon %d ring %d start and end coordinate points must be the same", polygonIndex, ringIndex)

@@ -28,6 +28,10 @@ func TestPrepareRoutingCoverageFileValidatesGeoJSON(t *testing.T) {
 		{name: "short ring", content: `{"type":"MultiPolygon","coordinates":[[[[77.5,12.9],[77.7,12.9],[77.5,12.9]]]]}`, want: "at least four coordinate points"},
 		{name: "open ring", content: `{"type":"MultiPolygon","coordinates":[[[[77.5,12.9],[77.7,12.9],[77.7,13.1],[77.6,12.8]]]]}`, want: "start and end coordinate points"},
 		{name: "null coordinate component", content: `{"type":"MultiPolygon","coordinates":[[[[null,12.9],[77.7,12.9],[77.7,13.1],[null,12.9]]]]}`, want: "coordinate component 0 must be a number"},
+		{name: "longitude above range", content: `{"type":"MultiPolygon","coordinates":[[[[181,12.9],[77.7,12.9],[77.7,13.1],[181,12.9]]]]}`, want: "longitude must be between -180 and 180"},
+		{name: "longitude below range", content: `{"type":"MultiPolygon","coordinates":[[[[-181,12.9],[77.7,12.9],[77.7,13.1],[-181,12.9]]]]}`, want: "longitude must be between -180 and 180"},
+		{name: "latitude above range", content: `{"type":"MultiPolygon","coordinates":[[[[77.5,91],[77.7,12.9],[77.7,13.1],[77.5,91]]]]}`, want: "latitude must be between -90 and 90"},
+		{name: "latitude below range", content: `{"type":"MultiPolygon","coordinates":[[[[77.5,-91],[77.7,12.9],[77.7,13.1],[77.5,-91]]]]}`, want: "latitude must be between -90 and 90"},
 	}
 
 	for _, tt := range tests {
