@@ -352,19 +352,16 @@ Examples:
 					return fmt.Errorf("background-assets upload-files update: failed to fetch: %w", err)
 				}
 
+				// --file requires --checksum, so verification always runs here.
 				sourceChecksums := resp.Data.Attributes.SourceFileChecksums
-				if *checksum {
-					if sourceChecksums == nil || (sourceChecksums.File == nil && sourceChecksums.Composite == nil) {
-						fmt.Fprintln(os.Stderr, "Warning: --checksum requested but API provided no checksums to verify; skipping")
-					} else {
-						computed, err := asc.VerifySourceFileChecksums(pathValue, sourceChecksums)
-						if err != nil {
-							return fmt.Errorf("background-assets upload-files update: checksum verification failed: %w", err)
-						}
-						checksums = computed
+				if sourceChecksums == nil || (sourceChecksums.File == nil && sourceChecksums.Composite == nil) {
+					fmt.Fprintln(os.Stderr, "Warning: --checksum requested but API provided no checksums to verify; skipping")
+				} else {
+					computed, err := asc.VerifySourceFileChecksums(pathValue, sourceChecksums)
+					if err != nil {
+						return fmt.Errorf("background-assets upload-files update: checksum verification failed: %w", err)
 					}
-				} else if sourceChecksums != nil {
-					checksums = sourceChecksums
+					checksums = computed
 				}
 			}
 
