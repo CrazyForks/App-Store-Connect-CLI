@@ -98,12 +98,12 @@ Finance reports use Apple fiscal months (`YYYY-MM`), not calendar months.
 
 - Apple added discrete versions for in-app purchases, subscriptions, and subscription groups. Their v2 localizations and images are version-scoped; pass a version ID rather than the legacy product, subscription, or group ID.
 - Review submissions accept `inAppPurchaseVersions`, `subscriptionVersions`, and `subscriptionGroupVersions` through `reviewSubmissionItems`. The CLI preserves both relationship data and `included` resources in JSON output.
-- API 4.4.1 has no item-detail GET operation. `asc review items view` and `asc review items-get` are deprecated and return migration guidance; list the parent submission's items instead.
+- API 4.4.1 has no item-detail GET operation. List a parent submission's items with `asc review items list --submission "SUBMISSION_ID"`.
 - API 4.4.1 has no marketplace-webhook instance GET operation. `asc marketplace webhooks view` preserves its released behavior by selecting the exact ID across all pages of the supported collection GET.
 - Review-item updates accept only nullable `resolved` and `removed` attributes. The response-only `state` attribute cannot be patched; use `--resolved`, `--removed`, or their matching `--clear-*` flags. Setting `removed=true` requires `--confirm`.
 - Review-submission updates expose nullable `platform`, `submitted`, and `canceled` values plus matching `--clear-*` flags. Setting `submitted=true` or `canceled=true` requires `--confirm`; false, null, and platform-only updates do not.
-- The create schema names its second experiment relationship `appStoreVersionExperimentV2`, but its linked resource type remains `appStoreVersionExperiments`. The CLI selector is `appStoreVersionExperimentsV2` (with singular `appStoreVersionExperimentV2` as an alias). Experiment treatments are not valid review-item create relationships.
-- Review items require `appCustomProductPageVersions`; a legacy `appCustomProductPages` ID cannot be silently converted to a version ID and is rejected with migration guidance.
+- The create schema names its second experiment relationship `appStoreVersionExperimentV2`, but its linked resource type remains `appStoreVersionExperiments`. The CLI selector is `appStoreVersionExperimentsV2`. Experiment treatments are not valid review-item create relationships.
+- Review items require `appCustomProductPageVersions`; `appCustomProductPages` is not an accepted item type because a page ID cannot be silently converted to a version ID.
 - The v1 localization/image commands and submission shortcuts remain available during their deprecation window. Each direct invocation warns on stderr and preserves the existing endpoint, flags, stdout, and exit behavior. The two localization `sync` leaves are experimental; the other 27 direct leaves are stable. No legacy command is removed in this release.
 - `asc iap setup` and `asc subscriptions setup` remain supported, but warn when localization flags request their legacy v1 localization steps. Setup calls without those flags do not warn.
 - Migration mapping:

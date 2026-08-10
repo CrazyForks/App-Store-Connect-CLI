@@ -193,13 +193,11 @@ automatically includes the related `items` resources.
 API 4.4.1 permits item updates only through the nullable `resolved` and
 `removed` attributes. Use `--resolved true|false` or `--removed true|false` to
 set a value and `--clear-resolved` or `--clear-removed` to send JSON `null`.
-The former `--state` update flag is deprecated and rejected because `state` is
-response-only. Setting `--removed=true` also requires `--confirm`.
+The `state` field is response-only. Setting `--removed=true` also requires
+`--confirm`.
 
-`asc review items view` and the compatibility command `asc review items-get`
-are deprecated because API 4.4.1 does not provide
-`GET /v1/reviewSubmissionItems/{id}`. Use
-`asc review items-list --submission "SUBMISSION_ID"` instead.
+API 4.4.1 does not provide `GET /v1/reviewSubmissionItems/{id}`. Use
+`asc review items list --submission "SUBMISSION_ID"` instead.
 
 ***
 
