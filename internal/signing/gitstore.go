@@ -3,10 +3,12 @@ package signing
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -245,10 +247,176 @@ func RejectSymlinkIfExists(path string) error {
 	return nil
 }
 
-func (g *GitStore) gitRun(ctx context.Context, dir string, args ...string) error {
+func newGitCommand(ctx context.Context, dir string, args ...string) (*exec.Cmd, error) {
+	environment := gitEnvironmentWithoutRepositorySelectors(os.Environ(), runtime.GOOS)
+	coreSSHCommandConfigured := false
+	if gitCommandMayUseSSH(args) && !hasGitSSHEnvironmentOverride(environment, runtime.GOOS) {
+		var err error
+		includeRepositoryConfig := args[0] != "clone"
+		coreSSHCommandConfigured, err = hasConfiguredGitSSHCommand(ctx, dir, environment, runtime.GOOS, includeRepositoryConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, "git", args...)
-	if dir != "" {
-		cmd.Dir = dir
+	cmd.Dir = dir
+	cmd.Env = gitCommandEnvironmentWithConfig(environment, runtime.GOOS, coreSSHCommandConfigured)
+	return cmd, nil
+}
+
+var gitRepositorySelectorEnvironmentKeys = []string{
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_IMPLICIT_WORK_TREE",
+	"GIT_GRAFT_FILE",
+	"GIT_INDEX_FILE",
+	"GIT_NO_REPLACE_OBJECTS",
+	"GIT_REPLACE_REF_BASE",
+	"GIT_PREFIX",
+	"GIT_INTERNAL_SUPER_PREFIX",
+	"GIT_SHALLOW_FILE",
+	"GIT_COMMON_DIR",
+}
+
+func gitEnvironmentWithoutRepositorySelectors(environment []string, goos string) []string {
+	caseInsensitive := goos == "windows"
+	for _, key := range gitRepositorySelectorEnvironmentKeys {
+		environment = removeCommandEnvironmentValue(environment, key, caseInsensitive)
+	}
+	return environment
+}
+
+func gitCommandEnvironmentWithConfig(environment []string, goos string, coreSSHCommandConfigured bool) []string {
+	caseInsensitive := goos == "windows"
+	environment = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", caseInsensitive)
+
+	sshCommand, ok := commandEnvironmentValue(environment, "GIT_SSH_COMMAND", caseInsensitive)
+	if ok && strings.TrimSpace(sshCommand) != "" {
+		// A caller-provided command may contain shell quoting or invoke a wrapper.
+		// Preserve it verbatim instead of trying to append or rewrite SSH options.
+		return replaceCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", sshCommand, caseInsensitive)
+	}
+	environment = removeCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", caseInsensitive)
+
+	gitSSH, ok := commandEnvironmentValue(environment, "GIT_SSH", caseInsensitive)
+	if ok && strings.TrimSpace(gitSSH) != "" {
+		return environment
+	}
+	environment = removeCommandEnvironmentValue(environment, "GIT_SSH", caseInsensitive)
+
+	if coreSSHCommandConfigured {
+		return environment
+	}
+	return replaceCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", "ssh -o BatchMode=yes", caseInsensitive)
+}
+
+func hasGitSSHEnvironmentOverride(environment []string, goos string) bool {
+	caseInsensitive := goos == "windows"
+	for _, key := range []string{"GIT_SSH_COMMAND", "GIT_SSH"} {
+		value, ok := commandEnvironmentValue(environment, key, caseInsensitive)
+		if ok && strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func gitCommandMayUseSSH(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "clone", "fetch", "ls-remote", "pull", "push", "submodule":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasConfiguredGitSSHCommand(
+	ctx context.Context,
+	dir string,
+	environment []string,
+	goos string,
+	includeRepositoryConfig bool,
+) (bool, error) {
+	queryDir := dir
+	queryEnvironment := replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", goos == "windows")
+	if !includeRepositoryConfig {
+		neutralRoot, err := os.MkdirTemp("", "asc-git-config-")
+		if err != nil {
+			return false, fmt.Errorf("create neutral Git config probe: %w", err)
+		}
+		defer func() {
+			_ = os.Remove(neutralRoot)
+		}()
+
+		queryDir = neutralRoot
+		queryEnvironment = replaceCommandEnvironmentValue(
+			queryEnvironment,
+			"GIT_DIR",
+			filepath.Join(neutralRoot, "nonexistent.git"),
+			goos == "windows",
+		)
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
+	cmd.Dir = queryDir
+	cmd.Env = queryEnvironment
+	cmd.Stderr = os.Stderr
+	output, err := cmd.Output()
+	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("check Git core.sshCommand: %w", err)
+	}
+	return strings.TrimSpace(string(output)) != "", nil
+}
+
+func commandEnvironmentValue(environment []string, key string, caseInsensitive bool) (string, bool) {
+	for i := len(environment) - 1; i >= 0; i-- {
+		if value, ok := commandEnvironmentEntryValue(environment[i], key, caseInsensitive); ok {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+func replaceCommandEnvironmentValue(environment []string, key, value string, caseInsensitive bool) []string {
+	return append(removeCommandEnvironmentValue(environment, key, caseInsensitive), key+"="+value)
+}
+
+func removeCommandEnvironmentValue(environment []string, key string, caseInsensitive bool) []string {
+	updated := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if _, ok := commandEnvironmentEntryValue(entry, key, caseInsensitive); ok {
+			continue
+		}
+		updated = append(updated, entry)
+	}
+	return updated
+}
+
+func commandEnvironmentEntryValue(entry, key string, caseInsensitive bool) (string, bool) {
+	entryKey, value, ok := strings.Cut(entry, "=")
+	if !ok {
+		return "", false
+	}
+	if entryKey != key && (!caseInsensitive || !strings.EqualFold(entryKey, key)) {
+		return "", false
+	}
+	return value, true
+}
+
+func (g *GitStore) gitRun(ctx context.Context, dir string, args ...string) error {
+	cmd, err := newGitCommand(ctx, dir, args...)
+	if err != nil {
+		return err
 	}
 	cmd.Stdout = os.Stderr // progress to stderr
 	cmd.Stderr = os.Stderr
@@ -256,13 +424,13 @@ func (g *GitStore) gitRun(ctx context.Context, dir string, args ...string) error
 }
 
 func (g *GitStore) gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if dir != "" {
-		cmd.Dir = dir
+	cmd, err := newGitCommand(ctx, dir, args...)
+	if err != nil {
+		return "", err
 	}
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = os.Stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	return stdout.String(), err
 }
