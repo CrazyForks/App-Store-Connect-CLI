@@ -101,6 +101,12 @@ Examples:
 			if pathInfo.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("notarization submit: refusing to read symlink %q", pathValue)
 			}
+			if pathInfo.IsDir() {
+				return fmt.Errorf("notarization submit: %q is a directory", pathValue)
+			}
+			if !pathInfo.Mode().IsRegular() {
+				return fmt.Errorf("notarization submit: %q is not a regular file", pathValue)
+			}
 
 			fileHandle, err := secureopen.OpenExistingNoFollow(pathValue)
 			if err != nil {
@@ -114,6 +120,9 @@ Examples:
 			}
 			if info.IsDir() {
 				return fmt.Errorf("notarization submit: %q is a directory", pathValue)
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("notarization submit: %q is not a regular file", pathValue)
 			}
 			if info.Size() <= 0 {
 				return fmt.Errorf("notarization submit: file must not be empty")
