@@ -1169,6 +1169,78 @@ func TestMigrateImportSkippedStagesDoNotReportPartial(t *testing.T) {
 	}
 }
 
+// TestMigrateImportWarnsAboutLocalizationCreatedBeforeScreenshotFailure covers
+// the screenshot stage failing before it recorded any result: the localization
+// it created for a screenshot-only locale is reported nowhere else.
+func TestMigrateImportWarnsAboutLocalizationCreatedBeforeScreenshotFailure(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	root := t.TempDir()
+	fastlaneDir := filepath.Join(root, "fastlane")
+	if err := os.MkdirAll(filepath.Join(fastlaneDir, "metadata"), 0o755); err != nil {
+		t.Fatalf("mkdir metadata: %v", err)
+	}
+	screenshotsDir := filepath.Join(fastlaneDir, "screenshots", "fr-FR")
+	if err := os.MkdirAll(screenshotsDir, 0o755); err != nil {
+		t.Fatalf("mkdir screenshots: %v", err)
+	}
+	writePNGForMigrate(t, filepath.Join(screenshotsDir, "iphone_65_new.png"), 1242, 2688)
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	createdLocalizations := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
+			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
+			return migrateJSONResponse(http.StatusOK, `{"data":[],"links":{"next":""}}`), nil
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/appStoreVersionLocalizations":
+			createdLocalizations++
+			return migrateJSONResponse(http.StatusCreated, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-fr","attributes":{"locale":"fr-FR"}}}`), nil
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersionLocalizations/loc-fr/appScreenshotSets":
+			return migrateJSONResponse(http.StatusConflict, `{"errors":[{"status":"409","code":"STATE_ERROR","title":"Request failed","detail":"sets unavailable"}]}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+
+	rootCmd := RootCommand("1.2.3")
+	rootCmd.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := rootCmd.Parse([]string{
+			"migrate", "import",
+			"--app", "APP_ID",
+			"--version-id", "VERSION_ID",
+			"--fastlane-dir", fastlaneDir,
+			"--confirm",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = rootCmd.Run(context.Background())
+	})
+
+	if runErr == nil {
+		t.Fatal("expected migrate import to fail while fetching screenshot sets")
+	}
+	if createdLocalizations != 1 {
+		t.Fatalf("created localizations = %d, want the screenshot-only locale created once", createdLocalizations)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want no result document when no screenshot result exists", stdout)
+	}
+	wantWarning := `Warning: created localization "fr-FR" before the failure; re-run import or remove it manually`
+	if !strings.Contains(stderr, wantWarning) {
+		t.Fatalf("stderr = %q, want %q", stderr, wantWarning)
+	}
+}
+
 // TestMigrateImportPartialOmitsSkippedReviewInformationStage keeps
 // completedStages restricted to stages that changed App Store Connect.
 func TestMigrateImportPartialOmitsSkippedReviewInformationStage(t *testing.T) {

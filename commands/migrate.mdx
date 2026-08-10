@@ -338,7 +338,15 @@ writes the result document to stdout and exits non-zero:
 ```
 
 A failure before the first change prints nothing to stdout and only reports the
-error, so an empty stdout means nothing was applied.
+error, so an empty stdout means nothing was applied. Review information that
+already matched and screenshots that already exist are not changes, so a failure
+after them is a plain error too. The screenshot stage can still create a
+localization for a screenshot-only locale before it fails with nothing to
+report; that locale is named on stderr:
+
+```
+Warning: created localization "fr-FR" before the failure; re-run import or remove it manually
+```
 
 ## Validation Issues
 

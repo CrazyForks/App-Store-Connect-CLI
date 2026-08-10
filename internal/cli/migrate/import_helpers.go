@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -521,7 +523,7 @@ func uploadReviewInformation(ctx context.Context, client *asc.Client, versionID 
 	return &ReviewInfoResult{Action: migrateReviewInfoActionUpdate, DetailID: existing.Data.ID}, nil
 }
 
-func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string, localeToID map[string]string, plans []ScreenshotPlan) ([]ScreenshotUploadResult, error) {
+func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string, localeToID map[string]string, plans []ScreenshotPlan) (results []ScreenshotUploadResult, err error) {
 	if len(plans) == 0 {
 		return nil, nil
 	}
@@ -531,7 +533,17 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 		plansByLocale[plan.Locale] = append(plansByLocale[plan.Locale], plan)
 	}
 
-	results := make([]ScreenshotUploadResult, 0, len(plans))
+	// A failure before the first result leaves the localizations this stage
+	// created out of every report, so name them on stderr instead of leaving
+	// empty localizations behind silently.
+	var createdLocales []string
+	defer func() {
+		if err != nil && len(results) == 0 {
+			warnCreatedScreenshotLocalizations(os.Stderr, createdLocales)
+		}
+	}()
+
+	results = make([]ScreenshotUploadResult, 0, len(plans))
 	for locale, localePlans := range plansByLocale {
 		localizationID := localeToID[locale]
 		if localizationID == "" {
@@ -543,6 +555,7 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 			}
 			localizationID = resp.Data.ID
 			localeToID[locale] = localizationID
+			createdLocales = append(createdLocales, locale)
 		}
 
 		setsCtx, setsCancel := migrateRequestContext(ctx)
@@ -681,6 +694,18 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 	}
 
 	return sortedScreenshotResults(results), nil
+}
+
+// warnCreatedScreenshotLocalizations names the localizations the screenshot
+// stage created before a failure that left no result to print, so the operator
+// can re-run the import or remove the empty localizations by hand.
+func warnCreatedScreenshotLocalizations(w io.Writer, locales []string) {
+	// Locales are collected in map order, so sort them for a stable report.
+	ordered := append([]string(nil), locales...)
+	sort.Strings(ordered)
+	for _, locale := range ordered {
+		fmt.Fprintf(w, "Warning: created localization %q before the failure; re-run import or remove it manually\n", locale)
+	}
 }
 
 func sortedScreenshotResults(results []ScreenshotUploadResult) []ScreenshotUploadResult {
