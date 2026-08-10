@@ -331,11 +331,29 @@ func executeScreenshotReviewPlan(ctx context.Context, opts screenshotReviewPlanO
 			coverageByLocale[locale] = make(map[string]bool)
 		}
 
+		seenDisplayTypes := make(map[string]struct{}, len(entry.DisplayTypes))
 		for _, displayType := range entry.DisplayTypes {
-			displayValue := strings.TrimSpace(displayType)
-			if displayValue == "" {
+			rawDisplayType := strings.TrimSpace(displayType)
+			if rawDisplayType == "" {
 				continue
 			}
+			displayValue := asc.CanonicalScreenshotDisplayTypeForAPI(rawDisplayType)
+			if !asc.IsValidScreenshotDisplayType(displayValue) {
+				appendScreenshotReviewIssue(
+					result,
+					"error",
+					entry.Key,
+					locale,
+					rawDisplayType,
+					fmt.Sprintf("approved review entry contains unsupported screenshot display type %q", rawDisplayType),
+					"Regenerate the review manifest with a supported App Store screenshot size.",
+				)
+				continue
+			}
+			if _, exists := seenDisplayTypes[displayValue]; exists {
+				continue
+			}
+			seenDisplayTypes[displayValue] = struct{}{}
 			groupKey := screenshotGroupKey{
 				locale:         locale,
 				localizationID: localizationID,
