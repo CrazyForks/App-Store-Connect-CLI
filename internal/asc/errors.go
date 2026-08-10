@@ -13,6 +13,7 @@ var (
 	ErrForbidden             = errors.New("forbidden")
 	ErrBadRequest            = errors.New("bad request")
 	ErrConflict              = errors.New("resource conflict")
+	ErrMissingKeyID          = errors.New("key ID is required")
 	ErrRepeatedPaginationURL = errors.New("detected repeated pagination URL")
 )
 
