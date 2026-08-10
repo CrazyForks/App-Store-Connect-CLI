@@ -197,7 +197,10 @@ The `state` field is response-only. Setting `--removed=true` also requires
 `--confirm`.
 
 API 4.4.1 does not provide `GET /v1/reviewSubmissionItems/{id}`. Use
-`asc review items list --submission "SUBMISSION_ID"` instead.
+`asc review items list --submission "SUBMISSION_ID"` instead. The removed
+`asc review items view` and `asc review items-get` paths stay registered as
+stubs that print that migration guidance on stderr and exit with the usage
+code; both stubs are deleted in 5.0.0.
 
 ***
 

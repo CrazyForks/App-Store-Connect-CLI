@@ -48,8 +48,47 @@ Examples:
 			reviewItemsUpdateCommand("update", "review items update", `asc review items update --id "ITEM_ID" [flags]`, `asc review items update --id "ITEM_ID" --resolved true
   asc review items update --id "ITEM_ID" --clear-removed`),
 			reviewItemsRemoveCommand("remove", "review items remove", `asc review items remove [flags]`, `asc review items remove --id "ITEM_ID" --confirm`),
+			removedReviewItemsGetCommand("view", "asc review items view"),
 		},
 		Exec: func(ctx context.Context, args []string) error {
+			return flag.ErrHelp
+		},
+	}
+}
+
+// ReviewItemsGetCommand returns the removed review items-get stub.
+//
+// App Store Connect API 4.4.1 dropped GET /v1/reviewSubmissionItems/{id}, and
+// 3.7.0 shipped this path as deprecated with migration guidance. The stub keeps
+// that guidance reachable for callers pinned to 3.x and is deleted in 5.0.0.
+func ReviewItemsGetCommand() *ffcli.Command {
+	return removedReviewItemsGetCommand("items-get", "asc review items-get")
+}
+
+func removedReviewItemsGetCommand(name, oldPath string) *ffcli.Command {
+	fs := flag.NewFlagSet(name, flag.ExitOnError)
+
+	// Keep the released flags parseable so scripted callers reach the guidance
+	// instead of an unknown-flag error.
+	fs.String("id", "", "Review submission item ID (no longer supported)")
+	shared.BindOutputFlags(fs)
+
+	return &ffcli.Command{
+		Name:       name,
+		ShortUsage: oldPath + " [flags]",
+		ShortHelp:  "REMOVED: use `asc review items list --submission \"SUBMISSION_ID\"`.",
+		LongHelp: `REMOVED: App Store Connect API 4.4.1 has no review-item detail endpoint.
+
+Use asc review items list --submission "SUBMISSION_ID" instead. This stub is deleted in 5.0.0.`,
+		FlagSet:   fs,
+		UsageFunc: shared.DeprecatedUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			fmt.Fprintf(
+				os.Stderr,
+				"Error: `%s` was removed. App Store Connect API 4.4.1 has no item-detail GET; "+
+					"use `asc review items list --submission \"SUBMISSION_ID\"` instead. This stub is deleted in 5.0.0.\n",
+				oldPath,
+			)
 			return flag.ErrHelp
 		},
 	}
