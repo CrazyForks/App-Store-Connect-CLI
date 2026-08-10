@@ -101,6 +101,16 @@ func TestAppSetupInfoSetPlanningFailuresDoNotMutate(t *testing.T) {
 			wantError: "--name is required when creating an app info localization",
 			usage:     true,
 		},
+		{
+			name: "ambiguous localization",
+			args: []string{"--app", "app-1", "--app-info", "info-1", "--bundle-id", "com.example.changed", "--locale", "en-US", "--name", "Example App"},
+			steps: []appSetupInfoHTTPStep{{
+				method:       http.MethodGet,
+				uri:          appSetupInfoLocalizationsURI,
+				responseBody: `{"data":[{"type":"appInfoLocalizations","id":"loc-1"},{"type":"appInfoLocalizations","id":"loc-2"}]}`,
+			}},
+			wantError: `multiple app info localizations found for locale "en-US"`,
+		},
 	}
 
 	for _, test := range tests {

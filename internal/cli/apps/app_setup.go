@@ -218,6 +218,8 @@ Examples:
 					}
 					localizationAttrs.Locale = localeValue
 					createLocalization = true
+				} else if len(localizations.Data) > 1 {
+					return fmt.Errorf("app-setup info set: multiple app info localizations found for locale %q", localeValue)
 				} else {
 					localizationID = strings.TrimSpace(localizations.Data[0].ID)
 					if localizationID == "" {
