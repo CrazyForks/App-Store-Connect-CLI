@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -312,17 +311,15 @@ func (c *Client) ListNotarizations(ctx context.Context) (*NotarySubmissionsListR
 	return &response, nil
 }
 
-// ComputeFileSHA256 computes the SHA-256 hex digest of a file.
-func ComputeFileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("open file: %w", err)
-	}
-	defer f.Close()
-
+// ComputeFileSHA256 computes the SHA-256 hex digest of an opened file and
+// rewinds it so the same descriptor can be uploaded.
+func ComputeFileSHA256(file io.ReadSeeker) (string, error) {
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(h, file); err != nil {
 		return "", fmt.Errorf("read file: %w", err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", fmt.Errorf("rewind file: %w", err)
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
