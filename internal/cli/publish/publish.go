@@ -70,7 +70,7 @@ Examples:
 	}
 }
 
-// PublishTestFlightCommand uploads an IPA and distributes it to TestFlight groups.
+// PublishTestFlightCommand uploads a build and optionally distributes it to TestFlight groups.
 func PublishTestFlightCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("publish testflight", flag.ExitOnError)
 
@@ -81,6 +81,7 @@ func PublishTestFlightCommand() *ffcli.Command {
 	buildNumber := fs.String("build-number", "", "CFBundleVersion (used for upload metadata with --ipa, or build lookup when --ipa is omitted)")
 	platform := fs.String("platform", "IOS", "Platform: IOS, MAC_OS, TV_OS, VISION_OS")
 	groupIDs := fs.String("group", "", "Beta group ID(s) or name(s), comma-separated")
+	uploadOnly := fs.Bool("upload-only", false, "[experimental] Upload the build without adding it to beta groups or submitting beta review")
 	notify := fs.Bool("notify", false, "Notify testers after adding to groups")
 	submit := fs.Bool("submit", false, "Submit build for beta app review after adding external groups")
 	confirm := fs.Bool("confirm", false, "Confirm beta app review submission (required with --submit)")
@@ -96,16 +97,20 @@ func PublishTestFlightCommand() *ffcli.Command {
 		Name:       "testflight",
 		ShortUsage: "asc publish testflight [flags]",
 		ShortHelp:  "Upload and distribute to TestFlight.",
-		LongHelp: `Upload or local-build a binary and distribute it to TestFlight beta groups.
+		LongHelp: `Upload or local-build a binary, then optionally distribute it to TestFlight beta groups.
+
+The --upload-only flag is experimental.
 
 Steps:
 1. Build locally with Xcode or upload an IPA (unless --build/--build-number is provided)
 2. Wait for processing when needed (--wait, --test-notes, or --submit)
-3. Add build to specified beta groups
+3. Stop and return the build metadata with --upload-only, or add the build to specified beta groups
 4. Optionally notify testers
 5. Optionally submit for beta app review with --submit --confirm
 
 Examples:
+  asc publish testflight --app "123" --ipa app.ipa --upload-only --output json
+  asc publish testflight --app "123" --ipa app.ipa --upload-only --wait --output json
   asc publish testflight --app "123" --ipa app.ipa --group "GROUP_ID"
   asc publish testflight --app "123" --workspace App.xcworkspace --scheme App --version 1.2.3 --group "GROUP_ID"
   asc publish testflight --app "123" --workspace App.xcworkspace --scheme App --version 1.2.3 --group "GROUP_ID" --signing-style manual --team-id TEAM_ID
@@ -129,7 +134,19 @@ Examples:
 			buildIDValue := strings.TrimSpace(*buildID)
 			buildNumberValue := strings.TrimSpace(*buildNumber)
 			versionValue := strings.TrimSpace(*version)
+			testNotesValue := strings.TrimSpace(*testNotes)
+			localeValue := strings.TrimSpace(*locale)
 			localBuildMode := localBuild.localBuildMode()
+			if *uploadOnly {
+				for _, flagName := range []string{"group", "notify", "submit", "confirm", "test-notes", "locale"} {
+					if setFlags[flagName] {
+						return shared.UsageErrorf("--%s cannot be used with --upload-only", flagName)
+					}
+				}
+				if setFlags["build"] {
+					return shared.UsageError("--build cannot be used with --upload-only")
+				}
+			}
 			if err := validateLocalBuildFlagUsage(localBuildMode, setFlags); err != nil {
 				return err
 			}
@@ -159,6 +176,9 @@ Examples:
 					return shared.UsageError("--ipa and --build are mutually exclusive")
 				}
 			default:
+				if *uploadOnly {
+					return shared.UsageError("--upload-only requires --ipa, --workspace, or --project")
+				}
 				if buildIDValue == "" && buildNumberValue == "" {
 					return shared.UsageError("--ipa is required unless --build or --build-number is provided")
 				}
@@ -171,32 +191,32 @@ Examples:
 			}
 
 			parsedGroupIDs := shared.SplitCSV(*groupIDs)
-			if len(parsedGroupIDs) == 0 {
-				fmt.Fprintf(os.Stderr, "Error: --group is required\n\n")
-				return shared.MissingRequiredUsageError()
-			}
-			if *submit && !*confirm {
-				fmt.Fprintln(os.Stderr, "Error: --confirm is required with --submit")
-				return shared.MissingRequiredUsageError()
-			}
-			if *confirm && !*submit {
-				fmt.Fprintln(os.Stderr, "Error: --confirm requires --submit")
-				return flag.ErrHelp
-			}
+			if !*uploadOnly {
+				if len(parsedGroupIDs) == 0 {
+					fmt.Fprintf(os.Stderr, "Error: --group is required\n\n")
+					return shared.MissingRequiredUsageError()
+				}
+				if *submit && !*confirm {
+					fmt.Fprintln(os.Stderr, "Error: --confirm is required with --submit")
+					return shared.MissingRequiredUsageError()
+				}
+				if *confirm && !*submit {
+					fmt.Fprintln(os.Stderr, "Error: --confirm requires --submit")
+					return flag.ErrHelp
+				}
 
-			testNotesValue := strings.TrimSpace(*testNotes)
-			localeValue := strings.TrimSpace(*locale)
-			if testNotesValue != "" && localeValue == "" {
-				fmt.Fprintln(os.Stderr, "Error: --locale is required with --test-notes")
-				return shared.MissingRequiredUsageError()
-			}
-			if testNotesValue == "" && localeValue != "" {
-				fmt.Fprintln(os.Stderr, "Error: --test-notes is required with --locale")
-				return shared.MissingRequiredUsageError()
-			}
-			if testNotesValue != "" {
-				if err := shared.ValidateBuildLocalizationLocale(localeValue); err != nil {
-					return shared.UsageError(err.Error())
+				if testNotesValue != "" && localeValue == "" {
+					fmt.Fprintln(os.Stderr, "Error: --locale is required with --test-notes")
+					return shared.MissingRequiredUsageError()
+				}
+				if testNotesValue == "" && localeValue != "" {
+					fmt.Fprintln(os.Stderr, "Error: --test-notes is required with --locale")
+					return shared.MissingRequiredUsageError()
+				}
+				if testNotesValue != "" {
+					if err := shared.ValidateBuildLocalizationLocale(localeValue); err != nil {
+						return shared.UsageError(err.Error())
+					}
 				}
 			}
 
@@ -253,10 +273,13 @@ Examples:
 				return fmt.Errorf("publish testflight: resolve app: %w", err)
 			}
 
-			groupLookupCtx := preflightCtx
-			resolvedGroups, err := resolvePublishBetaGroups(groupLookupCtx, client, resolvedPublishAppID, parsedGroupIDs)
-			if err != nil {
-				return fmt.Errorf("publish testflight: %w", err)
+			var resolvedGroups []shared.ResolvedBetaGroup
+			if !*uploadOnly {
+				groupLookupCtx := preflightCtx
+				resolvedGroups, err = resolvePublishBetaGroups(groupLookupCtx, client, resolvedPublishAppID, parsedGroupIDs)
+				if err != nil {
+					return fmt.Errorf("publish testflight: %w", err)
+				}
 			}
 
 			platformValue := asc.Platform(normalizedPlatform)
@@ -332,6 +355,7 @@ Examples:
 				BuildNumber:     resolvedBuildNumberValue,
 				GroupIDs:        resolvedPublishBetaGroupIDs(resolvedGroups),
 				Uploaded:        uploaded,
+				UploadOnly:      *uploadOnly,
 				ProcessingState: buildResp.Data.Attributes.ProcessingState,
 			}
 			completedStages := make([]string, 0, 6)
@@ -367,6 +391,11 @@ Examples:
 					return reportPartialFailure(publishFailureStageBuildProcessing, fmt.Errorf("publish testflight: %w", waitErr))
 				}
 				completedStages = append(completedStages, publishCompletedStageBuildProcessing)
+			}
+
+			if *uploadOnly {
+				attachTestFlightLocalPublishResult(result, localBuildResult)
+				return shared.PrintOutput(result, *output.Output, *output.Pretty)
 			}
 
 			if testNotesValue != "" {
@@ -435,7 +464,6 @@ Examples:
 					group.ID,
 				)
 			}
-
 			result.BetaReviewSubmitted = betaReviewSubmitted
 			result.BetaReviewSubmissionID = submissionResult.SubmissionID
 			attachTestFlightLocalPublishResult(result, localBuildResult)
@@ -1021,6 +1049,7 @@ func attachTestFlightLocalPublishResult(result *asc.TestFlightPublishResult, loc
 		BuildNumber:            result.BuildNumber,
 		GroupIDs:               append([]string(nil), result.GroupIDs...),
 		Uploaded:               result.Uploaded,
+		UploadOnly:             result.UploadOnly,
 		ProcessingState:        result.ProcessingState,
 		Notified:               result.Notified,
 		NotificationAction:     result.NotificationAction,
