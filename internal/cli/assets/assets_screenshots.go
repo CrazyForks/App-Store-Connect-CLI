@@ -257,7 +257,7 @@ func ExecuteScreenshotSetUpload[T any](ctx context.Context, opts ScreenshotSetUp
 	if err != nil {
 		return zero, err
 	}
-	if err := ValidateScreenshotDimensions(files, apiDisplayType); err != nil {
+	if err := validateScreenshotDimensions(files, apiDisplayType); err != nil {
 		return zero, err
 	}
 
