@@ -190,13 +190,16 @@ func routingCoverageDeliveryErrors(response *asc.RoutingAppCoverageResponse) str
 	}
 	parts := make([]string, 0, len(response.Data.Attributes.AssetDeliveryState.Errors))
 	for _, item := range response.Data.Attributes.AssetDeliveryState.Errors {
-		message := strings.TrimSpace(item.Message)
+		description := strings.TrimSpace(item.Description)
+		if description == "" {
+			description = strings.TrimSpace(item.Message)
+		}
 		code := strings.TrimSpace(item.Code)
 		switch {
-		case code != "" && message != "":
-			parts = append(parts, code+": "+message)
-		case message != "":
-			parts = append(parts, message)
+		case code != "" && description != "":
+			parts = append(parts, code+": "+description)
+		case description != "":
+			parts = append(parts, description)
 		case code != "":
 			parts = append(parts, code)
 		}

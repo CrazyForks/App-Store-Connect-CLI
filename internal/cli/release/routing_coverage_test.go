@@ -59,6 +59,26 @@ func TestApplyRoutingCoverageStepReusesMatchingCompleteAsset(t *testing.T) {
 	}
 }
 
+func TestWaitForRoutingCoverageDeliveryIncludesSchemaErrorDescriptions(t *testing.T) {
+	client, _ := newReleaseTestServerClient(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/routingAppCoverages/COVERAGE_123" {
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+			return
+		}
+		writeReleaseTestJSON(w, http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_123","attributes":{"assetDeliveryState":{"state":"FAILED","errors":[{"code":"FILE_INVALID","description":"The GeoJSON is invalid."},{"description":"Try another file."}]}}}}`)
+	}))
+
+	state, err := waitForRoutingCoverageDelivery(context.Background(), client, "COVERAGE_123")
+	if state != "FAILED" {
+		t.Fatalf("waitForRoutingCoverageDelivery() state = %q, want FAILED", state)
+	}
+	const want = "routing coverage COVERAGE_123 delivery failed: FILE_INVALID: The GeoJSON is invalid.; Try another file."
+	if err == nil || err.Error() != want {
+		t.Fatalf("waitForRoutingCoverageDelivery() error = %v, want %q", err, want)
+	}
+}
+
 func TestApplyRoutingCoverageStepRevalidatesBeforeReusingCompleteAsset(t *testing.T) {
 	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
 	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
