@@ -11,6 +11,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
 // AppSetupCommand returns the app-setup command group.
@@ -158,6 +159,13 @@ Examples:
 					fmt.Fprintf(os.Stderr, "Error: --content-rights must be %s or %s\n", asc.ContentRightsDeclarationDoesNotUseThirdPartyContent, asc.ContentRightsDeclarationUsesThirdPartyContent)
 					return flag.ErrHelp
 				}
+			}
+
+			for _, issue := range validation.AppInfoLocalizationLengthIssues(validation.AppInfoLocalization{
+				Name:     nameValue,
+				Subtitle: subtitleValue,
+			}) {
+				return shared.UsageErrorf("--%s exceeds %d %s", issue.Field, issue.Limit, issue.Unit)
 			}
 
 			client, err := shared.GetASCClient()
