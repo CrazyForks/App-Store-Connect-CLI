@@ -129,7 +129,7 @@ func TestGetSalesReport_ErrorResponse(t *testing.T) {
 }
 
 func TestCreateAnalyticsReportRequest_SendsRequest(t *testing.T) {
-	response := jsonResponse(http.StatusCreated, `{"data":{"type":"analyticsReportRequests","id":"req-1","attributes":{"accessType":"ONGOING","state":"PROCESSING"}}}`)
+	response := jsonResponse(http.StatusCreated, `{"data":{"type":"analyticsReportRequests","id":"req-1","attributes":{"accessType":"ONGOING","stoppedDueToInactivity":false}}}`)
 	client := newTestClient(t, func(req *http.Request) {
 		if req.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", req.Method)
@@ -184,48 +184,6 @@ func TestGetAnalyticsReportRequests_WithAccessTypeFilter(t *testing.T) {
 		WithAnalyticsReportRequestsAccessType(AnalyticsAccessTypeOngoing),
 	); err != nil {
 		t.Fatalf("GetAnalyticsReportRequests() error: %v", err)
-	}
-}
-
-func TestGetAnalyticsReportRequests_DeprecatedStateFailsBeforeHTTP(t *testing.T) {
-	requestCount := 0
-	client := newTestClient(t, func(_ *http.Request) {
-		requestCount++
-	}, jsonResponse(http.StatusOK, `{"data":[]}`))
-
-	_, err := client.GetAnalyticsReportRequests(
-		context.Background(),
-		"app-1",
-		WithAnalyticsReportRequestsState("COMPLETED"),
-	)
-	if err == nil ||
-		!strings.Contains(err.Error(), "state filtering is unsupported") ||
-		!strings.Contains(err.Error(), "use WithAnalyticsReportRequestsAccessType") {
-		t.Fatalf("expected migration error, got %v", err)
-	}
-	if requestCount != 0 {
-		t.Fatalf("request count = %d, want 0", requestCount)
-	}
-}
-
-func TestGetAnalyticsReportRequests_EmptyDeprecatedStateFailsBeforeHTTP(t *testing.T) {
-	requestCount := 0
-	client := newTestClient(t, func(_ *http.Request) {
-		requestCount++
-	}, jsonResponse(http.StatusOK, `{"data":[]}`))
-
-	_, err := client.GetAnalyticsReportRequests(
-		context.Background(),
-		"app-1",
-		WithAnalyticsReportRequestsState(""),
-	)
-	if err == nil ||
-		!strings.Contains(err.Error(), "state filtering is unsupported") ||
-		!strings.Contains(err.Error(), "use WithAnalyticsReportRequestsAccessType") {
-		t.Fatalf("expected migration error, got %v", err)
-	}
-	if requestCount != 0 {
-		t.Fatalf("request count = %d, want 0", requestCount)
 	}
 }
 

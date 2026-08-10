@@ -120,8 +120,6 @@ asc analytics requests --app "123456789"
 * `--paginate` - Fetch all pages automatically
 * `--next` - Pagination URL from previous response
 
-The released `--state` flag remains accepted as a deprecated compatibility surface, but App Store Connect does not support state filtering. It fails before authentication with migration guidance to `--access-type ONGOING` or `--access-type ONE_TIME_SNAPSHOT`.
-
 **Examples:**
 
 ```bash  theme={null}
@@ -142,8 +140,6 @@ asc analytics requests --app "123456789" --paginate
 
 Retrieve available analytics reports and instances for a request.
 
-`asc analytics get` still works as a deprecated compatibility alias, but `asc analytics view` is the canonical command.
-
 ```bash  theme={null}
 asc analytics view --request-id "REQUEST_ID"
 ```
@@ -161,8 +157,6 @@ asc analytics view --request-id "REQUEST_ID"
 * `--limit` - Results per page (1-200)
 * `--paginate` - Fetch all reports (recommended with `--processing-date`)
 * `--next` - Pagination URL
-
-`--date` remains available as a deprecated compatibility flag. It warns and preserves the previous local match against either `reportDate` or `processingDate`; new automation should use `--processing-date` for Apple's server-side filter.
 
 **Examples:**
 
