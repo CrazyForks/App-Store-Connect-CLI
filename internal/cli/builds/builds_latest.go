@@ -37,6 +37,10 @@ func BuildsNextBuildNumberCommand() *ffcli.Command {
 This command compares the latest processed build and in-flight build uploads,
 then returns the next build number that should be safe to use.
 
+latestProcessedBuildNumber reports the most recently uploaded matching build.
+latestObservedBuildNumber and nextBuildNumber use the highest numeric matching
+build number across processed builds and build uploads.
+
 Examples:
   asc builds next-build-number --app "123456789"
   asc builds next-build-number --app "123456789" --version "1.2.3" --platform IOS

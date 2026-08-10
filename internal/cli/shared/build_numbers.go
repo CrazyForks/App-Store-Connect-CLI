@@ -23,10 +23,12 @@ type LatestBuildSelectionOptions struct {
 }
 
 type latestBuildSelectionResult struct {
-	ResolvedAppID      string
-	NormalizedVersion  string
-	NormalizedPlatform string
-	LatestBuild        *asc.BuildResponse
+	ResolvedAppID        string
+	NormalizedVersion    string
+	NormalizedPlatform   string
+	HasPreReleaseFilters bool
+	PreReleaseVersionIDs []string
+	LatestBuild          *asc.BuildResponse
 }
 
 // NextBuildNumberOptions configures next build number calculation.
@@ -75,8 +77,8 @@ func NormalizeLatestBuildSelectionOptions(appID, version, platform, processingSt
 	}, nil
 }
 
-// ResolveNextBuildNumber compares the latest processed build and the latest
-// in-flight build upload, then returns the next safe build number.
+// ResolveNextBuildNumber compares the highest observed processed build and
+// in-flight build upload numbers, then returns the next safe build number.
 func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBuildNumberOptions) (*asc.BuildsNextBuildNumberResult, error) {
 	if opts.InitialBuildNumber < 1 {
 		return nil, UsageError("--initial-build-number must be >= 1")
@@ -93,7 +95,7 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 	sourcesConsidered := make([]string, 0, 2)
 
 	var latestProcessedValue buildNumber
-	hasProcessed := false
+	hasLatestProcessed := false
 	if selection.LatestBuild != nil {
 		parsed, err := parseBuildNumber(selection.LatestBuild.Data.Attributes.Version, fmt.Sprintf("processed build %s", selection.LatestBuild.Data.ID))
 		if err != nil {
@@ -102,7 +104,27 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 		latestProcessedValue = parsed
 		value := parsed.String()
 		latestProcessedNumber = &value
+		hasLatestProcessed = true
+	}
+
+	highestProcessedValue := latestProcessedValue
+	highestProcessedNumber := latestProcessedNumber
+	hasProcessed := hasLatestProcessed
+	scannedProcessedValue, scannedProcessedNumber, hasScannedProcessed, err := findHighestProcessedBuildNumber(
+		ctx,
+		client,
+		selection,
+		opts.LatestBuildSelectionOptions,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if hasScannedProcessed && (!hasProcessed || scannedProcessedValue.Compare(highestProcessedValue) > 0) {
+		highestProcessedValue = scannedProcessedValue
+		highestProcessedNumber = scannedProcessedNumber
 		hasProcessed = true
+	}
+	if hasProcessed {
 		sourcesConsidered = append(sourcesConsidered, "processed_builds")
 	}
 
@@ -123,9 +145,9 @@ func ResolveNextBuildNumber(ctx context.Context, client *asc.Client, opts NextBu
 	var latestObservedValue buildNumber
 	hasObserved := false
 	if hasProcessed {
-		latestObservedValue = latestProcessedValue
+		latestObservedValue = highestProcessedValue
 		hasObserved = true
-		latestObservedNumber = latestProcessedNumber
+		latestObservedNumber = highestProcessedNumber
 	}
 	if hasUpload && (!hasObserved || latestUploadValue.Compare(latestObservedValue) > 0) {
 		latestObservedValue = latestUploadValue
@@ -271,11 +293,80 @@ func resolveLatestBuildSelection(ctx context.Context, client *asc.Client, opts L
 	}
 
 	return &latestBuildSelectionResult{
-		ResolvedAppID:      resolvedAppID,
-		NormalizedVersion:  opts.Version,
-		NormalizedPlatform: opts.Platform,
-		LatestBuild:        latestBuild,
+		ResolvedAppID:        resolvedAppID,
+		NormalizedVersion:    opts.Version,
+		NormalizedPlatform:   opts.Platform,
+		HasPreReleaseFilters: hasPreReleaseFilters,
+		PreReleaseVersionIDs: append([]string(nil), preReleaseVersionIDs...),
+		LatestBuild:          latestBuild,
 	}, nil
+}
+
+func findHighestProcessedBuildNumber(
+	ctx context.Context,
+	client *asc.Client,
+	selection *latestBuildSelectionResult,
+	opts LatestBuildSelectionOptions,
+) (buildNumber, *string, bool, error) {
+	if selection.HasPreReleaseFilters && len(selection.PreReleaseVersionIDs) == 0 {
+		return buildNumber{}, nil, false, nil
+	}
+
+	buildOpts := []asc.BuildsOption{
+		asc.WithBuildsSort("-uploadedDate"),
+		asc.WithBuildsLimit(200),
+	}
+	if len(selection.PreReleaseVersionIDs) > 0 {
+		buildOpts = append(buildOpts, asc.WithBuildsPreReleaseVersions(selection.PreReleaseVersionIDs))
+	}
+	if len(opts.ProcessingStateValues) > 0 {
+		buildOpts = append(buildOpts, asc.WithBuildsProcessingStates(opts.ProcessingStateValues))
+	}
+	if opts.ExcludeExpired {
+		buildOpts = append(buildOpts, asc.WithBuildsExpired(false))
+	}
+
+	builds, err := client.GetBuilds(ctx, selection.ResolvedAppID, buildOpts...)
+	if err != nil {
+		return buildNumber{}, nil, false, fmt.Errorf("failed to fetch processed build history: %w", err)
+	}
+
+	var highestValue buildNumber
+	var highestNumber *string
+	hasBuild := false
+	processPage := func(page *asc.BuildsResponse) error {
+		for _, build := range page.Data {
+			if isNonPositiveNumericBuildNumber(build.Attributes.Version) {
+				continue
+			}
+			parsed, err := parseBuildNumber(build.Attributes.Version, fmt.Sprintf("processed build %s", build.ID))
+			if err != nil {
+				return err
+			}
+			if !hasBuild || parsed.Compare(highestValue) > 0 {
+				highestValue = parsed
+				value := parsed.String()
+				highestNumber = &value
+				hasBuild = true
+			}
+		}
+		return nil
+	}
+
+	err = asc.PaginateEach(ctx, builds, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		return client.GetBuilds(ctx, selection.ResolvedAppID, asc.WithBuildsNextURL(nextURL))
+	}, func(page asc.PaginatedResponse) error {
+		resp, ok := page.(*asc.BuildsResponse)
+		if !ok {
+			return fmt.Errorf("unexpected builds page type %T", page)
+		}
+		return processPage(resp)
+	})
+	if err != nil {
+		return buildNumber{}, nil, false, fmt.Errorf("failed to paginate processed build history: %w", err)
+	}
+
+	return highestValue, highestNumber, hasBuild, nil
 }
 
 // FindPreReleaseVersionIDs returns the exact-matching pre-release version IDs
