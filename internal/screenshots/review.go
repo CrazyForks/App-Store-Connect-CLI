@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/screenshotcatalog"
 )
 
 const (
@@ -431,7 +432,7 @@ func matchingAppDisplayTypes(width, height int) []string {
 			}
 		}
 	}
-	return matches
+	return screenshotcatalog.PreferCurrentDisplayTypes(matches)
 }
 
 func makeReviewKey(locale, device, screenshotID string) string {
