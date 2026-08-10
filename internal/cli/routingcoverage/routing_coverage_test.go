@@ -27,6 +27,7 @@ func TestPrepareRoutingCoverageFileValidatesGeoJSON(t *testing.T) {
 		{name: "no polygons", content: `{"type":"MultiPolygon","coordinates":[]}`, want: "at least one Polygon"},
 		{name: "short ring", content: `{"type":"MultiPolygon","coordinates":[[[[77.5,12.9],[77.7,12.9],[77.5,12.9]]]]}`, want: "at least four coordinate points"},
 		{name: "open ring", content: `{"type":"MultiPolygon","coordinates":[[[[77.5,12.9],[77.7,12.9],[77.7,13.1],[77.6,12.8]]]]}`, want: "start and end coordinate points"},
+		{name: "null coordinate component", content: `{"type":"MultiPolygon","coordinates":[[[[null,12.9],[77.7,12.9],[77.7,13.1],[null,12.9]]]]}`, want: "coordinate component 0 must be a number"},
 	}
 
 	for _, tt := range tests {

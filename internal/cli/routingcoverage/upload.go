@@ -28,8 +28,8 @@ type PreparedRoutingCoverageFile struct {
 }
 
 type routingCoverageGeoJSON struct {
-	Type        string          `json:"type"`
-	Coordinates [][][][]float64 `json:"coordinates"`
+	Type        string           `json:"type"`
+	Coordinates [][][][]*float64 `json:"coordinates"`
 }
 
 var errRoutingCoverageSourceChanged = errors.New("routing coverage source changed while reading")
@@ -214,6 +214,11 @@ func validateRoutingCoverageGeoJSON(reader io.Reader) error {
 				if len(point) < 2 {
 					return fmt.Errorf("polygon %d ring %d point %d must contain longitude and latitude", polygonIndex, ringIndex, pointIndex)
 				}
+				for componentIndex, component := range point {
+					if component == nil {
+						return fmt.Errorf("polygon %d ring %d point %d coordinate component %d must be a number", polygonIndex, ringIndex, pointIndex, componentIndex)
+					}
+				}
 			}
 			if !equalCoordinates(ring[0], ring[len(ring)-1]) {
 				return fmt.Errorf("polygon %d ring %d start and end coordinate points must be the same", polygonIndex, ringIndex)
@@ -223,12 +228,12 @@ func validateRoutingCoverageGeoJSON(reader io.Reader) error {
 	return nil
 }
 
-func equalCoordinates(left, right []float64) bool {
+func equalCoordinates(left, right []*float64) bool {
 	if len(left) != len(right) {
 		return false
 	}
 	for i := range left {
-		if left[i] != right[i] {
+		if *left[i] != *right[i] {
 			return false
 		}
 	}
