@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	cmdpkg "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
 func TestScreenshotsDownload_ByID_WritesFile(t *testing.T) {
@@ -515,6 +517,7 @@ func TestVideoPreviewsDownload_ByLocalization_WritesFiles(t *testing.T) {
 func TestVideoPreviewsDownload_ByLocalization_PreservesFallbackDetailErrors(t *testing.T) {
 	setupAuth(t)
 	t.Setenv("ASC_MAX_RETRIES", "0")
+	defaultTransport := http.DefaultTransport
 
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -554,25 +557,29 @@ func TestVideoPreviewsDownload_ByLocalization_PreservesFallbackDetailErrors(t *t
 	if err != nil {
 		t.Fatalf("parse test server URL: %v", err)
 	}
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
 	serverTransport := server.Client().Transport
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		cloned := req.Clone(req.Context())
-		switch req.URL.Host {
-		case "api.appstoreconnect.apple.com":
-			cloned.URL.Scheme = target.Scheme
-			cloned.URL.Host = target.Host
-			cloned.Host = target.Host
-		case target.Host:
-			// The successful sibling downloads directly from the test server.
-		default:
-			return nil, fmt.Errorf("unexpected host: %s", req.URL.Host)
+	apiTransport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "api.appstoreconnect.apple.com" {
+			return nil, fmt.Errorf("unexpected ASC client host: %s", req.URL.Host)
 		}
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = target.Scheme
+		cloned.URL.Host = target.Host
+		cloned.Host = target.Host
 		return serverTransport.RoundTrip(cloned)
 	})
+	client, err := asc.NewClientWithHTTPClient(
+		os.Getenv("ASC_KEY_ID"),
+		os.Getenv("ASC_ISSUER_ID"),
+		os.Getenv("ASC_PRIVATE_KEY_PATH"),
+		&http.Client{Transport: apiTransport},
+	)
+	if err != nil {
+		t.Fatalf("create video preview detail test client: %v", err)
+	}
+	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		return client, nil
+	}))
 
 	outDir := filepath.Join(t.TempDir(), "previews")
 	root := RootCommand("1.2.3")
@@ -638,6 +645,9 @@ func TestVideoPreviewsDownload_ByLocalization_PreservesFallbackDetailErrors(t *t
 	}
 	if string(data) != "MOVDATA" {
 		t.Fatalf("successful sibling contents = %q, want MOVDATA", data)
+	}
+	if http.DefaultTransport != defaultTransport {
+		t.Fatal("test mutated http.DefaultTransport")
 	}
 }
 
