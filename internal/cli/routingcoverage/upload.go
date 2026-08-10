@@ -377,16 +377,16 @@ func snapshotPreparedRoutingCoverageFile(file PreparedRoutingCoverageFile) (*os.
 }
 
 // UploadPreparedRoutingCoverageFile creates, uploads, and commits routing coverage.
-// A post-create commit error returns the retained reservation response alongside
-// the error so callers can report its ID.
+// A post-create error returns the reservation response alongside the error when
+// cleanup cannot remove it, so callers can report the retained reservation ID.
 func UploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, versionID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
 	return uploadPreparedRoutingCoverageFile(ctx, client, versionID, "", file)
 }
 
 // ReplaceRoutingCoverageWithPreparedFile revalidates the upload source before
 // deleting the current routing coverage, then creates, uploads, and commits its
-// replacement from the same open source handle. A post-create commit error
-// returns the retained replacement response alongside the error.
+// replacement from the same open source handle. A post-create error returns the
+// replacement response alongside the error when cleanup cannot remove it.
 func ReplaceRoutingCoverageWithPreparedFile(ctx context.Context, client *asc.Client, versionID, currentCoverageID string, file PreparedRoutingCoverageFile) (*asc.RoutingAppCoverageResponse, error) {
 	currentCoverageID = strings.TrimSpace(currentCoverageID)
 	if currentCoverageID == "" {
@@ -434,39 +434,39 @@ func uploadPreparedRoutingCoverageFile(ctx context.Context, client *asc.Client, 
 	if coverageID == "" {
 		return nil, fmt.Errorf("created routing coverage response is missing an ID")
 	}
-	cleanupFailure := func(original error) error {
+	cleanupFailure := func(original error) (*asc.RoutingAppCoverageResponse, error) {
 		cleanupCtx, cleanupCancel := shared.ContextWithTimeout(context.WithoutCancel(ctx))
 		cleanupErr := client.DeleteRoutingAppCoverage(cleanupCtx, coverageID)
 		cleanupCancel()
 		if cleanupErr != nil && !asc.IsNotFound(cleanupErr) {
-			return fmt.Errorf("%w (also failed to delete routing coverage reservation %s: %w)", original, coverageID, cleanupErr)
+			return response, fmt.Errorf("%w (also failed to delete routing coverage reservation %s: %w)", original, coverageID, cleanupErr)
 		}
-		return original
+		return nil, original
 	}
 	if len(response.Data.Attributes.UploadOperations) == 0 {
-		return nil, cleanupFailure(fmt.Errorf("no upload operations returned"))
+		return cleanupFailure(fmt.Errorf("no upload operations returned"))
 	}
 
 	uploadCtx, uploadCancel := shared.ContextWithUploadTimeout(ctx)
 	err = asc.ExecuteUploadOperationsFromFile(uploadCtx, source, response.Data.Attributes.UploadOperations)
 	uploadCancel()
 	if err != nil {
-		return nil, cleanupFailure(fmt.Errorf("upload failed: %w", err))
+		return cleanupFailure(fmt.Errorf("upload failed: %w", err))
 	}
 
 	uploadedInfo, err := source.Stat()
 	if err != nil {
-		return nil, cleanupFailure(fmt.Errorf("stat file: %w", err))
+		return cleanupFailure(fmt.Errorf("stat file: %w", err))
 	}
 	if uploadedInfo.Size() != file.FileSize {
-		return nil, cleanupFailure(fmt.Errorf("file changed during upload: %q", file.Path))
+		return cleanupFailure(fmt.Errorf("file changed during upload: %q", file.Path))
 	}
 	uploadedChecksum, err := checksumOpenedFile(source, uploadedInfo.Size())
 	if err != nil {
-		return nil, cleanupFailure(fmt.Errorf("checksum failed: %w", err))
+		return cleanupFailure(fmt.Errorf("checksum failed: %w", err))
 	}
 	if !strings.EqualFold(strings.TrimSpace(uploadedChecksum.Hash), strings.TrimSpace(file.Checksum)) {
-		return nil, cleanupFailure(fmt.Errorf("file changed during upload: %q", file.Path))
+		return cleanupFailure(fmt.Errorf("file changed during upload: %q", file.Path))
 	}
 
 	uploaded := true

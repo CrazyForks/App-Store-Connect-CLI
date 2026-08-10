@@ -343,6 +343,39 @@ func TestApplyRoutingCoverageStepCleansFailedReservation(t *testing.T) {
 	}
 }
 
+func TestApplyRoutingCoverageStepReportsNewIDWhenReservationCleanupFails(t *testing.T) {
+	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
+	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
+		t.Fatalf("write routing coverage fixture: %v", err)
+	}
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = releaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_123/routingAppCoverage":
+			return releaseJSONResponse(http.StatusOK, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_OLD","attributes":{"sourceFileChecksum":"old-checksum","assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_OLD":
+			return releaseJSONResponse(http.StatusNoContent, "")
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/routingAppCoverages":
+			return releaseJSONResponse(http.StatusCreated, `{"data":{"type":"routingAppCoverages","id":"COVERAGE_NEW","attributes":{"uploadOperations":[]}}}`)
+		case req.Method == http.MethodDelete && req.URL.Path == "/v1/routingAppCoverages/COVERAGE_NEW":
+			return releaseJSONResponse(http.StatusInternalServerError, `{"errors":[{"status":"500","detail":"cleanup unavailable"}]}`)
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	outcome, err := applyPreparedRoutingCoverageStep(context.Background(), newReleaseTestClient(t), "VERSION_123", prepareReleaseRoutingCoverage(t, coveragePath), false)
+	if err == nil || !strings.Contains(err.Error(), "also failed to delete routing coverage reservation COVERAGE_NEW") {
+		t.Fatalf("applyPreparedRoutingCoverageStep() error = %v, want retained-reservation diagnostic", err)
+	}
+	details, ok := outcome.Details.(routingCoverageStepDetails)
+	if !ok || details.Action != "replace" || details.CoverageID != "COVERAGE_NEW" {
+		t.Fatalf("expected cleanup error details to preserve the new coverage ID, got %#v", outcome.Details)
+	}
+}
+
 func TestApplyRoutingCoverageStepRevalidatesBeforeDeletingExistingCoverage(t *testing.T) {
 	coveragePath := filepath.Join(t.TempDir(), "coverage.geojson")
 	if err := os.WriteFile(coveragePath, []byte(validReleaseRoutingCoverageGeoJSON), 0o600); err != nil {
