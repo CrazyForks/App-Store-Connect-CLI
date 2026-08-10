@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
@@ -55,6 +56,11 @@ func TestAccessibilityListRejectsNextQueryFlagsBeforeAuth(t *testing.T) {
 			args:    []string{"accessibility", "list", "--limit", "0", "--next", nextURL},
 			wantErr: "accessibility list: --next cannot be combined with --limit",
 		},
+		{
+			name:    "out of range limit after next",
+			args:    []string{"accessibility", "list", "--next", nextURL, "--limit", "201"},
+			wantErr: "accessibility list: --next cannot be combined with --limit",
+		},
 	}
 
 	for _, test := range tests {
@@ -71,6 +77,28 @@ func TestAccessibilityListRejectsNextQueryFlagsBeforeAuth(t *testing.T) {
 				t.Fatal("client factory ran before --next conflict validation")
 			}
 		})
+	}
+}
+
+func TestAccessibilityListInvalidNextPrecedesLimitConflict(t *testing.T) {
+	stdout, stderr := captureOutput(t, func() {
+		code := rootcmd.Run([]string{
+			"accessibility", "list",
+			"--next", "http://api.appstoreconnect.apple.com/v1/apps/app-1/accessibilityDeclarations?cursor=next",
+			"--limit", "201",
+		}, "1.2.3")
+		if code != rootcmd.ExitError {
+			t.Fatalf("exit code = %d, want %d", code, rootcmd.ExitError)
+		}
+	})
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "accessibility list: --next must be an App Store Connect URL") {
+		t.Fatalf("stderr = %q, want invalid --next error", stderr)
+	}
+	if strings.Contains(stderr, "--limit") {
+		t.Fatalf("stderr = %q, want --next validation to take precedence", stderr)
 	}
 }
 
