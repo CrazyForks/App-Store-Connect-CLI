@@ -42,14 +42,14 @@ func openExistingNoFollowBestEffort(path string, opener existingFileOpener) (*os
 // descriptor still maps to the destination path after creation. This reduces,
 // but cannot eliminate, TOCTOU risk on platforms without atomic no-follow open.
 func openNewFileNoFollowBestEffort(path string, perm os.FileMode, creator newFileCreator) (*os.File, error) {
-	return openWritableFileNoFollowBestEffort(path, perm, true, creator)
+	return openWritableFileNoFollowBestEffort(path, perm, creator)
 }
 
 func openAppendFileNoFollowBestEffort(path string, perm os.FileMode, creator newFileCreator) (*os.File, error) {
-	return openWritableFileNoFollowBestEffort(path, perm, false, creator)
+	return openWritableFileNoFollowBestEffort(path, perm, creator)
 }
 
-func openWritableFileNoFollowBestEffort(path string, perm os.FileMode, removeCreatedOnFailure bool, creator newFileCreator) (*os.File, error) {
+func openWritableFileNoFollowBestEffort(path string, perm os.FileMode, creator newFileCreator) (*os.File, error) {
 	if _, err := lstatNoSymlink(path); err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -62,21 +62,19 @@ func openWritableFileNoFollowBestEffort(path string, perm os.FileMode, removeCre
 	}
 
 	if err := verifyOpenedPath(path, file, nil); err != nil {
-		if !removeCreatedOnFailure {
-			_ = file.Close()
-			return nil, err
-		}
-		closeErr := file.Close()
-		removeErr := os.Remove(path)
-		if errors.Is(removeErr, os.ErrNotExist) {
-			removeErr = nil
-		}
-		if closeErr != nil || removeErr != nil {
-			return nil, errors.Join(err, closeErr, removeErr)
-		}
-		return nil, err
+		return nil, closeAfterVerificationFailure(file, err)
 	}
 	return file, nil
+}
+
+// closeAfterVerificationFailure closes the handle but deliberately leaves the
+// pathname untouched. Once identity verification fails, the name may refer to
+// a concurrent replacement rather than the file opened by this process.
+func closeAfterVerificationFailure(file *os.File, verifyErr error) error {
+	if closeErr := file.Close(); closeErr != nil {
+		return errors.Join(verifyErr, closeErr)
+	}
+	return verifyErr
 }
 
 func lstatNoSymlink(path string) (os.FileInfo, error) {
@@ -127,14 +125,14 @@ func openExistingNoFollowInRootBestEffort(root *os.Root, name string, opener fun
 }
 
 func openNewFileNoFollowInRootBestEffort(root *os.Root, name string, opener func() (*os.File, error)) (*os.File, error) {
-	return openWritableFileNoFollowInRootBestEffort(root, name, true, opener)
+	return openWritableFileNoFollowInRootBestEffort(root, name, opener)
 }
 
 func openAppendFileNoFollowInRootBestEffort(root *os.Root, name string, opener func() (*os.File, error)) (*os.File, error) {
-	return openWritableFileNoFollowInRootBestEffort(root, name, false, opener)
+	return openWritableFileNoFollowInRootBestEffort(root, name, opener)
 }
 
-func openWritableFileNoFollowInRootBestEffort(root *os.Root, name string, removeCreatedOnFailure bool, opener func() (*os.File, error)) (*os.File, error) {
+func openWritableFileNoFollowInRootBestEffort(root *os.Root, name string, opener func() (*os.File, error)) (*os.File, error) {
 	if _, err := rootLstatNoSymlink(root, name); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -143,19 +141,7 @@ func openWritableFileNoFollowInRootBestEffort(root *os.Root, name string, remove
 		return nil, err
 	}
 	if err := verifyRootOpenedPath(root, name, file, nil); err != nil {
-		if !removeCreatedOnFailure {
-			_ = file.Close()
-			return nil, err
-		}
-		closeErr := file.Close()
-		removeErr := root.Remove(name)
-		if errors.Is(removeErr, os.ErrNotExist) {
-			removeErr = nil
-		}
-		if closeErr != nil || removeErr != nil {
-			return nil, errors.Join(err, closeErr, removeErr)
-		}
-		return nil, err
+		return nil, closeAfterVerificationFailure(file, err)
 	}
 	return file, nil
 }

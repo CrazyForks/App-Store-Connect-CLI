@@ -133,7 +133,7 @@ func TestOpenNewFileNoFollowBestEffortCreatesRegularFile(t *testing.T) {
 	}
 }
 
-func TestOpenNewFileNoFollowBestEffortRemovesCreatedFileAfterVerificationFailure(t *testing.T) {
+func TestOpenNewFileNoFollowBestEffortPreservesUnverifiedDestinationAfterVerificationFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "output.txt")
 	otherPath := filepath.Join(dir, "other.txt")
@@ -157,8 +157,12 @@ func TestOpenNewFileNoFollowBestEffortRemovesCreatedFileAfterVerificationFailure
 	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
 		t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want verification failure", err)
 	}
-	if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("created file remains after verification failure, Lstat() error = %v", statErr)
+	info, statErr := os.Lstat(path)
+	if statErr != nil {
+		t.Fatalf("unverified destination was removed after verification failure, Lstat() error = %v", statErr)
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatalf("unverified destination mode = %v, want regular file", info.Mode())
 	}
 	content, readErr := os.ReadFile(otherPath)
 	if readErr != nil {
@@ -169,8 +173,54 @@ func TestOpenNewFileNoFollowBestEffortRemovesCreatedFileAfterVerificationFailure
 	}
 }
 
-func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCleanupErrors(t *testing.T) {
-	t.Run("missing destination cleanup", func(t *testing.T) {
+func TestOpenNewFileNoFollowBestEffortPreservesReplacementAfterVerificationFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "output.txt")
+	displacedPath := filepath.Join(dir, "displaced.txt")
+
+	file, err := openNewFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
+		created, err := openNewFileWithExcl(path, perm)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := created.Write([]byte("created")); err != nil {
+			_ = created.Close()
+			return nil, err
+		}
+		if err := os.Rename(path, displacedPath); err != nil {
+			_ = created.Close()
+			return nil, err
+		}
+		if err := os.WriteFile(path, []byte("replacement"), 0o600); err != nil {
+			_ = created.Close()
+			return nil, err
+		}
+		return created, nil
+	})
+	if file != nil {
+		_ = file.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
+		t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want verification failure", err)
+	}
+	content, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, readErr)
+	}
+	if string(content) != "replacement" {
+		t.Fatalf("replacement content = %q, want %q", content, "replacement")
+	}
+	displacedContent, readErr := os.ReadFile(displacedPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(%q) error = %v", displacedPath, readErr)
+	}
+	if string(displacedContent) != "created" {
+		t.Fatalf("displaced content = %q, want %q", displacedContent, "created")
+	}
+}
+
+func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCloseErrors(t *testing.T) {
+	t.Run("missing destination verification", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "output.txt")
 		otherPath := filepath.Join(dir, "other.txt")
@@ -228,44 +278,8 @@ func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCleanupErrors(t *t
 		if !ok || len(joined.Unwrap()) != 2 {
 			t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want joined verification and close errors", err)
 		}
-		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("created file remains after close failure, Lstat() error = %v", statErr)
-		}
-	})
-
-	t.Run("remove failure", func(t *testing.T) {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "output.txt")
-		otherPath := filepath.Join(dir, "other.txt")
-		if err := os.WriteFile(otherPath, []byte("other"), 0o600); err != nil {
-			t.Fatalf("WriteFile() error = %v", err)
-		}
-
-		_, err := openNewFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
-			created, err := openNewFileWithExcl(path, perm)
-			if err != nil {
-				return nil, err
-			}
-			if err := created.Close(); err != nil {
-				return nil, err
-			}
-			if err := os.Remove(path); err != nil {
-				return nil, err
-			}
-			if err := os.Mkdir(path, 0o700); err != nil {
-				return nil, err
-			}
-			if err := os.WriteFile(filepath.Join(path, "replacement.txt"), []byte("replacement"), 0o600); err != nil {
-				return nil, err
-			}
-			return os.Open(otherPath)
-		})
-		if err == nil || !strings.Contains(err.Error(), "file changed during open") {
-			t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want verification failure", err)
-		}
-		var pathErr *os.PathError
-		if !errors.As(err, &pathErr) || pathErr.Op != "remove" || pathErr.Path != path {
-			t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want joined remove error for %q", err, path)
+		if _, statErr := os.Lstat(path); statErr != nil {
+			t.Fatalf("unverified destination was removed after close failure, Lstat() error = %v", statErr)
 		}
 	})
 }
@@ -326,7 +340,7 @@ func TestOpenAppendFileNoFollowBestEffortCreatesRegularFile(t *testing.T) {
 	}
 }
 
-func TestOpenNewFileNoFollowInRootBestEffortRemovesCreatedFileAfterVerificationFailure(t *testing.T) {
+func TestOpenNewFileNoFollowInRootBestEffortPreservesUnverifiedDestinationAfterVerificationFailure(t *testing.T) {
 	rootPath := t.TempDir()
 	root, err := os.OpenRoot(rootPath)
 	if err != nil {
@@ -357,8 +371,12 @@ func TestOpenNewFileNoFollowInRootBestEffortRemovesCreatedFileAfterVerificationF
 	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
 		t.Fatalf("openNewFileNoFollowInRootBestEffort() error = %v, want verification failure", err)
 	}
-	if _, statErr := root.Lstat(stagedName); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("staged file remains after verification failure, Lstat() error = %v", statErr)
+	info, statErr := root.Lstat(stagedName)
+	if statErr != nil {
+		t.Fatalf("unverified destination was removed after verification failure, Lstat() error = %v", statErr)
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatalf("unverified destination mode = %v, want regular file", info.Mode())
 	}
 	content, readErr := os.ReadFile(otherPath)
 	if readErr != nil {
@@ -366,6 +384,67 @@ func TestOpenNewFileNoFollowInRootBestEffortRemovesCreatedFileAfterVerificationF
 	}
 	if string(content) != "other" {
 		t.Fatalf("other file content = %q, want %q", content, "other")
+	}
+}
+
+func TestOpenNewFileNoFollowInRootBestEffortPreservesReplacementAfterVerificationFailure(t *testing.T) {
+	rootPath := t.TempDir()
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		t.Fatalf("OpenRoot() error = %v", err)
+	}
+	defer root.Close()
+
+	const name = "output.txt"
+	const displacedName = "displaced.txt"
+	file, err := openNewFileNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
+		created, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := created.Write([]byte("created")); err != nil {
+			_ = created.Close()
+			return nil, err
+		}
+		if err := root.Rename(name, displacedName); err != nil {
+			_ = created.Close()
+			return nil, err
+		}
+		replacement, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			_ = created.Close()
+			return nil, err
+		}
+		if _, err := replacement.Write([]byte("replacement")); err != nil {
+			_ = replacement.Close()
+			_ = created.Close()
+			return nil, err
+		}
+		if err := replacement.Close(); err != nil {
+			_ = created.Close()
+			return nil, err
+		}
+		return created, nil
+	})
+	if file != nil {
+		_ = file.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
+		t.Fatalf("openNewFileNoFollowInRootBestEffort() error = %v, want verification failure", err)
+	}
+	content, readErr := os.ReadFile(filepath.Join(rootPath, name))
+	if readErr != nil {
+		t.Fatalf("ReadFile(%q) error = %v", name, readErr)
+	}
+	if string(content) != "replacement" {
+		t.Fatalf("replacement content = %q, want %q", content, "replacement")
+	}
+	displacedContent, readErr := os.ReadFile(filepath.Join(rootPath, displacedName))
+	if readErr != nil {
+		t.Fatalf("ReadFile(%q) error = %v", displacedName, readErr)
+	}
+	if string(displacedContent) != "created" {
+		t.Fatalf("displaced content = %q, want %q", displacedContent, "created")
 	}
 }
 
