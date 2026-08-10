@@ -58,7 +58,8 @@ asc publish testflight \
 
 `--upload-only` cannot be combined with `--group`, `--notify`, `--submit`,
 `--confirm`, `--test-notes`, `--locale`, or `--build`. Use the returned
-`buildId` with `asc builds add-groups` in a later resumable step.
+`buildId` with `asc builds wait`, then `asc builds add-groups`, in later
+resumable steps.
 
 ### App Store workflow
 

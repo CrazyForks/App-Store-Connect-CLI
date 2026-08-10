@@ -215,8 +215,9 @@ asc workflow run testflight_beta VERSION:1.2.3
 
 When upload and external distribution need separate retry boundaries, the
 experimental upload-only flag can make the upload its own output-producing
-step. The successful step is persisted with `BUILD_ID`; if the distribution
-step fails, `--resume` skips the upload and reuses that exact build ID.
+step. The successful upload step is persisted with `BUILD_ID`; if the later
+processing wait or distribution step fails, `--resume` skips the upload and
+reuses that exact build ID.
 
 ```json
 {
@@ -230,12 +231,16 @@ step fails, `--resume` skips the upload and reuses that exact build ID.
       "steps": [
         {
           "name": "upload",
-          "run": "asc publish testflight --app \"$APP_ID\" --ipa \"$IPA_PATH\" --upload-only --wait --output json",
+          "run": "asc publish testflight --app \"$APP_ID\" --ipa \"$IPA_PATH\" --upload-only --output json",
           "outputs": {
             "BUILD_ID": "$.buildId",
             "BUILD_VERSION": "$.buildVersion",
             "BUILD_NUMBER": "$.buildNumber"
           }
+        },
+        {
+          "name": "wait",
+          "run": "asc builds wait --build-id ${steps.upload.BUILD_ID} --fail-on-invalid --output json"
         },
         {
           "name": "distribute",
@@ -247,7 +252,8 @@ step fails, `--resume` skips the upload and reuses that exact build ID.
 }
 ```
 
-After a failed distribution step, use the run ID printed by `asc workflow`:
+After a failed wait or distribution step, use the run ID printed by
+`asc workflow`:
 
 ```bash
 asc workflow run --resume RUN_ID
