@@ -32,8 +32,12 @@ func RenameNoReplaceInRoot(root *os.Root, oldName, newName string) error {
 	}); err != nil {
 		return renameNoReplaceError(op, oldName, newName, err)
 	}
-	if errors.Is(renameErr, unix.ENOTSUP) {
+	if renameNoReplaceUnsupportedDarwin(renameErr) {
 		return unsupportedRenameNoReplaceError(op, oldName, newName, renameErr)
 	}
 	return renameNoReplaceError(op, oldName, newName, renameErr)
+}
+
+func renameNoReplaceUnsupportedDarwin(err error) bool {
+	return errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.ENOSYS)
 }

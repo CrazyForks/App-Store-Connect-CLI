@@ -78,17 +78,10 @@ func renameNoReplaceWindows(parent windows.Handle, oldName, newName string) erro
 	}
 	defer windows.CloseHandle(source)
 
-	newNameUTF16, err := windows.UTF16FromString(newName)
+	buffer, err := buildFileRenameInformation(newName)
 	if err != nil {
 		return err
 	}
-	fileNameLength := (len(newNameUTF16) - 1) * 2
-	var layout fileRenameInformation
-	buffer := make([]byte, int(unsafe.Offsetof(layout.FileName))+fileNameLength)
-	info := (*fileRenameInformation)(unsafe.Pointer(&buffer[0]))
-	info.RootDirectory = parent
-	info.FileNameLength = uint32(fileNameLength)
-	copy(unsafe.Slice(&info.FileName[0], fileNameLength/2), newNameUTF16[:len(newNameUTF16)-1])
 
 	return windows.NtSetInformationFile(
 		source,
@@ -97,6 +90,23 @@ func renameNoReplaceWindows(parent windows.Handle, oldName, newName string) erro
 		uint32(len(buffer)),
 		windows.FileRenameInformation,
 	)
+}
+
+func buildFileRenameInformation(newName string) ([]byte, error) {
+	newNameUTF16, err := windows.UTF16FromString(newName)
+	if err != nil {
+		return nil, err
+	}
+	fileNameLength := (len(newNameUTF16) - 1) * 2
+	var layout fileRenameInformation
+	buffer := make([]byte, int(unsafe.Offsetof(layout.FileName))+fileNameLength)
+	info := (*fileRenameInformation)(unsafe.Pointer(&buffer[0]))
+	// Keep RootDirectory null. Windows defines a simple target name with a null
+	// root as a rename within the source handle's directory, and SMB requires
+	// this field to be zero for network operations.
+	info.FileNameLength = uint32(fileNameLength)
+	copy(unsafe.Slice(&info.FileName[0], fileNameLength/2), newNameUTF16[:len(newNameUTF16)-1])
+	return buffer, nil
 }
 
 func windowsError(err error) error {
