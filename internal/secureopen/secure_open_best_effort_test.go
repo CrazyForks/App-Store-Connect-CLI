@@ -31,7 +31,7 @@ func TestOpenExistingNoFollowBestEffortRejectsSymlink(t *testing.T) {
 	}
 }
 
-func TestOpenNewFileNoFollowBestEffortRejectsSymlink(t *testing.T) {
+func TestOpenWritableFileNoFollowBestEffortCreateRejectsSymlink(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -45,7 +45,7 @@ func TestOpenNewFileNoFollowBestEffortRejectsSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	_, err := openNewFileNoFollowBestEffort(link, 0o600, openNewFileWithExcl)
+	_, err := openWritableFileNoFollowBestEffort(link, 0o600, openNewFileWithExcl)
 	if err == nil {
 		t.Fatal("expected error when creating through symlink path, got nil")
 	}
@@ -106,15 +106,15 @@ func TestOpenExistingNoFollowBestEffortAllowsRegularFile(t *testing.T) {
 	}
 }
 
-func TestOpenNewFileNoFollowBestEffortCreatesRegularFile(t *testing.T) {
+func TestOpenWritableFileNoFollowBestEffortCreateCreatesRegularFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "output.txt")
 
-	file, err := openNewFileNoFollowBestEffort(path, 0o640, openNewFileWithExcl)
+	file, err := openWritableFileNoFollowBestEffort(path, 0o640, openNewFileWithExcl)
 	if err != nil {
-		t.Fatalf("openNewFileNoFollowBestEffort() error = %v", err)
+		t.Fatalf("openWritableFileNoFollowBestEffort() error = %v", err)
 	}
 	if _, err := file.Write([]byte("ok")); err != nil {
 		file.Close()
@@ -133,7 +133,7 @@ func TestOpenNewFileNoFollowBestEffortCreatesRegularFile(t *testing.T) {
 	}
 }
 
-func TestOpenNewFileNoFollowBestEffortPreservesUnverifiedDestinationAfterVerificationFailure(t *testing.T) {
+func TestOpenWritableFileNoFollowBestEffortCreatePreservesUnverifiedDestinationAfterVerificationFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "output.txt")
 	otherPath := filepath.Join(dir, "other.txt")
@@ -141,7 +141,7 @@ func TestOpenNewFileNoFollowBestEffortPreservesUnverifiedDestinationAfterVerific
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	file, err := openNewFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
+	file, err := openWritableFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
 		created, err := openNewFileWithExcl(path, perm)
 		if err != nil {
 			return nil, err
@@ -155,7 +155,7 @@ func TestOpenNewFileNoFollowBestEffortPreservesUnverifiedDestinationAfterVerific
 		_ = file.Close()
 	}
 	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
-		t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want verification failure", err)
+		t.Fatalf("openWritableFileNoFollowBestEffort() error = %v, want verification failure", err)
 	}
 	info, statErr := os.Lstat(path)
 	if statErr != nil {
@@ -173,12 +173,12 @@ func TestOpenNewFileNoFollowBestEffortPreservesUnverifiedDestinationAfterVerific
 	}
 }
 
-func TestOpenNewFileNoFollowBestEffortPreservesReplacementAfterVerificationFailure(t *testing.T) {
+func TestOpenWritableFileNoFollowBestEffortCreatePreservesReplacementAfterVerificationFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "output.txt")
 	displacedPath := filepath.Join(dir, "displaced.txt")
 
-	file, err := openNewFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
+	file, err := openWritableFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
 		created, err := openNewFileWithExcl(path, perm)
 		if err != nil {
 			return nil, err
@@ -202,7 +202,7 @@ func TestOpenNewFileNoFollowBestEffortPreservesReplacementAfterVerificationFailu
 		_ = file.Close()
 	}
 	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
-		t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want verification failure", err)
+		t.Fatalf("openWritableFileNoFollowBestEffort() error = %v, want verification failure", err)
 	}
 	content, readErr := os.ReadFile(path)
 	if readErr != nil {
@@ -220,7 +220,7 @@ func TestOpenNewFileNoFollowBestEffortPreservesReplacementAfterVerificationFailu
 	}
 }
 
-func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCloseErrors(t *testing.T) {
+func TestOpenWritableFileNoFollowBestEffortCreatePreservesVerificationAndCloseErrors(t *testing.T) {
 	t.Run("missing destination verification", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "output.txt")
@@ -229,7 +229,7 @@ func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCloseErrors(t *tes
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		_, err := openNewFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
+		_, err := openWritableFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
 			created, err := openNewFileWithExcl(path, perm)
 			if err != nil {
 				return nil, err
@@ -243,7 +243,7 @@ func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCloseErrors(t *tes
 			return os.Open(otherPath)
 		})
 		if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want errors.Is(os.ErrNotExist)", err)
+			t.Fatalf("openWritableFileNoFollowBestEffort() error = %v, want errors.Is(os.ErrNotExist)", err)
 		}
 	})
 
@@ -255,7 +255,7 @@ func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCloseErrors(t *tes
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 
-		_, err := openNewFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
+		_, err := openWritableFileNoFollowBestEffort(path, 0o600, func(path string, perm os.FileMode) (*os.File, error) {
 			created, err := openNewFileWithExcl(path, perm)
 			if err != nil {
 				return nil, err
@@ -273,11 +273,11 @@ func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCloseErrors(t *tes
 			return other, nil
 		})
 		if !errors.Is(err, os.ErrClosed) {
-			t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want errors.Is(os.ErrClosed)", err)
+			t.Fatalf("openWritableFileNoFollowBestEffort() error = %v, want errors.Is(os.ErrClosed)", err)
 		}
 		joined, ok := err.(interface{ Unwrap() []error })
 		if !ok || len(joined.Unwrap()) != 2 {
-			t.Fatalf("openNewFileNoFollowBestEffort() error = %v, want joined verification and close errors", err)
+			t.Fatalf("openWritableFileNoFollowBestEffort() error = %v, want joined verification and close errors", err)
 		}
 		if _, statErr := os.Lstat(path); statErr != nil {
 			t.Fatalf("unverified destination was removed after close failure, Lstat() error = %v", statErr)
@@ -285,7 +285,7 @@ func TestOpenNewFileNoFollowBestEffortPreservesVerificationAndCloseErrors(t *tes
 	})
 }
 
-func TestOpenAppendFileNoFollowBestEffortPreservesExistingFileAfterVerificationFailure(t *testing.T) {
+func TestOpenWritableFileNoFollowBestEffortAppendPreservesExistingFileAfterVerificationFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "output.txt")
 	if err := os.WriteFile(path, []byte("existing"), 0o600); err != nil {
@@ -296,14 +296,14 @@ func TestOpenAppendFileNoFollowBestEffortPreservesExistingFileAfterVerificationF
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	file, err := openAppendFileNoFollowBestEffort(path, 0o600, func(string, os.FileMode) (*os.File, error) {
+	file, err := openWritableFileNoFollowBestEffort(path, 0o600, func(string, os.FileMode) (*os.File, error) {
 		return os.Open(otherPath)
 	})
 	if file != nil {
 		_ = file.Close()
 	}
 	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
-		t.Fatalf("openAppendFileNoFollowBestEffort() error = %v, want verification failure", err)
+		t.Fatalf("openWritableFileNoFollowBestEffort() error = %v, want verification failure", err)
 	}
 	content, readErr := os.ReadFile(path)
 	if readErr != nil {
@@ -314,15 +314,15 @@ func TestOpenAppendFileNoFollowBestEffortPreservesExistingFileAfterVerificationF
 	}
 }
 
-func TestOpenAppendFileNoFollowBestEffortCreatesRegularFile(t *testing.T) {
+func TestOpenWritableFileNoFollowBestEffortAppendCreatesRegularFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "output.txt")
 
-	file, err := openAppendFileNoFollowBestEffort(path, 0o640, func(path string, perm os.FileMode) (*os.File, error) {
+	file, err := openWritableFileNoFollowBestEffort(path, 0o640, func(path string, perm os.FileMode) (*os.File, error) {
 		return os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, perm)
 	})
 	if err != nil {
-		t.Fatalf("openAppendFileNoFollowBestEffort() error = %v", err)
+		t.Fatalf("openWritableFileNoFollowBestEffort() error = %v", err)
 	}
 	if _, err := file.Write([]byte("ok")); err != nil {
 		_ = file.Close()
@@ -341,7 +341,7 @@ func TestOpenAppendFileNoFollowBestEffortCreatesRegularFile(t *testing.T) {
 	}
 }
 
-func TestOpenNewFileNoFollowInRootBestEffortPreservesUnverifiedDestinationAfterVerificationFailure(t *testing.T) {
+func TestOpenWritableFileNoFollowInRootBestEffortCreatePreservesUnverifiedDestinationAfterVerificationFailure(t *testing.T) {
 	rootPath := t.TempDir()
 	root, err := os.OpenRoot(rootPath)
 	if err != nil {
@@ -356,7 +356,7 @@ func TestOpenNewFileNoFollowInRootBestEffortPreservesUnverifiedDestinationAfterV
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	file, err := openNewFileNoFollowInRootBestEffort(root, stagedName, func() (*os.File, error) {
+	file, err := openWritableFileNoFollowInRootBestEffort(root, stagedName, func() (*os.File, error) {
 		created, err := root.OpenFile(stagedName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
 			return nil, err
@@ -370,7 +370,7 @@ func TestOpenNewFileNoFollowInRootBestEffortPreservesUnverifiedDestinationAfterV
 		_ = file.Close()
 	}
 	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
-		t.Fatalf("openNewFileNoFollowInRootBestEffort() error = %v, want verification failure", err)
+		t.Fatalf("openWritableFileNoFollowInRootBestEffort() error = %v, want verification failure", err)
 	}
 	info, statErr := root.Lstat(stagedName)
 	if statErr != nil {
@@ -388,7 +388,7 @@ func TestOpenNewFileNoFollowInRootBestEffortPreservesUnverifiedDestinationAfterV
 	}
 }
 
-func TestOpenNewFileNoFollowInRootBestEffortPreservesReplacementAfterVerificationFailure(t *testing.T) {
+func TestOpenWritableFileNoFollowInRootBestEffortCreatePreservesReplacementAfterVerificationFailure(t *testing.T) {
 	rootPath := t.TempDir()
 	root, err := os.OpenRoot(rootPath)
 	if err != nil {
@@ -398,7 +398,7 @@ func TestOpenNewFileNoFollowInRootBestEffortPreservesReplacementAfterVerificatio
 
 	const name = "output.txt"
 	const displacedName = "displaced.txt"
-	file, err := openNewFileNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
+	file, err := openWritableFileNoFollowInRootBestEffort(root, name, func() (*os.File, error) {
 		created, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
 			return nil, err
@@ -430,7 +430,7 @@ func TestOpenNewFileNoFollowInRootBestEffortPreservesReplacementAfterVerificatio
 		_ = file.Close()
 	}
 	if err == nil || !strings.Contains(err.Error(), "file changed during open") {
-		t.Fatalf("openNewFileNoFollowInRootBestEffort() error = %v, want verification failure", err)
+		t.Fatalf("openWritableFileNoFollowInRootBestEffort() error = %v, want verification failure", err)
 	}
 	content, readErr := os.ReadFile(filepath.Join(rootPath, name))
 	if readErr != nil {
