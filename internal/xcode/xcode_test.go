@@ -525,6 +525,87 @@ func TestValidateClassifiesAltoolOutputWithZeroExit(t *testing.T) {
 	}
 }
 
+func TestValidatePreservesClassifiedAltoolOutputWithNonZeroExit(t *testing.T) {
+	tests := []struct {
+		name        string
+		stdout      string
+		output      string
+		exitCode    string
+		wantDetails []string
+	}{
+		{
+			name:        "legacy error before long upload noise",
+			output:      "*** Error: Unable to validate archive './artifacts/Demo.ipa'.\n" + strings.Repeat("x", xcodebuildErrorTailLimit+1) + "\n",
+			exitCode:    "1",
+			wantDetails: []string{"Unable to validate archive './artifacts/Demo.ipa'."},
+		},
+		{
+			name:        "timestamped error on stdout before long upload noise",
+			stdout:      "2026-08-10 06:47:56.580 ERROR: [ContentDelivery.Uploader] Early server rejection.\n",
+			output:      strings.Repeat("x", xcodebuildErrorTailLimit+1) + "\n",
+			exitCode:    "1",
+			wantDetails: []string{"[ContentDelivery.Uploader] Early server rejection."},
+		},
+		{
+			name:        "unclassified failure still reports the output tail",
+			output:      "altool exited unexpectedly\n",
+			exitCode:    "70",
+			wantDetails: []string{"altool exited unexpectedly"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			ipaPath := filepath.Join(tempDir, "Demo.ipa")
+			if err := writeTestIPA(ipaPath); err != nil {
+				t.Fatalf("writeTestIPA() error: %v", err)
+			}
+			logPath := filepath.Join(tempDir, "commands.log")
+			t.Setenv("ASC_XCODE_HELPER_VALIDATE_STDOUT", test.stdout)
+			t.Setenv("ASC_XCODE_HELPER_VALIDATE_OUTPUT", test.output)
+			t.Setenv("ASC_XCODE_HELPER_VALIDATE_EXIT_CODE", test.exitCode)
+
+			restore := overrideTestEnvironment(t)
+			runtimeGOOS = "darwin"
+			lookPathFn = func(file string) (string, error) {
+				return "/usr/bin/" + file, nil
+			}
+			commandContextFn = helperCommandContext(t, logPath)
+			t.Cleanup(restore)
+
+			result, err := Validate(context.Background(), ValidateOptions{IPAPath: ipaPath})
+			if err == nil {
+				t.Fatalf("Validate() error = nil, want altool failure; result = %+v", result)
+			}
+			for _, want := range test.wantDetails {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("Validate() error = %q, want recognized detail %q", truncateErrorForLog(err), want)
+				}
+			}
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("Validate() error = %T %v, want the altool exit status preserved", err, truncateErrorForLog(err))
+			}
+			if got := fmt.Sprintf("%d", exitErr.ExitCode()); got != test.exitCode {
+				t.Fatalf("altool exit code = %s, want %s", got, test.exitCode)
+			}
+			if maxBytes := xcodebuildErrorTailLimit + 512; len(err.Error()) > maxBytes {
+				t.Fatalf("Validate() error bytes = %d, want at most %d", len(err.Error()), maxBytes)
+			}
+		})
+	}
+}
+
+func truncateErrorForLog(err error) string {
+	const limit = 512
+	message := err.Error()
+	if len(message) <= limit {
+		return message
+	}
+	return message[:limit] + "…"
+}
+
 func TestValidateRejectsOversizedInfoPlistBeforeAltool(t *testing.T) {
 	tempDir := t.TempDir()
 	ipaPath := writeIPAWithRawInfoPlist(t, buildSizedAppInfoPlist(t, infoplist.MaxBytes+1))
@@ -1896,6 +1977,14 @@ func TestXcodeHelperProcess(t *testing.T) {
 		}
 		if output := os.Getenv("ASC_XCODE_HELPER_VALIDATE_OUTPUT"); output != "" {
 			fmt.Fprint(os.Stderr, output)
+		}
+		if code := os.Getenv("ASC_XCODE_HELPER_VALIDATE_EXIT_CODE"); code != "" {
+			parsed, err := strconv.Atoi(code)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+			os.Exit(parsed)
 		}
 		os.Exit(0)
 	}

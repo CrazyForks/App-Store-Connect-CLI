@@ -784,7 +784,12 @@ func runAltoolValidate(ctx context.Context, args []string, logWriter io.Writer) 
 	cmd.Stdout = stdoutOutput
 	cmd.Stderr = stderrOutput
 	if err := runXcodeCommand(cmd); err != nil {
-		return formatCommandOutputError(ctx, err, outputTail, "validate", "xcrun altool", false)
+		failureOutput := newAltoolValidationFailureOutput(
+			append(stdoutOutput.Details(), stderrOutput.Details()...),
+			outputTail,
+			xcodebuildErrorTailLimit,
+		)
+		return formatCommandOutputError(ctx, err, failureOutput, "validate", "xcrun altool", true)
 	}
 
 	details := append(stdoutOutput.Details(), stderrOutput.Details()...)
@@ -794,6 +799,57 @@ func runAltoolValidate(ctx context.Context, args []string, logWriter io.Writer) 
 		return nil
 	}
 	return fmt.Errorf("xcrun altool validate failed: %s", strings.Join(details, "; "))
+}
+
+// altoolValidationFailureOutput renders the diagnostics altool already
+// classified ahead of the raw output tail, so a recognized failure survives the
+// trailing upload progress noise that would otherwise evict it. It mirrors
+// xcodeDiagnosticBuffer: an untruncated tail is reported verbatim, and the
+// rendered message stays within the same byte budget.
+type altoolValidationFailureOutput struct {
+	details []string
+	tail    *tailBuffer
+	limit   int
+}
+
+func newAltoolValidationFailureOutput(details []string, tail *tailBuffer, limit int) *altoolValidationFailureOutput {
+	return &altoolValidationFailureOutput{
+		details: UniqueDiagnosticDetails(details),
+		tail:    tail,
+		limit:   max(0, limit),
+	}
+}
+
+func (o *altoolValidationFailureOutput) String() string {
+	tail := strings.TrimSpace(o.tail.String())
+	if !o.tail.Truncated() {
+		return tail
+	}
+
+	detail := strings.Join(boundDiagnosticDetails(o.details, min(o.limit/2, xcodeDiagnosticPrefixLimit)), "; ")
+	switch {
+	case detail == "":
+		return tail
+	case tail == "":
+		return detail
+	}
+
+	tail = strings.TrimSpace(truncateUTF8Suffix(tail, o.limit-len(detail)-len("\n")))
+	if tail == "" {
+		return detail
+	}
+	return detail + "\n" + tail
+}
+
+func (o *altoolValidationFailureOutput) Truncated() bool {
+	return o.tail.Truncated()
+}
+
+func (o *altoolValidationFailureOutput) TruncationDescription() string {
+	if len(o.details) == 0 {
+		return o.tail.TruncationDescription()
+	}
+	return fmt.Sprintf("output truncated to %d bytes; preserving recognized errors and final output", o.limit)
 }
 
 func boundDiagnosticDetails(details []string, maxBytes int) []string {
