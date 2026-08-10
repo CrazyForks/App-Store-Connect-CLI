@@ -78,15 +78,19 @@ func verifyExplicitVersionOwnership(ctx context.Context, client *asc.Client, ver
 	return nil
 }
 
+// normalizeDeliverfilePlatform maps a Deliverfile platform value onto the App
+// Store Connect platform enum. fastlane deliver's own option values (ios, osx,
+// appletvos, xros) are accepted alongside the App Store Connect spellings, so a
+// Deliverfile copied verbatim from a fastlane project resolves without edits.
 func normalizeDeliverfilePlatform(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "ios":
 		return "IOS", nil
-	case "macos", "mac":
+	case "osx", "macos", "mac", "mac_os":
 		return "MAC_OS", nil
-	case "tvos", "appletvos", "tv_os":
+	case "appletvos", "tvos", "tv_os":
 		return "TV_OS", nil
-	case "visionos", "vision_os":
+	case "xros", "visionos", "vision_os":
 		return "VISION_OS", nil
 	default:
 		return "", fmt.Errorf("unsupported Deliverfile platform %q", value)

@@ -231,3 +231,46 @@ func migrateFileSize(t *testing.T, path string) int64 {
 	}
 	return info.Size()
 }
+
+func TestNormalizeDeliverfilePlatformAcceptsFastlaneSpellings(t *testing.T) {
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{value: "ios", want: "IOS"},
+		{value: "IOS", want: "IOS"},
+		{value: "osx", want: "MAC_OS"},
+		{value: "OSX", want: "MAC_OS"},
+		{value: "macos", want: "MAC_OS"},
+		{value: "mac", want: "MAC_OS"},
+		{value: "mac_os", want: "MAC_OS"},
+		{value: "appletvos", want: "TV_OS"},
+		{value: "tvos", want: "TV_OS"},
+		{value: "tv_os", want: "TV_OS"},
+		{value: "xros", want: "VISION_OS"},
+		{value: " xrOS ", want: "VISION_OS"},
+		{value: "visionos", want: "VISION_OS"},
+		{value: "vision_os", want: "VISION_OS"},
+	}
+	for _, test := range tests {
+		t.Run(test.value, func(t *testing.T) {
+			got, err := normalizeDeliverfilePlatform(test.value)
+			if err != nil {
+				t.Fatalf("normalizeDeliverfilePlatform(%q) error = %v", test.value, err)
+			}
+			if got != test.want {
+				t.Fatalf("normalizeDeliverfilePlatform(%q) = %q, want %q", test.value, got, test.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeDeliverfilePlatformRejectsUnknownValue(t *testing.T) {
+	_, err := normalizeDeliverfilePlatform("android")
+	if err == nil {
+		t.Fatal("expected unsupported platform error")
+	}
+	if err.Error() != `unsupported Deliverfile platform "android"` {
+		t.Fatalf("error = %q, want unsupported Deliverfile platform message", err)
+	}
+}
