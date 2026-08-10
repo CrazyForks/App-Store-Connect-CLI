@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -253,38 +254,52 @@ func newGitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
 }
 
 func gitCommandEnvironment(environment []string) []string {
-	environment = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0")
+	return gitCommandEnvironmentForGOOS(environment, runtime.GOOS)
+}
 
-	sshCommand, ok := commandEnvironmentValue(environment, "GIT_SSH_COMMAND")
+func gitCommandEnvironmentForGOOS(environment []string, goos string) []string {
+	caseInsensitive := goos == "windows"
+	environment = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", caseInsensitive)
+
+	sshCommand, ok := commandEnvironmentValue(environment, "GIT_SSH_COMMAND", caseInsensitive)
 	if !ok || strings.TrimSpace(sshCommand) == "" {
 		sshCommand = "ssh -o BatchMode=yes"
 	}
 
 	// A caller-provided command may contain shell quoting or invoke a wrapper.
 	// Preserve it verbatim instead of trying to append or rewrite SSH options.
-	return replaceCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", sshCommand)
+	return replaceCommandEnvironmentValue(environment, "GIT_SSH_COMMAND", sshCommand, caseInsensitive)
 }
 
-func commandEnvironmentValue(environment []string, key string) (string, bool) {
-	prefix := key + "="
+func commandEnvironmentValue(environment []string, key string, caseInsensitive bool) (string, bool) {
 	for i := len(environment) - 1; i >= 0; i-- {
-		if strings.HasPrefix(environment[i], prefix) {
-			return strings.TrimPrefix(environment[i], prefix), true
+		if value, ok := commandEnvironmentEntryValue(environment[i], key, caseInsensitive); ok {
+			return value, true
 		}
 	}
 	return "", false
 }
 
-func replaceCommandEnvironmentValue(environment []string, key, value string) []string {
-	prefix := key + "="
+func replaceCommandEnvironmentValue(environment []string, key, value string, caseInsensitive bool) []string {
 	updated := make([]string, 0, len(environment)+1)
 	for _, entry := range environment {
-		if strings.HasPrefix(entry, prefix) {
+		if _, ok := commandEnvironmentEntryValue(entry, key, caseInsensitive); ok {
 			continue
 		}
 		updated = append(updated, entry)
 	}
-	return append(updated, prefix+value)
+	return append(updated, key+"="+value)
+}
+
+func commandEnvironmentEntryValue(entry, key string, caseInsensitive bool) (string, bool) {
+	entryKey, value, ok := strings.Cut(entry, "=")
+	if !ok {
+		return "", false
+	}
+	if entryKey != key && (!caseInsensitive || !strings.EqualFold(entryKey, key)) {
+		return "", false
+	}
+	return value, true
 }
 
 func (g *GitStore) gitRun(ctx context.Context, dir string, args ...string) error {

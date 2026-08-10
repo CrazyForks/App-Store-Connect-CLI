@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -405,6 +406,40 @@ func TestGitCommandEnvironmentDefaultsMissingOrBlankSSHCommand(t *testing.T) {
 				t.Fatalf("GIT_SSH_COMMAND values = %v, want [ssh -o BatchMode=yes]", got)
 			}
 		})
+	}
+}
+
+func TestGitCommandEnvironmentForWindowsMatchesKeysCaseInsensitively(t *testing.T) {
+	environment := gitCommandEnvironmentForGOOS([]string{
+		"PATH=C:\\Windows\\System32",
+		"git_terminal_prompt=1",
+		`git_ssh_command=team-ssh-wrapper --identity 'release key'`,
+	}, "windows")
+	want := []string{
+		"PATH=C:\\Windows\\System32",
+		"GIT_TERMINAL_PROMPT=0",
+		`GIT_SSH_COMMAND=team-ssh-wrapper --identity 'release key'`,
+	}
+	if !slices.Equal(environment, want) {
+		t.Fatalf("gitCommandEnvironmentForGOOS() = %v, want %v", environment, want)
+	}
+}
+
+func TestGitCommandEnvironmentForPOSIXKeepsKeysCaseSensitive(t *testing.T) {
+	environment := gitCommandEnvironmentForGOOS([]string{
+		"PATH=/usr/bin",
+		"git_terminal_prompt=1",
+		"git_ssh_command=team-ssh-wrapper",
+	}, "linux")
+	want := []string{
+		"PATH=/usr/bin",
+		"git_terminal_prompt=1",
+		"git_ssh_command=team-ssh-wrapper",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_SSH_COMMAND=ssh -o BatchMode=yes",
+	}
+	if !slices.Equal(environment, want) {
+		t.Fatalf("gitCommandEnvironmentForGOOS() = %v, want %v", environment, want)
 	}
 }
 
