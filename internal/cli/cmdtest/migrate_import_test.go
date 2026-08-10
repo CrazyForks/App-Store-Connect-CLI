@@ -326,6 +326,41 @@ func TestMigrateImportPreflightsAppInfoCreatesBeforeMutations(t *testing.T) {
 	api.assertComplete(t, 0)
 }
 
+func TestMigrateImportPreflightsWouldCreateVersionLocalesBeforeMutations(t *testing.T) {
+	root := writeMigrateImportMetadata(t, map[string]map[string]string{
+		"en-US": {"description.txt": "English description"},
+		"nl": {
+			"description.txt": "Dutch description",
+			"name.txt":        "Dutch name",
+		},
+	})
+	planning := migrateImportPlanningExpectations(`{"data":[]}`)
+	api := newMigrateImportAPI(t, planning[:2]...)
+
+	stdout, stderr, runErr := runMigrateImport(t, root)
+	const wantError = `migrate import: locale "nl": unsupported locale "nl"; did you mean: nl-NL`
+	assertMigrateImportError(t, stdout, stderr, runErr, wantError)
+	api.assertComplete(t, 0)
+}
+
+func TestMigrateImportPreflightsWouldCreateAppInfoLocalesBeforeMutations(t *testing.T) {
+	root := writeMigrateImportMetadata(t, map[string]map[string]string{
+		"en-US": {"description.txt": "English description"},
+		"nl": {
+			"description.txt": "Dutch description",
+			"name.txt":        "Dutch name",
+		},
+	})
+	planning := migrateImportPlanningExpectations(`{"data":[]}`)
+	planning[1].response = `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}},{"type":"appStoreVersionLocalizations","id":"loc-nl","attributes":{"locale":"nl"}}]}`
+	api := newMigrateImportAPI(t, planning...)
+
+	stdout, stderr, runErr := runMigrateImport(t, root)
+	const wantError = `migrate import: locale "nl": unsupported locale "nl"; did you mean: nl-NL`
+	assertMigrateImportError(t, stdout, stderr, runErr, wantError)
+	api.assertComplete(t, 0)
+}
+
 func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesAfterPlanning(t *testing.T) {
 	root := writeMigrateImportMetadata(t, validMigrateAppInfoMetadata())
 	expectations := append(migrateImportPlanningExpectations(

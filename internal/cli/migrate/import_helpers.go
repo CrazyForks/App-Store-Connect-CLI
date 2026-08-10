@@ -193,6 +193,26 @@ func prepareVersionLocalizations(localizations []FastlaneLocalization) ([]prepar
 	return prepared, nil
 }
 
+func validateVersionLocalizationCreateLocales(localizations []preparedVersionLocalization, localeToID map[string]string) error {
+	for _, prepared := range localizations {
+		locale := prepared.localization.Locale
+		if err := validateLocalizationCreateTarget(locale, localeToID[locale]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateLocalizationCreateTarget(locale, localizationID string) error {
+	if localizationID != "" {
+		return nil
+	}
+	if _, err := shared.CanonicalizeAppStoreLocalizationLocale(locale); err != nil {
+		return fmt.Errorf("migrate import: locale %q: %w", locale, err)
+	}
+	return nil
+}
+
 func prepareAppInfoLocalizationAttributes(localizations []AppInfoFastlaneLocalization) ([]preparedAppInfoLocalization, error) {
 	prepared := make([]preparedAppInfoLocalization, 0, len(localizations))
 	for _, loc := range localizations {
@@ -285,8 +305,13 @@ func prepareAppInfoLocalizations(ctx context.Context, client *asc.Client, appID 
 		loc := prepared.localization
 		attrs := prepared.attributes
 		localizationID := appInfoLocaleToID[loc.Locale]
-		if localizationID == "" && strings.TrimSpace(attrs.Name) == "" {
-			return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: locale %q: name is required when creating app info localization", loc.Locale)
+		if err := validateLocalizationCreateTarget(loc.Locale, localizationID); err != nil {
+			return appInfoLocalizationPlan{}, err
+		}
+		if localizationID == "" {
+			if strings.TrimSpace(attrs.Name) == "" {
+				return appInfoLocalizationPlan{}, fmt.Errorf("migrate import: locale %q: name is required when creating app info localization", loc.Locale)
+			}
 		}
 		prepared.localizationID = localizationID
 		plan.localizations = append(plan.localizations, prepared)

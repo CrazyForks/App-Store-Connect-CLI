@@ -284,6 +284,9 @@ Examples:
 					localeToID[loc.Attributes.Locale] = loc.ID
 				}
 			}
+			if err := validateVersionLocalizationCreateLocales(preparedLocalizations, localeToID); err != nil {
+				return err
+			}
 			appInfoPlan, err := prepareAppInfoLocalizations(requestCtx, client, resolvedAppID, preparedAppInfoLocalizations)
 			if err != nil {
 				return err

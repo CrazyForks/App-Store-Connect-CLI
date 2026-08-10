@@ -154,6 +154,20 @@ func TestPrepareVersionLocalizationsPreservesOrderAndDuplicates(t *testing.T) {
 	}
 }
 
+func TestValidateLocalizationCreateTargetAllowsExistingUnsupportedRoot(t *testing.T) {
+	if err := validateLocalizationCreateTarget("nl", "existing-loc"); err != nil {
+		t.Fatalf("validateLocalizationCreateTarget() error = %v, want nil for update", err)
+	}
+}
+
+func TestValidateLocalizationCreateTargetRejectsUnsupportedRootCreate(t *testing.T) {
+	err := validateLocalizationCreateTarget("nl", "")
+	const wantError = `migrate import: locale "nl": unsupported locale "nl"; did you mean: nl-NL`
+	if err == nil || err.Error() != wantError {
+		t.Fatalf("validateLocalizationCreateTarget() error = %q, want %q", err, wantError)
+	}
+}
+
 func newMigrateUploadTestClient(t *testing.T) *asc.Client {
 	t.Helper()
 
