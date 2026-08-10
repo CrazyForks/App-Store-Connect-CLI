@@ -1342,36 +1342,56 @@ func TestRunXcodebuildInterruptionPreservesBeginningAndEndWithinBound(t *testing
 	t.Cleanup(restore)
 
 	tests := []struct {
-		name       string
-		newContext func() (context.Context, context.CancelFunc)
-		wantCause  error
+		name            string
+		timeout         time.Duration
+		cancelWhenReady bool
+		wantCause       error
 	}{
 		{
-			name: "deadline",
-			newContext: func() (context.Context, context.CancelFunc) {
-				return context.WithTimeout(context.Background(), 50*time.Millisecond)
-			},
+			name:      "deadline",
+			timeout:   2 * time.Second,
 			wantCause: context.DeadlineExceeded,
 		},
 		{
-			name: "cancellation",
-			newContext: func() (context.Context, context.CancelFunc) {
-				ctx, cancel := context.WithCancel(context.Background())
-				time.AfterFunc(50*time.Millisecond, cancel)
-				return ctx, cancel
-			},
-			wantCause: context.Canceled,
+			name:            "cancellation",
+			cancelWhenReady: true,
+			wantCause:       context.Canceled,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := test.newContext()
+			ctx, cancel := context.WithCancel(context.Background())
+			if test.timeout > 0 {
+				ctx, cancel = context.WithTimeout(context.Background(), test.timeout)
+			}
 			defer cancel()
 
-			err := runXcodebuild(ctx, []string{"large-output-then-wait"}, nil)
+			readyPath := filepath.Join(tempDir, test.name+".ready")
+			var readyResult <-chan error
+			if test.cancelWhenReady {
+				result := make(chan error, 1)
+				readyResult = result
+				go func() {
+					err := waitForHelperSignal(readyPath, 2*time.Second)
+					if err == nil {
+						cancel()
+					}
+					result <- err
+				}()
+			}
+
+			err := runXcodebuild(ctx, []string{"large-output-then-wait", readyPath}, nil)
+			if readyResult != nil {
+				if readyErr := <-readyResult; readyErr != nil {
+					t.Fatalf("wait for helper readiness: %v", readyErr)
+				}
+			}
 			if !errors.Is(err, test.wantCause) {
 				t.Fatalf("runXcodebuild() error = %v, want %v", err, test.wantCause)
+			}
+			if _, statErr := os.Stat(readyPath); statErr != nil {
+				t.Fatalf("helper readiness signal: %v", statErr)
 			}
 			for _, want := range []string{
 				"file.m:4:3: error: root cause",
@@ -1383,6 +1403,21 @@ func TestRunXcodebuildInterruptionPreservesBeginningAndEndWithinBound(t *testing
 				}
 			}
 		})
+	}
+}
+
+func waitForHelperSignal(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for %s", path)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -1417,9 +1452,32 @@ func TestHeadTailBufferPreservesUntruncatedOutput(t *testing.T) {
 	}
 }
 
+func TestHeadTailBufferRenderedOutputStaysWithinLimit(t *testing.T) {
+	buffer := newHeadTailBuffer(xcodeCommandErrorOutputLimit)
+	input := "file.m:4:3: error: root cause\n" +
+		strings.Repeat("界", xcodeCommandErrorOutputLimit) +
+		"\nFINAL-DIAGNOSTIC\n"
+	if _, err := buffer.Write([]byte(input)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	got := buffer.String()
+	if len(got) > xcodeCommandErrorOutputLimit {
+		t.Fatalf("rendered bytes = %d, limit = %d", len(got), xcodeCommandErrorOutputLimit)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("String() returned invalid UTF-8 after truncation: %q", got)
+	}
+	for _, want := range []string{"file.m:4:3: error: root cause", "FINAL-DIAGNOSTIC", "bytes omitted"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("String() = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestHeadTailBufferRepairsUTF8AtBothTruncationBoundaries(t *testing.T) {
-	buffer := newHeadTailBuffer(8)
-	if _, err := buffer.Write([]byte("始界界終")); err != nil {
+	buffer := newHeadTailBuffer(40)
+	if _, err := buffer.Write([]byte("始" + strings.Repeat("界", 20) + "終")); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 
@@ -1427,10 +1485,13 @@ func TestHeadTailBufferRepairsUTF8AtBothTruncationBoundaries(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Fatalf("String() returned invalid UTF-8 after truncation: %q", got)
 	}
-	for _, want := range []string{"始", "終", "6 bytes omitted"} {
+	for _, want := range []string{"始", "終", "54 bytes omitted"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("String() = %q, want %q", got, want)
 		}
+	}
+	if len(got) > buffer.limit {
+		t.Fatalf("rendered bytes = %d, limit = %d", len(got), buffer.limit)
 	}
 	if stored := len(buffer.head) + len(buffer.tail.data); stored > buffer.limit {
 		t.Fatalf("stored bytes = %d, limit = %d", stored, buffer.limit)
@@ -1449,6 +1510,9 @@ func TestHeadTailBufferHandlesZeroAndSingleByteLimits(t *testing.T) {
 			}
 			if !utf8.ValidString(buffer.String()) {
 				t.Fatalf("String() returned invalid UTF-8: %q", buffer.String())
+			}
+			if rendered := len(buffer.String()); rendered > limit {
+				t.Fatalf("rendered bytes = %d, limit = %d", rendered, limit)
 			}
 			if stored := len(buffer.head) + len(buffer.tail.data); stored > limit {
 				t.Fatalf("stored bytes = %d, limit = %d", stored, limit)
@@ -1714,10 +1778,18 @@ func TestXcodeHelperProcess(t *testing.T) {
 	}
 
 	if len(commandArgs) >= 2 && commandArgs[0] == "xcodebuild" && commandArgs[1] == "large-output-then-wait" {
+		if len(commandArgs) < 3 {
+			fmt.Fprintln(os.Stderr, "missing helper readiness path")
+			os.Exit(2)
+		}
 		fmt.Fprint(os.Stderr, "file.m:4:3: error: root cause\n")
 		fmt.Fprint(os.Stderr, strings.Repeat("x", xcodeCommandErrorOutputLimit+128))
 		fmt.Fprint(os.Stderr, "\nFINAL-BEFORE-INTERRUPTION\n")
-		time.Sleep(2 * time.Second)
+		if err := os.WriteFile(commandArgs[2], []byte("ready"), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		time.Sleep(5 * time.Second)
 		os.Exit(0)
 	}
 

@@ -1369,8 +1369,19 @@ func (b *headTailBuffer) String() string {
 
 	head := trimIncompleteUTF8Suffix(b.head)
 	tail := b.tail.String()
+	marker := fmt.Sprintf("\n... %d bytes omitted ...\n", b.totalBytes)
+	contentLimit := b.limit - len(marker)
+	if contentLimit < 0 {
+		marker = ""
+		contentLimit = b.limit
+	}
+	head, tail = retainHeadAndTail(head, tail, contentLimit)
+	if marker == "" {
+		return head + tail
+	}
 	omittedBytes := b.totalBytes - int64(len(head)) - int64(len(tail))
-	return fmt.Sprintf("%s\n... %d bytes omitted ...\n%s", head, omittedBytes, tail)
+	marker = fmt.Sprintf("\n... %d bytes omitted ...\n", omittedBytes)
+	return head + marker + tail
 }
 
 func (b *headTailBuffer) Truncated() bool {
@@ -1386,6 +1397,25 @@ func trimIncompleteUTF8Suffix(data []byte) string {
 		data = data[:len(data)-1]
 	}
 	return string(data)
+}
+
+func retainHeadAndTail(head string, tail string, limit int) (string, string) {
+	if limit <= 0 {
+		return "", ""
+	}
+
+	headLimit := (limit + 1) / 2
+	tailLimit := limit - headLimit
+	if len(head) > headLimit {
+		head = trimIncompleteUTF8Suffix([]byte(head[:headLimit]))
+	}
+	if len(tail) > tailLimit {
+		tail = tail[len(tail)-tailLimit:]
+		for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+			tail = tail[1:]
+		}
+	}
+	return head, tail
 }
 
 type tailBuffer struct {
