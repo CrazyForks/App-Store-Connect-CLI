@@ -555,6 +555,10 @@ func uploadMultipartPart(ctx context.Context, host, encodedPath string, creds S3
 }
 
 func completeMultipartUpload(ctx context.Context, host, encodedPath string, creds S3Credentials, uploadID string, parts []s3CompletedPart) error {
+	return completeMultipartUploadWithClient(ctx, http.DefaultClient, host, encodedPath, creds, uploadID, parts)
+}
+
+func completeMultipartUploadWithClient(ctx context.Context, httpClient *http.Client, host, encodedPath string, creds S3Credentials, uploadID string, parts []s3CompletedPart) error {
 	query := url.Values{}
 	query.Set("uploadId", uploadID)
 	rawQuery := encodeS3Query(query)
@@ -594,17 +598,17 @@ func completeMultipartUpload(ctx context.Context, host, encodedPath string, cred
 	}
 	signS3Request(req, creds, payloadHash, now)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("complete multipart upload failed: %w", err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("complete multipart upload failed with status %d: %s", resp.StatusCode, sanitizeErrorBody(respBody))
-	}
 	if err != nil {
 		return fmt.Errorf("read complete multipart upload response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("complete multipart upload failed with status %d: %s", resp.StatusCode, sanitizeErrorBody(respBody))
 	}
 
 	decoder := xml.NewDecoder(bytes.NewReader(respBody))

@@ -579,8 +579,7 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			originalClient := http.DefaultClient
-			http.DefaultClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				if req.Method != http.MethodPost {
 					t.Fatalf("method = %s, want POST", req.Method)
 				}
@@ -590,18 +589,18 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 				if req.URL.Query().Get("uploadId") != "upload-123" {
 					t.Fatalf("uploadId = %q, want upload-123", req.URL.Query().Get("uploadId"))
 				}
-				return &http.Response{
-					StatusCode: http.StatusOK,
-					Header:     make(http.Header),
-					Body:       io.NopCloser(strings.NewReader(tt.body)),
-					Request:    req,
-				}, nil
-			})}
-			t.Cleanup(func() { http.DefaultClient = originalClient })
+				mustWriteBody(t, w, tt.body)
+			}))
+			t.Cleanup(server.Close)
+			serverURL, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatalf("parse test server URL: %v", err)
+			}
 
-			err := completeMultipartUpload(
+			err = completeMultipartUploadWithClient(
 				context.Background(),
-				"example.s3.us-west-2.amazonaws.com",
+				server.Client(),
+				serverURL.Host,
 				"/archive.zip",
 				S3Credentials{AccessKeyID: "key", SecretAccessKey: "secret"},
 				"upload-123",
@@ -635,6 +634,32 @@ func TestCompleteMultipartUploadClassifiesResponseBody(t *testing.T) {
 				t.Fatalf("diagnostic length = %d, want <= %d", len(diagnostic), diagnosticLimit)
 			}
 		})
+	}
+}
+
+func TestCompleteMultipartUploadReportsPartialBodyReadError(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "128")
+		w.WriteHeader(http.StatusBadGateway)
+		mustWriteBody(t, w, "<Error><Code>InternalError</Code>")
+	}))
+	t.Cleanup(server.Close)
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+
+	err = completeMultipartUploadWithClient(
+		context.Background(),
+		server.Client(),
+		serverURL.Host,
+		"/archive.zip",
+		S3Credentials{AccessKeyID: "key", SecretAccessKey: "secret"},
+		"upload-123",
+		[]s3CompletedPart{{PartNumber: 1, ETag: "\"etag\""}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "read complete multipart upload response") {
+		t.Fatalf("completeMultipartUpload() error = %v, want response read error", err)
 	}
 }
 
