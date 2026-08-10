@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -12,7 +11,7 @@ func TestSafeWriteFileNoSymlinkNoOverwriteRemovesPartialFileAfterCallbackFailure
 	destination := filepath.Join(t.TempDir(), "artifact.bin")
 	writeErr := errors.New("simulated write failure")
 
-	_, err := SafeWriteFileNoSymlink(
+	written, err := SafeWriteFileNoSymlink(
 		destination,
 		0o600,
 		false,
@@ -29,8 +28,56 @@ func TestSafeWriteFileNoSymlinkNoOverwriteRemovesPartialFileAfterCallbackFailure
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want %v", err, writeErr)
 	}
+	if written != int64(len("partial")) {
+		t.Fatalf("SafeWriteFileNoSymlink() written = %d, want %d", written, len("partial"))
+	}
 	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected partial destination to be removed, stat error = %v", err)
+	}
+}
+
+func TestSafeWriteFileNoSymlinkNoOverwritePreservesDestinationCreatedDuringWrite(t *testing.T) {
+	directory := t.TempDir()
+	destination := filepath.Join(directory, "artifact.bin")
+	content := []byte("complete")
+	concurrent := []byte("concurrent")
+
+	written, err := SafeWriteFileNoSymlink(
+		destination,
+		0o600,
+		false,
+		".safe-write-*",
+		".safe-write-backup-*",
+		func(file *os.File) (int64, error) {
+			written, err := file.Write(content)
+			if err != nil {
+				return int64(written), err
+			}
+			if err := os.WriteFile(destination, concurrent, 0o600); err != nil {
+				return int64(written), err
+			}
+			return int64(written), nil
+		},
+	)
+	if !errors.Is(err, os.ErrExist) {
+		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want os.ErrExist", err)
+	}
+	if written != int64(len(content)) {
+		t.Fatalf("SafeWriteFileNoSymlink() written = %d, want %d", written, len(content))
+	}
+	got, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != string(concurrent) {
+		t.Fatalf("destination content = %q, want %q", got, concurrent)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(destination) {
+		t.Fatalf("directory entries = %v, want only %q", entries, filepath.Base(destination))
 	}
 }
 
@@ -71,9 +118,6 @@ func TestSafeWriteFileNoSymlinkNoOverwritePreservesReplacementAfterCallbackFailu
 	)
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want %v", err, writeErr)
-	}
-	if !strings.Contains(err.Error(), "refusing to remove replaced file") {
-		t.Fatalf("SafeWriteFileNoSymlink() error = %v, want replacement cleanup failure", err)
 	}
 	got, err := os.ReadFile(destination)
 	if err != nil {

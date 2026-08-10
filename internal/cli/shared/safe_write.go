@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/secureopen"
 )
 
 // SafeWriteFileNoSymlink writes a file to path without following symlinks and with an optional
@@ -22,28 +22,46 @@ func SafeWriteFileNoSymlink(path string, perm os.FileMode, overwrite bool, tempP
 	}
 
 	if !overwrite {
-		destinationRoot, err := rootfs.New(filepath.Dir(path))
+		parent, err := os.OpenRoot(filepath.Dir(path))
 		if err != nil {
 			return 0, err
 		}
-		file, err := OpenNewFileNoFollow(path, perm)
-		if err != nil {
-			if errors.Is(err, os.ErrExist) {
-				return 0, fmt.Errorf("output file already exists: %w", err)
-			}
+		defer parent.Close()
+
+		base := filepath.Base(path)
+		if _, err := parent.Lstat(base); err == nil {
+			return 0, fmt.Errorf("output file already exists: %w", os.ErrExist)
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return 0, err
 		}
-		createdInfo, err := file.Stat()
+
+		file, temporaryName, err := secureopen.CreateTempNoFollowInRoot(parent, ".", tempPattern, perm)
 		if err != nil {
-			return 0, errors.Join(err, file.Close())
+			return 0, err
 		}
-		return writeNewFileNoSymlink(path, file, write, newFileWriteOps{
+		written, err := writeNewFileNoSymlink(temporaryName, file, write, newFileWriteOps{
 			syncFile:  file.Sync,
 			closeFile: file.Close,
-			removeFile: func(string) error {
-				return destinationRoot.RemoveFileIfSame(filepath.Base(path), createdInfo)
+			removeFile: func(name string) error {
+				return removeRootedFile(parent, name)
 			},
 		})
+		if err != nil {
+			return written, err
+		}
+
+		if err := parent.Link(temporaryName, base); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				err = fmt.Errorf("output file already exists: %w", err)
+			}
+			return written, cleanupIncompleteFile(temporaryName, err, func() error { return nil }, func(name string) error {
+				return removeRootedFile(parent, name)
+			})
+		}
+		if err := removeRootedFile(parent, temporaryName); err != nil {
+			return written, fmt.Errorf("remove temporary output after publish: %w", err)
+		}
+		return written, nil
 	}
 
 	return writeFileNoSymlinkOverwrite(path, perm, tempPattern, backupPattern, write)
@@ -70,7 +88,7 @@ func writeNewFileNoSymlink(path string, file *os.File, write func(*os.File) (int
 
 	written, err := write(file)
 	if err != nil {
-		return 0, cleanupIncompleteFile(path, err, closeFile, ops.removeFile)
+		return written, cleanupIncompleteFile(path, err, closeFile, ops.removeFile)
 	}
 	if err := ops.syncFile(); err != nil {
 		return written, cleanupIncompleteFile(path, err, closeFile, ops.removeFile)
@@ -79,6 +97,14 @@ func writeNewFileNoSymlink(path string, file *os.File, write func(*os.File) (int
 		return written, cleanupIncompleteFile(path, err, closeFile, ops.removeFile)
 	}
 	return written, nil
+}
+
+func removeRootedFile(root *os.Root, name string) error {
+	err := root.Remove(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func cleanupIncompleteFile(path string, primaryErr error, closeFile func() error, removeFile func(string) error) error {

@@ -533,47 +533,6 @@ func TestCreateNewFileRefusesExistingFile(t *testing.T) {
 	}
 }
 
-func TestRemoveFileIfSameRemovesMatchingFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "artifact.bin")
-	mustWrite(t, path, "partial")
-	expected, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-
-	root := mustRoot(t, dir)
-	if err := root.RemoveFileIfSame("artifact.bin", expected); err != nil {
-		t.Fatalf("RemoveFileIfSame() error = %v", err)
-	}
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected matching file to be removed, stat error = %v", err)
-	}
-}
-
-func TestRemoveFileIfSamePreservesReplacement(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "artifact.bin")
-	displaced := filepath.Join(dir, "displaced.bin")
-	mustWrite(t, path, "partial")
-	expected, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if err := os.Rename(path, displaced); err != nil {
-		t.Fatalf("Rename() error = %v", err)
-	}
-	mustWrite(t, path, "replacement")
-
-	root := mustRoot(t, dir)
-	if err := root.RemoveFileIfSame("artifact.bin", expected); err == nil {
-		t.Fatal("RemoveFileIfSame() error = nil, want replacement refusal")
-	}
-	if got := mustRead(t, path); got != "replacement" {
-		t.Fatalf("replacement content = %q, want replacement", got)
-	}
-}
-
 func TestCreateNewFileDoesNotEscapeWhenParentIsSwappedAfterValidation(t *testing.T) {
 	requireSymlinks(t)
 
