@@ -63,4 +63,8 @@ func TestCertificatesCSRGenerate_ForceRejectsNamedPipeOutputsBeforeWriting(t *te
 	if !os.SameFile(originalKeyInfo, currentKeyInfo) {
 		t.Error("key inode changed before deterministic CSR destination failure")
 	}
+	keyContents, err := os.ReadFile(keyOut)
+	if err != nil || string(keyContents) != "original-private-key" {
+		t.Fatalf("ReadFile(keyOut) = (%q, %v), want original key", keyContents, err)
+	}
 }
