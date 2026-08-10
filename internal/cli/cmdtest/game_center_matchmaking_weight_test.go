@@ -16,10 +16,20 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
-func TestGameCenterMatchmakingRulesRejectNonFiniteWeightBeforeClient(t *testing.T) {
+func TestGameCenterMatchmakingRulesRejectInvalidWeightBeforeClient(t *testing.T) {
+	tests := []struct {
+		weight  string
+		message string
+	}{
+		{weight: "NaN", message: "--weight must be a finite number"},
+		{weight: "+Inf", message: "--weight must be a finite number"},
+		{weight: "-Inf", message: "--weight must be a finite number"},
+		{weight: "invalid", message: "--weight must be a number"},
+	}
+
 	for _, command := range []string{"create", "update"} {
-		for _, weight := range []string{"NaN", "+Inf", "-Inf"} {
-			t.Run(command+" "+weight, func(t *testing.T) {
+		for _, test := range tests {
+			t.Run(command+" "+test.weight, func(t *testing.T) {
 				clearASCAuth(t)
 				clientFactoryCalls := 0
 				t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
@@ -28,7 +38,7 @@ func TestGameCenterMatchmakingRulesRejectNonFiniteWeightBeforeClient(t *testing.
 				}))
 
 				stdout, stderr := captureOutput(t, func() {
-					if code := rootcmd.Run(gameCenterMatchmakingRuleArgs(command, weight), "test"); code != rootcmd.ExitUsage {
+					if code := rootcmd.Run(gameCenterMatchmakingRuleArgs(command, test.weight), "test"); code != rootcmd.ExitUsage {
 						t.Errorf("exit code = %d, want %d", code, rootcmd.ExitUsage)
 					}
 				})
@@ -37,7 +47,7 @@ func TestGameCenterMatchmakingRulesRejectNonFiniteWeightBeforeClient(t *testing.
 					t.Errorf("stdout = %q, want empty", stdout)
 				}
 				errorLine, _, _ := strings.Cut(stderr, "\n")
-				if got, want := errorLine+"\n", "Error: --weight must be a finite number\n"; got != want {
+				if got, want := errorLine+"\n", "Error: "+test.message+"\n"; got != want {
 					t.Errorf("stderr error line = %q, want %q; full stderr = %q", got, want, stderr)
 				}
 				if clientFactoryCalls != 0 {
@@ -57,6 +67,7 @@ func TestGameCenterMatchmakingRulesSendFiniteWeight(t *testing.T) {
 		path       string
 		statusCode int
 		wantBody   string
+		extraArgs  []string
 	}{
 		{
 			name:       "create negative weight",
@@ -76,6 +87,15 @@ func TestGameCenterMatchmakingRulesSendFiniteWeight(t *testing.T) {
 			wantBody:   `{"data":{"type":"gameCenterMatchmakingRules","attributes":{"referenceName":"Rule","description":"Match","type":"MATCH","expression":"true"},"relationships":{"ruleSet":{"data":{"type":"gameCenterMatchmakingRuleSets","id":"RULE_SET_ID"}}}}}`,
 		},
 		{
+			name:       "create positive weight",
+			command:    "create",
+			weight:     "0.5",
+			method:     http.MethodPost,
+			path:       "/v1/gameCenterMatchmakingRules",
+			statusCode: http.StatusCreated,
+			wantBody:   `{"data":{"type":"gameCenterMatchmakingRules","attributes":{"referenceName":"Rule","description":"Match","type":"MATCH","expression":"true","weight":0.5},"relationships":{"ruleSet":{"data":{"type":"gameCenterMatchmakingRuleSets","id":"RULE_SET_ID"}}}}}`,
+		},
+		{
 			name:       "update zero weight",
 			command:    "update",
 			weight:     "0",
@@ -92,6 +112,15 @@ func TestGameCenterMatchmakingRulesSendFiniteWeight(t *testing.T) {
 			path:       "/v1/gameCenterMatchmakingRules/RULE_ID",
 			statusCode: http.StatusOK,
 			wantBody:   `{"data":{"type":"gameCenterMatchmakingRules","id":"RULE_ID","attributes":{"weight":100}}}`,
+		},
+		{
+			name:       "update omitted weight",
+			command:    "update",
+			method:     http.MethodPatch,
+			path:       "/v1/gameCenterMatchmakingRules/RULE_ID",
+			statusCode: http.StatusOK,
+			wantBody:   `{"data":{"type":"gameCenterMatchmakingRules","id":"RULE_ID","attributes":{"description":"New match"}}}`,
+			extraArgs:  []string{"--description", "New match"},
 		},
 	}
 
@@ -130,7 +159,8 @@ func TestGameCenterMatchmakingRulesSendFiniteWeight(t *testing.T) {
 				return client, nil
 			}))
 
-			args := append(gameCenterMatchmakingRuleArgs(test.command, test.weight), "--output", "json")
+			args := append(gameCenterMatchmakingRuleArgs(test.command, test.weight), test.extraArgs...)
+			args = append(args, "--output", "json")
 			stdout, stderr := captureOutput(t, func() {
 				if code := rootcmd.Run(args, "test"); code != rootcmd.ExitSuccess {
 					t.Errorf("exit code = %d, want %d", code, rootcmd.ExitSuccess)
