@@ -317,7 +317,7 @@ func resolveSigningCertificateTypes(profileType, raw string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		certificateTypes = []string{inferred}
+		certificateTypes = shared.SplitCSVUpper(inferred)
 	}
 
 	for _, certificateType := range certificateTypes {
@@ -427,17 +427,17 @@ func inferCertificateType(profileType string) (string, error) {
 
 	switch {
 	case strings.Contains(normalized, "IOS_APP_DEVELOPMENT"):
-		return "IOS_DEVELOPMENT", nil
+		return "IOS_DEVELOPMENT,DEVELOPMENT", nil
 	case strings.Contains(normalized, "IOS_APP_STORE"),
 		strings.Contains(normalized, "IOS_APP_ADHOC"),
 		strings.Contains(normalized, "IOS_APP_INHOUSE"):
-		return "IOS_DISTRIBUTION", nil
+		return "IOS_DISTRIBUTION,DISTRIBUTION", nil
 	case strings.Contains(normalized, "TVOS_APP_DEVELOPMENT"):
-		return "IOS_DEVELOPMENT", nil
+		return "IOS_DEVELOPMENT,DEVELOPMENT", nil
 	case strings.Contains(normalized, "TVOS_APP_STORE"),
 		strings.Contains(normalized, "TVOS_APP_ADHOC"),
 		strings.Contains(normalized, "TVOS_APP_INHOUSE"):
-		return "IOS_DISTRIBUTION", nil
+		return "IOS_DISTRIBUTION,DISTRIBUTION", nil
 	case strings.Contains(normalized, "MAC_CATALYST_APP_DEVELOPMENT"):
 		return "IOS_DEVELOPMENT", nil
 	case strings.Contains(normalized, "MAC_CATALYST_APP_STORE"):

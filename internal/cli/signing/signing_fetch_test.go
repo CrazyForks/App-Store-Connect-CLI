@@ -388,15 +388,19 @@ func TestResolveSigningAssetsRejectsUnknownCertificateTypesBeforeLookup(t *testi
 	}
 }
 
-func TestResolveSigningCertificateTypesUsesIOSCertificatesForTVOSProfiles(t *testing.T) {
+func TestResolveSigningCertificateTypesIncludesCompatibleCertificatesForIOSAndTVOSProfiles(t *testing.T) {
 	tests := []struct {
 		profileType string
 		want        string
 	}{
-		{profileType: "TVOS_APP_DEVELOPMENT", want: "IOS_DEVELOPMENT"},
-		{profileType: "TVOS_APP_STORE", want: "IOS_DISTRIBUTION"},
-		{profileType: "TVOS_APP_ADHOC", want: "IOS_DISTRIBUTION"},
-		{profileType: "TVOS_APP_INHOUSE", want: "IOS_DISTRIBUTION"},
+		{profileType: "IOS_APP_DEVELOPMENT", want: "IOS_DEVELOPMENT,DEVELOPMENT"},
+		{profileType: "IOS_APP_STORE", want: "IOS_DISTRIBUTION,DISTRIBUTION"},
+		{profileType: "IOS_APP_ADHOC", want: "IOS_DISTRIBUTION,DISTRIBUTION"},
+		{profileType: "IOS_APP_INHOUSE", want: "IOS_DISTRIBUTION,DISTRIBUTION"},
+		{profileType: "TVOS_APP_DEVELOPMENT", want: "IOS_DEVELOPMENT,DEVELOPMENT"},
+		{profileType: "TVOS_APP_STORE", want: "IOS_DISTRIBUTION,DISTRIBUTION"},
+		{profileType: "TVOS_APP_ADHOC", want: "IOS_DISTRIBUTION,DISTRIBUTION"},
+		{profileType: "TVOS_APP_INHOUSE", want: "IOS_DISTRIBUTION,DISTRIBUTION"},
 	}
 
 	for _, tt := range tests {
