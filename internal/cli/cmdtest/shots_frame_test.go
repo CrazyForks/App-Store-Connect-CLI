@@ -782,6 +782,20 @@ func TestShotsFrame_RejectsInvalidWatchOptions(t *testing.T) {
 			wantStderr: "--watch-review-dir requires --watch",
 		},
 		{
+			name: "debounce without watch",
+			args: []string{
+				"--watch-debounce", "750ms",
+			},
+			wantStderr: "--watch-debounce requires --watch",
+		},
+		{
+			name: "raw directory without watch",
+			args: []string{
+				"--watch-raw-dir", "/tmp/raw",
+			},
+			wantStderr: "--watch-raw-dir requires --watch",
+		},
+		{
 			name: "raw directory without review regeneration",
 			args: []string{
 				"--watch",
@@ -823,6 +837,9 @@ func TestShotsFrame_RejectsInvalidWatchOptions(t *testing.T) {
 				err := root.Run(context.Background())
 				if !errors.Is(err, flag.ErrHelp) {
 					t.Fatalf("expected ErrHelp, got %v", err)
+				}
+				if err.Error() != test.wantStderr {
+					t.Fatalf("error = %q, want %q", err, test.wantStderr)
 				}
 			})
 
