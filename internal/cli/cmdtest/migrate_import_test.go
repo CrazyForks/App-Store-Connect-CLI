@@ -16,6 +16,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/migrate"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
 func TestMigrateImportDryRunPlan(t *testing.T) {
@@ -231,77 +232,126 @@ func TestMigrateImportDryRunSupportsIPhone69AliasAsAppIPhone67(t *testing.T) {
 }
 
 func TestMigrateImportValidatesEveryLocalizationBeforeRequests(t *testing.T) {
-	setupAuth(t)
-	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
-
-	root := t.TempDir()
-	metadataDir := filepath.Join(root, "metadata")
-	for _, locale := range []string{"en-US", "ja"} {
-		if err := os.MkdirAll(filepath.Join(metadataDir, locale), 0o755); err != nil {
-			t.Fatalf("mkdir metadata locale %s: %v", locale, err)
-		}
+	tests := []struct {
+		name      string
+		file      string
+		value     string
+		wantError string
+	}{
+		{
+			name:      "description length",
+			file:      "description.txt",
+			value:     strings.Repeat("d", validation.LimitDescription+1),
+			wantError: `migrate import: locale "ja": description exceeds 4000 characters`,
+		},
+		{
+			name:      "keyword length",
+			file:      "keywords.txt",
+			value:     strings.Repeat("語", validation.LimitKeywords+1),
+			wantError: `migrate import: locale "ja": keywords exceed 100 characters`,
+		},
+		{
+			name:      "whats new length",
+			file:      "release_notes.txt",
+			value:     strings.Repeat("n", validation.LimitWhatsNew+1),
+			wantError: `migrate import: locale "ja": whatsNew exceeds 4000 characters`,
+		},
+		{
+			name:      "promotional text length",
+			file:      "promotional_text.txt",
+			value:     strings.Repeat("p", validation.LimitPromotionalText+1),
+			wantError: `migrate import: locale "ja": promotionalText exceeds 170 characters`,
+		},
+		{
+			name:      "marketing URI",
+			file:      "marketing_url.txt",
+			value:     "://invalid",
+			wantError: `migrate import: locale "ja": marketingUrl must be a valid URI`,
+		},
+		{
+			name:      "support URI",
+			file:      "support_url.txt",
+			value:     "://invalid",
+			wantError: `migrate import: locale "ja": supportUrl must be a valid URI`,
+		},
 	}
-	writeFile(t, filepath.Join(metadataDir, "en-US", "description.txt"), "English description")
-	writeFile(t, filepath.Join(metadataDir, "ja", "keywords.txt"), strings.Repeat("語", 101))
 
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setupAuth(t)
+			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
 
-	requestCount := 0
-	mutationCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requestCount++
-		switch {
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
-			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
-			return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}},{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}]}`), nil
-		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/loc-en":
-			mutationCount++
-			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US","description":"English description"}}}`), nil
-		default:
-			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
-		}
-	})
+			root := t.TempDir()
+			metadataDir := filepath.Join(root, "metadata")
+			for _, locale := range []string{"en-US", "ja"} {
+				if err := os.MkdirAll(filepath.Join(metadataDir, locale), 0o755); err != nil {
+					t.Fatalf("mkdir metadata locale %s: %v", locale, err)
+				}
+			}
+			writeFile(t, filepath.Join(metadataDir, "en-US", "description.txt"), "English description")
+			writeFile(t, filepath.Join(metadataDir, "ja", test.file), test.value)
 
-	rootCmd := RootCommand("1.2.3")
-	rootCmd.FlagSet.SetOutput(io.Discard)
+			originalTransport := http.DefaultTransport
+			t.Cleanup(func() {
+				http.DefaultTransport = originalTransport
+			})
 
-	var runErr error
-	stdout, stderr := captureOutput(t, func() {
-		if err := rootCmd.Parse([]string{
-			"migrate", "import",
-			"--app", "APP_ID",
-			"--version-id", "VERSION_ID",
-			"--fastlane-dir", root,
-			"--confirm",
-			"--skip-screenshots",
-		}); err != nil {
-			t.Fatalf("parse error: %v", err)
-		}
-		runErr = rootCmd.Run(context.Background())
-	})
+			requestCount := 0
+			mutationCount := 0
+			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requestCount++
+				if req.Method == http.MethodPost || req.Method == http.MethodPatch || req.Method == http.MethodDelete {
+					mutationCount++
+				}
+				switch {
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
+					return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
+				case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
+					return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}},{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}]}`), nil
+				case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/loc-en":
+					return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US","description":"English description"}}}`), nil
+				default:
+					return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
+				}
+			})
 
-	if runErr == nil {
-		t.Fatal("expected localization validation error")
-	}
-	const wantError = `migrate import: locale "ja": keywords exceed 100 characters`
-	if runErr.Error() != wantError {
-		t.Fatalf("run error = %q, want %q", runErr, wantError)
-	}
-	if stdout != "" {
-		t.Fatalf("expected empty stdout, got %q", stdout)
-	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
-	}
-	if requestCount != 0 {
-		t.Fatalf("expected no HTTP requests, got %d", requestCount)
-	}
-	if mutationCount != 0 {
-		t.Fatalf("expected no localization mutations, got %d", mutationCount)
+			rootCmd := RootCommand("1.2.3")
+			rootCmd.FlagSet.SetOutput(io.Discard)
+
+			var runErr error
+			stdout, stderr := captureOutput(t, func() {
+				if err := rootCmd.Parse([]string{
+					"migrate", "import",
+					"--app", "APP_ID",
+					"--version-id", "VERSION_ID",
+					"--fastlane-dir", root,
+					"--confirm",
+					"--skip-screenshots",
+				}); err != nil {
+					t.Fatalf("parse error: %v", err)
+				}
+				runErr = rootCmd.Run(context.Background())
+			})
+
+			if runErr == nil {
+				t.Fatal("expected localization validation error")
+			}
+			if runErr.Error() != test.wantError {
+				t.Fatalf("run error = %q, want %q", runErr, test.wantError)
+			}
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if stderr != "" {
+				t.Fatalf("expected empty stderr, got %q", stderr)
+			}
+			if requestCount != 0 {
+				t.Fatalf("expected no HTTP requests, got %d", requestCount)
+			}
+			if mutationCount != 0 {
+				t.Fatalf("expected no localization mutations, got %d", mutationCount)
+			}
+		})
 	}
 }
 
