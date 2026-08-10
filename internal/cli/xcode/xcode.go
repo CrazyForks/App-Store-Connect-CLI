@@ -138,6 +138,9 @@ Examples:
 				fmt.Fprintln(os.Stderr, "Error: --archive-path is required")
 				return shared.MissingRequiredUsageError()
 			}
+			if emptyFlag := firstExplicitlyEmptyFlag(fs, "configuration"); emptyFlag != "" {
+				return shared.UsageErrorf("--%s must not be empty", emptyFlag)
+			}
 
 			result, err := runArchive(ctx, localxcode.ArchiveOptions{
 				WorkspacePath:  strings.TrimSpace(*workspacePath),
