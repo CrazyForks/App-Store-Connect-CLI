@@ -252,7 +252,8 @@ func newGitCommand(ctx context.Context, dir string, args ...string) (*exec.Cmd, 
 	coreSSHCommandConfigured := false
 	if gitCommandMayUseSSH(args) && !hasGitSSHEnvironmentOverride(environment, runtime.GOOS) {
 		var err error
-		coreSSHCommandConfigured, err = hasConfiguredGitSSHCommand(ctx, dir, environment, runtime.GOOS)
+		includeRepositoryConfig := args[0] != "clone"
+		coreSSHCommandConfigured, err = hasConfiguredGitSSHCommand(ctx, dir, environment, runtime.GOOS, includeRepositoryConfig)
 		if err != nil {
 			return nil, err
 		}
@@ -343,8 +344,14 @@ func gitCommandMayUseSSH(args []string) bool {
 	}
 }
 
-func hasConfiguredGitSSHCommand(ctx context.Context, dir string, environment []string, goos string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
+func hasConfiguredGitSSHCommand(
+	ctx context.Context,
+	dir string,
+	environment []string,
+	goos string,
+	includeRepositoryConfig bool,
+) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "config", "--show-scope", "--null", "--get-all", "core.sshCommand")
 	cmd.Dir = dir
 	cmd.Env = replaceCommandEnvironmentValue(environment, "GIT_TERMINAL_PROMPT", "0", goos == "windows")
 	var stdout bytes.Buffer
@@ -357,7 +364,27 @@ func hasConfiguredGitSSHCommand(ctx context.Context, dir string, environment []s
 		}
 		return false, fmt.Errorf("check Git core.sshCommand: %w", err)
 	}
-	return strings.TrimSpace(stdout.String()) != "", nil
+	return configuredGitSSHCommandFromScopedOutput(stdout.Bytes(), includeRepositoryConfig)
+}
+
+func configuredGitSSHCommandFromScopedOutput(output []byte, includeRepositoryConfig bool) (bool, error) {
+	fields := bytes.Split(output, []byte{0})
+	if len(fields) > 0 && len(fields[len(fields)-1]) == 0 {
+		fields = fields[:len(fields)-1]
+	}
+	if len(fields)%2 != 0 {
+		return false, fmt.Errorf("parse Git core.sshCommand scopes: unexpected field count %d", len(fields))
+	}
+
+	configured := false
+	for i := 0; i < len(fields); i += 2 {
+		scope := string(fields[i])
+		if !includeRepositoryConfig && (scope == "local" || scope == "worktree") {
+			continue
+		}
+		configured = strings.TrimSpace(string(fields[i+1])) != ""
+	}
+	return configured, nil
 }
 
 func commandEnvironmentValue(environment []string, key string, caseInsensitive bool) (string, bool) {
