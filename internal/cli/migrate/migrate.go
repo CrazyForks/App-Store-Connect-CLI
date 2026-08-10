@@ -357,7 +357,7 @@ Examples:
 			if err != nil {
 				return reportPartialFailure(migrateStageReviewInformation, err)
 			}
-			if reviewResult != nil {
+			if migrateReviewInfoApplied(reviewResult) {
 				completedStages = append(completedStages, migrateStageReviewInformation)
 			}
 
@@ -366,7 +366,7 @@ Examples:
 			if err != nil {
 				return reportPartialFailure(migrateStageScreenshots, err)
 			}
-			if len(screenshotResults) > 0 {
+			if migrateScreenshotsApplied(screenshotResults) {
 				completedStages = append(completedStages, migrateStageScreenshots)
 			}
 
@@ -386,13 +386,30 @@ func migrateImportAppliedAnything(result *MigrateImportResult) bool {
 	if result == nil {
 		return false
 	}
-	// A screenshot result exists only once its set was created or resolved and
-	// the run started writing to it, so it counts as applied even when no asset
-	// finished uploading.
 	return len(result.Uploaded) > 0 ||
 		len(result.AppInfoUploaded) > 0 ||
-		result.ReviewInfoResult != nil ||
-		len(result.ScreenshotResults) > 0
+		migrateReviewInfoApplied(result.ReviewInfoResult) ||
+		migrateScreenshotsApplied(result.ScreenshotResults)
+}
+
+// migrateReviewInfoApplied reports whether the review information stage changed
+// the remote detail. A skip means App Store Connect already carried the
+// imported values, so nothing was written.
+func migrateReviewInfoApplied(result *ReviewInfoResult) bool {
+	return result != nil && result.Action != migrateReviewInfoActionSkip
+}
+
+// migrateScreenshotsApplied reports whether the screenshot stage changed App
+// Store Connect. A result that only lists assets which already existed left the
+// version untouched, while a created set counts even when no asset finished
+// uploading into it.
+func migrateScreenshotsApplied(results []ScreenshotUploadResult) bool {
+	for _, result := range results {
+		if len(result.Uploaded) > 0 || result.createdSet {
+			return true
+		}
+	}
+	return false
 }
 
 func migrateVersionLocalizationsNeedUpdateContext(localizations []FastlaneLocalization, localeToID map[string]string) bool {
@@ -599,6 +616,14 @@ const (
 	migrateStageAppInfoLocalizations = "app_info_localizations"
 	migrateStageReviewInformation    = "review_information"
 	migrateStageScreenshots          = "screenshots"
+)
+
+// Review information outcomes. Only create and update write to App Store
+// Connect; skip means the remote detail already matched the imported values.
+const (
+	migrateReviewInfoActionCreate = "create"
+	migrateReviewInfoActionUpdate = "update"
+	migrateReviewInfoActionSkip   = "skip"
 )
 
 // MigrateImportResult is the result of a migrate import operation.
@@ -1038,28 +1063,56 @@ Examples:
 				return shared.MissingRequiredUsageError()
 			}
 
-			metadataDir, err := resolveFastlaneChild(*fastlaneDir, "metadata", *allowExternalMetadata)
+			workDir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("migrate validate: %w", err)
+			}
+
+			// Resolve the metadata directory exactly the way migrate import
+			// does, so a Deliverfile metadata_path cannot leave validate
+			// checking a directory the import step never reads.
+			inputs, skipped, err := resolveImportInputs(importInputOptions{
+				WorkDir:               workDir,
+				FastlaneDir:           *fastlaneDir,
+				MetadataOnly:          true,
+				AllowExternalMetadata: *allowExternalMetadata,
+			})
+			if err != nil {
+				return fmt.Errorf("migrate validate: %w", err)
+			}
+
+			metadataDir := inputs.MetadataDir
+			if inputs.DeliverfileConfig.SkipMetadata && metadataDir != "" {
+				skipped = append(skipped, SkippedItem{
+					Path:   metadataDir,
+					Reason: "skip_metadata in Deliverfile",
+				})
+				metadataDir = ""
 			}
 
 			// Read metadata from fastlane structure
-			localeDirs, skipped, err := scanFastlaneMetadataLocaleDirs(metadataDir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return fmt.Errorf("migrate validate: metadata directory not found: %s", metadataDir)
+			var localizations []FastlaneLocalization
+			var appInfoLocs []AppInfoFastlaneLocalization
+			if metadataDir != "" {
+				localeDirs, metadataSkipped, err := scanFastlaneMetadataLocaleDirs(metadataDir)
+				if err != nil {
+					if os.IsNotExist(err) {
+						return fmt.Errorf("migrate validate: metadata directory not found: %s", metadataDir)
+					}
+					return fmt.Errorf("migrate validate: %w", err)
 				}
-				return fmt.Errorf("migrate validate: %w", err)
-			}
-			localizations, err := readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
-			if err != nil {
-				return fmt.Errorf("migrate validate: %w", err)
-			}
+				skipped = append(skipped, metadataSkipped...)
 
-			// Read App Info metadata (name, subtitle)
-			appInfoLocs, err := readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
-			if err != nil {
-				return fmt.Errorf("migrate validate: %w", err)
+				localizations, err = readFastlaneMetadataFromLocaleDirs(metadataDir, localeDirs)
+				if err != nil {
+					return fmt.Errorf("migrate validate: %w", err)
+				}
+
+				// Read App Info metadata (name, subtitle)
+				appInfoLocs, err = readFastlaneAppInfoMetadataFromLocaleDirs(metadataDir, localeDirs)
+				if err != nil {
+					return fmt.Errorf("migrate validate: %w", err)
+				}
 			}
 
 			// Validate and collect issues

@@ -125,6 +125,12 @@ a directory such as `metadata/nl` is reported as an error (`nl-NL` is the
 supported code) instead of failing later during an import. `migrate import
 --dry-run` performs the same check before it previews a plan.
 
+`migrate validate` resolves its metadata directory exactly the way `migrate
+import` does: a Deliverfile `metadata_path` wins over the conventional
+`metadata/` directory, `skip_metadata` turns the check off, and an overridden
+conventional directory is reported in `skipped`. Validating a directory the
+import step never reads would green-light a tree the import then rejects.
+
 ## Deliverfile Support
 
 The import command supports reading configuration from a `Deliverfile`:
@@ -156,6 +162,19 @@ reported in `skipped`. A Deliverfile path that points outside the selected
 directory is rejected unless `--allow-external-metadata` or
 `--allow-external-screenshots` is passed, and a Deliverfile path that does not
 exist fails the command instead of falling back.
+
+Both paths resolve relative to the Deliverfile, not to the project root.
+`deliver` resolves them from the directory `fastlane` runs in, so a
+`fastlane/Deliverfile` often carries a project-root-relative value that lands one
+level too deep here:
+
+```ruby  theme={null}
+metadata_path "./fastlane/metadata"  # resolves to fastlane/fastlane/metadata; write "./metadata" instead
+```
+
+That run fails with the resolved path, and when the conventional
+`fastlane/metadata` (or `fastlane/screenshots`) directory exists next to the
+Deliverfile the error says so.
 
 ## Metadata Fields
 
@@ -324,15 +343,26 @@ writes the result document to stdout and exits non-zero:
   "status": "partial",
   "failureStage": "version_localizations",
   "failure": "migrate import: failed to update ja: ...",
-  "completedStages": [],
   "uploaded": [
     { "locale": "en-US", "action": "update", "localizationId": "loc-en" }
   ]
 }
 ```
 
+`completedStages` lists the stages that finished before the failure and is
+absent when none did, as above, where the failure happened inside the first
+stage.
+
 A failure before the first change prints nothing to stdout and only reports the
-error, so an empty stdout means nothing was applied.
+error, so an empty stdout means nothing was applied. Review information that
+already matched and screenshots that already exist are not changes, so a failure
+after them is a plain error too. The screenshot stage can still create a
+localization for a screenshot-only locale before it fails with nothing to
+report; that locale is named on stderr:
+
+```
+Warning: created localization "fr-FR" before the failure; re-run import or remove it manually
+```
 
 ## Validation Issues
 
