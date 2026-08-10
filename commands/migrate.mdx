@@ -163,6 +163,19 @@ directory is rejected unless `--allow-external-metadata` or
 `--allow-external-screenshots` is passed, and a Deliverfile path that does not
 exist fails the command instead of falling back.
 
+Both paths resolve relative to the Deliverfile, not to the project root.
+`deliver` resolves them from the directory `fastlane` runs in, so a
+`fastlane/Deliverfile` often carries a project-root-relative value that lands one
+level too deep here:
+
+```ruby  theme={null}
+metadata_path "./fastlane/metadata"  # resolves to fastlane/fastlane/metadata; write "./metadata" instead
+```
+
+That run fails with the resolved path, and when the conventional
+`fastlane/metadata` (or `fastlane/screenshots`) directory exists next to the
+Deliverfile the error says so.
+
 ## Metadata Fields
 
 ### App Info (App-level)
@@ -330,12 +343,15 @@ writes the result document to stdout and exits non-zero:
   "status": "partial",
   "failureStage": "version_localizations",
   "failure": "migrate import: failed to update ja: ...",
-  "completedStages": [],
   "uploaded": [
     { "locale": "en-US", "action": "update", "localizationId": "loc-en" }
   ]
 }
 ```
+
+`completedStages` lists the stages that finished before the failure and is
+absent when none did, as above, where the failure happened inside the first
+stage.
 
 A failure before the first change prints nothing to stdout and only reports the
 error, so an empty stdout means nothing was applied. Review information that

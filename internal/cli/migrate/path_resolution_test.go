@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,6 +138,92 @@ func TestResolveImportInputs_FastlaneDirRejectsMissingDeliverfileMetadataPath(t 
 	}
 	if !strings.Contains(err.Error(), `deliverfile metadata_path "./metadata_prod"`) {
 		t.Fatalf("resolveImportInputs() error = %v, want it to name the Deliverfile metadata_path", err)
+	}
+}
+
+// TestResolveImportInputs_HintsAtProjectRootRelativeDeliverfilePaths covers the
+// most common fastlane layout collision: deliver resolves metadata_path from
+// the project root, so a Deliverfile inside fastlane/ often carries
+// "./fastlane/metadata", which resolves one level too deep here.
+func TestResolveImportInputs_HintsAtProjectRootRelativeDeliverfilePaths(t *testing.T) {
+	t.Run("metadata", func(t *testing.T) {
+		root := t.TempDir()
+		fastlaneDir := filepath.Join(root, "fastlane")
+		if err := os.MkdirAll(filepath.Join(fastlaneDir, "metadata"), 0o755); err != nil {
+			t.Fatalf("mkdir metadata: %v", err)
+		}
+		writeTestDeliverfile(t, fastlaneDir, "metadata_path \"./fastlane/metadata\"\nskip_screenshots true\n")
+
+		_, _, err := resolveImportInputs(importInputOptions{
+			WorkDir:     root,
+			FastlaneDir: fastlaneDir,
+		})
+		if err == nil {
+			t.Fatal("resolveImportInputs() error = nil, want the missing Deliverfile metadata_path rejection")
+		}
+		wantHint := fmt.Sprintf(
+			"paths in a Deliverfile resolve relative to the Deliverfile; %s exists, so a project-root-relative value like \"./fastlane/metadata\" should be \"./metadata\"",
+			filepath.Join(fastlaneDir, "metadata"),
+		)
+		if !strings.Contains(err.Error(), wantHint) {
+			t.Fatalf("resolveImportInputs() error = %v, want the hint %q", err, wantHint)
+		}
+	})
+
+	t.Run("screenshots", func(t *testing.T) {
+		root := t.TempDir()
+		fastlaneDir := filepath.Join(root, "fastlane")
+		for _, dir := range []string{"metadata", "screenshots"} {
+			if err := os.MkdirAll(filepath.Join(fastlaneDir, dir), 0o755); err != nil {
+				t.Fatalf("mkdir %s: %v", dir, err)
+			}
+		}
+		writeTestDeliverfile(t, fastlaneDir, "screenshots_path \"./fastlane/screenshots\"\n")
+
+		_, _, err := resolveImportInputs(importInputOptions{
+			WorkDir:     root,
+			FastlaneDir: fastlaneDir,
+		})
+		if err == nil {
+			t.Fatal("resolveImportInputs() error = nil, want the missing Deliverfile screenshots_path rejection")
+		}
+		wantHint := fmt.Sprintf(
+			"paths in a Deliverfile resolve relative to the Deliverfile; %s exists, so a project-root-relative value like \"./fastlane/screenshots\" should be \"./screenshots\"",
+			filepath.Join(fastlaneDir, "screenshots"),
+		)
+		if !strings.Contains(err.Error(), wantHint) {
+			t.Fatalf("resolveImportInputs() error = %v, want the hint %q", err, wantHint)
+		}
+	})
+
+	t.Run("no conventional directory", func(t *testing.T) {
+		root := t.TempDir()
+		fastlaneDir := filepath.Join(root, "fastlane")
+		if err := os.MkdirAll(fastlaneDir, 0o755); err != nil {
+			t.Fatalf("mkdir fastlane: %v", err)
+		}
+		writeTestDeliverfile(t, fastlaneDir, "metadata_path \"./fastlane/metadata\"\nskip_screenshots true\n")
+
+		_, _, err := resolveImportInputs(importInputOptions{
+			WorkDir:     root,
+			FastlaneDir: fastlaneDir,
+		})
+		if err == nil {
+			t.Fatal("resolveImportInputs() error = nil, want the missing Deliverfile metadata_path rejection")
+		}
+		if !strings.Contains(err.Error(), `deliverfile metadata_path "./fastlane/metadata"`) {
+			t.Fatalf("resolveImportInputs() error = %v, want it to name the Deliverfile metadata_path", err)
+		}
+		if strings.Contains(err.Error(), "project-root-relative") {
+			t.Fatalf("resolveImportInputs() error = %v, want no hint when the conventional directory is absent too", err)
+		}
+	})
+}
+
+func writeTestDeliverfile(t *testing.T, fastlaneDir, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(fastlaneDir, "Deliverfile"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write deliverfile: %v", err)
 	}
 }
 

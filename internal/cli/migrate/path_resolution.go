@@ -283,12 +283,34 @@ func validateResolvedDir(resolved resolvedImportPath, skipped []SkippedItem) (st
 		case pathSourceDeliverfile:
 			// Name the directive so an operator can tell a stale Deliverfile
 			// path apart from a missing conventional directory.
-			return "", skipped, fmt.Errorf("deliverfile %s %q resolves to %s: %w", resolved.directive, resolved.value, resolved.path, err)
+			return "", skipped, fmt.Errorf("deliverfile %s %q resolves to %s: %w%s", resolved.directive, resolved.value, resolved.path, err, projectRootRelativeHint(resolved))
 		default:
 			return "", skipped, err
 		}
 	}
 	return resolved.path, skipped, nil
+}
+
+// projectRootRelativeHint explains the common fastlane collision behind a
+// missing Deliverfile directory: deliver resolves metadata_path and
+// screenshots_path from the project root, so a Deliverfile inside fastlane/
+// often carries "./fastlane/metadata", which lands one level too deep here
+// while the conventional directory sits next to the Deliverfile. The hint is
+// added only when that conventional directory exists, so a plain typo keeps the
+// bare failure.
+func projectRootRelativeHint(resolved resolvedImportPath) string {
+	if resolved.conventional == "" || resolved.label == "" {
+		return ""
+	}
+	if err := ensureDirExists(resolved.conventional); err != nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		" (paths in a Deliverfile resolve relative to the Deliverfile; %s exists, so a project-root-relative value like %q should be %q)",
+		resolved.conventional,
+		"./fastlane/"+resolved.label,
+		"./"+resolved.label,
+	)
 }
 
 func discoverDeliverfilePath(workDir, fastlaneDir string) (string, error) {
