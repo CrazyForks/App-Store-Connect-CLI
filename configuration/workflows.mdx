@@ -228,13 +228,22 @@ or `timeout` to disable it; explicit `null` is rejected.
 
 ## Environment variable precedence
 
-Environment variables are resolved in this order (highest to lowest):
+For steps in the workflow you invoked, variables resolve in this order (highest
+to lowest):
 
 1. **Runtime parameters** (`KEY:VALUE` arguments to `asc workflow run`)
-2. **Step `with` field** (for sub-workflows)
-3. **Workflow `env` field**
+2. **Workflow `env` field**
+3. **Global `env` field**
+4. **System environment variables**
+
+Steps inside a called sub-workflow resolve in this order:
+
+1. **Step `with` field** on the calling `workflow` step
+2. **Runtime parameters**
+3. **Calling workflow's `env` field**
 4. **Global `env` field**
-5. **System environment variables**
+5. **Called workflow's own `env` field**
+6. **System environment variables**
 
 Example:
 
@@ -243,6 +252,17 @@ asc workflow run testflight APP_ID:987654321
 ```
 
 This overrides the `APP_ID` defined in the workflow file.
+
+<Warning>
+  Step `with` outranks runtime parameters. A key hardcoded in a sub-workflow
+  call's `with` cannot be overridden with `KEY:VALUE` at run time. Leave the key
+  out of `with` when the caller should control it.
+</Warning>
+
+A called workflow's own `env` sits at the bottom of its own scope, so it acts as
+a set of defaults the caller overrides. `with` values are literal: only
+`${steps.NAME.OUTPUT}` references are interpolated, so `"MESSAGE": "v$VERSION"`
+arrives as the literal text `v$VERSION`.
 
 ## Conditional steps
 
@@ -387,7 +407,7 @@ Here's a comprehensive workflow for a full release process:
           "name": "Notify team",
           "workflow": "notify",
           "with": {
-            "MESSAGE": "New TestFlight build available: v$VERSION"
+            "MESSAGE": "New TestFlight build available"
           }
         }
       ]
@@ -407,7 +427,7 @@ Here's a comprehensive workflow for a full release process:
           "name": "Notify team",
           "workflow": "notify",
           "with": {
-            "MESSAGE": "v$VERSION submitted to App Store review"
+            "MESSAGE": "Submitted to App Store review"
           }
         }
       ]
@@ -416,7 +436,7 @@ Here's a comprehensive workflow for a full release process:
       "description": "Send Slack notification",
       "private": true,
       "steps": [
-        "curl -X POST $SLACK_WEBHOOK -d '{\"text\":\"$MESSAGE\"}'"
+        "curl -X POST \"$SLACK_WEBHOOK\" -d \"{\\\"text\\\":\\\"$MESSAGE (v$VERSION)\\\"}\""
       ]
     }
   }

@@ -113,12 +113,27 @@ asc workflow validate
 * Passed via command line: `KEY:VALUE`
 * Override workflow environment
 
-Precedence (highest to lowest):
+Precedence for steps in the workflow you invoked (highest to lowest):
 
 1. Runtime parameters
 2. Workflow `env`
 3. Global `env`
 4. System environment
+
+Precedence for steps inside a called sub-workflow (highest to lowest):
+
+1. The calling step's `with`
+2. Runtime parameters
+3. Calling workflow's `env`
+4. Global `env`
+5. Called workflow's own `env`
+6. System environment
+
+A sub-workflow's own `env` is the lowest-priority map in its own scope, so it
+provides defaults the caller overrides. The calling step's `with` is the only
+source that outranks runtime parameters: a key hardcoded there cannot be
+overridden with `KEY:VALUE`. `with` values are literal — only
+`${steps.NAME.OUTPUT}` references are interpolated.
 
 ### Hooks
 

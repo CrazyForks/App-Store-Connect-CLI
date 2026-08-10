@@ -173,11 +173,36 @@ Workflows support environment variable expansion using `$VAR` or `${VAR}` syntax
 
 ### Variable Precedence
 
-1. **Runtime parameters** (highest priority): `asc workflow run example VAR:value`
-2. **Step-level `with`**: `{"with": {"VAR": "value"}}`
-3. **Workflow-level `env`**: `{"env": {"VAR": "value"}}`
-4. **Global `env`**: Top-level `env` object
-5. **Process environment** (lowest priority): Inherited from shell
+For steps in the workflow you invoked, highest to lowest:
+
+1. **Runtime parameters**: `asc workflow run example VAR:value`
+2. **Workflow-level `env`**: `{"env": {"VAR": "value"}}`
+3. **Global `env`**: Top-level `env` object
+4. **Process environment**: inherited from your shell
+
+Steps inside a called sub-workflow resolve against the calling step's `with`
+plus everything the caller already had in scope, highest to lowest:
+
+1. **Step-level `with`** on the calling `workflow` step
+2. **Runtime parameters**
+3. **Calling workflow's `env`**
+4. **Global `env`**
+5. **Called workflow's own `env`**
+6. **Process environment**
+
+A called workflow's own `env` is the lowest-priority map in its own scope, so it
+supplies defaults that the caller overrides rather than values that win.
+
+<Warning>
+  Step `with` outranks runtime parameters. A value hardcoded in a sub-workflow
+  call's `with` cannot be overridden with `KEY:VALUE` at run time, and nothing
+  warns about it. Omit the key from `with` when the caller should be able to
+  override it.
+</Warning>
+
+`with` values are used literally. Only `${steps.NAME.OUTPUT}` references are
+interpolated, so `"MSG": "v$VERSION"` reaches the step as the literal text
+`v$VERSION`. Compose such strings inside the step's `run` command instead.
 
 ### Runtime Parameters
 
@@ -190,7 +215,8 @@ asc workflow run beta \
   APP_ID:123456789
 ```
 
-Parameters follow the format `KEY:VALUE`. They override all other variable sources.
+Parameters follow the format `KEY:VALUE`. They override every variable source
+except a sub-workflow call's `with`.
 
 ## Conditional Steps
 
