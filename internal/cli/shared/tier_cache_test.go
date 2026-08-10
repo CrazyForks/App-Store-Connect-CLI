@@ -55,7 +55,7 @@ func TestTierCacheSaveRejectsSymlinkAndPreservesTarget(t *testing.T) {
 
 	cachePath := filepath.Join(cacheDir, "tiers-app123-USA.json")
 	if err := os.Symlink(sentinelPath, cachePath); err != nil {
-		t.Fatalf("create cache symlink: %v", err)
+		t.Skipf("symlink creation is unavailable: %v", err)
 	}
 
 	err := SaveTierCache("app123", "USA", []TierEntry{{

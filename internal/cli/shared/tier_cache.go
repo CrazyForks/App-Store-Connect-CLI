@@ -123,7 +123,7 @@ func saveTierCacheAtPath(path string, cache tierCacheFile) error {
 	_, err = WriteFileNoSymlinkOverwrite(
 		path,
 		bytes.NewReader(data),
-		0o644,
+		0o600,
 		".asc-tier-cache-*",
 		".asc-tier-cache-backup-*",
 	)
