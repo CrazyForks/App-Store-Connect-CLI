@@ -1,8 +1,10 @@
 package workflow
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -162,6 +164,95 @@ func TestDocsDescribeAfterAllAsSuccessOnly(t *testing.T) {
 				t.Errorf("%s:%d claims after_all runs on failure, but the runner skips it on the failure path: %s", page, i+1, strings.TrimSpace(line))
 			}
 		}
+	}
+}
+
+// jsonFieldNames returns the JSON object keys a struct type can emit.
+func jsonFieldNames(t *testing.T, value any) map[string]bool {
+	t.Helper()
+
+	typ := reflect.TypeOf(value)
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct {
+		t.Fatalf("jsonFieldNames: %T is not a struct", value)
+	}
+
+	names := make(map[string]bool, typ.NumField())
+	for i := range typ.NumField() {
+		tag := typ.Field(i).Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		names[strings.Split(tag, ",")[0]] = true
+	}
+	return names
+}
+
+// TestDocsRunResultSampleMatchesSchema fails when a documented run-result sample
+// invents a field the CLI never emits. The audited page advertised per-step
+// "exit_code", top-level "before_all"/"after_all", and "success", so a CI gate
+// written from it (jq -e '.success') evaluated null and reported healthy runs as
+// broken.
+func TestDocsRunResultSampleMatchesSchema(t *testing.T) {
+	resultFields := jsonFieldNames(t, RunResult{})
+	stepFields := jsonFieldNames(t, StepResult{})
+	hookFields := jsonFieldNames(t, HookResult{})
+	hooksFields := jsonFieldNames(t, HooksResult{})
+
+	samples := 0
+	for _, block := range docJSONBlocks(t) {
+		var sample map[string]any
+		if err := json.Unmarshal([]byte(block.body), &sample); err != nil {
+			continue // definition example, fragment, or non-object sample
+		}
+		if _, hasWorkflows := sample["workflows"]; hasWorkflows {
+			continue
+		}
+		if _, hasWorkflow := sample["workflow"]; !hasWorkflow {
+			continue
+		}
+		if _, hasSteps := sample["steps"]; !hasSteps {
+			continue
+		}
+		samples++
+
+		for key := range sample {
+			if !resultFields[key] {
+				t.Errorf("%s: documented run result has field %q, which RunResult never emits", block.page, key)
+			}
+		}
+		steps, _ := sample["steps"].([]any)
+		for _, entry := range steps {
+			step, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			for key := range step {
+				if !stepFields[key] {
+					t.Errorf("%s: documented step has field %q, which StepResult never emits", block.page, key)
+				}
+			}
+		}
+		hooks, _ := sample["hooks"].(map[string]any)
+		for name, entry := range hooks {
+			if !hooksFields[name] {
+				t.Errorf("%s: documented hooks has field %q, which HooksResult never emits", block.page, name)
+			}
+			hook, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			for key := range hook {
+				if !hookFields[key] {
+					t.Errorf("%s: documented hook has field %q, which HookResult never emits", block.page, key)
+				}
+			}
+		}
+	}
+	if samples == 0 {
+		t.Fatal("expected the workflow documentation to show a run-result sample")
 	}
 }
 
