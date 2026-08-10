@@ -101,6 +101,64 @@ func TestMigrateImportDryRunPlan(t *testing.T) {
 	}
 }
 
+func TestMigrateImportDryRunClassifiesIPad13ScreenshotAsModernSlot(t *testing.T) {
+	root := t.TempDir()
+	metadataDir := filepath.Join(root, "metadata", "en-US")
+	if err := os.MkdirAll(metadataDir, 0o755); err != nil {
+		t.Fatalf("mkdir metadata: %v", err)
+	}
+	writeFile(t, filepath.Join(metadataDir, "description.txt"), "English description")
+
+	screenshotsDir := filepath.Join(root, "screenshots", "en-US")
+	if err := os.MkdirAll(screenshotsDir, 0o755); err != nil {
+		t.Fatalf("mkdir screenshots: %v", err)
+	}
+	writePNGForMigrate(t, filepath.Join(screenshotsDir, "iPad Pro 13-inch (M5)-1-main-screen.png"), 2064, 2752)
+
+	factoryCalls := 0
+	restore := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		factoryCalls++
+		return nil, errors.New("client factory must not run during explicit-ID dry-run")
+	})
+	t.Cleanup(restore)
+
+	rootCmd := RootCommand("1.2.3")
+	rootCmd.FlagSet.SetOutput(io.Discard)
+
+	stdout, stderr := captureOutput(t, func() {
+		if err := rootCmd.Parse([]string{
+			"migrate", "import",
+			"--app", "APP_ID",
+			"--version-id", "VERSION_ID",
+			"--fastlane-dir", root,
+			"--dry-run",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := rootCmd.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	if factoryCalls != 0 {
+		t.Fatalf("client factory calls = %d, want zero", factoryCalls)
+	}
+
+	var result migrate.MigrateImportResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if len(result.ScreenshotPlan) != 1 {
+		t.Fatalf("expected 1 screenshot plan, got %d", len(result.ScreenshotPlan))
+	}
+	if got := result.ScreenshotPlan[0].DisplayType; got != "APP_IPAD_PRO_3GEN_129" {
+		t.Fatalf("display type = %q, want APP_IPAD_PRO_3GEN_129", got)
+	}
+}
+
 func TestMigrateImportDryRunReportsSkippedNonLocaleMetadataDirs(t *testing.T) {
 	root := t.TempDir()
 	metadataDir := filepath.Join(root, "metadata", "en-US")

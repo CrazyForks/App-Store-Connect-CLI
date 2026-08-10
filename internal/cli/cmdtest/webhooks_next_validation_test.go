@@ -103,7 +103,7 @@ func TestWebhooksListPaginateFromNext(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"webhooks", "list", "--app", "app-1", "--paginate", "--next", firstURL}); err != nil {
+		if err := root.Parse([]string{"webhooks", "list", "--paginate", "--next", firstURL}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {

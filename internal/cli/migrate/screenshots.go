@@ -352,46 +352,46 @@ func readImageDimensions(path string) (int, int, error) {
 
 func inferDisplayTypeFromFilename(path string) string {
 	name := strings.ToLower(filepath.Base(path))
+	if strings.Contains(name, "app_ipad_pro_129") ||
+		(strings.Contains(name, "12.9") && strings.Contains(name, "2nd generation")) {
+		return "APP_IPAD_PRO_129"
+	}
+
 	replacements := map[string]string{
-		"ipad pro 13":      "APP_IPAD_PRO_129",
-		"ipad pro 13-inch": "APP_IPAD_PRO_129",
-		"ipad pro 13 inch": "APP_IPAD_PRO_129",
-		"iphone 6.9":       "APP_IPHONE_69",
-		"iphone6.9":        "APP_IPHONE_69",
-		"iphone 6.7":       "APP_IPHONE_67",
-		"iphone6.7":        "APP_IPHONE_67",
-		"iphone 6.5":       "APP_IPHONE_65",
-		"iphone6.5":        "APP_IPHONE_65",
-		"iphone 6.1":       "APP_IPHONE_61",
-		"iphone6.1":        "APP_IPHONE_61",
-		"iphone 5.8":       "APP_IPHONE_58",
-		"iphone5.8":        "APP_IPHONE_58",
-		"iphone 5.5":       "APP_IPHONE_55",
-		"iphone5.5":        "APP_IPHONE_55",
-		"iphone 4.7":       "APP_IPHONE_47",
-		"iphone4.7":        "APP_IPHONE_47",
-		"iphone 4.0":       "APP_IPHONE_40",
-		"iphone4.0":        "APP_IPHONE_40",
-		"iphone 3.5":       "APP_IPHONE_35",
-		"iphone3.5":        "APP_IPHONE_35",
-		"ipad 12.9":        "APP_IPAD_PRO_129",
-		"ipad12.9":         "APP_IPAD_PRO_129",
-		"ipad 11":          "APP_IPAD_PRO_3GEN_11",
-		"ipad11":           "APP_IPAD_PRO_3GEN_11",
-		"ipad 10.5":        "APP_IPAD_105",
-		"ipad10.5":         "APP_IPAD_105",
-		"ipad 9.7":         "APP_IPAD_97",
-		"ipad9.7":          "APP_IPAD_97",
-		"apple tv":         "APP_APPLE_TV",
-		"appletv":          "APP_APPLE_TV",
-		"vision pro":       "APP_APPLE_VISION_PRO",
-		"desktop":          "APP_DESKTOP",
-		"mac":              "APP_DESKTOP",
-		"watch ultra":      "APP_WATCH_ULTRA",
-		"watch series 10":  "APP_WATCH_SERIES_10",
-		"watch series 7":   "APP_WATCH_SERIES_7",
-		"watch series 4":   "APP_WATCH_SERIES_4",
-		"watch series 3":   "APP_WATCH_SERIES_3",
+		"iphone 6.9":      "APP_IPHONE_69",
+		"iphone6.9":       "APP_IPHONE_69",
+		"iphone 6.7":      "APP_IPHONE_67",
+		"iphone6.7":       "APP_IPHONE_67",
+		"iphone 6.5":      "APP_IPHONE_65",
+		"iphone6.5":       "APP_IPHONE_65",
+		"iphone 6.1":      "APP_IPHONE_61",
+		"iphone6.1":       "APP_IPHONE_61",
+		"iphone 5.8":      "APP_IPHONE_58",
+		"iphone5.8":       "APP_IPHONE_58",
+		"iphone 5.5":      "APP_IPHONE_55",
+		"iphone5.5":       "APP_IPHONE_55",
+		"iphone 4.7":      "APP_IPHONE_47",
+		"iphone4.7":       "APP_IPHONE_47",
+		"iphone 4.0":      "APP_IPHONE_40",
+		"iphone4.0":       "APP_IPHONE_40",
+		"iphone 3.5":      "APP_IPHONE_35",
+		"iphone3.5":       "APP_IPHONE_35",
+		"ipad 11":         "APP_IPAD_PRO_3GEN_11",
+		"ipad11":          "APP_IPAD_PRO_3GEN_11",
+		"ipad 10.5":       "APP_IPAD_105",
+		"ipad10.5":        "APP_IPAD_105",
+		"ipad 9.7":        "APP_IPAD_97",
+		"ipad9.7":         "APP_IPAD_97",
+		"apple tv":        "APP_APPLE_TV",
+		"appletv":         "APP_APPLE_TV",
+		"vision pro":      "APP_APPLE_VISION_PRO",
+		"desktop":         "APP_DESKTOP",
+		"mac":             "APP_DESKTOP",
+		"watch ultra":     "APP_WATCH_ULTRA",
+		"watch series 10": "APP_WATCH_SERIES_10",
+		"watch series 7":  "APP_WATCH_SERIES_7",
+		"watch series 4":  "APP_WATCH_SERIES_4",
+		"watch series 3":  "APP_WATCH_SERIES_3",
 	}
 	for key, value := range replacements {
 		if strings.Contains(name, key) {
@@ -438,9 +438,9 @@ func inferDisplayTypeFromDimensions(width, height int) string {
 	case maxDim == 960 && minDim == 640:
 		return "APP_IPHONE_35"
 	case maxDim == 2732 && minDim == 2048:
-		return "APP_IPAD_PRO_129"
+		return "APP_IPAD_PRO_3GEN_129"
 	case maxDim == 2752 && minDim == 2064:
-		return "APP_IPAD_PRO_129"
+		return "APP_IPAD_PRO_3GEN_129"
 	case maxDim == 2420 && minDim == 1668:
 		return "APP_IPAD_PRO_3GEN_11"
 	case maxDim == 2388 && minDim == 1668:
