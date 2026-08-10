@@ -77,7 +77,7 @@ Workflows are defined in `.asc/workflow.json` (or a custom path with `--file`).
     {
       "name": "step_name",
       "run": "asc builds list --app $APP_ID",
-      "if": "BUILD_ID",
+      "if": "LIST_BUILDS",
       "with": {
         "NOTE": "custom value"
       },
@@ -119,7 +119,7 @@ Steps can be **short form** (bare string) or **long form** (object):
 | `run`      | string | Conditional | Shell command to execute (mutually exclusive with `workflow`)    |
 | `workflow` | string | Conditional | Name of another workflow to call (mutually exclusive with `run`) |
 | `name`     | string | No          | Step identifier (for debugging and JSON output)                  |
-| `if`       | string | No          | Only run if the environment variable exists and is non-empty     |
+| `if`       | string | No          | Name of a variable that must hold a truthy value for the step to run |
 | `with`     | object | No          | Additional environment variables for this step only              |
 | `retry`    | object | No          | Explicit fixed-delay retry policy for `run` steps                 |
 | `timeout`  | string | No          | Positive per-attempt timeout for `run` steps                      |
@@ -194,7 +194,22 @@ Parameters follow the format `KEY:VALUE`. They override all other variable sourc
 
 ## Conditional Steps
 
-Use the `if` field to skip steps when a variable is unset or empty:
+The `if` field names a **variable**, not an expression. The step runs only when
+that variable holds a truthy value: `1`, `true`, `yes`, `y`, or `on`
+(case-insensitive, surrounding whitespace ignored). Every other value is falsy,
+including an unset variable, an empty string, and any other non-empty value such
+as an ID, a version string, or a file path. Use `if` as a boolean feature flag,
+never as a "was this ID supplied?" check.
+
+The variable is looked up in the workflow environment first (runtime parameters,
+`with`, workflow `env`, global `env`) and then in the process environment.
+
+<Warning>
+  A skipped step is not an error. The run still reports `"status": "ok"` and
+  exits `0`, and the skipped step appears in `steps[]` with `"status": "skipped"`.
+  Gating a mutating step on a value like `BUILD_ID` or `./build/MyApp.ipa`
+  silently skips it on a green run.
+</Warning>
 
 ```json  theme={null}
 {
@@ -223,6 +238,10 @@ Include the submission step:
 ```bash  theme={null}
 asc workflow run release SUBMIT_FOR_REVIEW:true
 ```
+
+The older, unsupported form is a shell expression such as
+`"if": "test \"$SUBMIT_FOR_REVIEW\" = \"true\""`. That string is used as a
+variable name, never resolves, and silently skips the step.
 
 ## Calling Other Workflows
 
@@ -493,7 +512,8 @@ Or on error:
       "description": "Distribute build to TestFlight beta group",
       "env": {
         "BUILD_ID": "",
-        "GROUP_ID": ""
+        "GROUP_ID": "",
+        "ADD_TO_GROUP": "false"
       },
       "steps": [
         {
@@ -506,7 +526,7 @@ Or on error:
         },
         {
           "name": "add_build_to_group",
-          "if": "BUILD_ID",
+          "if": "ADD_TO_GROUP",
           "run": "asc builds add-groups --build-id $BUILD_ID --group $GROUP_ID"
         }
       ]
@@ -515,11 +535,14 @@ Or on error:
 }
 ```
 
-Run:
+Run (the last step only executes because `ADD_TO_GROUP` is truthy):
 
 ```bash  theme={null}
-asc workflow run beta BUILD_ID:abc123 GROUP_ID:xyz789
+asc workflow run beta ADD_TO_GROUP:true BUILD_ID:abc123 GROUP_ID:xyz789
 ```
+
+Gate on the dedicated `ADD_TO_GROUP` flag, not on `BUILD_ID`. `BUILD_ID:abc123`
+is a falsy value, so `"if": "BUILD_ID"` would skip the step on every run.
 
 ### App Store Submission
 

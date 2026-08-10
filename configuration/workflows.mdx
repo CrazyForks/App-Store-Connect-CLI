@@ -246,7 +246,11 @@ This overrides the `APP_ID` defined in the workflow file.
 
 ## Conditional steps
 
-Use the `if` field to conditionally execute steps:
+The `if` field holds the **name of a variable**, not a shell expression. The step
+runs only when that variable holds a truthy value: `1`, `true`, `yes`, `y`, or
+`on` (case-insensitive, surrounding whitespace ignored). Everything else is
+falsy, including an unset variable, an empty string, and any other non-empty
+value such as an ID, a version string, or a file path.
 
 ```json  theme={null}
 {
@@ -258,13 +262,29 @@ Use the `if` field to conditionally execute steps:
     {
       "name": "Publish to the App Store",
       "run": "asc publish appstore --app $APP_ID --ipa ./build/MyApp.ipa --version $VERSION --submit --confirm",
-      "if": "test \"$AUTO_SUBMIT\" = \"true\""
+      "if": "AUTO_SUBMIT"
     }
   ]
 }
 ```
 
-The `if` condition is evaluated as a shell command. The step runs only if the command exits with code 0.
+Run the workflow with the flag turned on:
+
+```bash  theme={null}
+asc workflow run release AUTO_SUBMIT:true
+```
+
+The variable is resolved from the workflow environment first (runtime
+parameters, `with`, workflow `env`, global `env`) and then from the process
+environment, so `AUTO_SUBMIT=true asc workflow run release` works too.
+
+<Warning>
+  A skipped step is not a failure. The run still reports `"status": "ok"` and
+  exits `0`, and the step appears in `steps[]` with `"status": "skipped"`.
+  Shell-expression forms such as `"if": "test \"$AUTO_SUBMIT\" = \"true\""` are
+  treated as a variable name, never resolve, and silently skip the step, so a
+  `--submit --confirm` step gated that way never runs while CI stays green.
+</Warning>
 
 ## Sub-workflows
 
