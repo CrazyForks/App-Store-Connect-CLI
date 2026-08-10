@@ -3,12 +3,15 @@ package cmdtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/migrate"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
@@ -232,7 +236,7 @@ func TestMigrateImportDryRunSupportsIPhone69AliasAsAppIPhone67(t *testing.T) {
 	}
 }
 
-func TestMigrateImportValidatesEveryLocalizationBeforeRequests(t *testing.T) {
+func TestMigrateImportRejectsLocalValidationBeforeClientCreation(t *testing.T) {
 	tests := []struct {
 		name      string
 		file      string
@@ -275,332 +279,80 @@ func TestMigrateImportValidatesEveryLocalizationBeforeRequests(t *testing.T) {
 			value:     "://invalid",
 			wantError: `migrate import: locale "ja": supportUrl must be a valid URI`,
 		},
+		{
+			name:      "app name length",
+			file:      "name.txt",
+			value:     strings.Repeat("n", validation.LimitName+1),
+			wantError: `migrate import: locale "ja": name exceeds 30 characters`,
+		},
+		{
+			name:      "app subtitle length",
+			file:      "subtitle.txt",
+			value:     strings.Repeat("s", validation.LimitSubtitle+1),
+			wantError: `migrate import: locale "ja": subtitle exceeds 30 characters`,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			setupAuth(t)
-			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
-
-			root := t.TempDir()
-			metadataDir := filepath.Join(root, "metadata")
-			for _, locale := range []string{"en-US", "ja"} {
-				if err := os.MkdirAll(filepath.Join(metadataDir, locale), 0o755); err != nil {
-					t.Fatalf("mkdir metadata locale %s: %v", locale, err)
-				}
-			}
-			writeFile(t, filepath.Join(metadataDir, "en-US", "description.txt"), "English description")
-			writeFile(t, filepath.Join(metadataDir, "ja", test.file), test.value)
-
-			originalTransport := http.DefaultTransport
-			t.Cleanup(func() {
-				http.DefaultTransport = originalTransport
+			root := writeMigrateImportMetadata(t, map[string]map[string]string{
+				"en-US": {"description.txt": "English description"},
+				"ja":    {test.file: test.value},
 			})
 
-			requestCount := 0
-			mutationCount := 0
-			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				requestCount++
-				if req.Method == http.MethodPost || req.Method == http.MethodPatch || req.Method == http.MethodDelete {
-					mutationCount++
-				}
-				switch {
-				case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
-					return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
-				case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
-					return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}},{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}]}`), nil
-				case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/loc-en":
-					return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US","description":"English description"}}}`), nil
-				default:
-					return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
-				}
+			factoryCalls := 0
+			restore := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+				factoryCalls++
+				return nil, errors.New("client factory must not run before local validation")
 			})
+			t.Cleanup(restore)
 
-			rootCmd := RootCommand("1.2.3")
-			rootCmd.FlagSet.SetOutput(io.Discard)
-
-			var runErr error
-			stdout, stderr := captureOutput(t, func() {
-				if err := rootCmd.Parse([]string{
-					"migrate", "import",
-					"--app", "APP_ID",
-					"--version-id", "VERSION_ID",
-					"--fastlane-dir", root,
-					"--confirm",
-					"--skip-screenshots",
-				}); err != nil {
-					t.Fatalf("parse error: %v", err)
-				}
-				runErr = rootCmd.Run(context.Background())
-			})
-
-			if runErr == nil {
-				t.Fatal("expected localization validation error")
-			}
-			if runErr.Error() != test.wantError {
-				t.Fatalf("run error = %q, want %q", runErr, test.wantError)
-			}
-			if stdout != "" {
-				t.Fatalf("expected empty stdout, got %q", stdout)
-			}
-			if stderr != "" {
-				t.Fatalf("expected empty stderr, got %q", stderr)
-			}
-			if requestCount != 0 {
-				t.Fatalf("expected no HTTP requests, got %d", requestCount)
-			}
-			if mutationCount != 0 {
-				t.Fatalf("expected no localization mutations, got %d", mutationCount)
+			stdout, stderr, runErr := runMigrateImport(t, root)
+			assertMigrateImportError(t, stdout, stderr, runErr, test.wantError)
+			if factoryCalls != 0 {
+				t.Fatalf("client factory calls = %d, want zero", factoryCalls)
 			}
 		})
 	}
 }
 
 func TestMigrateImportPreflightsAppInfoCreatesBeforeMutations(t *testing.T) {
-	setupAuth(t)
-	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	root := writeMigrateImportMetadata(t, validMigrateAppInfoMetadata())
+	api := newMigrateImportAPI(t, migrateImportPlanningExpectations(`{"data":[]}`)...)
 
-	root := t.TempDir()
-	metadataDir := filepath.Join(root, "metadata")
-	for _, locale := range []string{"en-US", "ja"} {
-		if err := os.MkdirAll(filepath.Join(metadataDir, locale), 0o755); err != nil {
-			t.Fatalf("mkdir metadata locale %s: %v", locale, err)
-		}
-	}
-	writeFile(t, filepath.Join(metadataDir, "en-US", "description.txt"), "English description")
-	writeFile(t, filepath.Join(metadataDir, "ja", "description.txt"), "Japanese description")
-	writeFile(t, filepath.Join(metadataDir, "ja", "subtitle.txt"), "Japanese subtitle")
-
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
-	var requests []string
-	mutationCount := 0
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requests = append(requests, req.Method+" "+req.URL.Path)
-		if req.Method == http.MethodPost || req.Method == http.MethodPatch || req.Method == http.MethodDelete {
-			mutationCount++
-		}
-		switch {
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
-			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
-			return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}},{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}]}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_ID/appInfos":
-			return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appInfos","id":"appinfo-1","attributes":{"state":"PREPARE_FOR_SUBMISSION"}}]}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/appInfos/appinfo-1/appInfoLocalizations":
-			return migrateJSONResponse(http.StatusOK, `{"data":[]}`), nil
-		default:
-			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
-		}
-	})
-
-	rootCmd := RootCommand("1.2.3")
-	rootCmd.FlagSet.SetOutput(io.Discard)
-
-	var runErr error
-	stdout, stderr := captureOutput(t, func() {
-		if err := rootCmd.Parse([]string{
-			"migrate", "import",
-			"--app", "APP_ID",
-			"--version-id", "VERSION_ID",
-			"--fastlane-dir", root,
-			"--confirm",
-			"--skip-screenshots",
-		}); err != nil {
-			t.Fatalf("parse error: %v", err)
-		}
-		runErr = rootCmd.Run(context.Background())
-	})
-
-	if runErr == nil {
-		t.Fatal("expected app info localization validation error")
-	}
+	stdout, stderr, runErr := runMigrateImport(t, root)
 	const wantError = `migrate import: locale "ja": name is required when creating app info localization`
-	if runErr.Error() != wantError {
-		t.Fatalf("run error = %q, want %q", runErr, wantError)
-	}
-	if stdout != "" {
-		t.Fatalf("expected empty stdout, got %q", stdout)
-	}
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
-	}
-	if mutationCount != 0 {
-		t.Fatalf("expected no mutations, got %d (%v)", mutationCount, requests)
-	}
-	wantRequests := []string{
-		"GET /v1/appStoreVersions/VERSION_ID",
-		"GET /v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations",
-		"GET /v1/apps/APP_ID/appInfos",
-		"GET /v1/appInfos/appinfo-1/appInfoLocalizations",
-	}
-	if !slices.Equal(requests, wantRequests) {
-		t.Fatalf("requests = %v, want %v", requests, wantRequests)
-	}
-}
-
-func TestMigrateImportPreflightsAppInfoLengthsBeforeMutations(t *testing.T) {
-	tests := []struct {
-		name      string
-		fileName  string
-		value     string
-		wantError string
-	}{
-		{
-			name:      "name",
-			fileName:  "name.txt",
-			value:     strings.Repeat("n", validation.LimitName+1),
-			wantError: `migrate import: locale "ja": name exceeds 30 characters`,
-		},
-		{
-			name:      "subtitle",
-			fileName:  "subtitle.txt",
-			value:     strings.Repeat("s", validation.LimitSubtitle+1),
-			wantError: `migrate import: locale "ja": subtitle exceeds 30 characters`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			setupAuth(t)
-			t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
-
-			root := t.TempDir()
-			metadataDir := filepath.Join(root, "metadata")
-			for _, locale := range []string{"en-US", "ja"} {
-				if err := os.MkdirAll(filepath.Join(metadataDir, locale), 0o755); err != nil {
-					t.Fatalf("mkdir metadata locale %s: %v", locale, err)
-				}
-			}
-			writeFile(t, filepath.Join(metadataDir, "en-US", "description.txt"), "English description")
-			writeFile(t, filepath.Join(metadataDir, "ja", "description.txt"), "Japanese description")
-			writeFile(t, filepath.Join(metadataDir, "ja", tt.fileName), tt.value)
-
-			originalTransport := http.DefaultTransport
-			t.Cleanup(func() {
-				http.DefaultTransport = originalTransport
-			})
-
-			var requests []string
-			http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				requests = append(requests, req.Method+" "+req.URL.Path)
-				return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
-			})
-
-			rootCmd := RootCommand("1.2.3")
-			rootCmd.FlagSet.SetOutput(io.Discard)
-
-			var runErr error
-			stdout, stderr := captureOutput(t, func() {
-				if err := rootCmd.Parse([]string{
-					"migrate", "import",
-					"--app", "APP_ID",
-					"--version-id", "VERSION_ID",
-					"--fastlane-dir", root,
-					"--confirm",
-					"--skip-screenshots",
-				}); err != nil {
-					t.Fatalf("parse error: %v", err)
-				}
-				runErr = rootCmd.Run(context.Background())
-			})
-
-			if runErr == nil {
-				t.Fatal("expected app info localization validation error")
-			}
-			if runErr.Error() != tt.wantError {
-				t.Fatalf("run error = %q, want %q", runErr, tt.wantError)
-			}
-			if stdout != "" {
-				t.Fatalf("expected empty stdout, got %q", stdout)
-			}
-			if stderr != "" {
-				t.Fatalf("expected empty stderr, got %q", stderr)
-			}
-			if len(requests) != 0 {
-				t.Fatalf("expected no HTTP requests, got %v", requests)
-			}
-		})
-	}
+	assertMigrateImportError(t, stdout, stderr, runErr, wantError)
+	api.assertComplete(t, 0)
 }
 
 func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesAfterPlanning(t *testing.T) {
-	setupAuth(t)
-	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	root := writeMigrateImportMetadata(t, validMigrateAppInfoMetadata())
+	expectations := append(migrateImportPlanningExpectations(
+		`{"data":[{"type":"appInfoLocalizations","id":"appinfo-loc-ja","attributes":{"locale":"ja"}}]}`,
+	), []migrateImportExpectation{
+		{
+			method:   http.MethodPatch,
+			path:     "/v1/appStoreVersionLocalizations/loc-en",
+			body:     `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"description":"English description"}}}`,
+			response: `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}}}`,
+		},
+		{
+			method:   http.MethodPatch,
+			path:     "/v1/appStoreVersionLocalizations/loc-ja",
+			body:     `{"data":{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"description":"Japanese description"}}}`,
+			response: `{"data":{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}}`,
+		},
+		{
+			method:   http.MethodPatch,
+			path:     "/v1/appInfoLocalizations/appinfo-loc-ja",
+			body:     `{"data":{"type":"appInfoLocalizations","id":"appinfo-loc-ja","attributes":{"subtitle":"Japanese subtitle"}}}`,
+			response: `{"data":{"type":"appInfoLocalizations","id":"appinfo-loc-ja","attributes":{"locale":"ja","subtitle":"Japanese subtitle"}}}`,
+		},
+	}...)
+	api := newMigrateImportAPI(t, expectations...)
 
-	root := t.TempDir()
-	metadataDir := filepath.Join(root, "metadata")
-	for _, locale := range []string{"en-US", "ja"} {
-		if err := os.MkdirAll(filepath.Join(metadataDir, locale), 0o755); err != nil {
-			t.Fatalf("mkdir metadata locale %s: %v", locale, err)
-		}
-	}
-	writeFile(t, filepath.Join(metadataDir, "en-US", "description.txt"), "English description")
-	writeFile(t, filepath.Join(metadataDir, "ja", "description.txt"), "Japanese description")
-	writeFile(t, filepath.Join(metadataDir, "ja", "subtitle.txt"), "Japanese subtitle")
-
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() {
-		http.DefaultTransport = originalTransport
-	})
-
-	var requests []string
-	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		requests = append(requests, req.Method+" "+req.URL.Path)
-		switch {
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID":
-			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations":
-			return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}},{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}]}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/apps/APP_ID/appInfos":
-			return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appInfos","id":"appinfo-1","attributes":{"state":"PREPARE_FOR_SUBMISSION"}}]}`), nil
-		case req.Method == http.MethodGet && req.URL.Path == "/v1/appInfos/appinfo-1/appInfoLocalizations":
-			return migrateJSONResponse(http.StatusOK, `{"data":[{"type":"appInfoLocalizations","id":"appinfo-loc-ja","attributes":{"locale":"ja"}}]}`), nil
-		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/loc-en":
-			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}}}`), nil
-		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/loc-ja":
-			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}}`), nil
-		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appInfoLocalizations/appinfo-loc-ja":
-			body, err := io.ReadAll(req.Body)
-			if err != nil {
-				t.Fatalf("read app info update body: %v", err)
-			}
-			var payload asc.AppInfoLocalizationUpdateRequest
-			if err := json.Unmarshal(body, &payload); err != nil {
-				t.Fatalf("unmarshal app info update body: %v", err)
-			}
-			if payload.Data.Attributes.Subtitle != "Japanese subtitle" {
-				t.Fatalf("subtitle = %q, want Japanese subtitle", payload.Data.Attributes.Subtitle)
-			}
-			if payload.Data.Attributes.Name != "" || payload.Data.Attributes.Locale != "" {
-				t.Fatalf("unexpected name/locale in update: %#v", payload.Data.Attributes)
-			}
-			return migrateJSONResponse(http.StatusOK, `{"data":{"type":"appInfoLocalizations","id":"appinfo-loc-ja","attributes":{"locale":"ja","subtitle":"Japanese subtitle"}}}`), nil
-		default:
-			return nil, fmt.Errorf("unexpected request: %s %s", req.Method, req.URL.String())
-		}
-	})
-
-	rootCmd := RootCommand("1.2.3")
-	rootCmd.FlagSet.SetOutput(io.Discard)
-
-	var runErr error
-	stdout, stderr := captureOutput(t, func() {
-		if err := rootCmd.Parse([]string{
-			"migrate", "import",
-			"--app", "APP_ID",
-			"--version-id", "VERSION_ID",
-			"--fastlane-dir", root,
-			"--confirm",
-			"--skip-screenshots",
-		}); err != nil {
-			t.Fatalf("parse error: %v", err)
-		}
-		runErr = rootCmd.Run(context.Background())
-	})
+	stdout, stderr, runErr := runMigrateImport(t, root)
 	if runErr != nil {
 		t.Fatalf("run error: %v", runErr)
 	}
@@ -615,18 +367,186 @@ func TestMigrateImportAllowsSubtitleOnlyAppInfoUpdatesAfterPlanning(t *testing.T
 	if len(result.AppInfoUploaded) != 1 || result.AppInfoUploaded[0].Action != "update" || result.AppInfoUploaded[0].LocalizationID != "appinfo-loc-ja" {
 		t.Fatalf("unexpected app info upload result: %#v", result.AppInfoUploaded)
 	}
+	api.assertComplete(t, 3)
+}
 
-	wantRequests := []string{
-		"GET /v1/appStoreVersions/VERSION_ID",
-		"GET /v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations",
-		"GET /v1/apps/APP_ID/appInfos",
-		"GET /v1/appInfos/appinfo-1/appInfoLocalizations",
-		"PATCH /v1/appStoreVersionLocalizations/loc-en",
-		"PATCH /v1/appStoreVersionLocalizations/loc-ja",
-		"PATCH /v1/appInfoLocalizations/appinfo-loc-ja",
+type migrateImportExpectation struct {
+	method   string
+	path     string
+	body     string
+	response string
+}
+
+type migrateImportAPI struct {
+	expectations []migrateImportExpectation
+	requests     []string
+	mutations    int
+	factoryCalls int
+}
+
+func newMigrateImportAPI(t *testing.T, expectations ...migrateImportExpectation) *migrateImportAPI {
+	t.Helper()
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+
+	api := &migrateImportAPI{expectations: expectations}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requestLabel := req.Method + " " + req.URL.Path
+		api.requests = append(api.requests, requestLabel)
+		if req.Method == http.MethodPost || req.Method == http.MethodPatch || req.Method == http.MethodDelete {
+			api.mutations++
+		}
+
+		index := len(api.requests) - 1
+		if index >= len(api.expectations) {
+			t.Errorf("unexpected request %d: %s", index+1, requestLabel)
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+			return
+		}
+		expected := api.expectations[index]
+		if req.Method != expected.method || req.URL.Path != expected.path {
+			t.Errorf("request %d = %s, want %s %s", index+1, requestLabel, expected.method, expected.path)
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+			return
+		}
+		if expected.body != "" {
+			assertJSONDocument(t, req.Body, expected.body)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, expected.response)
+	}))
+	t.Cleanup(server.Close)
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse migrate import test server URL: %v", err)
 	}
-	if !slices.Equal(requests, wantRequests) {
-		t.Fatalf("requests = %v, want %v", requests, wantRequests)
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cloned := req.Clone(req.Context())
+		cloned.URL.Scheme = serverURL.Scheme
+		cloned.URL.Host = serverURL.Host
+		return server.Client().Transport.RoundTrip(cloned)
+	})
+	client, err := asc.NewClientWithHTTPClient(
+		os.Getenv("ASC_KEY_ID"),
+		os.Getenv("ASC_ISSUER_ID"),
+		os.Getenv("ASC_PRIVATE_KEY_PATH"),
+		&http.Client{Transport: transport},
+	)
+	if err != nil {
+		t.Fatalf("create migrate import test client: %v", err)
+	}
+	restore := shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
+		api.factoryCalls++
+		return client, nil
+	})
+	t.Cleanup(restore)
+	return api
+}
+
+func (api *migrateImportAPI) assertComplete(t *testing.T, wantMutations int) {
+	t.Helper()
+	wantRequests := make([]string, 0, len(api.expectations))
+	for _, expected := range api.expectations {
+		wantRequests = append(wantRequests, expected.method+" "+expected.path)
+	}
+	if !slices.Equal(api.requests, wantRequests) {
+		t.Fatalf("requests = %v, want %v", api.requests, wantRequests)
+	}
+	if api.mutations != wantMutations {
+		t.Fatalf("mutations = %d, want %d", api.mutations, wantMutations)
+	}
+	if api.factoryCalls != 1 {
+		t.Fatalf("client factory calls = %d, want 1", api.factoryCalls)
+	}
+}
+
+func migrateImportPlanningExpectations(appInfoLocalizations string) []migrateImportExpectation {
+	return []migrateImportExpectation{
+		{
+			method:   http.MethodGet,
+			path:     "/v1/appStoreVersions/VERSION_ID",
+			response: `{"data":{"type":"appStoreVersions","id":"VERSION_ID","attributes":{"versionString":"1.0","platform":"IOS"},"relationships":{"app":{"data":{"type":"apps","id":"APP_ID"}}}}}`,
+		},
+		{
+			method:   http.MethodGet,
+			path:     "/v1/appStoreVersions/VERSION_ID/appStoreVersionLocalizations",
+			response: `{"data":[{"type":"appStoreVersionLocalizations","id":"loc-en","attributes":{"locale":"en-US"}},{"type":"appStoreVersionLocalizations","id":"loc-ja","attributes":{"locale":"ja"}}]}`,
+		},
+		{
+			method:   http.MethodGet,
+			path:     "/v1/apps/APP_ID/appInfos",
+			response: `{"data":[{"type":"appInfos","id":"appinfo-1","attributes":{"state":"PREPARE_FOR_SUBMISSION"}}]}`,
+		},
+		{
+			method:   http.MethodGet,
+			path:     "/v1/appInfos/appinfo-1/appInfoLocalizations",
+			response: appInfoLocalizations,
+		},
+	}
+}
+
+func validMigrateAppInfoMetadata() map[string]map[string]string {
+	return map[string]map[string]string{
+		"en-US": {"description.txt": "English description"},
+		"ja": {
+			"description.txt": "Japanese description",
+			"subtitle.txt":    "Japanese subtitle",
+		},
+	}
+}
+
+func writeMigrateImportMetadata(t *testing.T, localeFiles map[string]map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	for locale, files := range localeFiles {
+		localeDir := filepath.Join(root, "metadata", locale)
+		if err := os.MkdirAll(localeDir, 0o755); err != nil {
+			t.Fatalf("mkdir metadata locale %s: %v", locale, err)
+		}
+		for file, value := range files {
+			writeFile(t, filepath.Join(localeDir, file), value)
+		}
+	}
+	return root
+}
+
+func runMigrateImport(t *testing.T, root string) (string, string, error) {
+	t.Helper()
+	rootCmd := RootCommand("1.2.3")
+	rootCmd.FlagSet.SetOutput(io.Discard)
+
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := rootCmd.Parse([]string{
+			"migrate", "import",
+			"--app", "APP_ID",
+			"--version-id", "VERSION_ID",
+			"--fastlane-dir", root,
+			"--confirm",
+			"--skip-screenshots",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = rootCmd.Run(context.Background())
+	})
+	return stdout, stderr, runErr
+}
+
+func assertMigrateImportError(t *testing.T, stdout, stderr string, runErr error, wantError string) {
+	t.Helper()
+	if runErr == nil {
+		t.Fatal("expected migrate import error")
+	}
+	if runErr.Error() != wantError {
+		t.Fatalf("run error = %q, want %q", runErr, wantError)
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
 }
 
