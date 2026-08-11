@@ -947,8 +947,9 @@ Two-factor input options:
   - --two-factor-code (deprecated compatibility alias when the code is already known)
 
 Phone-code fallback (including SMS):
-  - if Apple offers a registered phone fallback, enter an incorrect trusted-device code once
+  - interactive: if Apple offers a registered phone fallback, enter an incorrect trusted-device code once
   - Apple then delivers a phone verification code and asc prompts again
+  - automated: asc reruns the configured 2FA code command after phone fallback
 
 Provider selection:
   - --public-provider-id selects the public App Store Connect provider/team ID

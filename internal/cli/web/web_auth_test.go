@@ -1038,6 +1038,9 @@ func TestLoginWithOptionalTwoFactorRepromptsAfterFallbackPhoneRequest(t *testing
 		return nil, nil
 	}
 	promptTwoFactorCodeFn = func() (string, error) {
+		if promptCalls == 0 && !strings.Contains(statusOutput.String(), "Need a phone verification code?") {
+			t.Fatalf("expected phone fallback guidance before the first prompt, got %q", statusOutput.String())
+		}
 		promptCalls++
 		switch promptCalls {
 		case 1:

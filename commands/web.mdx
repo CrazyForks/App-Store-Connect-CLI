@@ -70,8 +70,8 @@ Available commands:
 During an interactive trusted-device challenge, `asc` shows a phone-code
 fallback hint when Apple reports a registered phone number. Enter an incorrect
 trusted-device code once; Apple then delivers the phone verification code by
-its configured method (including SMS) and `asc` prompts again. Automated flows using
-`--two-factor-code-command` are unchanged.
+its configured method (including SMS) and `asc` prompts again. Automated flows
+rerun the configured `--two-factor-code-command` after phone fallback.
 
 ### `asc web api-keys`
 
