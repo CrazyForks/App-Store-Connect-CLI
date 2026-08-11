@@ -306,7 +306,7 @@ func TestExecuteStageExplainsLegacyReleaseRunCheckpoint(t *testing.T) {
 			if err == nil {
 				t.Fatal("executeStage() error = nil, want legacy checkpoint mismatch")
 			}
-			for _, want := range []string{"asc release run", "removed in 4.0", "asc release stage", checkpointPath} {
+			for _, want := range []string{"asc release run", "removed in 1.0", "asc release stage", checkpointPath} {
 				if !strings.Contains(err.Error(), want) {
 					t.Fatalf("executeStage() error = %q, want migration guidance containing %q", err, want)
 				}

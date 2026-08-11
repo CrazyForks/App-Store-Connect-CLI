@@ -180,7 +180,7 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 			err := errors.New("checkpoint does not match current run arguments")
 			if isLegacyReleaseRunCheckpoint(existing.Mode, opts.Mode) {
 				err = fmt.Errorf(
-					"checkpoint mode %q belongs to the `asc release run` pipeline removed in 4.0; delete %q or pass a different --checkpoint-file to start a new `asc release stage` run",
+					"checkpoint mode %q belongs to the `asc release run` pipeline removed in 1.0; delete %q or pass a different --checkpoint-file to start a new `asc release stage` run",
 					strings.TrimSpace(existing.Mode),
 					opts.CheckpointFile,
 				)
@@ -698,7 +698,7 @@ func defaultStageCheckpointPath(appID, version, buildID, platform string) string
 
 // checkpointModeMatches reports whether an existing checkpoint was written by
 // the pipeline that is being resumed. A checkpoint without a mode was written
-// by the `release run` pipeline removed in 4.0, so it never matches.
+// by the `release run` pipeline removed in 1.0, so it never matches.
 func checkpointModeMatches(existingMode, desiredMode string) bool {
 	return strings.TrimSpace(existingMode) == strings.TrimSpace(desiredMode)
 }
