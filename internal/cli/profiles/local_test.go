@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -132,6 +133,11 @@ func captureProfilesStderr(t *testing.T, fn func()) string {
 	}
 	original := os.Stderr
 	os.Stderr = writer
+	cleanup := func() {
+		os.Stderr = original
+		_ = writer.Close()
+	}
+	defer cleanup()
 
 	captured := make(chan string, 1)
 	go func() {
@@ -143,9 +149,32 @@ func captureProfilesStderr(t *testing.T, fn func()) string {
 
 	fn()
 
-	os.Stderr = original
-	_ = writer.Close()
+	cleanup()
 	return <-captured
+}
+
+func TestCaptureProfilesStderrRestoresAfterGoexit(t *testing.T) {
+	original := os.Stderr
+	t.Cleanup(func() { os.Stderr = original })
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		captureProfilesStderr(t, func() {
+			// testing.T.Fatal and testing.T.FailNow both terminate their
+			// goroutine with runtime.Goexit after running deferred cleanup.
+			runtime.Goexit()
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("captureProfilesStderr did not exit after runtime.Goexit")
+	}
+	if os.Stderr != original {
+		t.Fatal("captureProfilesStderr did not restore os.Stderr after runtime.Goexit")
+	}
 }
 
 func TestResolveProfilesInstallDirPreservesCancellation(t *testing.T) {
