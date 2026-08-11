@@ -142,6 +142,9 @@ func TestExecuteStageDryRunRejectsPlannedDeletesWithoutAllowDeletes(t *testing.T
 	if !strings.Contains(err.Error(), "--allow-deletes") {
 		t.Fatalf("expected error naming --allow-deletes, got %v", err)
 	}
+	if errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("mid-pipeline plan failure was classified as invalid command usage: %v", err)
+	}
 	if result.Status != "error" || result.FailedStep != stepApplyMetadata {
 		t.Fatalf("expected apply_metadata failure, got status %q step %q", result.Status, result.FailedStep)
 	}
