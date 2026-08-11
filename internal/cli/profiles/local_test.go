@@ -177,7 +177,12 @@ func TestCaptureProfilesStderrRestoresAfterGoexit(t *testing.T) {
 	if os.Stderr != original {
 		t.Fatal("captureProfilesStderr did not restore os.Stderr after runtime.Goexit")
 	}
-	writer := <-writerCh
+	var writer *os.File
+	select {
+	case writer = <-writerCh:
+	case <-time.After(time.Second):
+		t.Fatal("captureProfilesStderr did not expose the redirected writer")
+	}
 	t.Cleanup(func() { _ = writer.Close() })
 	if _, err := writer.Write([]byte("probe")); err == nil {
 		t.Fatal("captureProfilesStderr did not close the pipe writer after runtime.Goexit")
