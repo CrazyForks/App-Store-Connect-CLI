@@ -1075,16 +1075,19 @@ func TestLoginWithOptionalTwoFactorRepromptsAfterFallbackPhoneRequest(t *testing
 		t.Fatalf("expected submitted codes %v, got %v", want, got)
 	}
 	output := statusOutput.String()
-	guidanceIndex := strings.Index(output, "Need an SMS code? Enter an incorrect trusted-device code once; Apple will then send a verification code to +1 (•••) •••-••66.")
+	guidanceIndex := strings.Index(output, "Need a phone verification code? Enter an incorrect trusted-device code once; Apple will then deliver a verification code to +1 (•••) •••-••66.")
 	if guidanceIndex < 0 {
-		t.Fatalf("expected initial SMS fallback guidance, got %q", output)
+		t.Fatalf("expected initial phone fallback guidance, got %q", output)
+	}
+	if strings.Contains(output, "SMS") {
+		t.Fatalf("expected delivery-neutral guidance for voice-capable phone fallbacks, got %q", output)
 	}
 	deliveryIndex := strings.Index(output, "Verification code sent to +1 (•••) •••-••66.")
 	if deliveryIndex < 0 {
 		t.Fatalf("expected fallback delivery notice, got %q", output)
 	}
 	if guidanceIndex > deliveryIndex {
-		t.Fatalf("expected SMS fallback guidance before delivery notice, got %q", output)
+		t.Fatalf("expected phone fallback guidance before delivery notice, got %q", output)
 	}
 	if !strings.Contains(output, "Trusted-device verification was rejected. Enter the phone verification code that was just sent.") {
 		t.Fatalf("expected fallback phone prompt guidance, got %q", output)
@@ -1173,8 +1176,8 @@ func TestLoginWithOptionalTwoFactorRerunsCommandAfterFallbackPhoneRequest(t *tes
 	if output := statusOutput.String(); !strings.Contains(output, "Trusted-device verification was rejected. Re-running the configured 2FA code command for the phone verification code.") {
 		t.Fatalf("expected fallback command guidance, got %q", output)
 	}
-	if output := statusOutput.String(); strings.Contains(output, "Need an SMS code?") {
-		t.Fatalf("did not expect interactive SMS guidance for configured command, got %q", output)
+	if output := statusOutput.String(); strings.Contains(output, "Need a phone verification code?") {
+		t.Fatalf("did not expect interactive phone fallback guidance for configured command, got %q", output)
 	}
 }
 

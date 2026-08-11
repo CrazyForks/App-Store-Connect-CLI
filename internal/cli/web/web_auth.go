@@ -505,16 +505,16 @@ func loginWithOptionalTwoFactorUsing(ctx context.Context, progressMessage, apple
 			}
 			_, _ = fmt.Fprintln(twoFactorStatusWriter, "Trusted-device verification was rejected. Enter the phone verification code that was just sent.")
 		}
-		writeInitialSMSFallbackGuidance := func() {
+		writeInitialPhoneFallbackGuidance := func() {
 			if challenge == nil || !challenge.PhoneFallbackAvailable || twoFactorStatusWriter == nil {
 				return
 			}
 			destination := strings.TrimSpace(challenge.Destination)
 			if destination != "" {
-				_, _ = fmt.Fprintf(twoFactorStatusWriter, "Need an SMS code? Enter an incorrect trusted-device code once; Apple will then send a verification code to %s.\n", destination)
+				_, _ = fmt.Fprintf(twoFactorStatusWriter, "Need a phone verification code? Enter an incorrect trusted-device code once; Apple will then deliver a verification code to %s.\n", destination)
 				return
 			}
-			_, _ = fmt.Fprintln(twoFactorStatusWriter, "Need an SMS code? Enter an incorrect trusted-device code once; Apple will then send a verification code to your registered phone number.")
+			_, _ = fmt.Fprintln(twoFactorStatusWriter, "Need a phone verification code? Enter an incorrect trusted-device code once; Apple will then deliver a verification code to your registered phone number.")
 		}
 		readCode := func() (string, error) {
 			if command != "" {
@@ -524,7 +524,7 @@ func loginWithOptionalTwoFactorUsing(ctx context.Context, progressMessage, apple
 		}
 		if code == "" {
 			if command == "" {
-				writeInitialSMSFallbackGuidance()
+				writeInitialPhoneFallbackGuidance()
 			}
 			if challenge != nil && challenge.IsPhoneMethod() {
 				challenge, prepErr = ensureTwoFactorCodeRequestedFn(ctx, session)
@@ -946,9 +946,9 @@ Two-factor input options:
   - %s environment variable (recommended for automation)
   - --two-factor-code (deprecated compatibility alias when the code is already known)
 
-SMS fallback:
+Phone-code fallback (including SMS):
   - if Apple offers a registered phone fallback, enter an incorrect trusted-device code once
-  - Apple then sends an SMS and asc prompts again for the phone verification code
+  - Apple then delivers a phone verification code and asc prompts again
 
 Provider selection:
   - --public-provider-id selects the public App Store Connect provider/team ID
