@@ -21,6 +21,33 @@ automation. The CLI is the source of truth.
 * Replacing remote screenshots or video previews now requires `--confirm`.
 * Many flags that were previously accepted and ignored now fail with a usage
   error before any API call.
+* `--device` without `--create-missing` is a temporary exception: 4.x warns and
+  continues to ignore the device IDs; 5.0.0 will reject the combination.
+
+## Deprecated signing flag combination
+
+In 3.7, `asc signing fetch` and `asc signing sync push` accepted `--device`
+without `--create-missing`, but those device IDs could only be sent to App Store
+Connect when the command created a profile. Otherwise the value was ignored.
+
+Version 4.x keeps that input working for one deprecation cycle. Both commands
+print a warning to stderr and continue with the same behavior. Add
+`--create-missing` anywhere you pass `--device` so the IDs can be applied if a
+profile must be created; 5.0.0 will reject the old combination with a usage
+error.
+
+```bash  theme={null}
+asc signing fetch --bundle-id "com.example.app" \
+  --profile-type IOS_APP_DEVELOPMENT \
+  --device "DEVICE_ID_1,DEVICE_ID_2" \
+  --create-missing
+
+asc signing sync push --bundle-id "com.example.app" \
+  --profile-type IOS_APP_DEVELOPMENT \
+  --repo "git@github.com:team/signing.git" \
+  --device "DEVICE_ID_1,DEVICE_ID_2" \
+  --create-missing
+```
 
 ## Removed commands
 
@@ -294,11 +321,11 @@ are all accepted.
 1. Search your repo for `--state`, `--date`, `review items view`, and
    `review items-get`, and replace them with the canonical forms above.
 2. Add `--confirm` to every `screenshots upload --replace` and
-   `video-previews upload --replace` invocation, and `--create-missing` to
-   every `signing fetch --device`.
+   `video-previews upload --replace` invocation. Pair every `--device` on
+   `signing fetch` or `signing sync push` with `--create-missing`.
 3. Re-check any script that pins a build number: compare
-   `asc builds next-build-number --app "APP_ID"` against 3.7 output for one app
-   before you rely on it.
+   `ASC_BYPASS_KEYCHAIN=1 asc builds next-build-number --app "APP_ID"` against
+   3.7 output for one app before you rely on it.
 4. On macOS runners, confirm which provisioning profile directory
    `asc profiles local list` reports before running `clean --confirm`.
 5. Re-run CI with the 4.0 binary and verify exit codes, stderr handling, and
