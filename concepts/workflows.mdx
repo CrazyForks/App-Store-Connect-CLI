@@ -430,6 +430,7 @@ There is no `exit_code` and no `success` field. Gate CI on `.status`, which is
 | `failed_step`    | string  | Step name (or generated key) that failed; omitted on success               |
 | `recoverable`    | boolean | Present when `--resume` can continue this run                              |
 | `terminal`       | boolean | Present when resume is refused; `terminal_reason` explains why             |
+| `terminal_reason` | string  | Reason resume is refused; present with `terminal`                           |
 | `run_id`         | string  | Resume handle; also the run-state file name                                |
 | `run_file`       | string  | Absolute path to the persisted run state                                   |
 | `resumed`        | boolean | Present when the run was started with `--resume`                           |
