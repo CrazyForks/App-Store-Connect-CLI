@@ -74,6 +74,28 @@ func TestStateDetailDecodeMirrorsDescriptionIntoMessage(t *testing.T) {
 	}
 }
 
+func TestStateDetailDecodeResetsOmittedFieldsOnReusedReceiver(t *testing.T) {
+	detail := StateDetail{
+		Code:        "STALE_CODE",
+		Description: "stale description",
+		Message:     "stale message",
+	}
+
+	if err := json.Unmarshal([]byte(`{"code":"NEW_CODE"}`), &detail); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if detail.Code != "NEW_CODE" {
+		t.Fatalf("expected decoded code, got %q", detail.Code)
+	}
+	if detail.Description != "" {
+		t.Fatalf("expected omitted description to reset, got %q", detail.Description)
+	}
+	if detail.Message != "" {
+		t.Fatalf("expected omitted message to reset, got %q", detail.Message)
+	}
+}
+
 func TestStateDetailEncodeKeepsAppleWireFormat(t *testing.T) {
 	var detail StateDetail
 	if err := json.Unmarshal([]byte(`{"code":"CODE","description":"described"}`), &detail); err != nil {
