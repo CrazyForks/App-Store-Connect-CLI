@@ -35,6 +35,20 @@ func TestStateDetailDecodeMirrorsDescriptionIntoMessage(t *testing.T) {
 			wantMessage:     "messaged",
 		},
 		{
+			name:            "explicit empty description is preserved",
+			payload:         `{"code":"CODE","description":"","message":"messaged"}`,
+			wantCode:        "CODE",
+			wantDescription: "",
+			wantMessage:     "messaged",
+		},
+		{
+			name:            "explicit empty message is preserved",
+			payload:         `{"code":"CODE","description":"described","message":""}`,
+			wantCode:        "CODE",
+			wantDescription: "described",
+			wantMessage:     "",
+		},
+		{
 			name:     "code only",
 			payload:  `{"code":"90062"}`,
 			wantCode: "90062",

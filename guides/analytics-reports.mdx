@@ -383,7 +383,7 @@ export ASC_VENDOR_NUMBER="YOUR_VENDOR_NUMBER"
 asc analytics view --request-id "REQUEST_ID"
 ```
 
-Retry `asc analytics view --request-id "REQUEST_ID" --paginate` until `data[].instances` is non-empty, then download.
+Retry `asc analytics view --request-id "REQUEST_ID" --paginate --output json` until `data[].instances` is non-empty, then download.
 
 ### "Failed to download report"
 
