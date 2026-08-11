@@ -32,10 +32,6 @@ func AssetsPreviewsListCommand() *ffcli.Command {
 returned as data[].id by "asc localizations list --version VERSION_ID --output json".
 It is not the locale code such as en-US.
 
---replace deletes every existing preview in the target set before uploading and
-therefore requires --confirm. Use --replace --dry-run to preview the deletions
-without --confirm.
-
 Examples:
   asc localizations list --version "VERSION_ID" --output json --locale "en-US"
   asc video-previews list --version-localization "VERSION_LOCALIZATION_ID"`,
