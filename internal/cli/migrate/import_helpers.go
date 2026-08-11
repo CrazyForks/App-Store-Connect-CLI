@@ -533,14 +533,25 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 		plansByLocale[plan.Locale] = append(plansByLocale[plan.Locale], plan)
 	}
 
-	// A failure before the first result leaves the localizations this stage
-	// created out of every report, so name them on stderr instead of leaving
-	// empty localizations behind silently.
+	// A failure can leave a localization this stage created out of every result,
+	// so name each unreported localization on stderr instead of leaving it
+	// behind silently.
 	var createdLocales []string
 	defer func() {
-		if err != nil && len(results) == 0 {
-			warnCreatedScreenshotLocalizations(os.Stderr, createdLocales)
+		if err == nil {
+			return
 		}
+		reportedLocales := make(map[string]struct{}, len(results))
+		for _, result := range results {
+			reportedLocales[result.Locale] = struct{}{}
+		}
+		unreportedLocales := make([]string, 0, len(createdLocales))
+		for _, locale := range createdLocales {
+			if _, reported := reportedLocales[locale]; !reported {
+				unreportedLocales = append(unreportedLocales, locale)
+			}
+		}
+		warnCreatedScreenshotLocalizations(os.Stderr, unreportedLocales)
 	}()
 
 	results = make([]ScreenshotUploadResult, 0, len(plans))
@@ -697,8 +708,8 @@ func uploadScreenshots(ctx context.Context, client *asc.Client, versionID string
 }
 
 // warnCreatedScreenshotLocalizations names the localizations the screenshot
-// stage created before a failure that left no result to print, so the operator
-// can re-run the import or remove the empty localizations by hand.
+// stage created before a failure that left them without a result, so the
+// operator can re-run the import or remove the empty localizations by hand.
 func warnCreatedScreenshotLocalizations(w io.Writer, locales []string) {
 	// Locales are collected in map order, so sort them for a stable report.
 	ordered := append([]string(nil), locales...)

@@ -256,6 +256,40 @@ func TestSigningFetchHelpPairsDeviceWithCreateMissing(t *testing.T) {
 	}
 }
 
+func TestSigningFetchFormatUsesSharedOutputDefault(t *testing.T) {
+	tests := []struct {
+		name         string
+		defaultValue string
+	}{
+		{name: "resolved table default", defaultValue: "table"},
+		{name: "resolved JSON default", defaultValue: "json"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shared.ResetDefaultOutputFormat()
+			t.Cleanup(shared.ResetDefaultOutputFormat)
+			t.Setenv("ASC_DEFAULT_OUTPUT", tt.defaultValue)
+
+			cmd := SigningFetchCommand()
+			formatFlag := cmd.FlagSet.Lookup("format")
+			if formatFlag == nil {
+				t.Fatal("expected --format flag")
+			}
+			if got := formatFlag.Value.String(); got != tt.defaultValue {
+				t.Fatalf("default --format = %q, want %q", got, tt.defaultValue)
+			}
+
+			if err := cmd.FlagSet.Parse([]string{"--format", "markdown"}); err != nil {
+				t.Fatalf("parse explicit --format: %v", err)
+			}
+			if got := formatFlag.Value.String(); got != "markdown" {
+				t.Fatalf("explicit --format = %q, want markdown", got)
+			}
+		})
+	}
+}
+
 func TestSigningOutputPathsCoverProfileAndCertificateFiles(t *testing.T) {
 	dir := filepath.Join("tmp", "signing")
 	paths := signingOutputPaths(dir, "Created Profile", "profile-created", []asc.Resource[asc.CertificateAttributes]{
