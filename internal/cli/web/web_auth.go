@@ -505,6 +505,17 @@ func loginWithOptionalTwoFactorUsing(ctx context.Context, progressMessage, apple
 			}
 			_, _ = fmt.Fprintln(twoFactorStatusWriter, "Trusted-device verification was rejected. Enter the phone verification code that was just sent.")
 		}
+		writeInitialSMSFallbackGuidance := func() {
+			if challenge == nil || !challenge.PhoneFallbackAvailable || twoFactorStatusWriter == nil {
+				return
+			}
+			destination := strings.TrimSpace(challenge.Destination)
+			if destination != "" {
+				_, _ = fmt.Fprintf(twoFactorStatusWriter, "Need an SMS code? Enter an incorrect trusted-device code once; Apple will then send a verification code to %s.\n", destination)
+				return
+			}
+			_, _ = fmt.Fprintln(twoFactorStatusWriter, "Need an SMS code? Enter an incorrect trusted-device code once; Apple will then send a verification code to your registered phone number.")
+		}
 		readCode := func() (string, error) {
 			if command != "" {
 				return readTwoFactorCodeFromCommandFn(ctx, command)
@@ -512,6 +523,9 @@ func loginWithOptionalTwoFactorUsing(ctx context.Context, progressMessage, apple
 			return promptTwoFactorCodeFn()
 		}
 		if code == "" {
+			if command == "" {
+				writeInitialSMSFallbackGuidance()
+			}
 			if challenge != nil && challenge.IsPhoneMethod() {
 				challenge, prepErr = ensureTwoFactorCodeRequestedFn(ctx, session)
 				if prepErr != nil {
@@ -931,6 +945,10 @@ Two-factor input options:
   - --two-factor-code-command
   - %s environment variable (recommended for automation)
   - --two-factor-code (deprecated compatibility alias when the code is already known)
+
+SMS fallback:
+  - if Apple offers a registered phone fallback, enter an incorrect trusted-device code once
+  - Apple then sends an SMS and asc prompts again for the phone verification code
 
 Provider selection:
   - --public-provider-id selects the public App Store Connect provider/team ID

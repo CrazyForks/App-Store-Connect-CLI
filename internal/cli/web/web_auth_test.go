@@ -1027,7 +1027,11 @@ func TestLoginWithOptionalTwoFactorRepromptsAfterFallbackPhoneRequest(t *testing
 		return &webcore.AuthSession{}, &webcore.TwoFactorRequiredError{}
 	}
 	prepareTwoFactorChallengeFn = func(ctx context.Context, session *webcore.AuthSession) (*webcore.TwoFactorChallenge, error) {
-		return &webcore.TwoFactorChallenge{Method: "trusted-device"}, nil
+		return &webcore.TwoFactorChallenge{
+			Method:                 "trusted-device",
+			Destination:            "+1 (•••) •••-••66",
+			PhoneFallbackAvailable: true,
+		}, nil
 	}
 	ensureTwoFactorCodeRequestedFn = func(ctx context.Context, session *webcore.AuthSession) (*webcore.TwoFactorChallenge, error) {
 		t.Fatal("did not expect upfront phone-code request for trusted-device challenge")
@@ -1070,10 +1074,19 @@ func TestLoginWithOptionalTwoFactorRepromptsAfterFallbackPhoneRequest(t *testing
 	if got, want := submitted, []string{"111111", "222222"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected submitted codes %v, got %v", want, got)
 	}
-	if output := statusOutput.String(); !strings.Contains(output, "Verification code sent to +1 (•••) •••-••66.") {
+	output := statusOutput.String()
+	guidanceIndex := strings.Index(output, "Need an SMS code? Enter an incorrect trusted-device code once; Apple will then send a verification code to +1 (•••) •••-••66.")
+	if guidanceIndex < 0 {
+		t.Fatalf("expected initial SMS fallback guidance, got %q", output)
+	}
+	deliveryIndex := strings.Index(output, "Verification code sent to +1 (•••) •••-••66.")
+	if deliveryIndex < 0 {
 		t.Fatalf("expected fallback delivery notice, got %q", output)
 	}
-	if output := statusOutput.String(); !strings.Contains(output, "Trusted-device verification was rejected. Enter the phone verification code that was just sent.") {
+	if guidanceIndex > deliveryIndex {
+		t.Fatalf("expected SMS fallback guidance before delivery notice, got %q", output)
+	}
+	if !strings.Contains(output, "Trusted-device verification was rejected. Enter the phone verification code that was just sent.") {
 		t.Fatalf("expected fallback phone prompt guidance, got %q", output)
 	}
 }
@@ -1104,7 +1117,11 @@ func TestLoginWithOptionalTwoFactorRerunsCommandAfterFallbackPhoneRequest(t *tes
 		return &webcore.AuthSession{}, &webcore.TwoFactorRequiredError{}
 	}
 	prepareTwoFactorChallengeFn = func(ctx context.Context, session *webcore.AuthSession) (*webcore.TwoFactorChallenge, error) {
-		return &webcore.TwoFactorChallenge{Method: "trusted-device"}, nil
+		return &webcore.TwoFactorChallenge{
+			Method:                 "trusted-device",
+			Destination:            "+1 (•••) •••-••66",
+			PhoneFallbackAvailable: true,
+		}, nil
 	}
 	ensureTwoFactorCodeRequestedFn = func(ctx context.Context, session *webcore.AuthSession) (*webcore.TwoFactorChallenge, error) {
 		t.Fatal("did not expect upfront phone-code request for trusted-device challenge")
@@ -1155,6 +1172,9 @@ func TestLoginWithOptionalTwoFactorRerunsCommandAfterFallbackPhoneRequest(t *tes
 	}
 	if output := statusOutput.String(); !strings.Contains(output, "Trusted-device verification was rejected. Re-running the configured 2FA code command for the phone verification code.") {
 		t.Fatalf("expected fallback command guidance, got %q", output)
+	}
+	if output := statusOutput.String(); strings.Contains(output, "Need an SMS code?") {
+		t.Fatalf("did not expect interactive SMS guidance for configured command, got %q", output)
 	}
 }
 

@@ -67,6 +67,12 @@ Available commands:
 * `asc web auth capabilities` - inspect web-visible capability metadata
 * `asc web auth logout` - clear the cached web session
 
+During an interactive trusted-device challenge, `asc` shows an SMS fallback
+hint when Apple reports a registered phone number. Enter an incorrect
+trusted-device code once; Apple then sends an SMS and `asc` prompts again for
+the phone verification code. Automated flows using
+`--two-factor-code-command` are unchanged.
+
 ### `asc web api-keys`
 
 Team API key creation through an Apple Account web session.
