@@ -25,6 +25,18 @@ func TestSigningSyncCommandLongHelpUsesOutputDirExample(t *testing.T) {
 	}
 }
 
+func TestSigningSyncPushHelpDocumentsDeviceTransition(t *testing.T) {
+	deviceFlag := syncPushCommand().FlagSet.Lookup("device")
+	if deviceFlag == nil {
+		t.Fatal("expected --device flag")
+	}
+	if !strings.Contains(deviceFlag.Usage, "--create-missing") ||
+		!strings.Contains(deviceFlag.Usage, "deprecated") ||
+		!strings.Contains(deviceFlag.Usage, "5.0.0") {
+		t.Fatalf("--device usage = %q, want the transition and rejection release", deviceFlag.Usage)
+	}
+}
+
 func TestSigningSyncPreparesRepositoryOnceInAssetOrder(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -109,14 +121,17 @@ func TestSigningSyncPreparesRepositoryOnceInAssetOrder(t *testing.T) {
 	}
 }
 
-func TestSigningSyncPushRejectsDeviceWithoutCreateMissing(t *testing.T) {
+func TestSigningSyncPushWarnsForDeviceWithoutCreateMissing(t *testing.T) {
+	clientCalls := 0
 	t.Cleanup(shared.SetASCClientFactoryForTesting(func() (*asc.Client, error) {
-		return nil, errors.New("App Store Connect client must not be created during flag validation")
+		clientCalls++
+		return nil, errors.New("client reached after validation")
 	}))
 
 	cmd := syncPushCommand()
 	cmd.FlagSet.SetOutput(io.Discard)
 
+	var runErr error
 	stdout, stderr := captureOutput(t, func() {
 		if err := cmd.Parse([]string{
 			"--bundle-id", "com.example.app",
@@ -127,18 +142,24 @@ func TestSigningSyncPushRejectsDeviceWithoutCreateMissing(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
-		err := cmd.Run(context.Background())
-		if !errors.Is(err, flag.ErrHelp) {
-			t.Fatalf("expected usage error, got %v", err)
-		}
+		runErr = cmd.Run(context.Background())
 	})
 
+	if runErr == nil || runErr.Error() != "signing sync push: client reached after validation" {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+	if errors.Is(runErr, flag.ErrHelp) {
+		t.Fatalf("deprecated input must not return a usage error: %v", runErr)
+	}
+	if clientCalls != 1 {
+		t.Fatalf("client factory calls = %d, want 1", clientCalls)
+	}
 	if stdout != "" {
 		t.Fatalf("expected empty stdout, got %q", stdout)
 	}
-	want := "Error: --device requires --create-missing (devices are only applied to profiles this command creates)"
-	if !strings.Contains(stderr, want) {
-		t.Fatalf("expected %q, got %q", want, stderr)
+	wantWarning := "Warning: --device without --create-missing is deprecated and ignored because device IDs are only applied when creating a profile. Add --create-missing so they can be applied if a profile must be created. This combination will be rejected in 5.0.0.\n"
+	if stderr != wantWarning {
+		t.Fatalf("stderr = %q, want %q", stderr, wantWarning)
 	}
 }
 
