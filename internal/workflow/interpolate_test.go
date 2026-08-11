@@ -55,12 +55,14 @@ func TestExtractDeclaredOutputs_PreservesNestedAndContainerNumbers(t *testing.T)
 
 func TestExtractDeclaredOutputs_RejectsTrailingData(t *testing.T) {
 	tests := []struct {
-		name   string
-		stdout string
+		name    string
+		stdout  string
+		wantErr string
 	}{
-		{name: "text", stdout: `{"v":1} trailing`},
-		{name: "closing brace", stdout: `{"v":1}}`},
-		{name: "closing bracket", stdout: `{"v":1}]`},
+		{name: "text", stdout: `{"v":1} trailing`, wantErr: "parse command stdout as JSON"},
+		{name: "closing brace", stdout: `{"v":1}}`, wantErr: "parse command stdout as JSON"},
+		{name: "closing bracket", stdout: `{"v":1}]`, wantErr: "parse command stdout as JSON"},
+		{name: "second top-level value", stdout: `{"v":1} {"extra":2}`, wantErr: "unexpected trailing top-level value"},
 	}
 
 	for _, tc := range tests {
@@ -69,8 +71,8 @@ func TestExtractDeclaredOutputs_RejectsTrailingData(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected trailing data after the JSON value to be rejected")
 			}
-			if !strings.Contains(err.Error(), "parse command stdout as JSON") {
-				t.Fatalf("expected a JSON parse error, got %v", err)
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
 			}
 		})
 	}
