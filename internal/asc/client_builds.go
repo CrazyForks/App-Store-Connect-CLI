@@ -245,22 +245,29 @@ type StateDetail struct {
 // across Description and Message so either field carries Apple's text.
 func (d *StateDetail) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		Code        string `json:"code"`
-		Description string `json:"description"`
-		Message     string `json:"message"`
+		Code        *string `json:"code"`
+		Description *string `json:"description"`
+		Message     *string `json:"message"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 
-	d.Code = raw.Code
-	d.Description = raw.Description
-	d.Message = raw.Message
-	if d.Description == "" {
-		d.Description = raw.Message
+	*d = StateDetail{}
+	if raw.Code != nil {
+		d.Code = *raw.Code
 	}
-	if d.Message == "" {
-		d.Message = raw.Description
+	if raw.Description != nil {
+		d.Description = *raw.Description
+	}
+	if raw.Message != nil {
+		d.Message = *raw.Message
+	}
+	if raw.Description == nil && raw.Message != nil {
+		d.Description = *raw.Message
+	}
+	if raw.Message == nil && raw.Description != nil {
+		d.Message = *raw.Description
 	}
 	return nil
 }

@@ -35,6 +35,20 @@ func TestStateDetailDecodeMirrorsDescriptionIntoMessage(t *testing.T) {
 			wantMessage:     "messaged",
 		},
 		{
+			name:            "explicit empty description is preserved",
+			payload:         `{"code":"CODE","description":"","message":"messaged"}`,
+			wantCode:        "CODE",
+			wantDescription: "",
+			wantMessage:     "messaged",
+		},
+		{
+			name:            "explicit empty message is preserved",
+			payload:         `{"code":"CODE","description":"described","message":""}`,
+			wantCode:        "CODE",
+			wantDescription: "described",
+			wantMessage:     "",
+		},
+		{
 			name:     "code only",
 			payload:  `{"code":"90062"}`,
 			wantCode: "90062",
@@ -57,6 +71,28 @@ func TestStateDetailDecodeMirrorsDescriptionIntoMessage(t *testing.T) {
 				t.Errorf("expected message %q, got %q", testCase.wantMessage, detail.Message)
 			}
 		})
+	}
+}
+
+func TestStateDetailDecodeResetsOmittedFieldsOnReusedReceiver(t *testing.T) {
+	detail := StateDetail{
+		Code:        "STALE_CODE",
+		Description: "stale description",
+		Message:     "stale message",
+	}
+
+	if err := json.Unmarshal([]byte(`{"code":"NEW_CODE"}`), &detail); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if detail.Code != "NEW_CODE" {
+		t.Fatalf("expected decoded code, got %q", detail.Code)
+	}
+	if detail.Description != "" {
+		t.Fatalf("expected omitted description to reset, got %q", detail.Description)
+	}
+	if detail.Message != "" {
+		t.Fatalf("expected omitted message to reset, got %q", detail.Message)
 	}
 }
 

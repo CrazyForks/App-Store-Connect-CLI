@@ -3,7 +3,9 @@ package workflow
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"regexp"
 	"slices"
@@ -146,8 +148,12 @@ func extractDeclaredOutputs(outputDecls map[string]string, stdout []byte) (map[s
 	if err := decoder.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("extract outputs: parse command stdout as JSON: %w", err)
 	}
-	if decoder.More() {
-		return nil, fmt.Errorf("extract outputs: parse command stdout as JSON: invalid character after top-level value")
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = fmt.Errorf("unexpected trailing top-level value")
+		}
+		return nil, fmt.Errorf("extract outputs: parse command stdout as JSON: %w", err)
 	}
 
 	results := make(map[string]string, len(outputDecls))
