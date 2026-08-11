@@ -417,6 +417,71 @@ func TestResolveImportInputs_AllowsMissingFastlaneScreenshotsWhenDeliverfileSkip
 	}
 }
 
+func TestResolveImportInputsPreservesInvalidDeliverfileScreenshotsPathWhenFlagSkips(t *testing.T) {
+	root := t.TempDir()
+	fastlaneDir := filepath.Join(root, "fastlane")
+	if err := os.MkdirAll(filepath.Join(fastlaneDir, "metadata"), 0o755); err != nil {
+		t.Fatalf("mkdir metadata: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(fastlaneDir, "Deliverfile"),
+		[]byte("screenshots_path \"../outside\"\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write Deliverfile: %v", err)
+	}
+
+	inputs, _, err := resolveImportInputs(importInputOptions{
+		WorkDir:         root,
+		FastlaneDir:     fastlaneDir,
+		SkipScreenshots: true,
+	})
+	if err != nil {
+		t.Fatalf("resolveImportInputs() error = %v, want skipped path preserved without validation", err)
+	}
+	want := filepath.Join(root, "outside")
+	if inputs.ScreenshotsDir != want {
+		t.Fatalf("ScreenshotsDir = %q, want skipped Deliverfile path %q", inputs.ScreenshotsDir, want)
+	}
+	if inputs.ScreenshotsSource != pathSourceDeliverfile {
+		t.Fatalf("ScreenshotsSource = %q, want %q", inputs.ScreenshotsSource, pathSourceDeliverfile)
+	}
+}
+
+func TestResolveImportInputsPreservesSymlinkedScreenshotsPathWhenDeliverfileSkips(t *testing.T) {
+	root := t.TempDir()
+	fastlaneDir := filepath.Join(root, "fastlane")
+	if err := os.MkdirAll(filepath.Join(fastlaneDir, "metadata"), 0o755); err != nil {
+		t.Fatalf("mkdir metadata: %v", err)
+	}
+	external := t.TempDir()
+	screenshotsPath := filepath.Join(fastlaneDir, "screenshots")
+	if err := os.Symlink(external, screenshotsPath); err != nil {
+		t.Fatalf("symlink screenshots: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(fastlaneDir, "Deliverfile"),
+		[]byte("skip_screenshots true\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write Deliverfile: %v", err)
+	}
+
+	inputs, _, err := resolveImportInputs(importInputOptions{
+		WorkDir:     root,
+		FastlaneDir: fastlaneDir,
+	})
+	if err != nil {
+		t.Fatalf("resolveImportInputs() error = %v, want skipped symlink path preserved without validation", err)
+	}
+	if inputs.ScreenshotsDir != screenshotsPath {
+		t.Fatalf("ScreenshotsDir = %q, want skipped symlink path %q", inputs.ScreenshotsDir, screenshotsPath)
+	}
+	if !inputs.DeliverfileConfig.SkipScreenshots {
+		t.Fatalf("DeliverfileConfig = %+v, want skip_screenshots", inputs.DeliverfileConfig)
+	}
+}
+
 func TestResolveImportInputsPreservesWhitespaceInFastlanePath(t *testing.T) {
 	base := t.TempDir()
 	fastlaneDir := filepath.Join(base, " fastlane ")
