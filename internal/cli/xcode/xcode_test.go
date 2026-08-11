@@ -809,6 +809,9 @@ func TestXcodeArchiveRejectsExplicitlyEmptyConfiguration(t *testing.T) {
 	if !errors.Is(runErr, flag.ErrHelp) {
 		t.Fatalf("Exec() error = %v, want usage error", runErr)
 	}
+	if runErr.Error() != "--configuration must not be empty" {
+		t.Fatalf("Exec() error = %q, want %q", runErr, "--configuration must not be empty")
+	}
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
