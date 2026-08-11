@@ -157,10 +157,12 @@ func TestCaptureProfilesStderrRestoresAfterGoexit(t *testing.T) {
 	original := os.Stderr
 	t.Cleanup(func() { os.Stderr = original })
 
+	writerCh := make(chan *os.File, 1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		captureProfilesStderr(t, func() {
+			writerCh <- os.Stderr
 			// testing.T.Fatal and testing.T.FailNow both terminate their
 			// goroutine with runtime.Goexit after running deferred cleanup.
 			runtime.Goexit()
@@ -174,6 +176,11 @@ func TestCaptureProfilesStderrRestoresAfterGoexit(t *testing.T) {
 	}
 	if os.Stderr != original {
 		t.Fatal("captureProfilesStderr did not restore os.Stderr after runtime.Goexit")
+	}
+	writer := <-writerCh
+	t.Cleanup(func() { _ = writer.Close() })
+	if _, err := writer.Write([]byte("probe")); err == nil {
+		t.Fatal("captureProfilesStderr did not close the pipe writer after runtime.Goexit")
 	}
 }
 
