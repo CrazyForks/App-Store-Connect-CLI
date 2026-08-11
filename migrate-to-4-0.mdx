@@ -251,8 +251,9 @@ require `--confirm`. `--replace --dry-run` is unchanged and needs no
 
 ### Flags that were accepted and ignored
 
-* `asc signing fetch --device ...` and `asc signing sync push --device ...`
-  require `--create-missing`.
+* `asc signing fetch --device ...` and `asc signing sync push --device ...` are
+  the transition exception: 4.x warns and ignores the device IDs without
+  `--create-missing`; 5.0.0 will reject the combination.
 * `asc screenshots frame --watch` rejects `--device`, `--title`, `--subtitle`,
   `--bg-color`, `--title-color`, `--subtitle-color`, `--output-path`,
   `--output-dir`, and `--name`. Set them in the Koubou YAML config instead.
