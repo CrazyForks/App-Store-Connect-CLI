@@ -21,22 +21,42 @@ func readReleaseWorkflow() ([]byte, error) {
 	return repositoryRoot.ReadFile(filepath.Join(".github", "workflows", "release.yml"))
 }
 
-var releaseWorkflowJobPattern = regexp.MustCompile(`(?m)^  [A-Za-z0-9_-]+:\s*$`)
+var (
+	releaseWorkflowJobsPattern     = regexp.MustCompile(`(?m)^jobs:\s*$`)
+	releaseWorkflowTopLevelPattern = regexp.MustCompile(`(?m)^[A-Za-z0-9_-]+:\s*$`)
+	releaseWorkflowJobPattern      = regexp.MustCompile(`(?m)^  [A-Za-z0-9_-]+:\s*$`)
+)
+
+func releaseWorkflowJobsBlock(t *testing.T, workflow string) string {
+	t.Helper()
+
+	jobsMatch := releaseWorkflowJobsPattern.FindStringIndex(workflow)
+	if jobsMatch == nil {
+		t.Fatal("release workflow missing jobs mapping")
+	}
+
+	jobsBlock := workflow[jobsMatch[1]:]
+	if nextTopLevel := releaseWorkflowTopLevelPattern.FindStringIndex(jobsBlock); nextTopLevel != nil {
+		jobsBlock = jobsBlock[:nextTopLevel[0]]
+	}
+	return jobsBlock
+}
 
 func releaseWorkflowJobBlock(t *testing.T, workflow, jobName string) string {
 	t.Helper()
 
+	jobsBlock := releaseWorkflowJobsBlock(t, workflow)
 	jobHeader := "  " + jobName + ":"
-	jobMatches := releaseWorkflowJobPattern.FindAllStringIndex(workflow, -1)
+	jobMatches := releaseWorkflowJobPattern.FindAllStringIndex(jobsBlock, -1)
 	for index, match := range jobMatches {
-		if workflow[match[0]:match[1]] != jobHeader {
+		if jobsBlock[match[0]:match[1]] != jobHeader {
 			continue
 		}
-		end := len(workflow)
+		end := len(jobsBlock)
 		if index+1 < len(jobMatches) {
 			end = jobMatches[index+1][0]
 		}
-		return workflow[match[0]:end]
+		return jobsBlock[match[0]:end]
 	}
 
 	t.Fatalf("release workflow missing %s job", jobName)
@@ -44,10 +64,32 @@ func releaseWorkflowJobBlock(t *testing.T, workflow, jobName string) string {
 }
 
 func TestReleaseWorkflowJobBlockStopsAtNextJob(t *testing.T) {
-	workflow := "jobs:\n  winget:\n    name: Submit WinGet package\n  later:\n    if: always() && needs.publish.result == 'success'\n"
-	block := releaseWorkflowJobBlock(t, workflow, "winget")
-	if strings.Contains(block, "later") || strings.Contains(block, "needs.publish.result") {
-		t.Fatalf("winget block included a later job: %q", block)
+	tests := []struct {
+		name       string
+		workflow   string
+		unexpected []string
+	}{
+		{
+			name:       "next job",
+			workflow:   "jobs:\n  winget:\n    name: Submit WinGet package\n  later:\n    name: Later job\n",
+			unexpected: []string{"later"},
+		},
+		{
+			name:       "outside jobs mapping",
+			workflow:   "jobs:\n  winget:\n    name: Submit WinGet package\non:\n  workflow_dispatch:\n",
+			unexpected: []string{"on:", "workflow_dispatch"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			block := releaseWorkflowJobBlock(t, test.workflow, "winget")
+			for _, unexpected := range test.unexpected {
+				if strings.Contains(block, unexpected) {
+					t.Fatalf("winget block included content outside the job: %q", block)
+				}
+			}
+		})
 	}
 }
 
@@ -457,6 +499,7 @@ func TestReleaseWorkflowPublishesPackageManagersWhenBuildIsSkipped(t *testing.T)
 
 	workflow := string(data)
 	const publisherCondition = "\n    if: always() && needs.publish.result == 'success'\n"
+	const publisherNeeds = "\n    needs: publish\n"
 
 	for _, jobName := range []string{"homebrew", "winget"} {
 		jobBlock := releaseWorkflowJobBlock(t, workflow, jobName)
@@ -465,6 +508,9 @@ func TestReleaseWorkflowPublishesPackageManagersWhenBuildIsSkipped(t *testing.T)
 		// way or the already-published repair path silently ships nothing.
 		if !strings.Contains(jobBlock, publisherCondition) {
 			t.Errorf("%s job must contain the exact publisher condition %q", jobName, strings.TrimSpace(publisherCondition))
+		}
+		if !strings.Contains(jobBlock, publisherNeeds) {
+			t.Errorf("%s job must depend on publish", jobName)
 		}
 	}
 }

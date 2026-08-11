@@ -266,44 +266,55 @@ func TestExecuteStageExplainsLegacyReleaseRunCheckpoint(t *testing.T) {
 	originalClientFactory := releaseClientFactory
 	t.Cleanup(func() { releaseClientFactory = originalClientFactory })
 
-	clientCalled := false
-	releaseClientFactory = func() (*asc.Client, error) {
-		clientCalled = true
-		return nil, errors.New("client must not be created")
-	}
+	for _, test := range []struct {
+		name string
+		mode string
+	}{
+		{name: "mode-less checkpoint"},
+		{name: "explicit run mode", mode: "run"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clientCalled := false
+			releaseClientFactory = func() (*asc.Client, error) {
+				clientCalled = true
+				return nil, errors.New("client must not be created")
+			}
 
-	checkpointPath := filepath.Join(t.TempDir(), "legacy-run-checkpoint.json")
-	if err := saveCheckpoint(checkpointPath, runCheckpoint{
-		AppID:            "APP_123",
-		Version:          "2.4.0",
-		BuildID:          "BUILD_123",
-		CopyMetadataFrom: "2.3.2",
-		Platform:         "IOS",
-		Completed:        map[string]bool{},
-	}); err != nil {
-		t.Fatalf("save checkpoint: %v", err)
-	}
+			checkpointPath := filepath.Join(t.TempDir(), "legacy-run-checkpoint.json")
+			if err := saveCheckpoint(checkpointPath, runCheckpoint{
+				AppID:            "APP_123",
+				Version:          "2.4.0",
+				BuildID:          "BUILD_123",
+				CopyMetadataFrom: "2.3.2",
+				Platform:         "IOS",
+				Mode:             test.mode,
+				Completed:        map[string]bool{},
+			}); err != nil {
+				t.Fatalf("save checkpoint: %v", err)
+			}
 
-	_, err := executeStage(context.Background(), runOptions{
-		AppID:            "APP_123",
-		Version:          "2.4.0",
-		BuildID:          "BUILD_123",
-		CopyMetadataFrom: "2.3.2",
-		Platform:         "IOS",
-		Timeout:          releaseRunTimeout,
-		DryRun:           true,
-		CheckpointFile:   checkpointPath,
-	})
-	if err == nil {
-		t.Fatal("executeStage() error = nil, want legacy checkpoint mismatch")
-	}
-	for _, want := range []string{"asc release run", "removed in 4.0", "asc release stage", checkpointPath} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("executeStage() error = %q, want migration guidance containing %q", err, want)
-		}
-	}
-	if clientCalled {
-		t.Fatal("executeStage() created a client before rejecting the legacy checkpoint")
+			_, err := executeStage(context.Background(), runOptions{
+				AppID:            "APP_123",
+				Version:          "2.4.0",
+				BuildID:          "BUILD_123",
+				CopyMetadataFrom: "2.3.2",
+				Platform:         "IOS",
+				Timeout:          releaseRunTimeout,
+				DryRun:           true,
+				CheckpointFile:   checkpointPath,
+			})
+			if err == nil {
+				t.Fatal("executeStage() error = nil, want legacy checkpoint mismatch")
+			}
+			for _, want := range []string{"asc release run", "removed in 4.0", "asc release stage", checkpointPath} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("executeStage() error = %q, want migration guidance containing %q", err, want)
+				}
+			}
+			if clientCalled {
+				t.Fatal("executeStage() created a client before rejecting the legacy checkpoint")
+			}
+		})
 	}
 }
 
