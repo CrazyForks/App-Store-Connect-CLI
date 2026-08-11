@@ -36,9 +36,14 @@ This command:
 * `--output` - Output directory (default: `./signing`)
 * `--app` - App Store Connect app ID (validates bundle ID match)
 * `--certificate-type` - Filter specific certificate type (usually auto-inferred)
-* `--device` - Device IDs for development profiles (comma-separated)
+* `--device` - Device IDs for profiles created with `--create-missing` (comma-separated)
 * `--create-missing` - Create a new profile if none exists
 * `--format` - Output format for metadata: json, table, markdown (default: json)
+
+In 4.x, `signing fetch` and `signing sync push` still accept `--device` without
+`--create-missing` for compatibility, but print a deprecation warning and
+ignore the device IDs. Pair the flags now; 5.0.0 will reject the old
+combination.
 
 ## Profile Types
 

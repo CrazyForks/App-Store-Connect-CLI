@@ -14,6 +14,16 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
+func TestAssetsPreviewsListHelpOnlyDocumentsSupportedFlags(t *testing.T) {
+	cmd := AssetsPreviewsListCommand()
+
+	for _, unsupported := range []string{"--replace", "--confirm", "--dry-run"} {
+		if strings.Contains(cmd.LongHelp, unsupported) {
+			t.Errorf("list help must not document unsupported flag %s", unsupported)
+		}
+	}
+}
+
 func TestAssetsPreviewsUploadCommandRejectsSkipExistingWithReplace(t *testing.T) {
 	cmd := AssetsPreviewsUploadCommand()
 	cmd.FlagSet.SetOutput(io.Discard)
