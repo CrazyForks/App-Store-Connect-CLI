@@ -111,4 +111,7 @@ func TestApplyRoutingCoverageStepKeepsSurvivingCoverageWhenReplacementNeverDelet
 	if details.CoverageID != "COVERAGE_OLD" || details.DeliveryState != "COMPLETE" {
 		t.Fatalf("expected the surviving coverage to stay reported as current, got %#v", details)
 	}
+	if details.PreviousCoverageID != "" {
+		t.Fatalf("surviving coverage was also reported as previous: %#v", details)
+	}
 }

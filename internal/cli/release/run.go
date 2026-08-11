@@ -177,7 +177,14 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 	}
 	if existing != nil {
 		if !checkpointMatchesRunArguments(existing, opts) {
-			err := fmt.Errorf("checkpoint does not match current run arguments")
+			err := errors.New("checkpoint does not match current run arguments")
+			if isLegacyReleaseRunCheckpoint(existing.Mode, opts.Mode) {
+				err = fmt.Errorf(
+					"checkpoint mode %q belongs to the `asc release run` pipeline removed in 4.0; delete %q or pass a different --checkpoint-file to start a new `asc release stage` run",
+					strings.TrimSpace(existing.Mode),
+					opts.CheckpointFile,
+				)
+			}
 			result.Status = "error"
 			result.Error = err.Error()
 			return result, err
@@ -431,7 +438,7 @@ func executePipeline(ctx context.Context, opts runOptions) (runResult, error) {
 					Message:     "metadata plan requires --allow-deletes",
 					Remediation: "Add the missing localizations to --metadata-dir, or rerun with --allow-deletes to apply the planned deletions.",
 					Details:     details,
-				}, fmt.Errorf("apply metadata: %w", shared.UsageError("--allow-deletes is required to apply delete operations"))
+				}, errors.New("apply metadata: --allow-deletes is required to apply delete operations")
 			}
 
 			changeCount := len(pushResult.Adds) + len(pushResult.Updates) + len(pushResult.Deletes)
@@ -691,9 +698,15 @@ func defaultStageCheckpointPath(appID, version, buildID, platform string) string
 
 // checkpointModeMatches reports whether an existing checkpoint was written by
 // the pipeline that is being resumed. A checkpoint without a mode was written
-// by the `release run` pipeline removed in 1.0, so it never matches.
+// by the `release run` pipeline removed in 4.0, so it never matches.
 func checkpointModeMatches(existingMode, desiredMode string) bool {
 	return strings.TrimSpace(existingMode) == strings.TrimSpace(desiredMode)
+}
+
+func isLegacyReleaseRunCheckpoint(existingMode, desiredMode string) bool {
+	existing := strings.TrimSpace(existingMode)
+	desired := strings.TrimSpace(desiredMode)
+	return desired == releaseModeStage && (existing == "" || existing == "run")
 }
 
 func checkpointMatchesRunArguments(existing *runCheckpoint, opts runOptions) bool {
