@@ -271,6 +271,7 @@ func TestRenderReviewDoctorDisclosesWebOnlyCoverage(t *testing.T) {
 				"review.coverage.app_store_regulations_and_permits",
 				"NOT_CHECKED",
 				"personal-service declaration",
+				"Verify App Store Regulations and Permits in App Store Connect before submission.",
 			} {
 				if !strings.Contains(strings.ToLower(output), strings.ToLower(want)) {
 					t.Fatalf("expected %q in output:\n%s", want, output)
