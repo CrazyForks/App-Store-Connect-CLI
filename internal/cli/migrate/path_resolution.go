@@ -83,14 +83,18 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 	if err != nil {
 		return importInputs{}, nil, err
 	}
+	skipScreenshots := opts.MetadataOnly || opts.SkipScreenshots || config.SkipScreenshots
 	var screenshots resolvedImportPath
 	if !opts.MetadataOnly {
-		screenshots, err = resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots", "screenshots_path", opts.AllowExternalScreenshots)
+		if skipScreenshots {
+			screenshots, err = resolveSkippedImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots", "screenshots_path")
+		} else {
+			screenshots, err = resolveImportPath(workDir, opts.FastlaneDir, deliverfilePath, opts.ScreenshotsDir, config.ScreenshotsPath, "screenshots", "screenshots_path", opts.AllowExternalScreenshots)
+		}
 		if err != nil {
 			return importInputs{}, nil, err
 		}
 	}
-	skipScreenshots := opts.MetadataOnly || opts.SkipScreenshots || config.SkipScreenshots
 
 	skipped := []SkippedItem{}
 	skipped = noteOverriddenConventionalDir(skipped, metadata)
@@ -113,6 +117,46 @@ func resolveImportInputs(opts importInputOptions) (importInputs, []SkippedItem, 
 	inputs.ScreenshotsSource = screenshots.source
 
 	return inputs, skipped, nil
+}
+
+// resolveSkippedImportPath selects the path that would have supplied
+// screenshots without touching it. A skipped stage still reports its selected
+// path, but missing, external, or symlinked paths must not fail an import that
+// will never open them.
+func resolveSkippedImportPath(workDir, fastlaneDir, deliverfilePath, explicitPath, deliverfilePathValue, defaultDir, directive string) (resolvedImportPath, error) {
+	if strings.TrimSpace(explicitPath) != "" {
+		return resolvedImportPath{path: explicitPath, source: pathSourceFlag, label: defaultDir}, nil
+	}
+	base := workDir
+	if strings.TrimSpace(fastlaneDir) != "" {
+		base = fastlaneDir
+	}
+	if deliverfilePath != "" {
+		base = filepath.Dir(deliverfilePath)
+	}
+	if strings.TrimSpace(deliverfilePathValue) != "" {
+		path := deliverfilePathValue
+		if !filepath.IsAbs(path) {
+			absoluteBase, err := filepath.Abs(base)
+			if err != nil {
+				return resolvedImportPath{}, err
+			}
+			path = filepath.Join(absoluteBase, path)
+		}
+		path = filepath.Clean(path)
+		return resolvedImportPath{
+			path:         path,
+			source:       pathSourceDeliverfile,
+			label:        defaultDir,
+			directive:    directive,
+			value:        deliverfilePathValue,
+			conventional: overriddenConventionalDir(base, defaultDir, path),
+		}, nil
+	}
+	if strings.TrimSpace(fastlaneDir) != "" {
+		return resolvedImportPath{path: filepath.Join(fastlaneDir, defaultDir), source: pathSourceFlag, label: defaultDir}, nil
+	}
+	return resolvedImportPath{path: filepath.Join(base, defaultDir), source: pathSourceDefault, label: defaultDir}, nil
 }
 
 // resolvedImportPath records where an import directory came from so callers can
