@@ -6,12 +6,95 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/rootfs"
 )
 
+func readReleaseWorkflow() ([]byte, error) {
+	repositoryRoot, err := rootfs.New(".")
+	if err != nil {
+		return nil, err
+	}
+	return repositoryRoot.ReadFile(filepath.Join(".github", "workflows", "release.yml"))
+}
+
+var (
+	releaseWorkflowJobsPattern     = regexp.MustCompile(`(?m)^jobs:\s*$`)
+	releaseWorkflowTopLevelPattern = regexp.MustCompile(`(?m)^[A-Za-z0-9_-]+:\s*$`)
+	releaseWorkflowJobPattern      = regexp.MustCompile(`(?m)^  [A-Za-z0-9_-]+:\s*$`)
+)
+
+func releaseWorkflowJobsBlock(t *testing.T, workflow string) string {
+	t.Helper()
+
+	jobsMatch := releaseWorkflowJobsPattern.FindStringIndex(workflow)
+	if jobsMatch == nil {
+		t.Fatal("release workflow missing jobs mapping")
+	}
+
+	jobsBlock := workflow[jobsMatch[1]:]
+	if nextTopLevel := releaseWorkflowTopLevelPattern.FindStringIndex(jobsBlock); nextTopLevel != nil {
+		jobsBlock = jobsBlock[:nextTopLevel[0]]
+	}
+	return jobsBlock
+}
+
+func releaseWorkflowJobBlock(t *testing.T, workflow, jobName string) string {
+	t.Helper()
+
+	jobsBlock := releaseWorkflowJobsBlock(t, workflow)
+	jobHeader := "  " + jobName + ":"
+	jobMatches := releaseWorkflowJobPattern.FindAllStringIndex(jobsBlock, -1)
+	for index, match := range jobMatches {
+		if jobsBlock[match[0]:match[1]] != jobHeader {
+			continue
+		}
+		end := len(jobsBlock)
+		if index+1 < len(jobMatches) {
+			end = jobMatches[index+1][0]
+		}
+		return jobsBlock[match[0]:end]
+	}
+
+	t.Fatalf("release workflow missing %s job", jobName)
+	return ""
+}
+
+func TestReleaseWorkflowJobBlockStopsAtNextJob(t *testing.T) {
+	tests := []struct {
+		name       string
+		workflow   string
+		unexpected []string
+	}{
+		{
+			name:       "next job",
+			workflow:   "jobs:\n  winget:\n    name: Submit WinGet package\n  later:\n    name: Later job\n",
+			unexpected: []string{"later"},
+		},
+		{
+			name:       "outside jobs mapping",
+			workflow:   "jobs:\n  winget:\n    name: Submit WinGet package\non:\n  workflow_dispatch:\n",
+			unexpected: []string{"on:", "workflow_dispatch"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			block := releaseWorkflowJobBlock(t, test.workflow, "winget")
+			for _, unexpected := range test.unexpected {
+				if strings.Contains(block, unexpected) {
+					t.Fatalf("winget block included content outside the job: %q", block)
+				}
+			}
+		})
+	}
+}
+
 func TestReleaseWorkflowExportsHomebrewChecksumsBeforeFormulaGeneration(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -51,7 +134,7 @@ func TestReleaseWorkflowExportsHomebrewChecksumsBeforeFormulaGeneration(t *testi
 }
 
 func TestReleaseWorkflowTestsHomebrewFormulaUsingVersionStdout(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -69,7 +152,7 @@ func TestReleaseWorkflowTestsHomebrewFormulaUsingVersionStdout(t *testing.T) {
 }
 
 func TestReleaseWorkflowKeepsHistoricalGuardrailsInline(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -114,7 +197,7 @@ func TestReleaseRehearsalGuardrailsIncludeDocsValidatorSelfTest(t *testing.T) {
 }
 
 func TestReleaseWorkflowBuildsStrippedTrimmedBinaries(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -138,7 +221,7 @@ func TestReleaseWorkflowBuildsStrippedTrimmedBinaries(t *testing.T) {
 }
 
 func TestReleaseWorkflowDoesNotInterpolateDispatchInputIntoShell(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -158,7 +241,7 @@ func TestReleaseWorkflowDoesNotInterpolateDispatchInputIntoShell(t *testing.T) {
 }
 
 func TestReleaseWorkflowNotarizesMacOSBinariesBeforePublishing(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -205,7 +288,7 @@ func TestReleaseWorkflowNotarizesMacOSBinariesBeforePublishing(t *testing.T) {
 }
 
 func TestReleaseWorkflowCanRepairExistingNotarizationWithoutReplacingAssets(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -263,7 +346,7 @@ func TestReleaseWorkflowCanRepairExistingNotarizationWithoutReplacingAssets(t *t
 }
 
 func TestReleaseWorkflowCreatesPrivateKeyWithRestrictedModeInRunnerTemp(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -282,7 +365,7 @@ func TestReleaseWorkflowCreatesPrivateKeyWithRestrictedModeInRunnerTemp(t *testi
 }
 
 func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -316,7 +399,7 @@ func TestReleaseWorkflowReusesOneBuildArtifactForEveryPublisher(t *testing.T) {
 }
 
 func TestReleaseWorkflowUsesValidSecureReleaseSteps(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -334,7 +417,7 @@ func TestReleaseWorkflowUsesValidSecureReleaseSteps(t *testing.T) {
 }
 
 func TestReleaseWorkflowReusesArtifactsAcrossRerunAttempts(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -375,7 +458,7 @@ func TestReleaseWorkflowReusesArtifactsAcrossRerunAttempts(t *testing.T) {
 }
 
 func TestReleaseWorkflowRepairsPackageManagersWithoutRebuildingPublishedRelease(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -409,39 +492,31 @@ func TestReleaseWorkflowRepairsPackageManagersWithoutRebuildingPublishedRelease(
 }
 
 func TestReleaseWorkflowPublishesPackageManagersWhenBuildIsSkipped(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
 
 	workflow := string(data)
-	homebrewStart := strings.Index(workflow, "\n  homebrew:\n")
-	wingetStart := strings.Index(workflow, "\n  winget:\n")
-	if homebrewStart == -1 || wingetStart == -1 || homebrewStart >= wingetStart {
-		t.Fatal("release workflow must define homebrew before winget")
-	}
+	const publisherCondition = "\n    if: always() && needs.publish.result == 'success'\n"
+	const publisherNeeds = "\n    needs: publish\n"
 
-	for _, job := range []struct {
-		name  string
-		block string
-	}{
-		{name: "homebrew", block: workflow[homebrewStart:wingetStart]},
-		{name: "winget", block: workflow[wingetStart:]},
-	} {
+	for _, jobName := range []string{"homebrew", "winget"} {
+		jobBlock := releaseWorkflowJobBlock(t, workflow, jobName)
 		// publish escapes the skipped build with always(); GitHub propagates that skip
 		// down the whole needs chain, so every publisher must break the chain the same
 		// way or the already-published repair path silently ships nothing.
-		if !strings.Contains(job.block, "always()") {
-			t.Errorf("%s job must use always() so a skipped build does not skip package publication", job.name)
+		if !strings.Contains(jobBlock, publisherCondition) {
+			t.Errorf("%s job must contain the exact publisher condition %q", jobName, strings.TrimSpace(publisherCondition))
 		}
-		if !strings.Contains(job.block, "needs.publish.result == 'success'") {
-			t.Errorf("%s job must publish exactly when publish succeeded", job.name)
+		if !strings.Contains(jobBlock, publisherNeeds) {
+			t.Errorf("%s job must depend on publish", jobName)
 		}
 	}
 }
 
 func TestVerifyReleaseAssetsRequiresExactChecksumCoverage(t *testing.T) {
-	workflowData, err := os.ReadFile(".github/workflows/release.yml")
+	workflowData, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -526,7 +601,7 @@ func TestVerifyReleaseAssetsRequiresExactChecksumCoverage(t *testing.T) {
 }
 
 func TestReleaseWorkflowResumesDraftButNeverClobbersPublishedAssets(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -572,7 +647,7 @@ func TestReleaseWorkflowResumesDraftButNeverClobbersPublishedAssets(t *testing.T
 }
 
 func TestReleaseWorkflowGrantsArtifactReadPermissionToArtifactJobs(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -607,7 +682,7 @@ func TestReleaseWorkflowGrantsArtifactReadPermissionToArtifactJobs(t *testing.T)
 }
 
 func TestReleaseWorkflowSerializesTagAndDispatchForSameVersion(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -623,7 +698,7 @@ func TestReleaseWorkflowSerializesTagAndDispatchForSameVersion(t *testing.T) {
 }
 
 func TestReleaseWorkflowUsesCommitTimestampForBuildMetadata(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}
@@ -638,7 +713,7 @@ func TestReleaseWorkflowUsesCommitTimestampForBuildMetadata(t *testing.T) {
 }
 
 func TestReleaseWorkflowPushesWinGetBranchWithoutHistoryRewriteOrWorkflowScope(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/release.yml")
+	data, err := readReleaseWorkflow()
 	if err != nil {
 		t.Fatalf("read release workflow: %v", err)
 	}

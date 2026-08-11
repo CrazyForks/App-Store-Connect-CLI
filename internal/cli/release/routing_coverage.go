@@ -192,6 +192,9 @@ func reportFailedRoutingCoverageReplacement(
 	if readErr == nil && current != nil && strings.TrimSpace(current.Data.ID) != "" {
 		details.CoverageID = strings.TrimSpace(current.Data.ID)
 		details.DeliveryState = routingCoverageDeliveryState(current)
+		if strings.EqualFold(details.CoverageID, previousCoverageID) {
+			details.PreviousCoverageID = ""
+		}
 		return details, cause
 	}
 	return details, fmt.Errorf(

@@ -1,7 +1,9 @@
 package validation
 
 import (
+	"fmt"
 	"testing"
+	"time"
 )
 
 func TestLegalChecks_CopyrightEmpty(t *testing.T) {
@@ -25,12 +27,13 @@ func TestLegalChecks_CopyrightPresent(t *testing.T) {
 }
 
 func TestLegalChecks_CopyrightAcceptsAppStoreConnectFreeTextForms(t *testing.T) {
+	currentYear := time.Now().Year()
 	for _, value := range []string{
-		"© 2026 Acme Inc.",
-		"(c) 2026 Acme Inc.",
-		"Copyright 2026 Acme Inc.",
-		"2019-2026 Acme Inc.",
-		"2026, Acme Inc.",
+		fmt.Sprintf("© %d Acme Inc.", currentYear),
+		fmt.Sprintf("(c) %d Acme Inc.", currentYear),
+		fmt.Sprintf("Copyright %d Acme Inc.", currentYear),
+		fmt.Sprintf("2019-%d Acme Inc.", currentYear),
+		fmt.Sprintf("%d, Acme Inc.", currentYear),
 	} {
 		checks := legalChecks(value, false, false, nil, nil)
 		if hasCheckID(checks, "legal.format.copyright_year") {
