@@ -189,6 +189,9 @@ func TestXcodeBuildRejectsExplicitlyEmptyOptionalValues(t *testing.T) {
 			if !errors.Is(runErr, flag.ErrHelp) {
 				t.Fatalf("Exec() error = %v, want usage error", runErr)
 			}
+			if runErr.Error() != test.want {
+				t.Fatalf("Exec() error = %q, want %q", runErr, test.want)
+			}
 			if stdout != "" {
 				t.Fatalf("stdout = %q, want empty", stdout)
 			}
